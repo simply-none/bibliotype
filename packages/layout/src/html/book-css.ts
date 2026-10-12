@@ -4,7 +4,8 @@
  * 将「主题令牌 + 布局选项」编译为可直接使用的 CSS 文本，
  * 供 EPUB（style.css）与 PDF（打印稿内联 <style>）共用：
  * - :root 输出 --bt-* 变量（令牌的 CSS Variables 层）；
- * - body 规则通过 var() 引用变量，书写方向 / 直排策略 / 分栏由布局选项决定；
+ * - 根容器规则（默认 body，可经 containerSelector 替换）通过 var() 引用变量，
+ *   书写方向 / 直排策略 / 分栏由布局选项决定；
  * - .bt-* 节点类与 html-serializer 的 class 输出配套，开箱即有基础排版。
  */
 import {
@@ -33,12 +34,15 @@ export interface BuildBookCssOptions {
   options: LayoutOptions;
   /** 正文字体族令牌键（默认 FONT_TOKENS.BODY，古籍可传 CLASSICAL_BODY） */
   fontToken?: string;
+  /** 根容器选择器（默认 'body'；阅读器视图可传自身容器，如 '.bt-reader-page'） */
+  containerSelector?: string;
 }
 
-/** 生成书册基础样式表（变量层 + body 规则 + 节点类样式） */
+/** 生成书册基础样式表（变量层 + 根容器规则 + 节点类样式） */
 export function buildBookCss(input: BuildBookCssOptions): string {
   const { tokens, options } = input;
   const fontToken = input.fontToken ?? FONT_TOKENS.BODY;
+  const containerSelector = input.containerSelector ?? 'body';
   const vertical = isVerticalMode(options.writingMode);
 
   const rules: string[] = [];
@@ -50,7 +54,7 @@ export function buildBookCss(input: BuildBookCssOptions): string {
     .join('\n');
   rules.push(`:root {\n${variableLines}\n}`);
 
-  /* ---------- 2. body 基础规则 ---------- */
+  /* ---------- 2. 根容器基础规则 ---------- */
   const body: StyleDeclaration = {
     margin: '0',
     'font-family': `var(--bt-${fontToken})`,
@@ -72,7 +76,7 @@ export function buildBookCss(input: BuildBookCssOptions): string {
     body['column-count'] = String(options.columns);
     body['column-gap'] = `var(--bt-${LAYOUT_TOKENS.COLUMN_GAP})`;
   }
-  rules.push(`body {\n${declarationToCss(body)}\n}`);
+  rules.push(`${containerSelector} {\n${declarationToCss(body)}\n}`);
 
   /* ---------- 3. 节点类样式（与 bt-* class 配套） ---------- */
   rules.push(`.bt-paragraph {

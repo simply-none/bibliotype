@@ -5,9 +5,12 @@
  * 提供翻页、跳转、进度与事件；渲染交给 vue/react 封装或使用方。
  */
 import {
+  NODE_TYPES,
   createEventBus,
+  isTextNode,
   type BibliotypeEventMap,
   type BookDocument,
+  type BookNode,
   type EventBus,
 } from '@bibliotype/core';
 import {
@@ -27,6 +30,7 @@ import {
   type BlockMeasureContext,
   type BlockSizeEstimator,
 } from './document-blocks.js';
+import { findNodeById } from './find-node.js';
 import { countOutlineItems, extractOutline, type OutlineItem } from './outline.js';
 import { formatPageNumber, type PageNumberStyle } from './page-numbering.js';
 
@@ -127,6 +131,7 @@ export class Reader {
         this.pageByBlockId.set(block.id, page.index);
       }
     }
+    this.indexNodeAnchors();
 
     this.pageIndex = Math.min(this.pageIndex, Math.max(0, result.totalPages - 1));
     this.events.emit('page:change', {
@@ -183,6 +188,17 @@ export class Reader {
     return this.pages[pageIndex]?.blocks ?? [];
   }
 
+  /** 取某页的节点（块 id 经 findNodeById 还原；未载入或未命中时缺省） */
+  getPageNodes(pageIndex: number): readonly BookNode[] {
+    if (this.doc === undefined) return [];
+    const nodes: BookNode[] = [];
+    for (const block of this.getPageBlocks(pageIndex)) {
+      const node = findNodeById(this.doc.root, block.id);
+      if (node !== undefined) nodes.push(node);
+    }
+    return nodes;
+  }
+
   /** 当前页的展示页码（按配置的页码样式） */
   formatCurrentPageNumber(): string {
     const style = this.options.pageNumberStyle as PageNumberStyle;
@@ -219,6 +235,8 @@ export class Reader {
   /**
    * 按节点 id 跳转到所在页
    *
+   * 支持叶块 id 与结构容器 id（容器定位到其首叶所在页）。
+   *
    * @returns 找到并跳转成功为 true；节点无 id / 不在块序列中为 false
    */
   goToNode(nodeId: string): boolean {
@@ -226,5 +244,40 @@ export class Reader {
     if (target === undefined) return false;
     if (target === this.pageIndex) return true;
     return this.goToPage(target);
+  }
+
+  /**
+   * 索引节点锚点：结构容器 id → 首叶所在页
+   *
+   * 块序列仅含叶块，而目录项指向卷/章/节容器，
+   * 故需把容器 id 映射到其首个叶块（路径规则与 extractBlocks 一致）所在页。
+   */
+  private indexNodeAnchors(): void {
+    if (this.doc === undefined) return;
+
+    /** 深度优先返回子树首个叶块 id（路径规则与 extractBlocks 一致） */
+    const firstLeafIn = (node: BookNode, path: string): string | undefined => {
+      const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
+      if (elementChildren.length === 0) {
+        if (node.type === NODE_TYPES.BOOK) return undefined;
+        return node.id ?? path;
+      }
+
+      let firstLeaf: string | undefined;
+      for (const [index, child] of elementChildren.entries()) {
+        const leaf = firstLeafIn(child, `${path}/${index}`);
+        if (firstLeaf === undefined) firstLeaf = leaf;
+      }
+
+      if (firstLeaf !== undefined && node.id !== undefined && !this.pageByBlockId.has(node.id)) {
+        const page = this.pageByBlockId.get(firstLeaf);
+        if (page !== undefined) {
+          this.pageByBlockId.set(node.id, page);
+        }
+      }
+      return firstLeaf;
+    };
+
+    firstLeafIn(this.doc.root, '');
   }
 }

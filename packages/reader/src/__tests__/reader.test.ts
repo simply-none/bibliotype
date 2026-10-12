@@ -150,6 +150,16 @@ describe('Reader 导航与进度', () => {
     expect(reader.goToNode('不存在')).toBe(false);
   });
 
+  it('goToNode 支持结构容器 id（定位首叶所在页）', () => {
+    const reader = createReader();
+    reader.loadDocument(sampleDoc());
+
+    expect(reader.goToNode('chap-2')).toBe(true);
+    expect(reader.currentPage).toBe(2);
+    expect(reader.goToNode('vol-1')).toBe(true);
+    expect(reader.currentPage).toBe(0);
+  });
+
   it('progress 按已读至页尾计算', () => {
     const reader = createReader();
     reader.loadDocument(sampleDoc());
@@ -164,6 +174,26 @@ describe('Reader 导航与进度', () => {
     expect(reader.formatCurrentPageNumber()).toBe('一');
     reader.nextPage();
     expect(reader.formatCurrentPageNumber()).toBe('二');
+  });
+});
+
+describe('Reader 页节点解析', () => {
+  it('getPageNodes 还原页内节点并与分页一致', () => {
+    const reader = createReader();
+    reader.loadDocument(sampleDoc());
+
+    expect(reader.getPageNodes(0).map((node) => node.id)).toEqual(['h-1', 'p-1']);
+    expect(reader.getPageNodes(1).map((node) => node.id)).toEqual(['p-2']);
+    expect(reader.getPageNodes(2).map((node) => node.type)).toEqual([
+      NODE_TYPES.PARAGRAPH,
+    ]);
+  });
+
+  it('未载入或越界页返回空数组', () => {
+    const reader = createReader();
+    expect(reader.getPageNodes(0)).toEqual([]);
+    reader.loadDocument(sampleDoc());
+    expect(reader.getPageNodes(99)).toEqual([]);
   });
 });
 

@@ -1,0 +1,29 @@
+{
+  "name": "@bibliotype/demo",
+  "version": "0.1.0",
+  "description": "bibliotype 阅读闭环 Demo：《论语》样例 + 分页翻页 / 目录 / 直排切换 / EPUB 导出 / 打印",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@bibliotype/classical": "workspace:*",
+    "@bibliotype/core": "workspace:*",
+    "@bibliotype/exporter-epub": "workspace:*",
+    "@bibliotype/exporter-pdf": "workspace:*",
+    "@bibliotype/layout": "workspace:*",
+    "@bibliotype/reader": "workspace:*",
+    "@bibliotype/vue": "workspace:*",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.11",
+    "vue-tsc": "^2.1.10"
+  }
+}

@@ -21,11 +21,11 @@ import { buildBookCss, escapeHtml, serializeNode } from '@bibliotype/layout/html
 import {
   defaultEstimator,
   extractBlocks,
+  findNodeById,
   formatPageNumber,
   type BlockMeasureContext,
   type BlockSizeEstimator,
 } from '@bibliotype/reader';
-import { findNodeById } from './find-node.js';
 import { buildPrintCss, type PrintMode } from './print-styles.js';
 
 /** 打印文档生成选项 */

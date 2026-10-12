@@ -25,6 +25,16 @@ describe('buildBookCss', () => {
     expect(css).not.toContain('text-combine-upright');
   });
 
+  it('containerSelector 替换根容器（默认 body）', () => {
+    const css = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      containerSelector: '.bt-reader-page',
+    });
+    expect(css).toContain('.bt-reader-page {\n');
+    expect(css).not.toContain('body {\n');
+  });
+
   it('直排：text-orientation 与 text-combine-upright 生效（D3）', () => {
     const css = buildBookCss({
       tokens: { ...DEFAULT_THEME, 'text-orientation': 'upright' },

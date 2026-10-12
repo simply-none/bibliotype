@@ -1,15 +1,15 @@
 /**
  * PDF 导出测试
  *
- * 覆盖：块 id → 节点解析（findNodeById）、打印样式（@page 两种模式）、
+ * 覆盖：块 id → 节点解析（findNodeById 代理导出）、打印样式（@page 两种模式）、
  * 打印文档（auto 单文档流 / paged 预分页 + 页码）、
  * 浏览器打印辅助（打印流程与清理），以及空书边界。
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument, type BookNode } from '@bibliotype/core';
+import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
-import { extractBlocks, type BlockSizeEstimator } from '@bibliotype/reader';
-import { findNodeById } from '../find-node.js';
+import { type BlockSizeEstimator } from '@bibliotype/reader';
+import { findNodeById } from '../index.js';
 import { renderPrintHtml } from '../print-document.js';
 import { buildPrintCss } from '../print-styles.js';
 import { printHtml } from '../print.js';
@@ -66,49 +66,13 @@ function sampleDoc(): BookDocument {
 const SIZES = { 'h-1': 30, 'p-1': 60, 'p-2': 60, 'p-3': 100 };
 const PAGE_MAIN = 100;
 
-describe('findNodeById', () => {
-  it('节点 id 直接命中', () => {
+describe('findNodeById（经公共入口代理 reader 导出）', () => {
+  it('节点 id 与树路径均可解析', () => {
     const doc = sampleDoc();
     expect(findNodeById(doc.root, 'p-1')?.id).toBe('p-1');
-    expect(findNodeById(doc.root, 'chap-2')?.attrs?.title).toBe('为政');
-  });
-
-  it('树路径解析（索引基于过滤文本叶子后的元素子节点）', () => {
-    const root: BookNode = {
-      type: NODE_TYPES.BOOK,
-      children: [
-        { type: 'text', text: '前言散字' },
-        {
-          type: NODE_TYPES.CHAPTER,
-          id: 'c-1',
-          children: [
-            { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: 'x' }] },
-          ],
-        },
-      ],
-    };
-    /* 文本叶子被过滤：'/0' 指向章而非文本 */
-    expect(findNodeById(root, '/0')?.id).toBe('c-1');
-    /* 无 id 段落按路径解析 */
-    expect(findNodeById(root, '/0/0')?.type).toBe(NODE_TYPES.PARAGRAPH);
-  });
-
-  it('未命中返回 undefined', () => {
-    const doc = sampleDoc();
-    expect(findNodeById(doc.root, 'nope')).toBeUndefined();
+    /* 文本叶子被过滤：'/1' 指向第二章 */
+    expect(findNodeById(doc.root, '/1')?.id).toBe('chap-2');
     expect(findNodeById(doc.root, '/9')).toBeUndefined();
-    expect(findNodeById(doc.root, '/x')).toBeUndefined();
-  });
-
-  it('extractBlocks 全部块 id 可还原为节点（含无 id 的路径块）', () => {
-    const doc = sampleDoc();
-    doc.root.children?.push({
-      type: NODE_TYPES.PARAGRAPH,
-      children: [{ type: 'text', text: '匿名段' }],
-    });
-    for (const block of extractBlocks(doc)) {
-      expect(findNodeById(doc.root, block.id), `块 ${block.id} 未还原`).toBeDefined();
-    }
   });
 });
 

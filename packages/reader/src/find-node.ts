@@ -3,7 +3,8 @@
  *
  * reader.extractBlocks 的块 id 约定：节点有 id 用 id，否则用树路径
  * （如 "/0/1/2"，每层索引基于过滤文本叶子后的元素子节点）。
- * 打印预分页依赖该约定，把「页 → 块 id」还原为「页 → IR 节点」。
+ * 阅读器渲染（getPageNodes → vue/react 封装）与导出器预分页
+ * 都依赖该约定，把「页 → 块 id」还原为「页 → IR 节点」。
  */
 import { isTextNode, type BookNode } from '@bibliotype/core';
 

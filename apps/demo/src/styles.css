@@ -1,0 +1,25 @@
+/**
+ * 全局基础样式（Demo）
+ *
+ * 仅做最小重置：盒模型、页面底色与字体；
+ * 阅读区样式由 @bibliotype/layout 生成（注入 .bt-reader-page 容器）。
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    -apple-system, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  color: #3c3a34;
+  background: #efe9dd;
+}

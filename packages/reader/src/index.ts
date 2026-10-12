@@ -25,6 +25,9 @@ export type {
   ExtractBlocksOptions,
 } from './document-blocks.js';
 
+/* ---------- 块解析 ---------- */
+export { findNodeById } from './find-node.js';
+
 /* ---------- 页码 ---------- */
 export {
   toChineseNumeral,

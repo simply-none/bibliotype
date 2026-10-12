@@ -71,6 +71,38 @@ describe('buildBookCss', () => {
     expect(css).toContain('ruby > rt');
   });
 
+  it('书籍要素类样式：结构页角色/双行小注/眉批/脚注/校勘/页码', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toContain("[data-role='cover-title']");
+    expect(css).toContain("[data-role='copyright-line']");
+    expect(css).toContain("[data-role='volume-title']");
+    expect(css).toContain('.bt-double-note');
+    expect(css).toContain('column-count: 2;');
+    expect(css).toContain('.bt-head-note');
+    expect(css).toContain('.bt-collation-note');
+    expect(css).toContain('.bt-collation-mark::after');
+    expect(css).toContain('content: attr(data-symbol);');
+    expect(css).toContain('.bt-footnote + .bt-footnote');
+    expect(css).toContain('.bt-page-number');
+    expect(css).toContain('.bt-imprint {');
+    expect(css).toContain('.bt-colophon {');
+    expect(css).toMatch(/\.bt-double-note \{[^}]*display: block;/);
+  });
+
+  it('专名号：横排标于字下、直排标于字左', () => {
+    const horizontal = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+    });
+    expect(horizontal).toContain('.bt-mark-proper-name {\n  border-bottom: 1px solid currentColor;');
+
+    const vertical = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: CLASSICAL_LAYOUT_OPTIONS,
+    });
+    expect(vertical).toContain('.bt-mark-proper-name {\n  border-left: 1px solid currentColor;');
+  });
+
   it('缺省令牌（undefined）不输出对应变量定义（类样式引用保留）', () => {
     const css = buildBookCss({
       tokens: { ...DEFAULT_THEME, 'color-accent': undefined },

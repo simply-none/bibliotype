@@ -78,7 +78,16 @@ export function buildBookCss(input: BuildBookCssOptions): string {
   }
   rules.push(`${containerSelector} {\n${declarationToCss(body)}\n}`);
 
-  /* ---------- 3. 节点类样式（与 bt-* class 配套） ---------- */
+  /*
+   * ---------- 3. 节点类样式（与 bt-* class 配套） ----------
+   *
+   * 另含「版式角色」选择器（data-role）约定，供书籍结构页与卷端题署标注：
+   * - 结构页：cover-title / cover-subtitle / cover-creator / cover-publisher、
+   *   title-page-title / title-page-creator / title-page-publisher、
+   *   copyright-title / copyright-line、back-cover-line；
+   * - 目录页：toc-title / toc-entry / toc-subentry；
+   * - 卷端题署：volume-title / volume-creator。
+   */
   rules.push(`.bt-paragraph {
   margin: 0;
   text-indent: var(--bt-${LAYOUT_TOKENS.TEXT_INDENT});
@@ -150,7 +159,215 @@ export function buildBookCss(input: BuildBookCssOptions): string {
 }
 ruby > rt {
   font-size: 0.5em;
+}
+
+/* ---------- 4. 书籍结构页（封面/书名页/版权页/目录/卷端/封底） ---------- */
+[data-role='cover-title'] {
+  margin: 2.6em 0 0;
+  text-align: center;
+  font-size: 2.8em;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+}
+[data-role='cover-subtitle'],
+[data-role='title-page-subtitle'] {
+  margin: 1.4em 0 0;
+  text-align: center;
+  font-size: 1.1em;
+  letter-spacing: 0.25em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+[data-role='cover-creator'] {
+  margin: 3.5em 0 0;
+  text-align: center;
+  font-size: 0.95em;
+  letter-spacing: 0.15em;
+}
+[data-role='cover-publisher'] {
+  margin: 4em 0 0;
+  text-align: center;
+  font-size: 0.85em;
+  letter-spacing: 0.2em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+[data-role='title-page-title'] {
+  margin: 4em 0 0;
+  text-align: center;
+  font-size: 1.9em;
+  letter-spacing: 0.3em;
+}
+[data-role='title-page-creator'] {
+  margin: 1.8em 0 0;
+  text-align: center;
+  font-size: 0.95em;
+  letter-spacing: 0.1em;
+}
+[data-role='title-page-publisher'] {
+  margin: 6em 0 0;
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+[data-role='copyright-title'] {
+  margin: 2em 0 1.4em;
+  text-align: center;
+  font-size: 1em;
+  letter-spacing: 0.25em;
+}
+[data-role='copyright-line'] {
+  margin: 0.35em 0;
+  font-size: 0.78em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+[data-role='toc-title'] {
+  margin: 1.2em 0 1em;
+  text-align: center;
+  font-size: 1.2em;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+}
+[data-role='toc-entry'] {
+  margin: 0.55em 0;
+  text-align: center;
+  letter-spacing: 0.12em;
+}
+[data-role='toc-subentry'] {
+  margin: 0.3em 0;
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+[data-role='volume-title'] {
+  margin: 0.4em 0 0.2em;
+  text-align: center;
+  font-size: 1.3em;
+  letter-spacing: 0.25em;
+}
+[data-role='volume-creator'] {
+  margin: 0 0 1.2em;
+  text-align: center;
+  font-size: 0.82em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+[data-role='back-cover-line'] {
+  margin: 0.5em 0;
+  text-align: center;
+  font-size: 0.8em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+
+/* ---------- 5. 古籍注文与标注 ---------- */
+/*
+ * 序列化器对无元素子节点的古典型容器（double-note / head-note /
+ * collation-note / imprint / colophon）以 span 兜底，块级语义在此
+ * 经 display: block 修正；行内载体（collation-mark / variant-char）保持行内。
+ */
+.bt-double-note {
+  display: block;
+  margin: 0.35em 0 0.45em 1.2em;
+  font-size: 0.72em;
+  line-height: 1.65;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  column-count: 2;
+  column-gap: 1.6em;
+}
+.bt-head-note {
+  display: block;
+  margin: 0.45em 1.6em;
+  padding: 0.25em 0.7em;
+  font-size: 0.72em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  border: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 40%, transparent);
+  border-radius: 2px;
+}
+.bt-collation-note {
+  display: block;
+  margin: 0.5em 0;
+  padding-inline-start: 0.75em;
+  font-size: 0.7em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  border-inline-start: 2px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 55%, transparent);
+}
+.bt-imprint {
+  display: block;
+  width: fit-content;
+  margin: 1.2em auto;
+  padding: 0.5em 1em;
+  border: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 45%, transparent);
+  font-size: 0.78em;
+  text-align: center;
+  letter-spacing: 0.1em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+.bt-colophon {
+  display: block;
+  margin: 1.4em 0 0.6em;
+  padding-block-start: 0.6em;
+  border-block-start: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 35%, transparent);
+  font-size: 0.78em;
+  text-align: center;
+  letter-spacing: 0.05em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+.bt-collation-mark {
+  margin-inline: 0.15em;
+}
+.bt-collation-mark::after {
+  content: attr(data-symbol);
+}
+.bt-taboo-char,
+.bt-mark-taboo {
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.bt-mark-variant {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.bt-mark-book-title {
+  text-decoration: underline wavy;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.bt-mark-circle-emphasis {
+  text-emphasis: filled circle;
+  text-emphasis-position: under right;
+}
+.bt-mark-note-ref {
+  font-size: 0.72em;
+  vertical-align: super;
+}
+
+/* ---------- 6. 脚注（注线：与相邻注文相连时仅首条保留） ---------- */
+.bt-footnote {
+  margin: 0.55em 0;
+  padding-block-start: 0.4em;
+  border-block-start: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 45%, transparent);
+}
+.bt-footnote + .bt-footnote {
+  border-block-start: 0;
+  padding-block-start: 0;
+}
+
+/* ---------- 7. 页脚页码（固定横排显示，居中于页面物理底部） ---------- */
+.bt-page-number {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  writing-mode: horizontal-tb;
+  text-align: center;
+  font-size: 0.75em;
+  letter-spacing: 0.15em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }`);
+
+  /* ---------- 8. 专名号：横排标于字下 / 直排标于字左（GB 古籍整理规范） ---------- */
+  rules.push(
+    vertical
+      ? `.bt-mark-proper-name {\n  border-left: 1px solid currentColor;\n  padding-left: 1px;\n}`
+      : `.bt-mark-proper-name {\n  border-bottom: 1px solid currentColor;\n}`,
+  );
 
   return `${rules.join('\n\n')}\n`;
 }

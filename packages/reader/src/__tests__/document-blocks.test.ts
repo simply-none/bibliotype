@@ -111,4 +111,63 @@ describe('extractBlocks', () => {
     });
     expect(blocks.every((b) => b.mainSize === 7)).toBe(true);
   });
+
+  it('含行内载体（空元素/纯文本载体）的块不拆开', () => {
+    const doc = createEmptyDocument({ title: '行内载体' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        id: 'p-inline',
+        children: [
+          { type: 'text', text: '子曰学而时习之' },
+          // 校勘符号：无子元素的空元素载体
+          { type: 'collation-mark', id: 'mark-1', attrs: { symbol: '○' } },
+          // 避讳字：仅含文本子节点的行内载体
+          {
+            type: 'taboo-char',
+            id: 'char-1',
+            children: [{ type: 'text', text: '丘' }],
+          },
+        ],
+      },
+    ];
+    const blocks = extractBlocks(doc);
+    expect(blocks.map((b) => b.id)).toEqual(['p-inline']);
+    // 度量按整体文本（含载体文本）折算
+    expect(blocks[0]?.mainSize).toBeGreaterThan(0);
+  });
+
+  it('结构页容器（封面/书名页/版权页/封底）首块 mark breakBefore', () => {
+    const doc = createEmptyDocument({ title: '结构页' });
+    const pageChild = (type: string, id: string) => ({
+      type,
+      id,
+      children: [
+        { type: NODE_TYPES.PARAGRAPH, id: `${id}-p`, children: [{ type: 'text', text: '内容' }] },
+      ],
+    });
+    doc.root.children = [
+      pageChild(NODE_TYPES.COVER, 'cover'),
+      pageChild(NODE_TYPES.TITLE_PAGE, 'title'),
+      pageChild(NODE_TYPES.COPYRIGHT_PAGE, 'copyright'),
+      pageChild(NODE_TYPES.BACK_COVER, 'back'),
+      pageChild(NODE_TYPES.PREFACE, 'preface'),
+      pageChild(NODE_TYPES.APPENDIX, 'appendix'),
+      pageChild(NODE_TYPES.POSTSCRIPT, 'postscript'),
+      pageChild(NODE_TYPES.TOC, 'toc'),
+    ];
+    const blocks = extractBlocks(doc);
+    for (const id of [
+      'cover-p',
+      'title-p',
+      'copyright-p',
+      'back-p',
+      'preface-p',
+      'appendix-p',
+      'postscript-p',
+      'toc-p',
+    ]) {
+      expect(blocks.find((b) => b.id === id)?.breakBefore).toBe(true);
+    }
+  });
 });

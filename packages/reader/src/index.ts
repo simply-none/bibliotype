@@ -18,6 +18,7 @@ export {
   defaultEstimator,
   collectNodeText,
   extractBlocks,
+  isLeafBlock,
 } from './document-blocks.js';
 export type {
   BlockMeasureContext,
@@ -38,4 +39,9 @@ export type { PageNumberStyle } from './page-numbering.js';
 
 /* ---------- 阅读器 ---------- */
 export { Reader } from './reader.js';
-export type { ReaderOptions, RepaginateOptions } from './reader.js';
+export type {
+  ReaderOptions,
+  RepaginateOptions,
+  ReaderSearchOptions,
+  ReaderSearchResult,
+} from './reader.js';

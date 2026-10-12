@@ -5,10 +5,12 @@
  * - 渲染当前页节点：IR → HTML 经 layout/html 序列化（与导出器同源）；
  * - 注入书册样式表：buildBookCss，容器选择器指向本组件的页框；
  * - 页框 inline 样式 = buildPageStyle（尺寸 / 页边距）+ buildRootStyle（排版规则）；
+ *   页框保持定位（absolute），作为页脚页码的绝对定位参照；
+ * - 页脚页码：底部居中展示当前页页码（封面页自动隐藏）；
  * - fit 缩放：按容器尺寸等比缩放整页（ResizeObserver）。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { DEFAULT_THEME, isTextNode } from '@bibliotype/core';
+import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import type { Reader } from '@bibliotype/reader';
@@ -28,7 +30,7 @@ const props = withDefaults(
   { fit: 'contain' },
 );
 
-const { layout, pageNodes } = useReaderBinding(props.reader);
+const { layout, pageNodes, pageNumberText } = useReaderBinding(props.reader);
 const tokens = computed<Readonly<Record<string, string | undefined>>>(
   () => props.tokens ?? DEFAULT_THEME,
 );
@@ -43,6 +45,39 @@ const pageHtml = computed(() =>
     .map((node) => serializeNode(node))
     .join('\n'),
 );
+
+/**
+ * 封面子树节点集合（判定页脚页码是否隐藏；元素子节点与叶块同属集合）
+ *
+ * 依赖 pageNodes 使文档重载（page:change）后随页变化重算。
+ */
+const coverNodes = computed<ReadonlySet<BookNode>>(() => {
+  void pageNodes.value;
+  const result = new Set<BookNode>();
+  const doc = props.reader.document;
+  if (doc === undefined) return result;
+
+  const collect = (node: BookNode): void => {
+    result.add(node);
+    for (const child of node.children ?? []) collect(child);
+  };
+  const walk = (node: BookNode): void => {
+    if (node.type === NODE_TYPES.COVER) {
+      collect(node);
+      return;
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(doc.root);
+  return result;
+});
+
+/** 页脚页码显示：封面页不标页码（书籍惯例） */
+const showPageNumber = computed(() => {
+  const firstBlock = pageNodes.value.find((node) => !isTextNode(node));
+  if (firstBlock === undefined) return false;
+  return !coverNodes.value.has(firstBlock);
+});
 
 /** 页框样式（固定尺寸 + 页边距 + 排版规则） */
 const pageStyle = computed(() => ({
@@ -129,7 +164,10 @@ const scaledPageStyle = computed(() => ({
 <template>
   <div ref="rootRef" class="bt-book-view">
     <div class="bt-book-view__stage" :style="stageStyle">
-      <div class="bt-reader-page" :style="scaledPageStyle" v-html="pageHtml"></div>
+      <div class="bt-reader-page" :style="scaledPageStyle">
+        <div class="bt-reader-page__flow" v-html="pageHtml"></div>
+        <footer v-if="showPageNumber" class="bt-page-number">{{ pageNumberText }}</footer>
+      </div>
     </div>
   </div>
 </template>

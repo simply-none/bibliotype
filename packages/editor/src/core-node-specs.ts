@@ -25,6 +25,10 @@ export const STRUCTURE_NODE_ATTRS = {
 export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   /* ---------- 根与结构节点 ---------- */
   { type: NODE_TYPES.BOOK, spec: { content: 'block*', attrs: COMMON_NODE_ATTRS } },
+  { type: NODE_TYPES.COVER, spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS } },
+  { type: NODE_TYPES.TITLE_PAGE, spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS } },
+  { type: NODE_TYPES.COPYRIGHT_PAGE, spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS } },
+  { type: NODE_TYPES.BACK_COVER, spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS } },
   { type: NODE_TYPES.VOLUME, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
   { type: NODE_TYPES.CHAPTER, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
   { type: NODE_TYPES.SECTION, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },

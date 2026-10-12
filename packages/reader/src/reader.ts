@@ -26,7 +26,9 @@ import {
 import {
   DEFAULT_MEASURE_CONTEXT,
   defaultEstimator,
+  collectNodeText,
   extractBlocks,
+  isLeafBlock,
   type BlockMeasureContext,
   type BlockSizeEstimator,
 } from './document-blocks.js';
@@ -40,6 +42,44 @@ export interface RepaginateOptions {
   layout?: Partial<LayoutOptions>;
   /** 每页可用主轴尺寸（px） */
   pageMainSize?: number;
+  /** 估算上下文局部覆盖（字号/行距变化时联动重算行尺寸） */
+  measure?: Partial<BlockMeasureContext>;
+}
+
+/** 搜索选项 */
+export interface ReaderSearchOptions {
+  /** 结果上限（默认 50） */
+  limit?: number;
+  /** 摘录上下文半径（命中词前后各取多少字符，默认 12） */
+  contextLength?: number;
+}
+
+/** 搜索结果条目 */
+export interface ReaderSearchResult {
+  /** 命中块（叶块）节点 id，可直接用于 goToNode */
+  nodeId: string;
+  /** 命中块所在页（自 0 起） */
+  pageIndex: number;
+  /** 命中块节点类型 */
+  blockType: string;
+  /** 去掉首尾空白的命中上下文摘录（首尾越界处以省略号标记） */
+  excerpt: string;
+  /** 该块内命中次数 */
+  matchCount: number;
+}
+
+/** 截取命中上下文摘录 */
+function buildExcerpt(
+  text: string,
+  index: number,
+  keywordLength: number,
+  contextLength: number,
+): string {
+  const start = Math.max(0, index - contextLength);
+  const end = Math.min(text.length, index + keywordLength + contextLength);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < text.length ? '…' : '';
+  return `${prefix}${text.slice(start, end)}${suffix}`;
 }
 
 /** Reader 配置 */
@@ -72,7 +112,7 @@ export class Reader {
   private options: LayoutOptions;
   private pageMainSize: number;
   private readonly estimator: BlockSizeEstimator;
-  private readonly measure: BlockMeasureContext;
+  private measure: BlockMeasureContext;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
@@ -116,6 +156,9 @@ export class Reader {
     }
     if (overrides.pageMainSize !== undefined) {
       this.pageMainSize = overrides.pageMainSize;
+    }
+    if (overrides.measure !== undefined) {
+      this.measure = { ...this.measure, ...overrides.measure };
     }
 
     this.blocks = extractBlocks(this.doc, {
@@ -205,6 +248,49 @@ export class Reader {
     return formatPageNumber(this.pageIndex + 1, style);
   }
 
+  /**
+   * 全文搜索（按块级文本，大小写敏感的字面子串匹配）
+   *
+   * 逐页扫描叶块文本，返回带页号与上下文摘录的结果；
+   * nodeId 可直接传给 goToNode 完成跳转。
+   */
+  search(query: string, options: ReaderSearchOptions = {}): ReaderSearchResult[] {
+    const keyword = query.trim();
+    if (keyword === '' || this.doc === undefined) return [];
+    const limit = options.limit ?? 50;
+    const contextLength = options.contextLength ?? 12;
+
+    const results: ReaderSearchResult[] = [];
+    for (const page of this.pages) {
+      for (const block of page.blocks) {
+        const node = findNodeById(this.doc.root, block.id);
+        if (node === undefined) continue;
+        const text = collectNodeText(node);
+        const first = text.indexOf(keyword);
+        if (first === -1) continue;
+
+        let matchCount = 0;
+        for (
+          let cursor = first;
+          cursor !== -1;
+          cursor = text.indexOf(keyword, cursor + keyword.length)
+        ) {
+          matchCount += 1;
+        }
+
+        results.push({
+          nodeId: block.id,
+          pageIndex: page.index,
+          blockType: node.type,
+          excerpt: buildExcerpt(text, first, keyword.length, contextLength),
+          matchCount,
+        });
+        if (results.length >= limit) return results;
+      }
+    }
+    return results;
+  }
+
   /* ---------------- 导航 ---------------- */
 
   /** 下一页 */
@@ -255,14 +341,14 @@ export class Reader {
   private indexNodeAnchors(): void {
     if (this.doc === undefined) return;
 
-    /** 深度优先返回子树首个叶块 id（路径规则与 extractBlocks 一致） */
+    /** 深度优先返回子树首个叶块 id（叶块判定与 extractBlocks 一致） */
     const firstLeafIn = (node: BookNode, path: string): string | undefined => {
-      const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
-      if (elementChildren.length === 0) {
+      if (isLeafBlock(node)) {
         if (node.type === NODE_TYPES.BOOK) return undefined;
         return node.id ?? path;
       }
 
+      const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
       let firstLeaf: string | undefined;
       for (const [index, child] of elementChildren.entries()) {
         const leaf = firstLeafIn(child, `${path}/${index}`);

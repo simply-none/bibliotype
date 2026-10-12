@@ -63,6 +63,9 @@ export function buildRootStyle(input: BuildRootStyleInput): StyleDeclaration {
   setIfPresent(style, 'color', tokens[COLOR_TOKENS.TEXT]);
   setIfPresent(style, 'background-color', tokens[COLOR_TOKENS.BACKGROUND]);
 
+  /* 版框（扩展令牌 page-border，如 '1px solid #8c5a2b'；古籍主题可选） */
+  setIfPresent(style, 'border', tokens['page-border']);
+
   /* 书写方向与直排策略 */
   style['writing-mode'] = options.writingMode;
   if (vertical) {
@@ -95,6 +98,7 @@ export function buildPageStyle(
   const style: StyleDeclaration = {
     width: `${page.width}px`,
     height: `${page.height}px`,
+    'box-sizing': 'border-box',
     overflow: 'hidden',
   };
   setIfPresent(style, 'padding', tokens[LAYOUT_TOKENS.PAGE_MARGIN]);

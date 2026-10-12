@@ -10,6 +10,14 @@ export const NODE_TYPES = {
 
   /* ---------- 结构节点 ---------- */
 
+  /** 封面（电子封面） */
+  COVER: 'cover',
+  /** 书名页 / 扉页 */
+  TITLE_PAGE: 'title-page',
+  /** 版权页（版权记录） */
+  COPYRIGHT_PAGE: 'copyright-page',
+  /** 封底 */
+  BACK_COVER: 'back-cover',
   /** 卷 */
   VOLUME: 'volume',
   /** 章 */

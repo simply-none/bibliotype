@@ -41,13 +41,13 @@ const percent = computed(() => Math.round(progress.value * 100));
   flex: 1;
   height: 6px;
   overflow: hidden;
-  background: #e2ddd2;
+  background: var(--demo-border, #e2ddd2);
   border-radius: 3px;
 }
 
 .progress__fill {
   height: 100%;
-  background: #8c5a2b;
+  background: var(--demo-accent, #8c5a2b);
   border-radius: 3px;
   transition: width 0.2s ease;
 }
@@ -55,7 +55,7 @@ const percent = computed(() => Math.round(progress.value * 100));
 .progress__text {
   flex: none;
   font-size: 12px;
-  color: #6b6b6b;
+  color: var(--demo-muted, #6b6b6b);
   white-space: nowrap;
 }
 </style>

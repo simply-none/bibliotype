@@ -228,4 +228,117 @@ describe('Reader 重排', () => {
     expect(reader.progress).toBe(0);
     expect(reader.nextPage()).toBe(false);
   });
+
+  it('repaginate 支持 measure 覆盖（默认估算器联动重排）', () => {
+    const reader = new Reader({ pageMainSize: 200 });
+    reader.loadDocument(sampleDoc());
+    const before = reader.totalPages;
+
+    reader.repaginate({ measure: { charsPerLine: 1 } });
+    expect(reader.totalPages).toBeGreaterThan(before);
+  });
+});
+
+describe('Reader 结构页', () => {
+  it('封面/书名页/版权页/目录/序/附录/后记各自独立起页', () => {
+    const doc = createEmptyDocument({ title: '结构页' });
+    const pageChild = (type: string, id: string) => ({
+      type,
+      id,
+      children: [
+        { type: NODE_TYPES.PARAGRAPH, id: `${id}-p`, children: [{ type: 'text', text: '内容' }] },
+      ],
+    });
+    doc.root.children = [
+      pageChild(NODE_TYPES.COVER, 'cover'),
+      pageChild(NODE_TYPES.TITLE_PAGE, 'title'),
+      pageChild(NODE_TYPES.COPYRIGHT_PAGE, 'copyright'),
+      pageChild(NODE_TYPES.TOC, 'toc'),
+      pageChild(NODE_TYPES.PREFACE, 'preface'),
+      pageChild(NODE_TYPES.APPENDIX, 'appendix'),
+      pageChild(NODE_TYPES.POSTSCRIPT, 'postscript'),
+      pageChild(NODE_TYPES.BACK_COVER, 'back'),
+    ];
+
+    const reader = new Reader();
+    reader.loadDocument(doc);
+
+    expect(reader.totalPages).toBe(8);
+    expect(reader.getPageBlocks(0).map((b) => b.id)).toEqual(['cover-p']);
+    expect(reader.getPageBlocks(1).map((b) => b.id)).toEqual(['title-p']);
+    expect(reader.getPageBlocks(7).map((b) => b.id)).toEqual(['back-p']);
+  });
+
+  it('结构容器级 goToNode 可按页锚点跳转', () => {
+    const doc = createEmptyDocument({ title: '结构页' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.COVER,
+        id: 'cover',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'cover-p', children: [{ type: 'text', text: '论语' }] },
+        ],
+      },
+      {
+        type: NODE_TYPES.COPYRIGHT_PAGE,
+        id: 'copyright',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'cp-p', children: [{ type: 'text', text: '版权' }] },
+        ],
+      },
+    ];
+    const reader = new Reader();
+    reader.loadDocument(doc);
+
+    expect(reader.goToNode('copyright')).toBe(true);
+    expect(reader.currentPage).toBe(1);
+  });
+});
+
+describe('Reader 搜索', () => {
+  it('按块级文本命中并返回页号/类型/摘录/次数', () => {
+    const reader = createReader();
+    reader.loadDocument(sampleDoc());
+
+    const results = reader.search('子曰');
+    expect(results).toHaveLength(1);
+    expect(results[0]).toEqual({
+      nodeId: 'p-1',
+      pageIndex: 0,
+      blockType: NODE_TYPES.PARAGRAPH,
+      excerpt: '子曰',
+      matchCount: 1,
+    });
+  });
+
+  it('limit 截断、空查询返回空，matchCount 统计块内多次命中', () => {
+    const doc = createEmptyDocument({ title: '搜索样本' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'a', children: [{ type: 'text', text: '甲甲' }] },
+      { type: NODE_TYPES.PARAGRAPH, id: 'b', children: [{ type: 'text', text: '乙甲' }] },
+    ];
+    const reader = new Reader();
+    reader.loadDocument(doc);
+
+    expect(reader.search('  ')).toEqual([]);
+    expect(reader.search('甲')).toHaveLength(2);
+    expect(reader.search('甲')[0]?.matchCount).toBe(2);
+    expect(reader.search('甲', { limit: 1 })).toHaveLength(1);
+  });
+
+  it('摘录按上下文半径截窗并标记省略', () => {
+    const doc = createEmptyDocument({ title: '摘录' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        id: 'long',
+        children: [{ type: 'text', text: '一二三四五六七八九十甲乙丙丁' }],
+      },
+    ];
+    const reader = new Reader();
+    reader.loadDocument(doc);
+
+    const [hit] = reader.search('甲', { contextLength: 2 });
+    expect(hit?.excerpt).toBe('…九十甲乙丙…');
+  });
 });

@@ -2,8 +2,10 @@
  * 文档块提取（BookDocument → MeasurableBlock[]）
  *
  * 将 IR 树展开为线性可测量块序列，供 layout.paginate 分页：
- * - 结构容器（卷/章/节）逐层深入，其首个叶块标记 breakBefore（章首另起页）；
+ * - 结构容器（结构页/卷/章/节/序/附录/后记/目录）逐层深入，
+ *   其首个叶块标记 breakBefore（另起页）；
  * - 叶块（纯文本容器，如段落/标题/注文）各自成块；
+ *   含「行内载体」子元素的块不拆开（载体随父块整体渲染与度量）；
  * - 标题块标记 keepWithNext（与下段同页）；
  * - 尺寸估算可插拔（默认按文本长度 × 每行字符数估算行数）。
  */
@@ -12,9 +14,17 @@ import type { MeasurableBlock } from '@bibliotype/layout';
 
 /** 结构容器类型（其首个叶块另起页） */
 const STRUCTURE_TYPES: ReadonlySet<string> = new Set([
+  NODE_TYPES.COVER,
+  NODE_TYPES.TITLE_PAGE,
+  NODE_TYPES.COPYRIGHT_PAGE,
+  NODE_TYPES.BACK_COVER,
   NODE_TYPES.VOLUME,
   NODE_TYPES.CHAPTER,
   NODE_TYPES.SECTION,
+  NODE_TYPES.PREFACE,
+  NODE_TYPES.POSTSCRIPT,
+  NODE_TYPES.APPENDIX,
+  NODE_TYPES.TOC,
 ]);
 
 /** 尺寸估算上下文 */
@@ -67,6 +77,20 @@ interface PendingFlags {
 }
 
 /**
+ * 叶块判定：无元素子节点；或含与元素子节点混排的文本
+ *
+ * 第二类对应「行内载体」场景（如段落文本中嵌校勘符号/避讳字载体）：
+ * 拆开会丢失与载体混排的裸文本，故整块渲染与度量。
+ * 纯元素容器（卷/章及各类块级容器）仍逐层深入。
+ * 与 extractBlocks 的分块规则保持一致（findNodeById / indexNodeAnchors 复用）。
+ */
+export function isLeafBlock(node: BookNode): boolean {
+  const children = node.children ?? [];
+  const hasElement = children.some((child) => !isTextNode(child));
+  return !hasElement || children.some(isTextNode);
+}
+
+/**
  * 把文档树展开为块序列
  *
  * 块 id 优先取节点 id；无 id 时按树路径生成（如 "/0/1/2"），
@@ -85,9 +109,7 @@ export function extractBlocks(
   const blocks: MeasurableBlock[] = [];
 
   const walk = (node: BookNode, path: string, flags: PendingFlags): void => {
-    const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
-
-    if (elementChildren.length === 0) {
+    if (isLeafBlock(node)) {
       // 空书根不产块；其余叶块（或空容器）产出可测量块
       if (node.type === NODE_TYPES.BOOK) return;
       blocks.push({
@@ -99,6 +121,7 @@ export function extractBlocks(
       return;
     }
 
+    const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
     const isStructure = STRUCTURE_TYPES.has(node.type);
     let first = true;
     elementChildren.forEach((child, index) => {

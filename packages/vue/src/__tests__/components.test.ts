@@ -105,6 +105,52 @@ describe('BtBookView', () => {
     expect(wrapper.html()).toContain('有朋自远方来');
     expect(wrapper.html()).not.toContain('子曰');
   });
+
+  it('页脚页码随翻页更新', async () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader } });
+
+    const number = wrapper.find('.bt-page-number');
+    expect(number.exists()).toBe(true);
+    expect(number.text()).toBe('1');
+
+    reader.nextPage();
+    await nextTick();
+    expect(wrapper.find('.bt-page-number').text()).toBe('2');
+  });
+
+  it('封面页不显示页脚页码', async () => {
+    const doc = createEmptyDocument({ title: '带封面' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.COVER,
+        id: 'cover',
+        children: [
+          {
+            type: NODE_TYPES.HEADING,
+            id: 'cover-title',
+            children: [{ type: 'text', text: '论语' }],
+          },
+        ],
+      },
+      {
+        type: NODE_TYPES.VOLUME,
+        id: 'vol-1',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '正文' }] },
+        ],
+      },
+    ];
+    const reader = new Reader({ pageMainSize: 100, estimator: fixedEstimator({}) });
+    reader.loadDocument(doc);
+    const wrapper = mount(BtBookView, { props: { reader } });
+
+    expect(wrapper.find('.bt-page-number').exists()).toBe(false);
+
+    reader.nextPage();
+    await nextTick();
+    expect(wrapper.find('.bt-page-number').exists()).toBe(true);
+  });
 });
 
 describe('BtPager', () => {

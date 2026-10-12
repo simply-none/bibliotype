@@ -15,6 +15,20 @@ describe('createBibliotype', () => {
     expect(bt.nodeTypes.listByNamespace('core').length).toBeGreaterThan(5);
   });
 
+  it('预置结构页节点（封面/书名页/版权页/封底）', () => {
+    const bt = createBibliotype();
+    for (const type of [
+      NODE_TYPES.COVER,
+      NODE_TYPES.TITLE_PAGE,
+      NODE_TYPES.COPYRIGHT_PAGE,
+      NODE_TYPES.BACK_COVER,
+    ]) {
+      const def = bt.nodeTypes.get(type);
+      expect(def?.namespace).toBe('core');
+      expect(def?.isContainer).toBe(true);
+    }
+  });
+
   it('主题令牌可读可覆盖且可还原', () => {
     const bt = createBibliotype();
     const original = bt.theme.get('color-text');

@@ -59,6 +59,20 @@ describe('buildRootStyle', () => {
     });
     expect(style['text-combine-upright']).toBeUndefined();
   });
+
+  it('page-border 扩展令牌输出版框边框，缺省不输出', () => {
+    const withBorder = buildRootStyle({
+      tokens: { ...DEFAULT_THEME, 'page-border': '1px solid #8c5a2b' },
+      options: DEFAULT_LAYOUT_OPTIONS,
+    });
+    expect(withBorder['border']).toBe('1px solid #8c5a2b');
+
+    const without = buildRootStyle({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+    });
+    expect(without['border']).toBeUndefined();
+  });
 });
 
 describe('buildPageStyle', () => {
@@ -67,6 +81,7 @@ describe('buildPageStyle', () => {
     expect(style['width']).toBe('559px');
     expect(style['height']).toBe('794px');
     expect(style['padding']).toBe('48px 56px');
+    expect(style['box-sizing']).toBe('border-box');
     expect(style['overflow']).toBe('hidden');
   });
 

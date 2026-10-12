@@ -31,6 +31,10 @@ export interface SerializeNodeOptions {
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
 const CORE_TAG_MAP: Readonly<Record<string, string>> = {
   /* 结构容器 */
+  [NODE_TYPES.COVER]: 'section',
+  [NODE_TYPES.TITLE_PAGE]: 'section',
+  [NODE_TYPES.COPYRIGHT_PAGE]: 'section',
+  [NODE_TYPES.BACK_COVER]: 'section',
   [NODE_TYPES.VOLUME]: 'section',
   [NODE_TYPES.CHAPTER]: 'section',
   [NODE_TYPES.SECTION]: 'section',

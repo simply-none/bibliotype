@@ -8,6 +8,7 @@
 | 目标 | 路线 |
 | --- | --- |
 | 快速跑起来 | 根 [README](../README.md) 快速开始 → [06 Vue 集成](06-vue-integration.md) |
+| 跑通全链路示例 | 根 [README](../README.md) 快速开始 → [apps/demo/README](../apps/demo/README.md)（分页 / 目录 / 书签 / 直排切换 / 编辑 / 导出） |
 | 做编辑与插件 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [03 古籍](03-classical-layout.md) |
 | 做插件扩展（事件 / 自定义节点） | [01](01-document-model.md) → [13 核心运行时](13-core-runtime.md) → [02 编辑器与插件](02-editor-and-plugins.md) |
 | 做阅读器与版式 | [01](01-document-model.md) → [04 阅读与分页](04-reader-and-pagination.md) → [05 版式与 HTML](05-layout-and-html.md) → [11 主题令牌](11-theme-tokens.md) |

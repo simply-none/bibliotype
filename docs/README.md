@@ -9,6 +9,7 @@
 | --- | --- |
 | 快速跑起来 | 根 [README](../README.md) 快速开始 → [06 Vue 集成](06-vue-integration.md) |
 | 做编辑与插件 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [03 古籍](03-classical-layout.md) |
+| 做插件扩展（事件 / 自定义节点） | [01](01-document-model.md) → [13 核心运行时](13-core-runtime.md) → [02 编辑器与插件](02-editor-and-plugins.md) |
 | 做阅读器与版式 | [01](01-document-model.md) → [04 阅读与分页](04-reader-and-pagination.md) → [05 版式与 HTML](05-layout-and-html.md) → [11 主题令牌](11-theme-tokens.md) |
 | 做导出 | [05](05-layout-and-html.md) → [07 EPUB](07-export-epub.md) → [08 PDF 与打印](08-export-pdf.md) |
 | 做协同与存储 | [01](01-document-model.md) → [09 协同](09-collab.md) → [10 存储](10-storage-adapters.md) |
@@ -30,6 +31,7 @@
 | [10 存储适配器](10-storage-adapters.md) | StorageAdapter 契约与实现 | `@bibliotype/adapter-indexeddb` |
 | [11 主题与令牌](11-theme-tokens.md) | 令牌体系、古典覆盖、自定义主题 | `core` / `classical` / `layout` |
 | [12 工程化与发布](12-release-and-ci.md) | 日期版本、Changesets、CI、npm 发布 | 全仓 |
+| [13 核心运行时](13-core-runtime.md) | 事件总线、节点注册、核心实例 | `@bibliotype/core` |
 
 ## 架构总览
 

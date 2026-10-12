@@ -107,6 +107,7 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [10 存储适配器](docs/10-storage-adapters.md) | StorageAdapter 契约、IndexedDB / 内存实现 |
 | [11 主题与令牌](docs/11-theme-tokens.md) | 令牌体系、古典覆盖、自定义主题 |
 | [12 工程化与发布](docs/12-release-and-ci.md) | 日期版本、Changesets、CI、npm 发布 |
+| [13 核心运行时](docs/13-core-runtime.md) | 事件总线、节点注册、核心实例 |
 
 ## 版本与发布
 

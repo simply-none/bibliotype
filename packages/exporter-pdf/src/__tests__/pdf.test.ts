@@ -1,0 +1,345 @@
+/**
+ * PDF 导出测试
+ *
+ * 覆盖：块 id → 节点解析（findNodeById）、打印样式（@page 两种模式）、
+ * 打印文档（auto 单文档流 / paged 预分页 + 页码）、
+ * 浏览器打印辅助（打印流程与清理），以及空书边界。
+ */
+import { describe, expect, it } from 'vitest';
+import { NODE_TYPES, createEmptyDocument, type BookDocument, type BookNode } from '@bibliotype/core';
+import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
+import { extractBlocks, type BlockSizeEstimator } from '@bibliotype/reader';
+import { findNodeById } from '../find-node.js';
+import { renderPrintHtml } from '../print-document.js';
+import { buildPrintCss } from '../print-styles.js';
+import { printHtml } from '../print.js';
+
+/** 尺寸表估算器：按节点 id 取尺寸 */
+function fixedEstimator(sizes: Record<string, number>): BlockSizeEstimator {
+  return (node) => sizes[node.id ?? ''] ?? 50;
+}
+
+/** 构造样本：书 > 章（标题 + 段） + 章（段） + 散段 */
+function sampleDoc(): BookDocument {
+  const doc = createEmptyDocument({ title: '论语', language: 'zh-Hant' });
+  doc.root.children = [
+    {
+      type: NODE_TYPES.CHAPTER,
+      id: 'chap-1',
+      attrs: { title: '学而' },
+      children: [
+        {
+          type: NODE_TYPES.HEADING,
+          id: 'h-1',
+          attrs: { level: 2 },
+          children: [{ type: 'text', text: '学而第一' }],
+        },
+        {
+          type: NODE_TYPES.PARAGRAPH,
+          id: 'p-1',
+          children: [{ type: 'text', text: '子曰：学而时习之。' }],
+        },
+      ],
+    },
+    {
+      type: NODE_TYPES.CHAPTER,
+      id: 'chap-2',
+      attrs: { title: '为政' },
+      children: [
+        {
+          type: NODE_TYPES.PARAGRAPH,
+          id: 'p-2',
+          children: [{ type: 'text', text: '为政以德。' }],
+        },
+      ],
+    },
+    {
+      type: NODE_TYPES.PARAGRAPH,
+      id: 'p-3',
+      children: [{ type: 'text', text: '散段。' }],
+    },
+  ];
+  return doc;
+}
+
+/** 块尺寸：h-1=30, p-1=60, p-2=60, p-3=100；页主轴 100 */
+const SIZES = { 'h-1': 30, 'p-1': 60, 'p-2': 60, 'p-3': 100 };
+const PAGE_MAIN = 100;
+
+describe('findNodeById', () => {
+  it('节点 id 直接命中', () => {
+    const doc = sampleDoc();
+    expect(findNodeById(doc.root, 'p-1')?.id).toBe('p-1');
+    expect(findNodeById(doc.root, 'chap-2')?.attrs?.title).toBe('为政');
+  });
+
+  it('树路径解析（索引基于过滤文本叶子后的元素子节点）', () => {
+    const root: BookNode = {
+      type: NODE_TYPES.BOOK,
+      children: [
+        { type: 'text', text: '前言散字' },
+        {
+          type: NODE_TYPES.CHAPTER,
+          id: 'c-1',
+          children: [
+            { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: 'x' }] },
+          ],
+        },
+      ],
+    };
+    /* 文本叶子被过滤：'/0' 指向章而非文本 */
+    expect(findNodeById(root, '/0')?.id).toBe('c-1');
+    /* 无 id 段落按路径解析 */
+    expect(findNodeById(root, '/0/0')?.type).toBe(NODE_TYPES.PARAGRAPH);
+  });
+
+  it('未命中返回 undefined', () => {
+    const doc = sampleDoc();
+    expect(findNodeById(doc.root, 'nope')).toBeUndefined();
+    expect(findNodeById(doc.root, '/9')).toBeUndefined();
+    expect(findNodeById(doc.root, '/x')).toBeUndefined();
+  });
+
+  it('extractBlocks 全部块 id 可还原为节点（含无 id 的路径块）', () => {
+    const doc = sampleDoc();
+    doc.root.children?.push({
+      type: NODE_TYPES.PARAGRAPH,
+      children: [{ type: 'text', text: '匿名段' }],
+    });
+    for (const block of extractBlocks(doc)) {
+      expect(findNodeById(doc.root, block.id), `块 ${block.id} 未还原`).toBeDefined();
+    }
+  });
+});
+
+describe('buildPrintCss', () => {
+  it('auto 模式：@page 尺寸 / 页边距 + 结构节点另起页', () => {
+    const css = buildPrintCss({
+      options: DEFAULT_LAYOUT_OPTIONS,
+      tokens: {},
+      mode: 'auto',
+    });
+    expect(css).toContain('size: 559px 794px;');
+    expect(css).toContain('margin: 48px 56px;');
+    expect(css).toContain('.bt-chapter');
+    expect(css).toContain('break-before: page;');
+    expect(css).toContain('.bt-book > :first-child');
+    expect(css).not.toContain('.bt-page {');
+  });
+
+  it('paged 模式：@page 无边距 + 固定尺寸 .bt-page + 页码样式', () => {
+    const css = buildPrintCss({
+      options: DEFAULT_LAYOUT_OPTIONS,
+      tokens: {},
+      mode: 'paged',
+    });
+    expect(css).toContain('margin: 0;');
+    expect(css).toContain('width: 559px;');
+    expect(css).toContain('padding: 48px 56px;');
+    expect(css).toContain('break-after: page;');
+    expect(css).toContain('.bt-page-number');
+    expect(css).toContain('var(--bt-font-size-note)');
+  });
+
+  it('page-margin 令牌可覆盖页边距', () => {
+    const css = buildPrintCss({
+      options: DEFAULT_LAYOUT_OPTIONS,
+      tokens: { 'page-margin': '32px 40px' },
+      mode: 'auto',
+    });
+    expect(css).toContain('margin: 32px 40px;');
+  });
+});
+
+describe('renderPrintHtml：auto 模式', () => {
+  it('整书单文档流 + 内联样式（变量层与打印规则）', () => {
+    const html = renderPrintHtml(sampleDoc());
+
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('<html lang="zh-Hant">');
+    expect(html).toContain('<title>论语</title>');
+    expect(html).toContain('<main class="bt-book">');
+    expect(html).toContain('<section id="chap-1" class="bt-chapter" data-title="学而">');
+    expect(html).toContain('<h2 id="h-1" class="bt-heading" data-level="2">学而第一</h2>');
+    expect(html).toContain('子曰：学而时习之。');
+  });
+
+  it('内联样式同时包含书册变量与 @page 规则', () => {
+    const html = renderPrintHtml(sampleDoc(), { mode: 'auto' });
+    expect(html).toContain('--bt-font-family-body:');
+    expect(html).toContain('@page {');
+    expect(html).toContain('size: 559px 794px;');
+    expect(html).not.toContain('class="bt-page"');
+  });
+
+  it('古籍布局：直排 CSS 与 16 开页面尺寸', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      layout: CLASSICAL_LAYOUT_OPTIONS,
+      tokens: { 'writing-mode': 'vertical-rl' },
+    });
+    expect(html).toContain('writing-mode: vertical-rl;');
+    expect(html).toContain('size: 699px 983px;');
+  });
+});
+
+describe('renderPrintHtml：paged 模式（预分页）', () => {
+  it('按块尺寸分页：章首另起页 + 页码格式化', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+
+    /* 3 页：h-1+p-1 / p-2（章首 breakBefore）/ p-3 */
+    expect(html.match(/class="bt-page"/g)).toHaveLength(3);
+    expect(html).toContain('data-page="1"');
+    expect(html).toContain('data-page="2"');
+    expect(html).toContain('data-page="3"');
+
+    const page1 = html.indexOf('data-page="1"');
+    const page2 = html.indexOf('data-page="2"');
+    const page3 = html.indexOf('data-page="3"');
+    expect(page2).toBeGreaterThan(page1);
+    expect(page3).toBeGreaterThan(page2);
+
+    /* 第 1 页容纳标题与首段；第 2 页为第二章；第 3 页为散段 */
+    const firstPage = html.slice(page1, page2);
+    expect(firstPage).toContain('<h2 id="h-1" class="bt-heading" data-level="2">学而第一</h2>');
+    expect(firstPage).toContain('子曰：学而时习之。');
+    expect(firstPage).toContain('<div class="bt-page-number">1</div>');
+
+    const secondPage = html.slice(page2, page3);
+    expect(secondPage).toContain('为政以德。');
+    expect(secondPage).not.toContain('学而第一');
+
+    const thirdPage = html.slice(page3);
+    expect(thirdPage).toContain('散段。');
+    expect(thirdPage).toContain('<div class="bt-page-number">3</div>');
+  });
+
+  it('古籍页码样式：中文数字', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout: CLASSICAL_LAYOUT_OPTIONS,
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(html).toContain('<div class="bt-page-number">一</div>');
+    expect(html).toContain('<div class="bt-page-number">三</div>');
+  });
+
+  it('空书：输出单张空白页', () => {
+    const html = renderPrintHtml(createEmptyDocument({ title: '空书' }), {
+      mode: 'paged',
+      pageMainSize: PAGE_MAIN,
+    });
+    expect(html.match(/class="bt-page"/g)).toHaveLength(1);
+    expect(html).toContain('<section class="bt-page" data-page="1"></section>');
+  });
+
+  it('默认 pageMainSize：按页面尺寸与 page-margin 推导（A5 横排）', () => {
+    /* A5 高 794 - 2×48 = 698；默认估算器 4 块各约 42px，
+       但两章章首 breakBefore → [h-1,p-1] / [p-2,p-3] 共 2 页 */
+    const html = renderPrintHtml(sampleDoc(), { mode: 'paged' });
+    expect(html.match(/class="bt-page"/g)).toHaveLength(2);
+    expect(html).toContain('data-page="2"');
+  });
+});
+
+describe('printHtml（浏览器打印辅助）', () => {
+  it('无 document 环境抛出错误', () => {
+    expect(() => printHtml('<html></html>')).toThrow(/浏览器环境/);
+  });
+
+  it('经隐藏 iframe 写入文档并触发打印，afterprint 后清理', () => {
+    const fake = createFakeDocument();
+    printHtml('<html><body>x</body></html>', { document: fake.doc });
+
+    expect(fake.written()).toBe('<html><body>x</body></html>');
+    expect(fake.printed()).toBe(1);
+    expect(fake.frame.removed).toBe(false);
+
+    fake.fireAfterPrint();
+    expect(fake.frame.removed).toBe(true);
+  });
+
+  it('iframe 上下文不可用时抛错并清理', () => {
+    const fake = createFakeDocument({ contentDocument: null });
+    expect(() => printHtml('<html></html>', { document: fake.doc })).toThrow(/iframe/);
+    expect(fake.frame.removed).toBe(true);
+  });
+});
+
+/** 假 iframe 结构（结构化宿主，验证打印流程与清理时序） */
+interface FakeFrame {
+  style: Record<string, string>;
+  removed: boolean;
+  setAttribute(name: string, value: string): void;
+  remove(): void;
+  contentDocument: FakeFrameDocument | null;
+  contentWindow: FakeFrameWindow;
+}
+
+interface FakeFrameDocument {
+  open(): void;
+  write(html: string): void;
+  close(): void;
+}
+
+interface FakeFrameWindow {
+  addEventListener(name: string, callback: () => void): void;
+  removeEventListener(name: string): void;
+  focus(): void;
+  print(): void;
+}
+
+/** 构造假 document：createElement('iframe') + body.appendChild */
+function createFakeDocument(overrides: { contentDocument?: null } = {}) {
+  const listeners = new Map<string, () => void>();
+  let written = '';
+  let printed = 0;
+
+  const frame: FakeFrame = {
+    style: {},
+    removed: false,
+    setAttribute(): void {},
+    remove(): void {
+      frame.removed = true;
+    },
+    contentDocument:
+      'contentDocument' in overrides
+        ? overrides.contentDocument ?? null
+        : {
+            open(): void {},
+            write(html: string): void {
+              written += html;
+            },
+            close(): void {},
+          },
+    contentWindow: {
+      addEventListener(name: string, callback: () => void): void {
+        listeners.set(name, callback);
+      },
+      removeEventListener(name: string): void {
+        listeners.delete(name);
+      },
+      focus(): void {},
+      print(): void {
+        printed += 1;
+      },
+    },
+  };
+
+  const doc = {
+    createElement: () => frame,
+    body: { appendChild: () => {} },
+  };
+
+  return {
+    doc: doc as unknown as Document,
+    frame,
+    written: () => written,
+    printed: () => printed,
+    fireAfterPrint: () => listeners.get('afterprint')?.(),
+  };
+}

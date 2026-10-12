@@ -1,0 +1,239 @@
+/**
+ * IR → HTML 序列化器测试
+ */
+import { describe, expect, it } from 'vitest';
+import { MARK_TYPES, NODE_TYPES, type BookNode } from '@bibliotype/core';
+import { escapeHtml, serializeNode } from '../html/html-serializer.js';
+
+describe('escapeHtml', () => {
+  it('转义五个实体字符', () => {
+    expect(escapeHtml(`<a href="x">&'</a>`)).toBe(
+      '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;',
+    );
+  });
+});
+
+describe('元素与结构', () => {
+  it('段落：class 与文本转义', () => {
+    const root: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [{ type: 'text', text: '子曰：学而时习之 & 不亦说乎？' }],
+    };
+    expect(serializeNode(root)).toBe(
+      '<p class="bt-paragraph">子曰：学而时习之 &amp; 不亦说乎？</p>',
+    );
+  });
+
+  it('嵌套结构：book 透明、结构节点 section、id 与 data-* 属性', () => {
+    const root: BookNode = {
+      type: NODE_TYPES.BOOK,
+      children: [
+        {
+          type: NODE_TYPES.VOLUME,
+          id: 'vol-1',
+          attrs: { title: '卷一' },
+          children: [
+            {
+              type: NODE_TYPES.CHAPTER,
+              id: 'c1',
+              children: [
+                {
+                  type: NODE_TYPES.PARAGRAPH,
+                  id: 'p1',
+                  children: [{ type: 'text', text: '正文' }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(serializeNode(root)).toBe(
+      '<section id="vol-1" class="bt-volume" data-title="卷一">' +
+        '<section id="c1" class="bt-chapter">' +
+        '<p id="p1" class="bt-paragraph">正文</p>' +
+        '</section></section>',
+    );
+  });
+
+  it('heading：level 映射 h1~h6 并钳制，缺省 h2', () => {
+    expect(
+      serializeNode({
+        type: NODE_TYPES.HEADING,
+        attrs: { level: 3 },
+        children: [{ type: 'text', text: '章一' }],
+      }),
+    ).toBe('<h3 class="bt-heading" data-level="3">章一</h3>');
+
+    expect(serializeNode({ type: NODE_TYPES.HEADING, children: [] })).toBe(
+      '<h2 class="bt-heading"></h2>',
+    );
+    expect(serializeNode({ type: NODE_TYPES.HEADING, attrs: { level: 9 } })).toBe(
+      '<h6 class="bt-heading" data-level="9"></h6>',
+    );
+  });
+
+  it('list：ordered 决定 ol / ul', () => {
+    const list: BookNode = {
+      type: NODE_TYPES.LIST,
+      attrs: { ordered: true },
+      children: [
+        { type: NODE_TYPES.LIST_ITEM, children: [{ type: 'text', text: '甲' }] },
+      ],
+    };
+    expect(serializeNode(list)).toBe(
+      '<ol class="bt-list" data-ordered="true"><li class="bt-list-item">甲</li></ol>',
+    );
+
+    expect(serializeNode({ ...list, attrs: {} })).toBe(
+      '<ul class="bt-list"><li class="bt-list-item">甲</li></ul>',
+    );
+  });
+
+  it('image：src/alt 透传、其余属性 data-*、自闭合', () => {
+    expect(
+      serializeNode({
+        type: NODE_TYPES.IMAGE,
+        attrs: { src: 'cover.jpg', alt: '封面', width: 600 },
+      }),
+    ).toBe('<img class="bt-image" src="cover.jpg" alt="封面" data-width="600" />');
+
+    expect(serializeNode({ type: NODE_TYPES.IMAGE, attrs: { src: 'x.png' } })).toBe(
+      '<img class="bt-image" src="x.png" alt="" />',
+    );
+  });
+
+  it('break：自闭合 hr 并携 variant', () => {
+    expect(serializeNode({ type: NODE_TYPES.BREAK, attrs: { variant: 'section' } })).toBe(
+      '<hr class="bt-break" data-variant="section" />',
+    );
+  });
+
+  it('code-block：逐字输出（不解析内部标记化）', () => {
+    const code: BookNode = {
+      type: NODE_TYPES.CODE_BLOCK,
+      attrs: { language: 'ts' },
+      children: [{ type: 'text', text: 'const a = 1 < 2;' }],
+    };
+    expect(serializeNode(code)).toBe(
+      '<pre class="bt-code-block" data-language="ts"><code>const a = 1 &lt; 2;</code></pre>',
+    );
+  });
+
+  it('math：data-tex 携源码，子内容缺省回退 tex 文本', () => {
+    expect(serializeNode({ type: NODE_TYPES.MATH_INLINE, attrs: { tex: 'x^2' } })).toBe(
+      '<span class="bt-math-inline" data-tex="x^2">x^2</span>',
+    );
+    expect(
+      serializeNode({
+        type: NODE_TYPES.MATH_BLOCK,
+        attrs: { tex: 'a+b' },
+        children: [{ type: 'text', text: 'a + b' }],
+      }),
+    ).toBe('<div class="bt-math-block" data-tex="a+b">a + b</div>');
+  });
+});
+
+describe('标记（marks）', () => {
+  it('marks[0] 最内层：自内向外逐层包裹', () => {
+    const root: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [
+        {
+          type: 'text',
+          text: '学而',
+          marks: [
+            { type: MARK_TYPES.STRONG },
+            { type: MARK_TYPES.LINK, attrs: { href: 'https://example.com' } },
+          ],
+        },
+      ],
+    };
+    expect(serializeNode(root)).toBe(
+      '<p class="bt-paragraph">' +
+        '<a class="bt-mark-link" href="https://example.com"><strong>学而</strong></a>' +
+        '</p>',
+    );
+  });
+
+  it('ruby：注文输出为 rt', () => {
+    expect(
+      serializeNode({
+        type: NODE_TYPES.PARAGRAPH,
+        children: [
+          { type: 'text', text: '子曰', marks: [{ type: MARK_TYPES.RUBY, attrs: { text: 'zǐ yuē' } }] },
+        ],
+      }),
+    ).toBe('<p class="bt-paragraph"><ruby>子曰<rt>zǐ yuē</rt></ruby></p>');
+  });
+
+  it('link 缺 href 时退化为 span；未知标记输出 bt-mark-* span', () => {
+    expect(
+      serializeNode({
+        type: NODE_TYPES.PARAGRAPH,
+        children: [{ type: 'text', text: 'x', marks: [{ type: MARK_TYPES.LINK }] }],
+      }),
+    ).toBe('<p class="bt-paragraph"><span class="bt-mark-link">x</span></p>');
+
+    expect(
+      serializeNode({
+        type: NODE_TYPES.PARAGRAPH,
+        children: [{ type: 'text', text: 'y', marks: [{ type: 'plugin-mark', attrs: { k: 1 } }] }],
+      }),
+    ).toBe(
+      '<p class="bt-paragraph"><span class="bt-mark-plugin-mark" data-k="1">y</span></p>',
+    );
+  });
+});
+
+describe('兜底与扩展', () => {
+  it('未知类型：含元素子节点 → div；纯文本叶子 → span', () => {
+    expect(
+      serializeNode({
+        type: 'custom-block',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: 'x' }] },
+        ],
+      }),
+    ).toBe('<div class="bt-custom-block"><p class="bt-paragraph">x</p></div>');
+
+    expect(serializeNode({ type: 'custom-inline', children: [{ type: 'text', text: 'y' }] })).toBe(
+      '<span class="bt-custom-inline">y</span>',
+    );
+  });
+
+  it('古籍节点启发式：double-note 容器 → div；collation-mark 叶子 → span', () => {
+    expect(
+      serializeNode({
+        type: 'double-note',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '注文' }] },
+        ],
+      }),
+    ).toBe('<div class="bt-double-note"><p class="bt-paragraph">注文</p></div>');
+
+    expect(serializeNode({ type: 'collation-mark', attrs: { symbol: '○' } })).toBe(
+      '<span class="bt-collation-mark" data-symbol="○"></span>',
+    );
+  });
+
+  it('anchorIds 注入：无 id 节点获得调用方锚点', () => {
+    const chapter: BookNode = {
+      type: NODE_TYPES.CHAPTER,
+      children: [{ type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: 'x' }] }],
+    };
+    const anchors = new Map<BookNode, string>([[chapter, 'bt-a-1']]);
+    expect(serializeNode(chapter, { anchorIds: anchors })).toBe(
+      '<section id="bt-a-1" class="bt-chapter"><p class="bt-paragraph">x</p></section>',
+    );
+  });
+
+  it('tagOverrides 精确覆盖兜底标签（如鱼尾 → div）', () => {
+    expect(
+      serializeNode(
+        { type: 'fish-tail', attrs: { style: '双鱼尾' } },
+        { tagOverrides: { 'fish-tail': 'div' } },
+      ),
+    ).toBe('<div class="bt-fish-tail" data-style="双鱼尾"></div>');
+  });
+});

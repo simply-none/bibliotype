@@ -1,0 +1,90 @@
+/**
+ * 打印样式生成（@page 与分页规则）
+ *
+ * 两种模式：
+ * - auto：交给浏览器打印引擎分页；@page 声明页面尺寸与页边距，
+ *   结构节点（卷/章/节等）经 break-before 另起页；
+ * - paged：调用方已完成预分页（layout.paginate），每页为固定尺寸
+ *   .bt-page；@page margin 置 0，页边距由 .bt-page 的 padding 承担。
+ *
+ * 与 buildBookCss 叠加使用（变量层与节点类样式来自后者）。
+ */
+import { COLOR_TOKENS, FONT_SIZE_TOKENS, LAYOUT_TOKENS } from '@bibliotype/core';
+import type { LayoutOptions } from '@bibliotype/layout';
+
+/** 打印模式 */
+export type PrintMode = 'auto' | 'paged';
+
+/** 打印样式生成输入 */
+export interface PrintCssOptions {
+  /** 布局选项（决定 @page 尺寸与页码样式） */
+  options: LayoutOptions;
+  /** 主题令牌值表（page-margin 决定页边距） */
+  tokens: Readonly<Record<string, string | undefined>>;
+  /** 打印模式 */
+  mode: PrintMode;
+}
+
+/** 生成打印样式表（与 buildBookCss 叠加使用） */
+export function buildPrintCss(input: PrintCssOptions): string {
+  const { options, tokens, mode } = input;
+  const page = options.pageSize;
+  const margin = tokens[LAYOUT_TOKENS.PAGE_MARGIN] ?? '48px 56px';
+
+  const rules: string[] = [];
+
+  if (mode === 'auto') {
+    rules.push(`@page {
+  size: ${page.width}px ${page.height}px;
+  margin: ${margin};
+}`);
+    rules.push(`.bt-book > :first-child,
+.bt-volume > :first-child {
+  break-before: auto;
+}
+.bt-volume,
+.bt-chapter,
+.bt-section,
+.bt-appendix,
+.bt-preface,
+.bt-postscript,
+.bt-toc {
+  break-before: page;
+}`);
+  } else {
+    rules.push(`@page {
+  size: ${page.width}px ${page.height}px;
+  margin: 0;
+}`);
+    rules.push(`.bt-page {
+  box-sizing: border-box;
+  width: ${page.width}px;
+  height: ${page.height}px;
+  padding: ${margin};
+  overflow: hidden;
+  position: relative;
+  break-after: page;
+}
+.bt-page:last-child {
+  break-after: auto;
+}
+.bt-page-number {
+  position: absolute;
+  bottom: 0.5em;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: var(--bt-${FONT_SIZE_TOKENS.NOTE});
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}`);
+  }
+
+  rules.push(`@media print {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}`);
+
+  return `${rules.join('\n\n')}\n`;
+}

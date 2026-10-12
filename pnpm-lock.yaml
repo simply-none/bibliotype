@@ -109,6 +109,53 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9
 
+  packages/exporter-epub:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bibliotype/layout':
+        specifier: workspace:*
+        version: link:../layout
+      '@bibliotype/reader':
+        specifier: workspace:*
+        version: link:../reader
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.29)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9
+
+  packages/exporter-pdf:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bibliotype/layout':
+        specifier: workspace:*
+        version: link:../layout
+      '@bibliotype/reader':
+        specifier: workspace:*
+        version: link:../reader
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.29)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9
+
   packages/layout:
     dependencies:
       '@bibliotype/core':
@@ -750,6 +797,9 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   fix-dts-default-cjs-exports@1.0.1:
     resolution: {integrity: sha512-pVIECanWFC61Hzl2+oOCtoJ3F17kglZC/6N94eRWycFgBH35hHx0Li604ZIzhseh97mf2p0cv7vVrOZGoqhlEg==}
@@ -1447,6 +1497,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
       picomatch: 4.0.7
+
+  fflate@0.8.3: {}
 
   fix-dts-default-cjs-exports@1.0.1:
     dependencies:

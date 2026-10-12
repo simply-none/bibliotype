@@ -88,6 +88,24 @@ EPUB_MIMETYPE;      // 'application/epub+zip'
 buildContainerXml(); // OCF 容器描述 XML
 ```
 
+## 模块级 API
+
+除 `exportEpub` 外，各阶段的纯函数均可单独使用（便于定制管线、单测与增量处理）：
+
+| 导出 | 说明 |
+| --- | --- |
+| `planDocument(root)` | 章节规划：结构节点分节 + 散块聚合，产出 `sections` 与锚点表 `anchors` |
+| `buildNavItems(plan)` | 由规划结果生成导航项（`NavItem[]`：标题 + 跳转锚点 + 所属文件） |
+| `SECTION_TYPES` | 独立成节 / 参与导航的结构节点类型集合（卷 / 章 / 节 / 附录 / 序 / 跋 / 目录） |
+| `renderXhtmlDocument(input)` | 生成 XHTML 文档骨架（title / lang / 样式引用 / body） |
+| `buildOpf(input)` | 生成 `OEBPS/content.opf`（identifier / metadata / manifest / spine） |
+| `buildNavXhtml(input)` | 生成 `OEBPS/nav.xhtml`（EPUB 3 导航文档） |
+| `buildContainerXml()` | 生成 `META-INF/container.xml`（OCF 容器描述） |
+| `resolveIdentifier(metadata)` | 取元数据中首个非空标识符 |
+| `buildDefaultIdentifier(document)` | 生成确定性缺省标识符（`urn:bibliotype:<hash>`，不含随机值） |
+| `fnv1a(value)` | FNV-1a 32 位散列（8 位十六进制），确定性标识符的散列基础 |
+| `EPUB_MIMETYPE` | `'application/epub+zip'` |
+
 ## 相关
 
 - 包参考：[`@bibliotype/exporter-epub`](../packages/exporter-epub/README.md)

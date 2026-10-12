@@ -108,6 +108,11 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [11 主题与令牌](docs/11-theme-tokens.md) | 令牌体系、古典覆盖、自定义主题 |
 | [12 工程化与发布](docs/12-release-and-ci.md) | 日期版本、Changesets、CI、npm 发布 |
 | [13 核心运行时](docs/13-core-runtime.md) | 事件总线、节点注册、核心实例 |
+| [14 常见问题与故障排查](docs/14-faq.md) | 经典问题排查：注文样式、点击跳转、样式作用域、Node 环境 |
+| [15 SSR 与 Node 同构](docs/15-ssr-and-node.md) | 环境对照表与浏览器依赖替代方案 |
+| [16 测试指南](docs/16-testing.md) | 测试组织、vitest、fake-indexeddb / happy-dom |
+
+参与贡献见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 版本与发布
 

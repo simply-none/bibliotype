@@ -27,7 +27,11 @@ const schema = registry.buildSchema();                  // → ProseMirror Schem
 ```
 
 - `EditorSchemaRegistry`：按命名空间登记的规格表，冲突抛 `EditorSpecConflictError`；
+- `buildEditorSchema()`：一步构建标准 schema（等价 `createDefaultEditorSchemaRegistry().buildSchema()`）；
+- `DEFAULT_EDITOR_NAMESPACE` / `DEFAULT_EDITOR_TOP_NODE`：缺省命名空间（`'core'`）与根节点类型（`book`）；
 - `CORE_EDITOR_NODE_SPECS` / `CORE_EDITOR_MARK_SPECS`：core 的标准规格表；
+- `COMMON_NODE_ATTRS` / `STRUCTURE_NODE_ATTRS` / `COMMON_MARK_ATTRS`：属性映射共享片段——节点公共
+  `id` + `rawAttrs` 兜底、结构节点追加 `title`（reader 目录提取依赖）、标记公共 `rawAttrs`，供扩展规格复用；
 - 古籍规格（`double-note` 等）通过 `registerClassicalEditorSpecs(registry)` 增量注册，
   或 `buildClassicalEditorSchema()` 一步构建（见 [03 古籍排版](03-classical-layout.md)）。
 

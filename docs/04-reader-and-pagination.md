@@ -36,6 +36,17 @@ loadDocument
   └─ emit('toc:ready')
 ```
 
+事件总线可自建，也可与 core 实例共享同一订阅面（实例内插件与外部观察者事件同源）：
+
+```ts
+import { createBibliotype } from '@bibliotype/core';
+
+const instance = createBibliotype();
+const reader = new Reader({ events: instance.events });   // 共享实例总线（见 13 核心运行时）
+
+reader.events.on('page:change', ({ pageIndex }) => { /* 翻页 / 重排后同步 */ });
+```
+
 ## 重排（配置变更）
 
 ```ts
@@ -61,6 +72,7 @@ reader.repaginate({
 | `getPageBlocks(i)` | `readonly MeasurableBlock[]` | 某页的块（含 `mainSize`） |
 | `getPageNodes(i)` | `readonly BookNode[]` | 某页的 IR 节点（块 id 经 `findNodeById` 还原） |
 | `formatCurrentPageNumber()` | `string` | 当前页展示页码（按 `pageNumberStyle` 格式化） |
+| `events` | `EventBus<BibliotypeEventMap>` | 事件总线（只读）；载入 / 分页 / 目录事件由此触发 |
 
 ## 导航
 

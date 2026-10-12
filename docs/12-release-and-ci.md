@@ -20,6 +20,9 @@ bibliotype/
 
 工具链：pnpm@9.15.0（`packageManager` 固定）+ turbo + Node ≥ 18。
 
+其他常用脚本：`pnpm dev`（全仓 watch 构建）/ `pnpm clean`（清理各包构建产物）/
+`pnpm changeset:status`（查看待发布变更概览）。
+
 ## 版本策略：日期版本
 
 版本号为 `YY.M.D`（数字段**不带前导零**，符合 semver）：

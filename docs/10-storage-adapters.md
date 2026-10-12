@@ -63,6 +63,9 @@ await storage.close();                          // 释放连接（之后可再�
 - `save` 以 `put` 整体覆盖，记录含冗余 `metadata`（列表页免解析全文）；
 - 非浏览器环境抛错提示——请使用 `MemoryAdapter` 或注入 `factory`。
 
+底层工具 `openDatabase` / `requestToPromise` / `transactionDone` 亦从本包导出，
+供**自定义适配器**实现复用；属内部工具，常规使用无需直接调用。
+
 ## 典型用法：编辑保存 + 书架列表
 
 ```ts

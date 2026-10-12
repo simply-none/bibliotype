@@ -26,13 +26,20 @@ interface LayoutOptions {
 import {
   PAGE_SIZES, createPageSize, resolveContentBox, mergeLayoutOptions,
   DEFAULT_LAYOUT_OPTIONS, isVerticalMode,
+  WRITING_MODES, TEXT_ORIENTATIONS,
 } from '@bibliotype/layout';
 
 const custom = createPageSize('大16开', 750, 1050);          // 自定义页面尺寸
 const box = resolveContentBox(PAGE_SIZES.A5, 48, 56);        // 扣除页边距后的内容区
 const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, { columns: 2 });
 isVerticalMode(options.writingMode);                          // 是否竖排
+WRITING_MODES.VERTICAL_RL;                                    // 书写方向常量：竖排右起
+TEXT_ORIENTATIONS.UPRIGHT;                                    // 直排字符方向常量：全部直立
 ```
+
+`WRITING_MODES` / `TEXT_ORIENTATIONS` 为书写方向与直排字符方向的取值常量集合
+（`horizontal-tb` / `vertical-rl` / `vertical-lr`；`mixed` / `upright` / `sideways`），
+配置 `writingMode` 等选项时使用，避免手写字符串。
 
 ## 直排数字 / 英文合并（D3）
 

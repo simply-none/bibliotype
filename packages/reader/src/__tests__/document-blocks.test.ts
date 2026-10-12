@@ -137,6 +137,57 @@ describe('extractBlocks', () => {
     expect(blocks[0]?.mainSize).toBeGreaterThan(0);
   });
 
+  it('版式文本容器规范化后整体成块（编辑保存形态：容器 + 段落）', () => {
+    const doc = createEmptyDocument({ title: '注文规范化' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        children: [
+          {
+            type: 'double-note',
+            id: 'note-1',
+            children: [
+              {
+                type: NODE_TYPES.PARAGRAPH,
+                children: [{ type: 'text', text: '朱子曰：学之为言效也。' }],
+              },
+            ],
+          },
+          {
+            type: NODE_TYPES.FOOTNOTE,
+            id: 'fn-1',
+            children: [
+              {
+                type: NODE_TYPES.PARAGRAPH,
+                children: [{ type: 'text', text: '注① 愠，怒也。' }],
+              },
+            ],
+          },
+          {
+            type: 'collation-note',
+            id: 'colla-1',
+            children: [
+              {
+                type: NODE_TYPES.PARAGRAPH,
+                children: [
+                  { type: 'text', text: '校勘记：' },
+                  { type: 'collation-mark', attrs: { symbol: '○' } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const blocks = extractBlocks(doc);
+    /* 容器整体成块：稳定 id 保留，内部无 id 段落不单独成块 */
+    expect(blocks.map((b) => b.id)).toEqual(['note-1', 'fn-1', 'colla-1']);
+    /* 度量按容器全文折算 */
+    expect(blocks[0]?.mainSize).toBeGreaterThan(0);
+  });
+
   it('结构页容器（封面/书名页/版权页/封底）首块 mark breakBefore', () => {
     const doc = createEmptyDocument({ title: '结构页' });
     const pageChild = (type: string, id: string) => ({

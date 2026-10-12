@@ -104,6 +104,17 @@ describe('buildBookCss', () => {
     expect(css).toMatch(/\.bt-double-note \{[^}]*display: block;/);
   });
 
+  it('版式文本容器内的段落（编辑保存规范形态）继承容器缩进，与直挂文本形态一致', () => {
+    const css = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      containerSelector: '.bt-reader-page',
+    });
+    expect(css).toContain('.bt-reader-page .bt-double-note .bt-paragraph,');
+    expect(css).toContain('.bt-reader-page .bt-footnote .bt-paragraph,');
+    expect(css).toMatch(/\n\.bt-reader-page \.bt-margin-note \.bt-paragraph \{\n  text-indent: inherit;\n\}/);
+  });
+
   it('专名号：横排标于字下、直排标于字左', () => {
     const horizontal = buildBookCss({
       tokens: DEFAULT_THEME,

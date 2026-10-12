@@ -6,6 +6,8 @@
  *   其首个叶块标记 breakBefore（另起页）；
  * - 叶块（纯文本容器，如段落/标题/注文）各自成块；
  *   含「行内载体」子元素的块不拆开（载体随父块整体渲染与度量）；
+ *   版式文本容器（注文/牌记/题记）无论子级形态恒整体成块（防
+ *   编辑保存的「容器 + 段落」规范化导致容器样式与稳定 id 丢失）；
  * - 标题块标记 keepWithNext（与下段同页）；
  * - 尺寸估算可插拔（默认按文本长度 × 每行字符数估算行数）。
  */
@@ -25,6 +27,34 @@ const STRUCTURE_TYPES: ReadonlySet<string> = new Set([
   NODE_TYPES.POSTSCRIPT,
   NODE_TYPES.APPENDIX,
   NODE_TYPES.TOC,
+]);
+
+/**
+ * 版式文本容器类型（渲染时必须整体成块）
+ *
+ * 这类容器的版式语义附着在容器自身（如双行注分栏小字、脚注注线、
+ * 校勘记出校边框、题记下缘线）：编辑保存链路会把容器内直挂文本规范
+ * 化为「容器 + 段落」（编辑器严格树），若仍按「含元素子节点即逐层
+ * 深入」处理，容器将退居中间层而不入块序列——容器样式随之丢失，
+ * 稳定 id 也退化为内部无 id 段落的路径 id。
+ * 故此处显式声明：无论子级是直挂文本还是段落，都整体成块（渲染与
+ * 导出时连容器 class 一并序列化）。结构容器（卷/章等）与列表 / 表格 /
+ * 引文等复合块仍走逐层深入策略。
+ *
+ * 古籍类型以 kebab-case 字符串表列（reader 不依赖 @bibliotype/classical）。
+ */
+const TEXT_CONTAINER_TYPES: ReadonlySet<string> = new Set([
+  /* core 注释 */
+  NODE_TYPES.FOOTNOTE,
+  NODE_TYPES.ENDNOTE,
+  NODE_TYPES.MARGIN_NOTE,
+  /* classical 注疏与版记 */
+  'double-note',
+  'head-note',
+  'tail-note',
+  'collation-note',
+  'imprint',
+  'colophon',
 ]);
 
 /** 尺寸估算上下文 */
@@ -77,14 +107,19 @@ interface PendingFlags {
 }
 
 /**
- * 叶块判定：无元素子节点；或含与元素子节点混排的文本
+ * 叶块判定：版式文本容器；无元素子节点；或含与元素子节点混排的文本
  *
  * 第二类对应「行内载体」场景（如段落文本中嵌校勘符号/避讳字载体）：
  * 拆开会丢失与载体混排的裸文本，故整块渲染与度量。
- * 纯元素容器（卷/章及各类块级容器）仍逐层深入。
+ * 第一类（注文 / 牌记 / 题记）恒整体成块：子级无论是直挂文本还是
+ * 编辑保存后规范化的段落，容器样式与稳定 id 都不能丢。
+ * 纯元素容器（卷/章等结构容器，及列表 / 表格 / 引文等复合块）仍逐层深入。
  * 与 extractBlocks 的分块规则保持一致（findNodeById / indexNodeAnchors 复用）。
  */
 export function isLeafBlock(node: BookNode): boolean {
+  if (TEXT_CONTAINER_TYPES.has(node.type)) {
+    return true;
+  }
   const children = node.children ?? [];
   const hasElement = children.some((child) => !isTextNode(child));
   return !hasElement || children.some(isTextNode);

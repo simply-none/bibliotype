@@ -195,6 +195,36 @@ describe('Reader 页节点解析', () => {
     reader.loadDocument(sampleDoc());
     expect(reader.getPageNodes(99)).toEqual([]);
   });
+
+  it('规范形态的版式文本容器整体渲染并可定位（编辑保存后注文样式回归）', () => {
+    const doc = createEmptyDocument({ title: '注文' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        children: [
+          {
+            type: 'double-note',
+            id: 'note-1',
+            children: [
+              {
+                type: NODE_TYPES.PARAGRAPH,
+                children: [{ type: 'text', text: '朱子曰' }],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const reader = new Reader();
+    reader.loadDocument(doc);
+
+    /* 页节点为容器本身（渲染端连 bt-double-note class 一并序列化） */
+    expect(reader.getPageNodes(0).map((node) => node.id)).toEqual(['note-1']);
+    /* 搜索命中容器 id；goToNode 可按 id 定位 */
+    expect(reader.search('朱子曰')[0]?.nodeId).toBe('note-1');
+    expect(reader.goToNode('note-1')).toBe(true);
+  });
 });
 
 describe('Reader 重排', () => {

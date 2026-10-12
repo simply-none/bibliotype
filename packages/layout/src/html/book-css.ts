@@ -268,6 +268,12 @@ ${scoped("[data-role='back-cover-line']")} {
  * 序列化器对无元素子节点的古典型容器（double-note / head-note /
  * collation-note / imprint / colophon）以 span 兜底，块级语义在此
  * 经 display: block 修正；行内载体（collation-mark / variant-char）保持行内。
+ * 编辑保存后容器内直挂文本会规范化为「容器 + 段落」，故另以规则让
+ * 容器内段落显式继承（text-indent 为继承属性）：直挂文本形态直接继承
+ * 根容器的计算值（如 2em@16px＝32px），而段落形态若走基础 .bt-paragraph
+ * 规则会按注文自身较小字号重算 em（2em@11.5px≈23px），故用 inherit
+ * 锁定容器继承链上的同一计算值，保证两种形态首行缩进与换行一致
+ * （reader 分块规则同步：见 @bibliotype/reader 的 TEXT_CONTAINER_TYPES）。
  */
 ${scoped('.bt-double-note')} {
   display: block;
@@ -315,6 +321,17 @@ ${scoped('.bt-colophon')} {
   text-align: center;
   letter-spacing: 0.05em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+${scoped('.bt-double-note .bt-paragraph')},
+${scoped('.bt-head-note .bt-paragraph')},
+${scoped('.bt-tail-note .bt-paragraph')},
+${scoped('.bt-collation-note .bt-paragraph')},
+${scoped('.bt-imprint .bt-paragraph')},
+${scoped('.bt-colophon .bt-paragraph')},
+${scoped('.bt-footnote .bt-paragraph')},
+${scoped('.bt-endnote .bt-paragraph')},
+${scoped('.bt-margin-note .bt-paragraph')} {
+  text-indent: inherit;
 }
 ${scoped('.bt-collation-mark')} {
   margin-inline: 0.15em;

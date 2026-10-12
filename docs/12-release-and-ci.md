@@ -74,6 +74,15 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 `fixed` 组包含全部 10 个公开包（与版本列车对齐）；`access: public`；
 `baseBranch: master`；`privatePackages.version/tag: false`（apps/demo 不参与）。
 
+### 发版后检查清单
+
+- **同步 `VERSION` 常量**：`packages/core/src/version.ts` 的 `VERSION` 为手写常量
+  （供 `import { VERSION } from '@bibliotype/core'` 对外暴露），`version.mjs` **只改写
+  各包 `package.json` 与 CHANGELOG，不会更新它**——发版后需手动改为与日期版本一致
+  （后续可考虑让 `version.mjs` 自动写入该常量）；
+- 抽查任一包的 `package.json` 与 `CHANGELOG.md`，确认新版本号与变更说明已落盘；
+- 确认已消费的 `.changeset/*.md` 已被删除（`git status` 中仅剩版本与 CHANGELOG 改动）。
+
 ## CI
 
 ### GitHub Actions（主）
@@ -117,6 +126,7 @@ MR 运行；`release` 阶段为 manual job（同样经 `version.mjs` + `pnpm -r 
 | 想先看版本计划 | `pnpm exec node scripts/version.mjs --dry-run`（不写文件） |
 | 正式版与 rc 的标签 | rc 发 `--tag rc`，正式发 `--tag latest`（`release:rc` / `release` 已内置） |
 | 发布前自查 | `pnpm release:check`（构建 + publish --dry-run 全量预检） |
+| 发版后 `VERSION` 常量与实际版本不一致 | `version.mjs` 不同步该常量——手动改 `packages/core/src/version.ts` 的 `VERSION`（见「发版后检查清单」） |
 
 ## 相关
 

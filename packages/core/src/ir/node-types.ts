@@ -1,0 +1,102 @@
+/**
+ * 语义节点类型常量（Modern Book 部分）
+ *
+ * 命名约定：全部小写、kebab-case，作为 IR 节点的 `type` 值。
+ * 古籍专有节点（双行小注、校勘等）由 @bibliotype/classical 扩展注册，不在此定义。
+ */
+export const NODE_TYPES = {
+  /** 书籍根节点（唯一根） */
+  BOOK: 'book',
+
+  /* ---------- 结构节点 ---------- */
+
+  /** 卷 */
+  VOLUME: 'volume',
+  /** 章 */
+  CHAPTER: 'chapter',
+  /** 节 */
+  SECTION: 'section',
+  /** 附录 */
+  APPENDIX: 'appendix',
+  /** 前言 / 序 */
+  PREFACE: 'preface',
+  /** 后记 / 跋 */
+  POSTSCRIPT: 'postscript',
+  /** 目录 */
+  TOC: 'toc',
+
+  /* ---------- 块级内容节点 ---------- */
+
+  /** 正文段落 */
+  PARAGRAPH: 'paragraph',
+  /** 标题（级别由 attrs.level 描述，1~6） */
+  HEADING: 'heading',
+  /** 引文块 */
+  QUOTE: 'quote',
+  /** 列表 */
+  LIST: 'list',
+  /** 列表项 */
+  LIST_ITEM: 'list-item',
+  /** 图片 */
+  IMAGE: 'image',
+  /** 图注 / 图版说明 */
+  CAPTION: 'caption',
+  /** 表格 */
+  TABLE: 'table',
+  /** 表格行 */
+  TABLE_ROW: 'table-row',
+  /** 表格单元格 */
+  TABLE_CELL: 'table-cell',
+  /** 代码块 */
+  CODE_BLOCK: 'code-block',
+  /** 公式块（MathML / KaTeX 源码存于 attrs） */
+  MATH_BLOCK: 'math-block',
+  /** 分隔线 / 分节符 */
+  BREAK: 'break',
+
+  /* ---------- 注释节点 ---------- */
+
+  /** 脚注 */
+  FOOTNOTE: 'footnote',
+  /** 尾注 */
+  ENDNOTE: 'endnote',
+  /** 边注 */
+  MARGIN_NOTE: 'margin-note',
+
+  /* ---------- 行内节点 ---------- */
+
+  /** 行内文本载体 */
+  TEXT: 'text',
+  /** 行内公式 */
+  MATH_INLINE: 'math-inline',
+} as const;
+
+/** 节点类型联合（由 NODE_TYPES 推导） */
+export type CoreNodeType = (typeof NODE_TYPES)[keyof typeof NODE_TYPES];
+
+/**
+ * 语义标记类型常量（行内）
+ *
+ * 与节点不同：标记不构成树结构，仅附加于文本区间之上。
+ */
+export const MARK_TYPES = {
+  /** 强调（斜体） */
+  EMPHASIS: 'emphasis',
+  /** 着重（粗体） */
+  STRONG: 'strong',
+  /** 下划线 */
+  UNDERLINE: 'underline',
+  /** 删除线 */
+  STRIKETHROUGH: 'strikethrough',
+  /** 行内代码 */
+  CODE: 'code',
+  /** 超链接 */
+  LINK: 'link',
+  /** 注音（ruby，attrs 携带注文） */
+  RUBY: 'ruby',
+  /** 高亮 */
+  HIGHLIGHT: 'highlight',
+} as const;
+
+/** 标记类型联合（由 MARK_TYPES 推导） */
+export type CoreMarkType = (typeof MARK_TYPES)[keyof typeof MARK_TYPES];

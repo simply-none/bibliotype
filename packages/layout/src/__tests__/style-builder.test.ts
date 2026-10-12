@@ -1,0 +1,90 @@
+/**
+ * 样式构建器测试
+ */
+import { describe, expect, it } from 'vitest';
+import { DEFAULT_THEME } from '@bibliotype/core';
+import {
+  CLASSICAL_LAYOUT_OPTIONS,
+  DEFAULT_LAYOUT_OPTIONS,
+} from '../layout-options.js';
+import { PAGE_SIZES } from '../page-size.js';
+import {
+  buildCssVariables,
+  buildPageStyle,
+  buildRootStyle,
+} from '../style-builder.js';
+
+describe('buildRootStyle', () => {
+  it('横排：产出字体/颜色/书写方向，不含字符合并声明', () => {
+    const style = buildRootStyle({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+    });
+    expect(style['font-family']).toContain('Noto Serif SC');
+    expect(style['color']).toBe('#2c2c2c');
+    expect(style['background-color']).toBe('#faf8f4');
+    expect(style['writing-mode']).toBe('horizontal-tb');
+    expect(style['text-combine-upright']).toBeUndefined();
+    expect(style['column-count']).toBeUndefined();
+  });
+
+  it('直排：产出 text-orientation 与数字合并声明（D3）', () => {
+    const style = buildRootStyle({
+      tokens: { ...DEFAULT_THEME, 'text-orientation': 'mixed' },
+      options: CLASSICAL_LAYOUT_OPTIONS,
+      fontToken: 'font-family-classical-body',
+    });
+    expect(style['writing-mode']).toBe('vertical-rl');
+    expect(style['text-orientation']).toBe('mixed');
+    expect(style['text-combine-upright']).toBe('digits 4');
+    expect(style['font-family']).toContain('Source Han Serif SC');
+  });
+
+  it('多栏：产出 column-count 与 column-gap', () => {
+    const style = buildRootStyle({
+      tokens: DEFAULT_THEME,
+      options: { ...DEFAULT_LAYOUT_OPTIONS, columns: 2 },
+    });
+    expect(style['column-count']).toBe('2');
+    expect(style['column-gap']).toBe('2.5em');
+  });
+
+  it('禁用数字合并时不产出 text-combine-upright', () => {
+    const style = buildRootStyle({
+      tokens: DEFAULT_THEME,
+      options: {
+        ...CLASSICAL_LAYOUT_OPTIONS,
+        combineUpright: { maxDigits: 0, latinStrategy: 'rotate' },
+      },
+    });
+    expect(style['text-combine-upright']).toBeUndefined();
+  });
+});
+
+describe('buildPageStyle', () => {
+  it('页面尺寸与内边距', () => {
+    const style = buildPageStyle(PAGE_SIZES.A5, DEFAULT_THEME);
+    expect(style['width']).toBe('559px');
+    expect(style['height']).toBe('794px');
+    expect(style['padding']).toBe('48px 56px');
+    expect(style['overflow']).toBe('hidden');
+  });
+
+  it('缺失页边距令牌时省略 padding', () => {
+    const style = buildPageStyle(PAGE_SIZES.A4, {});
+    expect(style['padding']).toBeUndefined();
+  });
+});
+
+describe('buildCssVariables', () => {
+  it('令牌键映射为 --bt-* 变量', () => {
+    const vars = buildCssVariables({ 'font-family-body': 'serif', 'color-text': '#000' });
+    expect(vars['--bt-font-family-body']).toBe('serif');
+    expect(vars['--bt-color-text']).toBe('#000');
+  });
+
+  it('忽略空值与 undefined', () => {
+    const vars = buildCssVariables({ a: '', b: undefined, c: 'ok' });
+    expect(vars).toEqual({ '--bt-c': 'ok' });
+  });
+});

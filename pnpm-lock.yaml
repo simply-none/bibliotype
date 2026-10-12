@@ -23,6 +23,9 @@ importers:
       '@bibliotype/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@bibliotype/editor':
+        specifier: workspace:*
+        version: link:../../packages/editor
       '@bibliotype/exporter-epub':
         specifier: workspace:*
         version: link:../../packages/exporter-epub
@@ -85,6 +88,9 @@ importers:
       prosemirror-model:
         specifier: ^1.23.0
         version: 1.25.12
+      prosemirror-state:
+        specifier: ^1.4.3
+        version: 1.4.4
     devDependencies:
       tsup:
         specifier: ^8.3.0
@@ -132,9 +138,21 @@ importers:
       '@bibliotype/core':
         specifier: workspace:*
         version: link:../core
+      prosemirror-commands:
+        specifier: ^1.6.0
+        version: 1.7.2
+      prosemirror-history:
+        specifier: ^1.4.0
+        version: 1.5.1
+      prosemirror-keymap:
+        specifier: ^1.2.0
+        version: 1.2.3
       prosemirror-model:
         specifier: ^1.23.0
         version: 1.25.12
+      prosemirror-schema-list:
+        specifier: ^1.4.0
+        version: 1.5.1
       prosemirror-state:
         specifier: ^1.4.3
         version: 1.4.4
@@ -236,12 +254,24 @@ importers:
       '@bibliotype/core':
         specifier: workspace:*
         version: link:../core
+      '@bibliotype/editor':
+        specifier: workspace:*
+        version: link:../editor
       '@bibliotype/layout':
         specifier: workspace:*
         version: link:../layout
       '@bibliotype/reader':
         specifier: workspace:*
         version: link:../reader
+      prosemirror-model:
+        specifier: ^1.23.0
+        version: 1.25.12
+      prosemirror-state:
+        specifier: ^1.4.3
+        version: 1.4.4
+      prosemirror-view:
+        specifier: ^1.34.0
+        version: 1.42.6
     devDependencies:
       '@vitejs/plugin-vue':
         specifier: ^5.2.0
@@ -1357,8 +1387,20 @@ packages:
     resolution: {integrity: sha512-49cGhUbXj8Qenv0iTMxA1cFBzxXoctpC9Ujd77t1WcbJIr6nF/eI7g/8MgxrYldFRuAXvja7xQRwavoW7kgrxQ==}
     engines: {node: ^10 || ^12 || >=14}
 
+  prosemirror-commands@1.7.2:
+    resolution: {integrity: sha512-q6Q6szxqdu9Xd6EcdKsqXghu5nQdZTpB4Q9yd04WRc7/jt763e/rT60Owh0L1GYY+T46o5rD+9lEN36dZS43tw==}
+
+  prosemirror-history@1.5.1:
+    resolution: {integrity: sha512-onlwnqKvgtFg6srZOmDOAhlAy1FIHQpOExORybX0S+DvJepE5tPALrB9iGet/2sqqqrelSnB10OoiOJqAvu2DA==}
+
+  prosemirror-keymap@1.2.3:
+    resolution: {integrity: sha512-4HucRlpiLd1IPQQXNqeo81BGtkY8Ai5smHhKW9jjPKRc2wQIxksg7Hl1tTI2IfT2B/LgX6bfYvXxEpJl7aKYKw==}
+
   prosemirror-model@1.25.12:
     resolution: {integrity: sha512-Ue2gTmXMa7EhpLNhC7J+h4+ykD8ha12K6rrZFFKKJHBForfIStw5gJ6Zrf1mqqAa9NmpmEB4wp9bKmA4eUVjWg==}
+
+  prosemirror-schema-list@1.5.1:
+    resolution: {integrity: sha512-927lFx/uwyQaGwJxLWCZRkjXG0p48KpMj6ueoYiu4JX05GGuGcgzAy62dfiV8eFZftgyBUvLx76RsMe20fJl+Q==}
 
   prosemirror-state@1.4.4:
     resolution: {integrity: sha512-6jiYHH2CIGbCfnxdHbXZ12gySFY/fz/ulZE333G6bPqIZ4F+TXo9ifiR86nAHpWnfoNjOb3o5ESi7J8Uz1jXHw==}
@@ -1396,6 +1438,9 @@ packages:
     resolution: {integrity: sha512-EAP5ZHcz2ijbgCWwPkpI7zh6bfsri2Ez5FtCy2dCp1k62duXzfG7DLGGh7RU2QQXWwavT+u4qpvDF/TWOiiGTw==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
+
+  rope-sequence@1.3.4:
+    resolution: {integrity: sha512-UT5EDe2cu2E/6O4igUr5PSFs23nvvukicWHx6GnOPlHAiiYbzNuCRQCuiUdHJQcqKalLKlrYJnjY0ySGsXNQXQ==}
 
   semver@7.7.4:
     resolution: {integrity: sha512-vFKC2IEtQnVhpT78h1Yp8wzwrf8CM+MzKMHGJZfBtzhZNycRFnXsHk6E5TxIkkMsgNS7mdX3AGB7x2QM2di4lA==}
@@ -1608,6 +1653,9 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
+
+  w3c-keyname@2.2.8:
+    resolution: {integrity: sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ==}
 
   webidl-conversions@7.0.0:
     resolution: {integrity: sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g==}
@@ -2518,9 +2566,33 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
+  prosemirror-commands@1.7.2:
+    dependencies:
+      prosemirror-model: 1.25.12
+      prosemirror-state: 1.4.4
+      prosemirror-transform: 1.12.2
+
+  prosemirror-history@1.5.1:
+    dependencies:
+      prosemirror-state: 1.4.4
+      prosemirror-transform: 1.12.2
+      prosemirror-view: 1.42.6
+      rope-sequence: 1.3.4
+
+  prosemirror-keymap@1.2.3:
+    dependencies:
+      prosemirror-state: 1.4.4
+      w3c-keyname: 2.2.8
+
   prosemirror-model@1.25.12:
     dependencies:
       orderedmap: 2.1.1
+
+  prosemirror-schema-list@1.5.1:
+    dependencies:
+      prosemirror-model: 1.25.12
+      prosemirror-state: 1.4.4
+      prosemirror-transform: 1.12.2
 
   prosemirror-state@1.4.4:
     dependencies:
@@ -2586,6 +2658,8 @@ snapshots:
       '@rollup/rollup-win32-x64-gnu': 4.64.5
       '@rollup/rollup-win32-x64-msvc': 4.64.5
       fsevents: 2.3.3
+
+  rope-sequence@1.3.4: {}
 
   semver@7.7.4: {}
 
@@ -2793,6 +2867,8 @@ snapshots:
       '@vue/shared': 3.5.43
     optionalDependencies:
       typescript: 5.9.3
+
+  w3c-keyname@2.2.8: {}
 
   webidl-conversions@7.0.0: {}
 

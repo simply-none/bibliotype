@@ -12,3 +12,13 @@ export {
   registerClassicalEditorSpecs,
   buildClassicalEditorSchema,
 } from './editor-registration.js';
+export {
+  toggleProperName,
+  toggleBookTitle,
+  toggleCircleEmphasis,
+  toggleVariant,
+  insertDoubleNote,
+  insertHeadNote,
+  insertCollationNote,
+  insertCollationSymbol,
+} from './editor-commands.js';

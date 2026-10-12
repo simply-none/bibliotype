@@ -13,6 +13,7 @@
   "dependencies": {
     "@bibliotype/classical": "workspace:*",
     "@bibliotype/core": "workspace:*",
+    "@bibliotype/editor": "workspace:*",
     "@bibliotype/exporter-epub": "workspace:*",
     "@bibliotype/exporter-pdf": "workspace:*",
     "@bibliotype/layout": "workspace:*",

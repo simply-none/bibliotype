@@ -8,5 +8,5 @@ export default defineConfig({
   clean: true,
   treeshake: true,
   target: 'es2020',
-  external: ['@bibliotype/core', '@bibliotype/editor', 'prosemirror-model'],
+  external: ['@bibliotype/core', '@bibliotype/editor', 'prosemirror-model', 'prosemirror-state'],
 });

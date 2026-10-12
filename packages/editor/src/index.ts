@@ -38,3 +38,20 @@ export { pmNodeToIr } from './pm-to-ir.js';
 /* ---------- 编辑器门面 ---------- */
 export { BookEditor } from './editor.js';
 export type { BookEditorOptions, BookEditorChangeHandler } from './editor.js';
+
+/* ---------- 编辑命令 ---------- */
+export {
+  redoCommand,
+  redoDepth,
+  undoCommand,
+  undoDepth,
+  toggleMarkOfType,
+  setHeadingLevel,
+  setParagraph,
+  toggleQuote,
+  toggleBulletList,
+  insertBlockAfterSelection,
+} from './commands.js';
+
+/* ---------- 插件与键位 ---------- */
+export { createBookEditorKeymap, createBookEditorPlugins } from './plugins.js';

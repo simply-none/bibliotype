@@ -7,7 +7,7 @@
  */
 import { createEmptyDocument, type BookDocument, type BookMetadata } from '@bibliotype/core';
 import type { Schema } from 'prosemirror-model';
-import { EditorState, type Transaction } from 'prosemirror-state';
+import { EditorState, type Plugin, type Transaction } from 'prosemirror-state';
 import { createDefaultEditorSchemaRegistry } from './default-schema.js';
 import { irNodeToPm } from './ir-to-pm.js';
 import { pmNodeToIr } from './pm-to-ir.js';
@@ -21,6 +21,8 @@ export interface BookEditorOptions {
   registry?: EditorSchemaRegistry;
   /** 初始文档（缺省为空文档） */
   document?: BookDocument;
+  /** 编辑插件（history / keymap 等，由 createBookEditorPlugins 生成） */
+  plugins?: readonly Plugin[];
 }
 
 /** 文档变更处理器 */
@@ -29,6 +31,7 @@ export type BookEditorChangeHandler = (document: BookDocument) => void;
 /** 书籍编辑器 */
 export class BookEditor {
   private readonly schema: Schema;
+  private readonly plugins: readonly Plugin[];
   private state: EditorState;
   private metadata: BookMetadata;
   private schemaVersion: string;
@@ -41,7 +44,11 @@ export class BookEditor {
     const initial = options.document ?? createEmptyDocument({ title: '' });
     this.metadata = initial.metadata;
     this.schemaVersion = initial.schemaVersion;
-    this.state = EditorState.create({ doc: irNodeToPm(initial.root, this.schema) });
+    this.plugins = options.plugins ?? [];
+    this.state = EditorState.create({
+      doc: irNodeToPm(initial.root, this.schema),
+      plugins: [...this.plugins],
+    });
   }
 
   /** 当前 ProseMirror 编辑状态（视图层消费） */
@@ -58,7 +65,10 @@ export class BookEditor {
   loadDocument(document: BookDocument): void {
     this.metadata = document.metadata;
     this.schemaVersion = document.schemaVersion;
-    this.state = EditorState.create({ doc: irNodeToPm(document.root, this.schema) });
+    this.state = EditorState.create({
+      doc: irNodeToPm(document.root, this.schema),
+      plugins: [...this.plugins],
+    });
     this.emitChange();
   }
 

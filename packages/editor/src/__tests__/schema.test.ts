@@ -38,6 +38,17 @@ describe('默认 schema', () => {
     const paragraph = schema.node('paragraph', null, [schema.text('公式 '), formula]);
     expect(paragraph.childCount).toBe(2);
   });
+
+  it('未提供 toDOM / parseDOM 的规格获得默认 DOM 表现（bt- 类名约定）', () => {
+    const schema = buildEditorSchema();
+    const paragraph = schema.nodes[NODE_TYPES.PARAGRAPH];
+    expect(paragraph?.spec.toDOM).toBeDefined();
+    expect(paragraph?.spec.parseDOM?.[0]?.tag).toBe('div.bt-paragraph');
+
+    const strong = schema.marks[MARK_TYPES.STRONG];
+    expect(strong?.spec.toDOM).toBeDefined();
+    expect(strong?.spec.parseDOM?.[0]?.tag).toBe('span.bt-strong');
+  });
 });
 
 describe('EditorSchemaRegistry', () => {

@@ -28,8 +28,12 @@
   },
   "dependencies": {
     "@bibliotype/core": "workspace:*",
+    "@bibliotype/editor": "workspace:*",
     "@bibliotype/layout": "workspace:*",
-    "@bibliotype/reader": "workspace:*"
+    "@bibliotype/reader": "workspace:*",
+    "prosemirror-model": "^1.23.0",
+    "prosemirror-state": "^1.4.3",
+    "prosemirror-view": "^1.34.0"
   },
   "peerDependencies": {
     "vue": "^3.4.0"

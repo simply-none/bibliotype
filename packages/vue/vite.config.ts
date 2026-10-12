@@ -24,9 +24,9 @@ export default defineConfig({
       formats: ['es', 'cjs'],
       fileName: (format) => (format === 'es' ? 'index.js' : 'index.cjs'),
     },
-    /* workspace 包与 vue 由使用方解析，不打入产物 */
+    /* workspace 包、vue 与 prosemirror 由使用方解析，不打入产物 */
     rollupOptions: {
-      external: ['vue', /^@bibliotype\//],
+      external: ['vue', /^@bibliotype\//, /^prosemirror-/],
     },
     sourcemap: true,
     target: 'es2020',

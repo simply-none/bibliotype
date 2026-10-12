@@ -8,5 +8,13 @@ export default defineConfig({
   clean: true,
   treeshake: true,
   target: 'es2020',
-  external: ['@bibliotype/core', 'prosemirror-model', 'prosemirror-state'],
+  external: [
+    '@bibliotype/core',
+    'prosemirror-commands',
+    'prosemirror-history',
+    'prosemirror-keymap',
+    'prosemirror-model',
+    'prosemirror-schema-list',
+    'prosemirror-state',
+  ],
 });

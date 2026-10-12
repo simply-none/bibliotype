@@ -6,7 +6,7 @@
  * 卸载时按命名空间注销，保证未安装插件时 editor 独立可用。
  */
 import { NODE_TYPES } from '@bibliotype/core';
-import { Schema, type MarkSpec, type NodeSpec } from 'prosemirror-model';
+import { Schema, type DOMOutputSpec, type MarkSpec, type NodeSpec } from 'prosemirror-model';
 
 /** 编辑器节点规格条目 */
 export interface EditorNodeSpecEntry {
@@ -33,6 +33,42 @@ export const DEFAULT_EDITOR_NAMESPACE = 'core';
 
 /** 默认根节点类型（IR 的 book 根） */
 export const DEFAULT_EDITOR_TOP_NODE: string = NODE_TYPES.BOOK;
+
+/** 默认 DOM 表现的类名前缀（与书册样式 bt- 约定一致） */
+const DEFAULT_DOM_CLASS_PREFIX = 'bt-';
+
+/** 为缺省 toDOM / parseDOM 的节点规格生成默认 DOM 表现（解锁视图渲染） */
+function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
+  // text 节点由 ProseMirror 直接渲染为文本，无需 DOM 表现
+  if (type === NODE_TYPES.TEXT) {
+    return spec;
+  }
+  const next: NodeSpec = { ...spec };
+  const className = `${DEFAULT_DOM_CLASS_PREFIX}${type}`;
+  const tag = spec.inline === true || spec.group === 'inline' ? 'span' : 'div';
+  if (next.toDOM === undefined || next.toDOM === null) {
+    const hasContent = typeof spec.content === 'string' && spec.content.length > 0;
+    next.toDOM = (): DOMOutputSpec =>
+      hasContent ? [tag, { class: className }, 0] : [tag, { class: className }];
+  }
+  if (next.parseDOM === undefined || next.parseDOM === null) {
+    next.parseDOM = [{ tag: `${tag}.${className}` }];
+  }
+  return next;
+}
+
+/** 为缺省 toDOM / parseDOM 的标记规格生成默认 DOM 表现 */
+function withDefaultMarkDom(type: string, spec: MarkSpec): MarkSpec {
+  const next: MarkSpec = { ...spec };
+  const className = `${DEFAULT_DOM_CLASS_PREFIX}${type}`;
+  if (next.toDOM === undefined || next.toDOM === null) {
+    next.toDOM = (): DOMOutputSpec => ['span', { class: className }, 0];
+  }
+  if (next.parseDOM === undefined || next.parseDOM === null) {
+    next.parseDOM = [{ tag: `span.${className}` }];
+  }
+  return next;
+}
 
 /** 规格注册冲突错误 */
 export class EditorSpecConflictError extends Error {
@@ -175,11 +211,11 @@ export class EditorSchemaRegistry {
 
     const nodes: Record<string, NodeSpec> = {};
     for (const [type, entry] of this.nodes) {
-      nodes[type] = entry.spec;
+      nodes[type] = withDefaultNodeDom(type, entry.spec);
     }
     const marks: Record<string, MarkSpec> = {};
     for (const [type, entry] of this.marks) {
-      marks[type] = entry.spec;
+      marks[type] = withDefaultMarkDom(type, entry.spec);
     }
 
     return new Schema({ topNode, nodes, marks });

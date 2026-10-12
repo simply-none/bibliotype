@@ -19,19 +19,23 @@ import {
   FONT_SIZE_TOKENS,
   FONT_TOKENS,
   LAYOUT_TOKENS,
+  type BookDocument,
 } from '@bibliotype/core';
 import { CLASSICAL_THEME_OVERRIDES } from '@bibliotype/classical';
+import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
+import { BookEditor, createBookEditorPlugins } from '@bibliotype/editor';
 import {
   CLASSICAL_LAYOUT_OPTIONS,
   DEFAULT_LAYOUT_OPTIONS,
   type LayoutOptions,
 } from '@bibliotype/layout';
 import { Reader, type BlockMeasureContext } from '@bibliotype/reader';
-import { BtBookView, BtPager, BtToc } from '@bibliotype/vue';
+import { BtBookView, BtEditor, BtPager, BtToc } from '@bibliotype/vue';
 import { exportEpub } from '@bibliotype/exporter-epub';
 import { printBook } from '@bibliotype/exporter-pdf';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import BookmarkPanel from './components/BookmarkPanel.vue';
+import EditorToolbar from './components/EditorToolbar.vue';
 import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import { lunyuDocument } from './data/lunyu.js';
@@ -143,10 +147,10 @@ function typographyMeasure(): Partial<BlockMeasureContext> {
   };
 }
 
-/** 创建已载入样例的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
-function createReader(key: ThemeKey): Reader {
+/** 创建已载入文档的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
+function createReader(key: ThemeKey, document: BookDocument = lunyuDocument): Reader {
   const reader = new Reader({ layout: THEMES[key].layout, measure: typographyMeasure() });
-  reader.loadDocument(lunyuDocument);
+  reader.loadDocument(document);
   return reader;
 }
 
@@ -159,9 +163,53 @@ watch([fontSize, lineHeight], () => {
 
 function switchTheme(key: ThemeKey): void {
   if (key === themeKey.value) return;
+  /* 以当前阅读文档重建 Reader（保留已保存的编辑内容），仅换布局 */
+  const current = reader.value.document ?? lunyuDocument;
   themeKey.value = key;
-  /* 重建 Reader 验证重排链路；组件以 themeKey 为 key 随之重建 */
-  reader.value = createReader(key);
+  reader.value = createReader(key, current);
+}
+
+/* ---------------- 编辑模式（编辑 → 回写预览） ---------------- */
+
+/** 当前界面模式：阅读 / 编辑 */
+const mode = ref<'read' | 'edit'>('read');
+
+/** 编辑器实例（首次进入编辑模式时惰性创建，之后复用） */
+const bookEditor = shallowRef<BookEditor | null>(null);
+
+/** 进入编辑模式：以当前阅读文档 + 古籍 schema 创建编辑器（惰性） */
+function enterEdit(): void {
+  if (bookEditor.value === null) {
+    const schema = buildClassicalEditorSchema();
+    bookEditor.value = new BookEditor({
+      schema,
+      document: reader.value.document ?? lunyuDocument,
+      plugins: createBookEditorPlugins(schema),
+    });
+  }
+  mode.value = 'edit';
+}
+
+/** 保存并预览：编辑产物回写 Reader（全链路重排，页码重算）并返回阅读 */
+function saveAndPreview(): void {
+  const editor = bookEditor.value;
+  if (editor === null) return;
+  reader.value.loadDocument(editor.getDocument());
+  mode.value = 'read';
+}
+
+/** 还原样册：编辑器内容重置为原始样例 */
+function resetSample(): void {
+  bookEditor.value?.loadDocument(lunyuDocument);
+}
+
+/** 主工具栏「编辑 / 保存并预览」双向切换 */
+function toggleEditMode(): void {
+  if (mode.value === 'read') {
+    enterEdit();
+  } else {
+    saveAndPreview();
+  }
 }
 
 /* ---------------- 导出 / 打印 ---------------- */
@@ -176,17 +224,23 @@ function download(filename: string, blob: Blob): void {
   URL.revokeObjectURL(url);
 }
 
-/** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得） */
+/** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得；含已保存的编辑内容） */
 function onExportEpub(): void {
   const { layout, fontToken } = theme.value;
-  const bytes = exportEpub(lunyuDocument, { layout, tokens: tokens.value, fontToken });
+  const book = reader.value.document ?? lunyuDocument;
+  const bytes = exportEpub(book, { layout, tokens: tokens.value, fontToken });
   download('论语.epub', new Blob([new Uint8Array(bytes)], { type: 'application/epub+zip' }));
 }
 
-/** 打印 / 另存 PDF（paged 预分页，与屏幕分页一致） */
+/** 打印 / 另存 PDF（paged 预分页，与屏幕分页一致；含已保存的编辑内容） */
 function onPrintPdf(): void {
   const { layout, fontToken } = theme.value;
-  printBook(lunyuDocument, { layout, tokens: tokens.value, fontToken, mode: 'paged' });
+  printBook(reader.value.document ?? lunyuDocument, {
+    layout,
+    tokens: tokens.value,
+    fontToken,
+    mode: 'paged',
+  });
 }
 
 /* ---------------- 面板与键盘 ---------------- */
@@ -205,6 +259,8 @@ function onKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') infoOpen.value = false;
     return;
   }
+  /* 编辑模式：← / → 交由编辑器移动光标，不翻页 */
+  if (mode.value === 'edit') return;
   if (event.key === 'ArrowLeft') {
     reader.value.prevPage();
   } else if (event.key === 'ArrowRight') {
@@ -225,7 +281,13 @@ onBeforeUnmount(() => {
     <header class="toolbar">
       <div class="toolbar__title">
         <strong>论语集解</strong>
-        <span class="toolbar__hint">bibliotype 阅读 Demo · ←/→ 翻页</span>
+        <span class="toolbar__hint">
+          {{
+            mode === 'edit'
+              ? '编辑模式 · 保存后回到阅读（页码重算）'
+              : 'bibliotype 阅读 Demo · ←/→ 翻页'
+          }}
+        </span>
       </div>
       <div class="toolbar__actions">
         <div class="toolbar__group">
@@ -238,6 +300,16 @@ onBeforeUnmount(() => {
             @click="switchTheme(entry.key)"
           >
             {{ entry.config.label }}
+          </button>
+        </div>
+        <div class="toolbar__group">
+          <button
+            type="button"
+            class="toolbar__button"
+            :class="{ 'toolbar__button--active': mode === 'edit' }"
+            @click="toggleEditMode"
+          >
+            {{ mode === 'edit' ? '保存并预览' : '编辑' }}
           </button>
         </div>
         <div class="toolbar__group">
@@ -330,13 +402,19 @@ onBeforeUnmount(() => {
       <main class="app__main">
         <div class="app__stage">
           <BtBookView
+            v-if="mode === 'read'"
             :key="themeKey"
             :reader="reader"
             :tokens="tokens"
             :font-token="theme.fontToken"
           />
+          <BtEditor v-else-if="bookEditor" class="app__editor" :editor="bookEditor">
+            <template #default="slotProps">
+              <EditorToolbar :binding="slotProps" @reset="resetSample" />
+            </template>
+          </BtEditor>
         </div>
-        <footer class="app__footer">
+        <footer v-if="mode === 'read'" class="app__footer">
           <ProgressBar :key="themeKey" :reader="reader" />
           <BtPager :key="themeKey" :reader="reader" />
         </footer>
@@ -379,6 +457,10 @@ onBeforeUnmount(() => {
   --demo-control: #262421;
   --demo-control-border: #3d3a35;
   --demo-accent: #c99a5b;
+
+  /* 编辑画布纸面（BtEditor 消费的 CSS 变量） */
+  --bt-editor-paper: #24231f;
+  --bt-editor-ink: #cfcac2;
 }
 
 /* ---------- 工具栏 ---------- */
@@ -497,6 +579,10 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   padding: 20px;
+}
+
+.app__editor {
+  height: 100%;
 }
 
 .app__footer {

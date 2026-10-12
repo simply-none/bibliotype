@@ -15,6 +15,8 @@ BookDocument ──irNodeToPm──▶ ProseMirror Doc ──EditorState + 插�
 
 ## 规格注册（D8）
 
+> （D8）为立项决策编号，索引见 [README 术语与决策索引](README.md#术语与决策索引)。
+
 编辑节点 / 标记必须先在**编辑规格注册表**登记，才能进入 schema：
 
 ```ts

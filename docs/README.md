@@ -58,3 +58,22 @@ BookDocument（IR）
    └─阅读：extractBlocks → 分块 → paginate → 分页 → serializeNode → HTML 渲染
                                     （导出器复用同一序列化）
 ```
+
+## 术语与决策索引
+
+文档中的「（D3）」「（D8）」等编号为立项决策日志（D1–D9），完整记录见根目录
+[`调研方案清单.md`](../调研方案清单.md) 的「零、已确认决策」；当前 D3 在
+[05 版式与 HTML](05-layout-and-html.md)、D8 在 [02 编辑器与插件](02-editor-and-plugins.md)
+中以编号形式引用。
+
+| 编号 | 决策摘要 |
+| --- | --- |
+| D1 | 包含编辑器，编辑器为核心模块之一 |
+| D2 | 首要目标用户：学术机构 + 普通读者（双客群并行） |
+| D3 | 不需要多语言（主体中文，含繁简），允许中英文数字混排 |
+| D4 | 不规划配套后端，存储方式保持中立 |
+| D5 | 包结构采用 monorepo 多包（插件包组） |
+| D6 | 需要协同校勘，IR CRDT 化，选型 Yjs |
+| D7 | 不单独提供编辑器桌面端封装（Electron 与 Web 一致，经 npm 引入） |
+| D8 | 古籍专有节点定义放 classical，editor 仅提供注册 API |
+| D9 | 本地存储主要面向 Electron（SQLite）；Web 默认 IndexedDB，删除 File System Access 适配器 |

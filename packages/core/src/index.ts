@@ -58,3 +58,11 @@ export { createThemeAccessor } from './theme/theme-accessor.js';
 /* ---------- 核心实例 ---------- */
 export type { BibliotypeInstance, CoreInstanceOptions } from './instance.js';
 export { createBibliotype } from './instance.js';
+
+/* ---------- 存储契约（Port） ---------- */
+export type {
+  StorageAdapter,
+  StoredDocument,
+  DocumentSummary,
+  SaveOptions,
+} from './storage/types.js';

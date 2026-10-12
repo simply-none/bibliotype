@@ -15,6 +15,25 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
+  packages/adapter-indexeddb:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      fake-indexeddb:
+        specifier: ^6.0.0
+        version: 6.2.5
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.29)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9
+
   packages/classical:
     dependencies:
       '@bibliotype/core':
@@ -67,6 +86,25 @@ importers:
       '@bibliotype/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(postcss@8.5.29)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9
+
+  packages/reader:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bibliotype/layout':
+        specifier: workspace:*
+        version: link:../layout
     devDependencies:
       tsup:
         specifier: ^8.3.0
@@ -671,6 +709,10 @@ packages:
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
+
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -1356,6 +1398,8 @@ snapshots:
       '@types/estree': 1.0.9
 
   expect-type@1.4.0: {}
+
+  fake-indexeddb@6.2.5: {}
 
   fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:

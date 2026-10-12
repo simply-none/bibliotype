@@ -6,13 +6,15 @@
  */
 import { NODE_TYPES, isTextNode, type BookNode, type NodeId } from '@bibliotype/core';
 
-/** 参与目录的结构节点类型（含 heading 层级） */
-export const OUTLINE_NODE_TYPES: ReadonlySet<string> = new Set([
+/** 参与目录的结构节点类型（卷/章/节） */
+export const OUTLINE_STRUCTURE_TYPES: ReadonlySet<string> = new Set([
   NODE_TYPES.VOLUME,
   NODE_TYPES.CHAPTER,
   NODE_TYPES.SECTION,
-  NODE_TYPES.HEADING,
 ]);
+
+/** 标题节点类型（默认不入目录，避免与结构标题重复） */
+export const OUTLINE_HEADING_TYPE = NODE_TYPES.HEADING;
 
 /** 目录项 */
 export interface OutlineItem {
@@ -54,17 +56,33 @@ function isEmptyContainer(node: BookNode): boolean {
   return (node.children ?? []).length === 0;
 }
 
+/** 目录提取选项 */
+export interface ExtractOutlineOptions {
+  /** 纳入无标题的空结构节点（默认 false） */
+  includeEmpty?: boolean;
+  /** 纳入 heading 节点（默认 false，避免与卷/章/节标题重复） */
+  includeHeadings?: boolean;
+}
+
 /**
  * 递归提取目录
  *
  * @param root 文档根节点（type 为 book）
- * @param includeEmpty 是否纳入无标题的空结构节点（默认 false）
+ * @param options 提取选项（默认为结构节点、跳过空标题）
  */
-export function extractOutline(root: BookNode, includeEmpty = false): OutlineItem[] {
+export function extractOutline(
+  root: BookNode,
+  options: ExtractOutlineOptions = {},
+): OutlineItem[] {
+  const includeEmpty = options.includeEmpty ?? false;
+  const includeHeadings = options.includeHeadings ?? false;
+
   const walk = (node: BookNode, level: number): OutlineItem[] => {
     const items: OutlineItem[] = [];
     for (const child of node.children ?? []) {
-      if (!OUTLINE_NODE_TYPES.has(child.type)) continue;
+      const isStructure = OUTLINE_STRUCTURE_TYPES.has(child.type);
+      const isHeading = includeHeadings && child.type === OUTLINE_HEADING_TYPE;
+      if (!isStructure && !isHeading) continue;
 
       const title = resolveNodeTitle(child);
       if (title.length === 0 && !includeEmpty) continue;

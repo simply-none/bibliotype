@@ -71,7 +71,7 @@ reader.goToPage(3);       // 跳转页码（越界返回 false 且不移动）
 reader.goToNode('ch-2');  // 按节点 id 跳页（支持叶块 id 与结构容器 id）
 ```
 
-`goToNode` 目标无 id / 不在块序列中返回 `false`；目录项、搜索结果、书签都基于它跳转。
+`goToNode` 目标无 id / 不在块序列中返回 `false`；目录项、搜索结果及上层应用（如 demo 书签面板）均基于它跳转。
 
 ## 全文搜索
 

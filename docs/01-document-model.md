@@ -87,7 +87,7 @@ const paragraph: BookNode = {
 `id` 是跨会话、跨管线的锚点，以下场景**依赖其稳定性**：
 
 - **协同**：Y.Doc 映射与批注锚点；
-- **阅读跳转**：`reader.goToNode(id)`（目录项、搜索结果、书签都基于 id）；
+- **阅读跳转**：`reader.goToNode(id)`（目录项、搜索结果及上层应用如 demo 书签面板均基于 id）；
 - **分页**：分块后按 id 还原原节点（`findNodeById`）。
 
 建议：卷 / 章 / 节等结构节点、注释容器、需被引用的节点始终携带 `id`；

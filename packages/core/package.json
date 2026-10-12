@@ -4,6 +4,19 @@
   "description": "IR Schema、事件总线、插件与节点注册、主题令牌 - bibliotype 核心包",
   "type": "module",
   "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

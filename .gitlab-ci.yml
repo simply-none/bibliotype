@@ -1,0 +1,50 @@
+# GitLab CI（备用流水线）
+#
+# 正式发布流程以 GitHub Actions 为主（见 docs/12-release-and-ci.md）；
+# 本文件提供等价的「验证 + 手动发布」能力，供迁移 GitLab 时使用。
+#
+# 发布任务前置条件：CI/CD 变量配置 NPM_TOKEN；按需覆盖 CHANNEL（rc / latest）。
+
+stages:
+  - verify
+  - release
+
+default:
+  image: node:20
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store/
+
+variables:
+  PNPM_STORE_DIR: ${CI_PROJECT_DIR}/.pnpm-store
+
+# 构建 · 测试 · 类型检查（push / MR 自动触发）
+verify:
+  stage: verify
+  script:
+    - corepack enable
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - pnpm install --frozen-lockfile
+    - pnpm build
+    - pnpm test
+    - pnpm typecheck
+
+# 手动发布（默认分支；应用日期版本并发布到 npm）
+release:
+  stage: release
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  variables:
+    CHANNEL: rc
+  script:
+    - corepack enable
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - pnpm install --frozen-lockfile
+    - pnpm build
+    - pnpm test
+    - node scripts/version.mjs --channel "$CHANNEL"
+    - pnpm -r publish --tag "$CHANNEL" --no-git-checks --access public

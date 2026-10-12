@@ -4,6 +4,19 @@
   "description": "Vue 3 阅读器封装：useReader 组合式桥与 BookView / Pager / Toc 组件 - bibliotype 框架封装包",
   "type": "module",
   "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/vue"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/vue#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

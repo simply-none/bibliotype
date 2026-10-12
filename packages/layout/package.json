@@ -4,6 +4,19 @@
   "description": "分页、直排/横排、多栏与样式构建 - bibliotype 排版包",
   "type": "module",
   "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/layout"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/layout#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

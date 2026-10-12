@@ -4,6 +4,19 @@
   "description": "阅读器状态机：分页、翻页、目录与进度 - bibliotype 阅读包",
   "type": "module",
   "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/reader"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/reader#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

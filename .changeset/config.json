@@ -1,0 +1,27 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "@bibliotype/core",
+      "@bibliotype/editor",
+      "@bibliotype/classical",
+      "@bibliotype/reader",
+      "@bibliotype/layout",
+      "@bibliotype/vue",
+      "@bibliotype/collab",
+      "@bibliotype/adapter-indexeddb",
+      "@bibliotype/exporter-epub",
+      "@bibliotype/exporter-pdf"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "master",
+  "updateInternalDependencies": "patch",
+  "privatePackages": {
+    "version": false,
+    "tag": false
+  }
+}

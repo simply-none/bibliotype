@@ -4,6 +4,19 @@
   "description": "PDF 导出：IR → 打印文档（@page 尺寸 / 预分页固定页）+ 浏览器打印辅助（window.print）- bibliotype 导出包",
   "type": "module",
   "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/exporter-pdf"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/exporter-pdf#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

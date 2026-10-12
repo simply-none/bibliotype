@@ -4,6 +4,19 @@
   "description": "IndexedDB 存储适配器（Web 端持久化）+ 内存适配器 - bibliotype 存储包",
   "type": "module",
   "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/adapter-indexeddb"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/adapter-indexeddb#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

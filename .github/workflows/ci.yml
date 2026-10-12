@@ -1,0 +1,46 @@
+# 持续集成：构建 · 测试 · 类型检查
+#
+# 触发：master 分支 push 与任意 PR。
+# 步骤：安装依赖（冻结锁文件）→ 全量构建 → 全量测试 → 全量类型检查。
+# 说明：pnpm 版本由根 package.json 的 packageManager 字段决定（pnpm@9.15.0）。
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 构建 · 测试 · 类型检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版本读取根 package.json 的 packageManager 字段
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建（turbo 全量）
+        run: pnpm build
+
+      - name: 测试（turbo 全量）
+        run: pnpm test
+
+      - name: 类型检查
+        run: pnpm typecheck

@@ -4,6 +4,19 @@
   "description": "EPUB 3 导出：IR → 语义 XHTML + OPF/nav 打包（零后端，浏览器与 Node 同构）- bibliotype 导出包",
   "type": "module",
   "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/exporter-epub"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/exporter-epub#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

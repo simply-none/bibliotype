@@ -1,0 +1,77 @@
+# 发布流水线：日期版本 + npm 发布
+#
+# 手动触发（workflow_dispatch），选择通道：
+#   - rc     → 预发布版本（如 26.10.12-rc.1），npm dist-tag = rc
+#   - latest → 正式版本（如 26.10.12），npm dist-tag = latest
+#
+# 流程：安装 → 构建 → 测试 → 应用日期版本（消费 Changesets 变更说明）
+#       → 发布到 npm（含 provenance）→ 提交版本号并打 v* 标签。
+# 前置条件：仓库 Secrets 配置 NPM_TOKEN（npm 发布令牌）。
+# 详见 docs/12-release-and-ci.md。
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: '发布通道（rc=预发布，latest=正式）'
+        type: choice
+        options: [rc, latest]
+        default: rc
+
+permissions:
+  contents: write   # 提交版本号 / CHANGELOG 并推送 v* 标签
+  id-token: write   # npm provenance（OIDC 签名，公开仓库免费启用）
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: 日期版本 · npm 发布（${{ inputs.channel }}）
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ inputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        run: pnpm build
+
+      - name: 测试
+        run: pnpm test
+
+      - name: 应用日期版本（无待发布变更时以退出码 2 中止）
+        id: version
+        run: node scripts/version.mjs --channel "$CHANNEL" | tee version-output.txt
+
+      - name: 发布到 npm（dist-tag 与通道一致）
+        run: pnpm -r publish --tag "$CHANNEL" --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: 提交版本号与 CHANGELOG 并打标签
+        run: |
+          VERSION=$(grep '^RELEASE_VERSION=' version-output.txt | cut -d= -f2)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): v$VERSION"
+          git tag "v$VERSION"
+          git push origin HEAD --follow-tags

@@ -6,7 +6,9 @@
  * - :root 输出 --bt-* 变量（令牌的 CSS Variables 层）；
  * - 根容器规则（默认 body，可经 containerSelector 替换）通过 var() 引用变量，
  *   书写方向 / 直排策略 / 分栏由布局选项决定；
- * - .bt-* 节点类与 html-serializer 的 class 输出配套，开箱即有基础排版。
+ * - .bt-* 节点类与 html-serializer 的 class 输出配套，开箱即有基础排版；
+ *   节点 / 角色选择器同样限定在根容器内，避免样式泄漏到容器之外
+ *   （如同一页面中使用同名 bt-* 类的编辑画布）。
  */
 import {
   COLOR_TOKENS,
@@ -79,7 +81,7 @@ export function buildBookCss(input: BuildBookCssOptions): string {
   rules.push(`${containerSelector} {\n${declarationToCss(body)}\n}`);
 
   /*
-   * ---------- 3. 节点类样式（与 bt-* class 配套） ----------
+   * ---------- 3. 节点类样式（与 bt-* class 配套；经 scoped() 限定容器） ----------
    *
    * 另含「版式角色」选择器（data-role）约定，供书籍结构页与卷端题署标注：
    * - 结构页：cover-title / cover-subtitle / cover-creator / cover-publisher、
@@ -87,169 +89,174 @@ export function buildBookCss(input: BuildBookCssOptions): string {
    *   copyright-title / copyright-line、back-cover-line；
    * - 目录页：toc-title / toc-entry / toc-subentry；
    * - 卷端题署：volume-title / volume-creator。
+   *
+   * 全部节点 / 角色规则经 scoped() 前缀根容器选择器：样式只作用于容器内，
+   * 避免泄漏到容器之外（如同一页面中同名 bt-* 类的编辑画布）。
    */
-  rules.push(`.bt-paragraph {
+  const scoped = (selector: string): string => `${containerSelector} ${selector}`;
+
+  rules.push(`${scoped('.bt-paragraph')} {
   margin: 0;
   text-indent: var(--bt-${LAYOUT_TOKENS.TEXT_INDENT});
 }
-.bt-heading {
+${scoped('.bt-heading')} {
   font-family: var(--bt-${FONT_TOKENS.HEADING});
   font-size: var(--bt-${FONT_SIZE_TOKENS.HEADING});
   line-height: 1.4;
 }
-.bt-quote {
+${scoped('.bt-quote')} {
   margin: 1em 2em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-.bt-list {
+${scoped('.bt-list')} {
   margin: 0.5em 0;
   padding-inline-start: 1.6em;
 }
-.bt-code-block {
+${scoped('.bt-code-block')} {
   font-family: var(--bt-${FONT_TOKENS.MONO});
   font-size: 0.85em;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
-.bt-caption,
-.bt-footnote,
-.bt-endnote,
-.bt-margin-note {
+${scoped('.bt-caption')},
+${scoped('.bt-footnote')},
+${scoped('.bt-endnote')},
+${scoped('.bt-margin-note')} {
   font-size: var(--bt-${FONT_SIZE_TOKENS.NOTE});
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-.bt-footnote,
-.bt-endnote,
-.bt-margin-note {
+${scoped('.bt-footnote')},
+${scoped('.bt-endnote')},
+${scoped('.bt-margin-note')} {
   display: block;
   margin: 0.5em 0;
 }
-.bt-table {
+${scoped('.bt-table')} {
   border-collapse: collapse;
   margin: 1em 0;
 }
-.bt-table-cell {
+${scoped('.bt-table-cell')} {
   border: 1px solid var(--bt-${COLOR_TOKENS.TEXT});
   padding: 0.25em 0.6em;
 }
-.bt-image {
+${scoped('.bt-image')} {
   max-width: 100%;
 }
-.bt-break {
+${scoped('.bt-break')} {
   border: 0;
   border-block-start: 1px solid var(--bt-${COLOR_TOKENS.NOTE_TEXT});
   margin: 1em 0;
 }
-.bt-mark-underline {
+${scoped('.bt-mark-underline')} {
   text-decoration: underline;
 }
-.bt-mark-strikethrough {
+${scoped('.bt-mark-strikethrough')} {
   text-decoration: line-through;
 }
-.bt-mark-highlight {
+${scoped('.bt-mark-highlight')} {
   background-color: rgba(255, 235, 130, 0.45);
 }
-.bt-mark-link {
+${scoped('.bt-mark-link')} {
   color: var(--bt-${COLOR_TOKENS.ACCENT});
 }
-.bt-math-block {
+${scoped('.bt-math-block')} {
   margin: 1em 0;
   text-align: center;
 }
-ruby > rt {
+${scoped('ruby > rt')} {
   font-size: 0.5em;
 }
 
 /* ---------- 4. 书籍结构页（封面/书名页/版权页/目录/卷端/封底） ---------- */
-[data-role='cover-title'] {
+${scoped("[data-role='cover-title']")} {
   margin: 2.6em 0 0;
   text-align: center;
   font-size: 2.8em;
   letter-spacing: 0.4em;
   text-indent: 0.4em;
 }
-[data-role='cover-subtitle'],
-[data-role='title-page-subtitle'] {
+${scoped("[data-role='cover-subtitle']")},
+${scoped("[data-role='title-page-subtitle']")} {
   margin: 1.4em 0 0;
   text-align: center;
   font-size: 1.1em;
   letter-spacing: 0.25em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-[data-role='cover-creator'] {
+${scoped("[data-role='cover-creator']")} {
   margin: 3.5em 0 0;
   text-align: center;
   font-size: 0.95em;
   letter-spacing: 0.15em;
 }
-[data-role='cover-publisher'] {
+${scoped("[data-role='cover-publisher']")} {
   margin: 4em 0 0;
   text-align: center;
   font-size: 0.85em;
   letter-spacing: 0.2em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-[data-role='title-page-title'] {
+${scoped("[data-role='title-page-title']")} {
   margin: 4em 0 0;
   text-align: center;
   font-size: 1.9em;
   letter-spacing: 0.3em;
 }
-[data-role='title-page-creator'] {
+${scoped("[data-role='title-page-creator']")} {
   margin: 1.8em 0 0;
   text-align: center;
   font-size: 0.95em;
   letter-spacing: 0.1em;
 }
-[data-role='title-page-publisher'] {
+${scoped("[data-role='title-page-publisher']")} {
   margin: 6em 0 0;
   text-align: center;
   font-size: 0.85em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-[data-role='copyright-title'] {
+${scoped("[data-role='copyright-title']")} {
   margin: 2em 0 1.4em;
   text-align: center;
   font-size: 1em;
   letter-spacing: 0.25em;
 }
-[data-role='copyright-line'] {
+${scoped("[data-role='copyright-line']")} {
   margin: 0.35em 0;
   font-size: 0.78em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-[data-role='toc-title'] {
+${scoped("[data-role='toc-title']")} {
   margin: 1.2em 0 1em;
   text-align: center;
   font-size: 1.2em;
   letter-spacing: 0.4em;
   text-indent: 0.4em;
 }
-[data-role='toc-entry'] {
+${scoped("[data-role='toc-entry']")} {
   margin: 0.55em 0;
   text-align: center;
   letter-spacing: 0.12em;
 }
-[data-role='toc-subentry'] {
+${scoped("[data-role='toc-subentry']")} {
   margin: 0.3em 0;
   text-align: center;
   font-size: 0.85em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-[data-role='volume-title'] {
+${scoped("[data-role='volume-title']")} {
   margin: 0.4em 0 0.2em;
   text-align: center;
   font-size: 1.3em;
   letter-spacing: 0.25em;
 }
-[data-role='volume-creator'] {
+${scoped("[data-role='volume-creator']")} {
   margin: 0 0 1.2em;
   text-align: center;
   font-size: 0.82em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-[data-role='back-cover-line'] {
+${scoped("[data-role='back-cover-line']")} {
   margin: 0.5em 0;
   text-align: center;
   font-size: 0.8em;
@@ -262,7 +269,7 @@ ruby > rt {
  * collation-note / imprint / colophon）以 span 兜底，块级语义在此
  * 经 display: block 修正；行内载体（collation-mark / variant-char）保持行内。
  */
-.bt-double-note {
+${scoped('.bt-double-note')} {
   display: block;
   margin: 0.35em 0 0.45em 1.2em;
   font-size: 0.72em;
@@ -271,7 +278,7 @@ ruby > rt {
   column-count: 2;
   column-gap: 1.6em;
 }
-.bt-head-note {
+${scoped('.bt-head-note')} {
   display: block;
   margin: 0.45em 1.6em;
   padding: 0.25em 0.7em;
@@ -280,7 +287,7 @@ ruby > rt {
   border: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 40%, transparent);
   border-radius: 2px;
 }
-.bt-collation-note {
+${scoped('.bt-collation-note')} {
   display: block;
   margin: 0.5em 0;
   padding-inline-start: 0.75em;
@@ -288,7 +295,7 @@ ruby > rt {
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
   border-inline-start: 2px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 55%, transparent);
 }
-.bt-imprint {
+${scoped('.bt-imprint')} {
   display: block;
   width: fit-content;
   margin: 1.2em auto;
@@ -299,7 +306,7 @@ ruby > rt {
   letter-spacing: 0.1em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-.bt-colophon {
+${scoped('.bt-colophon')} {
   display: block;
   margin: 1.4em 0 0.6em;
   padding-block-start: 0.6em;
@@ -309,48 +316,48 @@ ruby > rt {
   letter-spacing: 0.05em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-.bt-collation-mark {
+${scoped('.bt-collation-mark')} {
   margin-inline: 0.15em;
 }
-.bt-collation-mark::after {
+${scoped('.bt-collation-mark::after')} {
   content: attr(data-symbol);
 }
-.bt-taboo-char,
-.bt-mark-taboo {
+${scoped('.bt-taboo-char')},
+${scoped('.bt-mark-taboo')} {
   text-decoration: underline dashed;
   text-underline-offset: 3px;
 }
-.bt-mark-variant {
+${scoped('.bt-mark-variant')} {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
 }
-.bt-mark-book-title {
+${scoped('.bt-mark-book-title')} {
   text-decoration: underline wavy;
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
 }
-.bt-mark-circle-emphasis {
+${scoped('.bt-mark-circle-emphasis')} {
   text-emphasis: filled circle;
   text-emphasis-position: under right;
 }
-.bt-mark-note-ref {
+${scoped('.bt-mark-note-ref')} {
   font-size: 0.72em;
   vertical-align: super;
 }
 
 /* ---------- 6. 脚注（注线：与相邻注文相连时仅首条保留） ---------- */
-.bt-footnote {
+${scoped('.bt-footnote')} {
   margin: 0.55em 0;
   padding-block-start: 0.4em;
   border-block-start: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 45%, transparent);
 }
-.bt-footnote + .bt-footnote {
+${scoped('.bt-footnote + .bt-footnote')} {
   border-block-start: 0;
   padding-block-start: 0;
 }
 
 /* ---------- 7. 页脚页码（固定横排显示，居中于页面物理底部） ---------- */
-.bt-page-number {
+${scoped('.bt-page-number')} {
   position: absolute;
   bottom: 16px;
   left: 0;
@@ -365,8 +372,8 @@ ruby > rt {
   /* ---------- 8. 专名号：横排标于字下 / 直排标于字左（GB 古籍整理规范） ---------- */
   rules.push(
     vertical
-      ? `.bt-mark-proper-name {\n  border-left: 1px solid currentColor;\n  padding-left: 1px;\n}`
-      : `.bt-mark-proper-name {\n  border-bottom: 1px solid currentColor;\n}`,
+      ? `${scoped('.bt-mark-proper-name')} {\n  border-left: 1px solid currentColor;\n  padding-left: 1px;\n}`
+      : `${scoped('.bt-mark-proper-name')} {\n  border-bottom: 1px solid currentColor;\n}`,
   );
 
   return `${rules.join('\n\n')}\n`;

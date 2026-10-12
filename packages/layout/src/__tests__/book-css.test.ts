@@ -35,6 +35,21 @@ describe('buildBookCss', () => {
     expect(css).not.toContain('body {\n');
   });
 
+  it('containerSelector 同时限定节点 / 角色规则（防泄漏到容器外，如编辑画布）', () => {
+    const readerCss = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      containerSelector: '.bt-reader-page',
+    });
+    expect(readerCss).toContain('.bt-reader-page .bt-double-note {');
+    expect(readerCss).toContain(".bt-reader-page [data-role='cover-title'] {");
+    expect(readerCss).toContain('.bt-reader-page .bt-mark-proper-name {');
+    expect(readerCss).not.toContain('\n.bt-double-note {');
+
+    const bodyCss = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(bodyCss).toContain('body .bt-double-note {');
+  });
+
   it('直排：text-orientation 与 text-combine-upright 生效（D3）', () => {
     const css = buildBookCss({
       tokens: { ...DEFAULT_THEME, 'text-orientation': 'upright' },

@@ -151,4 +151,73 @@ describe('BookEditor 集成', () => {
     expect(editor.bookSchema.nodes[CLASSICAL_NODE_TYPES.DOUBLE_NOTE]).toBeDefined();
     expect(editor.getDocument().root).toEqual(sampleRoot());
   });
+
+  it('直挂文本的双行注 / 校勘记经编辑树包段，容器内可取到合法光标位（回归）', () => {
+    const editor = new BookEditor({
+      schema: buildClassicalEditorSchema(),
+      document: {
+        schemaVersion: IR_SCHEMA_VERSION,
+        metadata: { title: '回归样本' },
+        root: {
+          type: NODE_TYPES.BOOK,
+          children: [
+            {
+              type: NODE_TYPES.CHAPTER,
+              children: [
+                {
+                  type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
+                  children: [{ type: 'text', text: '注：収、好，皆去声。' }],
+                },
+                {
+                  type: CLASSICAL_NODE_TYPES.COLLATION_NOTE,
+                  children: [
+                    { type: 'text', text: '「说」，唐石经作「悦」' },
+                    { type: CLASSICAL_NODE_TYPES.COLLATION_MARK, attrs: { symbol: '○' } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    const doc = editor.editorState.doc;
+    const chapter = doc.child(0);
+
+    /* 双行注：裸文本聚合为段落 */
+    const doubleNote = chapter.child(0);
+    expect(doubleNote.type.name).toBe(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
+    expect(doubleNote.child(0).type.name).toBe(NODE_TYPES.PARAGRAPH);
+
+    /* 段落内位置可作为光标落点（inlineContent）——不包段则点击会回退到容器外 */
+    let textPos = -1;
+    doc.descendants((node, pos) => {
+      if (
+        textPos === -1 &&
+        node.type.name === NODE_TYPES.PARAGRAPH &&
+        node.textContent.startsWith('注：')
+      ) {
+        textPos = pos + 1;
+        return false;
+      }
+      return true;
+    });
+    expect(textPos).toBeGreaterThan(0);
+    const $pos = doc.resolve(textPos);
+    expect($pos.parent.type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect($pos.parent.inlineContent).toBe(true);
+
+    /* 校勘记：文本与校勘符号聚合进同一段落（不拆段） */
+    const collationNote = chapter.child(1);
+    expect(collationNote.childCount).toBe(1);
+    expect(collationNote.child(0).type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect(collationNote.child(0).child(1).type.name).toBe(CLASSICAL_NODE_TYPES.COLLATION_MARK);
+
+    /* 导出 IR：已规范化为块容器 + 段落 */
+    const round = editor.getDocument().root;
+    const roundDoubleNote = round.children?.[0]?.children?.[0];
+    expect(roundDoubleNote?.type).toBe(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
+    expect(roundDoubleNote?.children?.[0]?.type).toBe(NODE_TYPES.PARAGRAPH);
+  });
 });

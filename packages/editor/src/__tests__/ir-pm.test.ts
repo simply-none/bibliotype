@@ -106,6 +106,31 @@ describe('irNodeToPm', () => {
     );
     expect(pm.childCount).toBe(0);
   });
+
+  it('块容器内的行内内容聚合为段落（IR 宽松树 → PM 严格树）', () => {
+    const schema = buildEditorSchema();
+    const pm = irNodeToPm(
+      {
+        type: NODE_TYPES.QUOTE,
+        children: [
+          { type: 'text', text: '注文一' },
+          { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '既有段落' }] },
+          { type: 'text', text: '注文二' },
+        ],
+      },
+      schema,
+    );
+
+    expect(pm.childCount).toBe(3);
+    expect(pm.child(0).type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect(pm.child(0).textContent).toBe('注文一');
+    expect(pm.child(1).textContent).toBe('既有段落');
+    expect(pm.child(2).type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect(pm.child(2).textContent).toBe('注文二');
+
+    const round = pmNodeToIr(pm);
+    expect(round.children?.[0]?.type).toBe(NODE_TYPES.PARAGRAPH);
+  });
 });
 
 describe('往返（IR → PM → IR）', () => {

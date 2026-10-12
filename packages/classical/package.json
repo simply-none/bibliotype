@@ -13,6 +13,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./editor": {
+      "types": "./dist/editor.d.ts",
+      "import": "./dist/editor.js",
+      "require": "./dist/editor.cjs"
     }
   },
   "files": [
@@ -26,7 +31,9 @@
     "clean": "tsup --clean"
   },
   "dependencies": {
-    "@bibliotype/core": "workspace:*"
+    "@bibliotype/core": "workspace:*",
+    "@bibliotype/editor": "workspace:*",
+    "prosemirror-model": "^1.23.0"
   },
   "devDependencies": {
     "tsup": "^8.3.0",

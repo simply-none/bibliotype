@@ -1,0 +1,14 @@
+/**
+ * @bibliotype/classical/editor 子路径入口（D8）
+ *
+ * 与主入口分离：不需要编辑能力的场景（纯阅读 / 导出）无需加载
+ * ProseMirror 相关代码与依赖。
+ */
+export {
+  CLASSICAL_EDITOR_NODE_SPECS,
+  CLASSICAL_EDITOR_MARK_SPECS,
+} from './editor-specs.js';
+export {
+  registerClassicalEditorSpecs,
+  buildClassicalEditorSchema,
+} from './editor-registration.js';

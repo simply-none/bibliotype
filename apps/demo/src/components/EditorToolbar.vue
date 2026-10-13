@@ -9,6 +9,7 @@
  * 题记 / 版框 / 鱼尾 / 印章 / 图片 / 表格 / 脚注 / 尾注 / 边注｜还原样册。
  * 激活态由 binding.version 驱动（每次事务后重算 isMarkActive / isNodeActive）。
  */
+import { computed, ref } from 'vue';
 import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
 import type { EditorBinding } from '@bibliotype/vue';
 import {
@@ -49,9 +50,16 @@ import {
   toggleVariant,
   toggleVariantChar,
 } from '@bibliotype/classical/editor';
+import ReplacePanel from './ReplacePanel.vue';
 
-const props = defineProps<{ binding: EditorBinding }>();
-const emit = defineEmits<{ reset: [] }>();
+const props = defineProps<{ binding: EditorBinding; readonly?: boolean }>();
+const emit = defineEmits<{ reset: []; 'toggle-readonly': [] }>();
+
+/** 查找替换面板开关（仅编辑态工具条内部状态） */
+const searchOpen = ref(false);
+
+/** 只读：禁用全部写操作命令（保留面板展开 / 只读切换自身） */
+const isReadonly = computed(() => props.readonly === true);
 
 /** 编辑命令（editor / classical 命令工厂的产物） */
 type EditorCommand = ReturnType<typeof setParagraph>;
@@ -382,7 +390,12 @@ const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarActi
 
 <template>
   <div class="editor-toolbar">
-    <div v-for="group in TOOLBAR_GROUPS" :key="group.key" class="editor-toolbar__group">
+    <div
+      v-for="group in TOOLBAR_GROUPS"
+      :key="group.key"
+      class="editor-toolbar__group"
+      :class="{ 'editor-toolbar__group--disabled': isReadonly }"
+    >
       <button
         v-for="action in group.actions"
         :key="action.label"
@@ -390,7 +403,7 @@ const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarActi
         class="editor-toolbar__button"
         :class="{ 'editor-toolbar__button--active': action.active?.() === true }"
         :title="action.title"
-        :disabled="action.disabled?.() === true"
+        :disabled="isReadonly || action.disabled?.() === true"
         @mousedown.prevent
         @click="action.run()"
       >
@@ -401,7 +414,28 @@ const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarActi
       <button
         type="button"
         class="editor-toolbar__button"
+        :class="{ 'editor-toolbar__button--active': searchOpen }"
+        title="在编辑画布内查找与替换文本"
+        @mousedown.prevent
+        @click="searchOpen = !searchOpen"
+      >
+        查找替换
+      </button>
+      <button
+        type="button"
+        class="editor-toolbar__button"
+        :class="{ 'editor-toolbar__button--active': isReadonly }"
+        :title="isReadonly ? '切换为可编辑' : '切换为只读（不可输入）'"
+        @mousedown.prevent
+        @click="emit('toggle-readonly')"
+      >
+        {{ isReadonly ? '可编辑' : '只读' }}
+      </button>
+      <button
+        type="button"
+        class="editor-toolbar__button"
         title="编辑器内容重置为原始样册"
+        :disabled="isReadonly"
         @mousedown.prevent
         @click="emit('reset')"
       >
@@ -409,6 +443,12 @@ const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarActi
       </button>
     </div>
   </div>
+  <ReplacePanel
+    v-if="searchOpen"
+    :binding="binding"
+    :readonly="isReadonly"
+    @close="searchOpen = false"
+  />
 </template>
 
 <style scoped>
@@ -433,6 +473,10 @@ const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarActi
 .editor-toolbar__group + .editor-toolbar__group {
   padding-inline-start: 12px;
   border-inline-start: 1px solid var(--demo-border);
+}
+
+.editor-toolbar__group--disabled {
+  opacity: 0.6;
 }
 
 .editor-toolbar__group--end {

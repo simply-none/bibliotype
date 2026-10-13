@@ -8,6 +8,7 @@
  * - props.pagination / pageMainSize / measure：编辑态分页参考线（B3）——
  *   以与预览同源的 extractBlocks + paginate（同 measure / 同 pageMainSize）算出
  *   「块 → 页」归属，再按各页首块在真实 DOM 中的位置叠加分页线与页码；
+ * - props.editable（缺省 true）：为 false 时画布只读（拒绝输入 / 粘贴 / 拖拽）；
  * - 默认插槽作用域透传 EditorBinding（供工具条访问命令与激活态）；
  * - 挂载时创建 EditorView，卸载时销毁；editor 实例替换时重建视图；
  * - 书册样式表以 `.bt-editor__canvas .ProseMirror` 为根容器注入（与 BtBookView
@@ -43,6 +44,8 @@ const props = defineProps<{
   pageMainSize?: number;
   /** 块度量估算上下文（与预览 Reader 传同一份，保证分页归属一致） */
   measure?: BlockMeasureContext;
+  /** 视图是否可编辑（缺省 true；false 时画布只读，拒绝用户输入） */
+  editable?: boolean;
   /**
    * DOM 实测块尺寸映射（与预览 Reader 同源）
    *
@@ -54,7 +57,9 @@ const props = defineProps<{
 
 const canvasRef = ref<HTMLElement | null>(null);
 const scrollRef = ref<HTMLElement | null>(null);
-const binding = useEditorBinding(props.editor);
+// 只读开关：以 ref 承载、经闭包透传给绑定，切换时无需重建视图（refresh 重求值）
+const isEditable = ref(props.editable !== false);
+const binding = useEditorBinding(props.editor, { isEditable: () => isEditable.value });
 
 const resolvedTokens = computed<Readonly<Record<string, string | undefined>>>(
   () => props.tokens ?? DEFAULT_THEME,
@@ -223,6 +228,15 @@ onBeforeUnmount(() => {
 
 watch([resolvedTokens, resolvedOptions, () => props.fontToken], syncBookStyle);
 
+// 可编辑性切换：同步 ref 并刷新视图（让 EditorView 重新求值 editable 闭包）
+watch(
+  () => props.editable,
+  (value) => {
+    isEditable.value = value !== false;
+    binding.refresh();
+  },
+);
+
 watch(
   [() => props.pagination, () => props.pageMainSize, () => props.measure, () => props.blockSizes, vertical],
   scheduleRecompute,
@@ -252,7 +266,10 @@ watch(
       <div
         ref="canvasRef"
         class="bt-editor__canvas"
-        :class="vertical ? 'bt-editor__canvas--vertical' : 'bt-editor__canvas--horizontal'"
+        :class="[
+          vertical ? 'bt-editor__canvas--vertical' : 'bt-editor__canvas--horizontal',
+          isEditable ? '' : 'bt-editor__canvas--readonly',
+        ]"
         :style="pageVars"
       />
       <div v-if="pagination" class="bt-editor__overlay" aria-hidden="true">
@@ -317,6 +334,11 @@ watch(
 .bt-editor__canvas--vertical :deep(.ProseMirror) {
   height: var(--bt-page-h);
   min-width: var(--bt-page-w);
+}
+
+/* 只读：取消文本光标暗示（contenteditable=false 已由视图保证不可输入） */
+.bt-editor__canvas--readonly :deep(.ProseMirror) {
+  cursor: default;
 }
 
 /* ---------- 分页参考线覆盖层 ---------- */

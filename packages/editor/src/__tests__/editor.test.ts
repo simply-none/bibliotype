@@ -174,3 +174,50 @@ describe('BookEditor 元数据', () => {
     expect(received).toHaveLength(0);
   });
 });
+
+describe('BookEditor 脏标记', () => {
+  /** 追加一段文本触发文档变更 */
+  function editOnce(editor: BookEditor): void {
+    const tr = editor.createTransaction();
+    tr.insert(0, editor.bookSchema.node('paragraph', null, editor.bookSchema.text('新增')));
+    editor.dispatch(tr);
+  }
+
+  it('载入即视为已保存基线（不置脏）', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    expect(editor.isDirty).toBe(false);
+  });
+
+  it('文档事务置脏，markSaved 后归净', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    editOnce(editor);
+    expect(editor.isDirty).toBe(true);
+    editor.markSaved();
+    expect(editor.isDirty).toBe(false);
+  });
+
+  it('元数据变更置脏', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    editor.updateMetadata({ subtitle: '新增副标题' });
+    expect(editor.isDirty).toBe(true);
+  });
+
+  it('非文档变更事务不置脏', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    editor.dispatch(editor.createTransaction().setMeta('flag', true));
+    expect(editor.isDirty).toBe(false);
+  });
+
+  it('重新载入文档重置脏基准（丢弃历史）', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    editOnce(editor);
+    expect(editor.isDirty).toBe(true);
+    editor.loadDocument(sampleDoc());
+    expect(editor.isDirty).toBe(false);
+  });
+});

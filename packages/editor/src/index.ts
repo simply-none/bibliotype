@@ -71,5 +71,14 @@ export {
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
 
+/* ---------- 编辑态查找替换 ---------- */
+export {
+  findTextMatches,
+  selectRange,
+  replaceSelectionWith,
+  replaceAll,
+} from './search.js';
+export type { TextMatch } from './search.js';
+
 /* ---------- 插件与键位 ---------- */
 export { createBookEditorKeymap, createBookEditorPlugins } from './plugins.js';

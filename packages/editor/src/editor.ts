@@ -36,6 +36,10 @@ export class BookEditor {
   private metadata: BookMetadata;
   private schemaVersion: string;
   private readonly changeHandlers = new Set<BookEditorChangeHandler>();
+  /** 变更序号：每次文档 / 元数据变更自增（脏标记的比较基准） */
+  private changeSeq = 0;
+  /** 上次「保存」时的变更序号（markSaved 刷新） */
+  private savedSeq = 0;
 
   constructor(options: BookEditorOptions = {}) {
     this.schema =
@@ -99,10 +103,11 @@ export class BookEditor {
     }
     next.updatedAt = new Date().toISOString();
     this.metadata = next as unknown as BookMetadata;
+    this.changeSeq += 1;
     this.emitChange();
   }
 
-  /** 载入文档（重建编辑状态并广播变更） */
+  /** 载入文档（重建编辑状态并广播变更；载入即视为已保存基线，不置脏） */
   loadDocument(document: BookDocument): void {
     this.metadata = document.metadata;
     this.schemaVersion = document.schemaVersion;
@@ -110,6 +115,8 @@ export class BookEditor {
       doc: irNodeToPm(document.root, this.schema),
       plugins: [...this.plugins],
     });
+    this.changeSeq = 0;
+    this.savedSeq = 0;
     this.emitChange();
   }
 
@@ -132,8 +139,23 @@ export class BookEditor {
     const docChanged = transaction.docChanged;
     this.state = this.state.apply(transaction);
     if (docChanged) {
+      this.changeSeq += 1;
       this.emitChange();
     }
+  }
+
+  /** 是否存在未保存的变更（相对上次 markSaved） */
+  get isDirty(): boolean {
+    return this.changeSeq !== this.savedSeq;
+  }
+
+  /**
+   * 标记当前内容为已保存（刷新脏基准）
+   *
+   * 由持久化层（自动保存 / 手动保存成功）调用；调用后 isDirty 归 false。
+   */
+  markSaved(): void {
+    this.savedSeq = this.changeSeq;
   }
 
   /** 订阅文档变更（返回取消订阅函数） */

@@ -50,6 +50,18 @@ export interface EditorBinding {
   refresh: () => void;
 }
 
+/** useEditorBinding 可选配置 */
+export interface EditorBindingOptions {
+  /**
+   * 视图是否可编辑（缺省恒为 true）
+   *
+   * 传入闭包（如 `() => props.editable !== false`）以支持运行时切换：
+   * 只读时 ProseMirror 拒绝用户输入 / 粘贴 / 拖拽，但程序化事务仍可派发。
+   * 切换后需调用 refresh() 让视图重新求值该闭包。
+   */
+  isEditable?: () => boolean;
+}
+
 /** 节点属性浅比较（expected 中声明的键全部相等即匹配） */
 function matchesAttrs(nodeAttrs: Attrs, expected?: Record<string, unknown>): boolean {
   if (expected === undefined) {
@@ -86,13 +98,17 @@ function selectionInNode(editor: BookEditor, nodeType: NodeType): boolean {
 /**
  * 绑定既有 BookEditor 实例：EditorView 生命周期 + 事务桥 + 响应式激活态
  */
-export function useEditorBinding(editor: BookEditor): EditorBinding {
+export function useEditorBinding(
+  editor: BookEditor,
+  options: EditorBindingOptions = {},
+): EditorBinding {
   // props / 插槽等响应式链路可能传入被代理的实例：先还原原始对象（toRaw），
   // 再标记非响应式（markRaw）——保证 binding.editor 与调用方持有的实例同一
   // （slotProps.editor === editor），且 class 实例不被响应式系统深层包装。
   editor = markRaw(toRaw(editor));
   const view = shallowRef<EditorView | null>(null);
   const version = ref(0);
+  const isEditable = options.isEditable ?? (() => true);
 
   /** 事务统一入口：状态机应用 → 视图同步 → 版本自增 */
   const applyTransaction = (transaction: Transaction): void => {
@@ -110,6 +126,7 @@ export function useEditorBinding(editor: BookEditor): EditorBinding {
     detach();
     const next = new EditorView(container, {
       state: editor.editorState,
+      editable: isEditable,
       dispatchTransaction: (transaction) => applyTransaction(transaction),
     });
     view.value = next;

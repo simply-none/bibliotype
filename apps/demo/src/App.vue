@@ -277,34 +277,124 @@ const mode = ref<'read' | 'edit'>('read');
 /** 编辑器实例（首次进入编辑模式时惰性创建，之后复用） */
 const bookEditor = shallowRef<BookEditor | null>(null);
 
-/** 进入编辑模式：以当前阅读文档 + 古籍 schema 创建编辑器（惰性） */
+/** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效） */
+const editorReadonly = ref(false);
+
+/* ---------- 脏标记 + 自动持久化（localStorage 草稿） ---------- */
+
+/** 草稿存储键（切换 / 刷新后可恢复未保存编辑） */
+const DRAFT_KEY = 'bibliotype-demo-draft-v1';
+/** 自动保存去抖间隔（ms） */
+const AUTOSAVE_DELAY = 1500;
+
+/** 是否存在未保存变更（镜像 editor.isDirty，供工具栏展示） */
+const dirty = ref(false);
+/** 最近一次自动保存时刻（本地时间串；null 表示本次会话未保存过） */
+const savedAt = ref<string | null>(null);
+
+/** 编辑器变更取消订阅句柄（卸载时清理） */
+let unsubscribeEditor: (() => void) | null = null;
+/** 自动保存去抖计时器 */
+let autosaveTimer: number | undefined;
+
+/** 立即落盘当前文档并刷新脏基准 */
+function persistDraft(): void {
+  const editor = bookEditor.value;
+  if (editor === null) return;
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(editor.getDocument()));
+    editor.markSaved();
+  } catch {
+    /* 配额超限 / 隐私模式：忽略，保留脏标记 */
+    return;
+  }
+  dirty.value = false;
+  savedAt.value = new Date().toLocaleTimeString();
+}
+
+/** 去抖调度自动保存（编辑停止 AUTOSAVE_DELAY 后落盘） */
+function scheduleAutosave(): void {
+  cancelAutosave();
+  autosaveTimer = window.setTimeout(() => {
+    autosaveTimer = undefined;
+    persistDraft();
+  }, AUTOSAVE_DELAY);
+}
+
+/** 取消挂起的自动保存 */
+function cancelAutosave(): void {
+  if (autosaveTimer !== undefined) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = undefined;
+  }
+}
+
+/** 编辑器变更回调：同步脏标记并在有变更时调度自动保存 */
+function onEditorChange(): void {
+  const editor = bookEditor.value;
+  if (editor === null) return;
+  dirty.value = editor.isDirty;
+  if (editor.isDirty) {
+    scheduleAutosave();
+  }
+}
+
+/** 读取本地草稿（无 / 解析失败回 null） */
+function readDraft(): BookDocument | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    return raw === null ? null : (JSON.parse(raw) as BookDocument);
+  } catch {
+    return null;
+  }
+}
+
+/** 清除本地草稿 */
+function clearDraft(): void {
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 进入编辑模式：以草稿（若有）或当前阅读文档 + 古籍 schema 创建编辑器（惰性） */
 function enterEdit(): void {
   if (bookEditor.value === null) {
     const schema = buildClassicalEditorSchema();
     bookEditor.value = new BookEditor({
       schema,
-      document: reader.value.document ?? lunyuDocument,
+      document: readDraft() ?? reader.value.document ?? lunyuDocument,
       plugins: createBookEditorPlugins(schema),
     });
+    unsubscribeEditor = bookEditor.value.onChange(onEditorChange);
+    dirty.value = bookEditor.value.isDirty;
   }
   mode.value = 'edit';
+  editorReadonly.value = false;
   // 进编辑前重测（编辑器由当前阅读文档创建，块 id 对齐 → 分页线与预览一致）
   scheduleRemeasure();
 }
 
-/** 保存并预览：编辑产物回写 Reader（全链路重排，页码重算）并返回阅读 */
+/** 保存并预览：编辑产物落盘 + 回写 Reader（全链路重排，页码重算）并返回阅读 */
 function saveAndPreview(): void {
   const editor = bookEditor.value;
   if (editor === null) return;
+  cancelAutosave();
   reader.value.loadDocument(editor.getDocument());
+  persistDraft();
   mode.value = 'read';
   // 文档变更 → 重测新文档块尺寸（旧 id 映射对新文档不适用）
   scheduleRemeasure();
 }
 
-/** 还原样册：编辑器内容重置为原始样例 */
+/** 还原样册：编辑器内容重置为原始样例并清除草稿 */
 function resetSample(): void {
+  cancelAutosave();
   bookEditor.value?.loadDocument(lunyuDocument);
+  clearDraft();
+  dirty.value = false;
+  savedAt.value = null;
 }
 
 /** 主工具栏「编辑 / 保存并预览」双向切换 */
@@ -475,8 +565,16 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+/** 存在未保存变更时离开页面提示（自动保存去抖窗口内的兜底） */
+function onBeforeUnload(event: BeforeUnloadEvent): void {
+  if (!dirty.value) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
+  window.addEventListener('beforeunload', onBeforeUnload);
   // 初次量尺（等挂载后布局完成）；字体就绪后再测一次（Web 字体影响行高）
   void nextTick(remeasure);
   if (typeof document !== 'undefined' && document.fonts?.ready !== undefined) {
@@ -485,8 +583,12 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('beforeunload', onBeforeUnload);
   removeToolbarDragListeners();
   if (measureTimer !== undefined) clearTimeout(measureTimer);
+  cancelAutosave();
+  unsubscribeEditor?.();
+  unsubscribeEditor = null;
   disposeMeasureSheet();
 });
 </script>
@@ -502,6 +604,13 @@ onBeforeUnmount(() => {
               ? '编辑模式 · 保存后回到阅读（页码重算）'
               : 'bibliotype 阅读 Demo · ←/→ 翻页'
           }}
+        </span>
+        <span
+          v-if="mode === 'edit'"
+          class="toolbar__dirty"
+          :class="{ 'toolbar__dirty--on': dirty }"
+        >
+          {{ dirty ? '● 未保存' : savedAt ? `已自动保存 ${savedAt}` : '已保存' }}
         </span>
       </div>
       <div
@@ -630,9 +739,15 @@ onBeforeUnmount(() => {
             :page-main-size="pageMainSize"
             :measure="measureContext"
             :block-sizes="blockSizes"
+            :editable="!editorReadonly"
           >
             <template #default="slotProps">
-              <EditorToolbar :binding="slotProps" @reset="resetSample" />
+              <EditorToolbar
+                :binding="slotProps"
+                :readonly="editorReadonly"
+                @toggle-readonly="editorReadonly = !editorReadonly"
+                @reset="resetSample"
+              />
               <AttrInspector :binding="slotProps" />
             </template>
           </BtEditor>
@@ -717,6 +832,15 @@ onBeforeUnmount(() => {
 .toolbar__hint {
   font-size: 12px;
   color: var(--demo-muted);
+}
+
+.toolbar__dirty {
+  font-size: 12px;
+  color: var(--demo-muted);
+}
+
+.toolbar__dirty--on {
+  color: #c0392b;
 }
 
 .toolbar__actions {

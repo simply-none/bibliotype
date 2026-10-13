@@ -1,0 +1,60 @@
+/**
+ * DOM 实测分页尺寸（pagination-measure）测试
+ *
+ * happy-dom 不产生真实布局盒（offsetTop / offsetHeight 恒为 0），故横排量测
+ * 得到空映射（推进量非正被丢弃）；本测试覆盖「安全门」：直排 / 多栏直接回退空映射、
+ * 横排不抛错且工作表可创建 / 可回收。真实像素级准确度依赖浏览器实测（手动验证）。
+ */
+import { describe, expect, it } from 'vitest';
+import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
+import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
+import { measureBlockSizes, disposeMeasureSheet } from '../pagination-measure.js';
+
+function sampleDoc(): BookDocument {
+  const doc = createEmptyDocument({ title: '论语' });
+  doc.root.children = [
+    {
+      type: NODE_TYPES.CHAPTER,
+      id: 'chap-1',
+      children: [
+        { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '子曰学而时习之' }] },
+        { type: NODE_TYPES.PARAGRAPH, id: 'p-2', children: [{ type: 'text', text: '有朋自远方来' }] },
+      ],
+    },
+  ];
+  return doc;
+}
+
+describe('measureBlockSizes', () => {
+  it('直排回退空映射（跨栏回流不逐块实测）', () => {
+    const sizes = measureBlockSizes({ doc: sampleDoc(), options: CLASSICAL_LAYOUT_OPTIONS });
+    expect(sizes.size).toBe(0);
+  });
+
+  it('多栏回退空映射（分栏度量不可靠）', () => {
+    const sizes = measureBlockSizes({
+      doc: sampleDoc(),
+      options: { ...DEFAULT_LAYOUT_OPTIONS, columns: 2 },
+    });
+    expect(sizes.size).toBe(0);
+  });
+
+  it('单栏横排：产出映射且工作表可创建 / 可回收', () => {
+    const sizes = measureBlockSizes({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    // 返回值恒为 Map（happy-dom 无布局 → 空；真实浏览器 → 含逐块实测尺寸）
+    expect(sizes).toBeInstanceOf(Map);
+    expect(document.getElementById('bt-measure-sheet')).not.toBeNull();
+    expect(document.getElementById('bt-measure-css')).not.toBeNull();
+
+    disposeMeasureSheet();
+    expect(document.getElementById('bt-measure-sheet')).toBeNull();
+    expect(document.getElementById('bt-measure-css')).toBeNull();
+  });
+
+  it('实测值为正的块才会进入映射（非正丢弃）', () => {
+    // 无 DOM 布局时全部推进量为 0 → 空映射，不含任何 p-* 键
+    const sizes = measureBlockSizes({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    expect(sizes.has('p-1')).toBe(false);
+    disposeMeasureSheet();
+  });
+});

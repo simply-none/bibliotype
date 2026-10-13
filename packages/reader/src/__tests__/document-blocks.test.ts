@@ -112,6 +112,32 @@ describe('extractBlocks', () => {
     expect(blocks.every((b) => b.mainSize === 7)).toBe(true);
   });
 
+  it('blockSizes 命中且为正的块采用实测尺寸，其余回退估算', () => {
+    const baseline = extractBlocks(sampleDoc());
+    const blocks = extractBlocks(sampleDoc(), {
+      blockSizes: new Map([
+        ['p-1', 500], // 命中→实测
+        ['p-3', 0], // 非正→回退估算
+      ]),
+    });
+    expect(blocks.find((b) => b.id === 'p-1')?.mainSize).toBe(500);
+    // p-3 实测 0 无效，与基线估算一致
+    expect(blocks.find((b) => b.id === 'p-3')?.mainSize).toBe(
+      baseline.find((b) => b.id === 'p-3')?.mainSize,
+    );
+    // 未提供的块保持估算
+    expect(blocks.find((b) => b.id === 'h-1')?.mainSize).toBe(
+      baseline.find((b) => b.id === 'h-1')?.mainSize,
+    );
+  });
+
+  it('blockSizes 不改变分块结构与 flags', () => {
+    const blocks = extractBlocks(sampleDoc(), { blockSizes: new Map([['p-1', 400]]) });
+    expect(blocks.map((b) => b.id)).toEqual(['h-1', 'p-1', 'p-2', 'p-3']);
+    expect(blocks.find((b) => b.id === 'h-1')?.keepWithNext).toBe(true);
+    expect(blocks.find((b) => b.id === 'p-3')?.breakBefore).toBe(true);
+  });
+
   it('含行内载体（空元素/纯文本载体）的块不拆开', () => {
     const doc = createEmptyDocument({ title: '行内载体' });
     doc.root.children = [

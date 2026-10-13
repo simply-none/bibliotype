@@ -99,6 +99,14 @@ export interface ExtractBlocksOptions {
   estimator?: BlockSizeEstimator;
   /** 估算上下文覆盖 */
   context?: Partial<BlockMeasureContext>;
+  /**
+   * 按块 id 给定的实测主轴尺寸（px）
+   *
+   * 渲染层（DOM 实测）产出「块 id → 真实尺寸」映射并传入：命中且为正数时
+   * 直接采用实测值，否则回退到 estimator 估算。用于让分页归属与真实渲染一致，
+   * 消除按字符数估算导致的预览裁切 / 空白。分块结构与 flags 不受影响。
+   */
+  blockSizes?: ReadonlyMap<string, number>;
 }
 
 /** 当前处理中的叶块标记 */
@@ -136,6 +144,7 @@ export function extractBlocks(
   options: ExtractBlocksOptions = {},
 ): MeasurableBlock[] {
   const estimator = options.estimator ?? defaultEstimator;
+  const blockSizes = options.blockSizes;
   const context: BlockMeasureContext = {
     ...DEFAULT_MEASURE_CONTEXT,
     ...options.context,
@@ -147,9 +156,12 @@ export function extractBlocks(
     if (isLeafBlock(node)) {
       // 空书根不产块；其余叶块（或空容器）产出可测量块
       if (node.type === NODE_TYPES.BOOK) return;
+      const id = node.id ?? path;
+      // 实测尺寸优先（命中且为正），否则回退估算
+      const measured = blockSizes?.get(id);
       blocks.push({
-        id: node.id ?? path,
-        mainSize: estimator(node, context),
+        id,
+        mainSize: measured !== undefined && measured > 0 ? measured : estimator(node, context),
         ...(flags.breakBefore === true ? { breakBefore: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
       });

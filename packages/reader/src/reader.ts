@@ -44,6 +44,8 @@ export interface RepaginateOptions {
   pageMainSize?: number;
   /** 估算上下文局部覆盖（字号/行距变化时联动重算行尺寸） */
   measure?: Partial<BlockMeasureContext>;
+  /** 实测块尺寸映射；传 null 清空回退估算，传 undefined 保持当前映射 */
+  blockSizes?: ReadonlyMap<string, number> | null;
 }
 
 /** 搜索选项 */
@@ -92,6 +94,12 @@ export interface ReaderOptions {
   measure?: Partial<BlockMeasureContext>;
   /** 自定义块尺寸估算器 */
   estimator?: BlockSizeEstimator;
+  /**
+   * 按块 id 的实测主轴尺寸（px）
+   *
+   * 由渲染层 DOM 实测产出；命中且为正的块采用实测值，否则回退 estimator 估算。
+   */
+  blockSizes?: ReadonlyMap<string, number>;
   /** 外部事件总线（与 core 实例共享）；默认自建 */
   events?: EventBus<BibliotypeEventMap>;
 }
@@ -113,6 +121,8 @@ export class Reader {
   private pageMainSize: number;
   private readonly estimator: BlockSizeEstimator;
   private measure: BlockMeasureContext;
+  /** 实测块尺寸映射（DOM 实测）；缺省回退估算 */
+  private blockSizes: ReadonlyMap<string, number> | undefined;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
@@ -128,6 +138,7 @@ export class Reader {
     this.pageMainSize = options.pageMainSize ?? defaultPageMainSize(this.options);
     this.measure = { ...DEFAULT_MEASURE_CONTEXT, ...options.measure };
     this.estimator = options.estimator ?? defaultEstimator;
+    this.blockSizes = options.blockSizes;
     this.events = options.events ?? createEventBus();
   }
 
@@ -168,10 +179,14 @@ export class Reader {
     if (overrides.measure !== undefined) {
       this.measure = { ...this.measure, ...overrides.measure };
     }
+    if (overrides.blockSizes !== undefined) {
+      this.blockSizes = overrides.blockSizes ?? undefined;
+    }
 
     this.blocks = extractBlocks(this.doc, {
       estimator: this.estimator,
       context: this.measure,
+      blockSizes: this.blockSizes,
     });
     const result = paginate(this.blocks, { pageMainSize: this.pageMainSize });
     this.pages = result.pages;

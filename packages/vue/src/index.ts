@@ -7,6 +7,9 @@ export type { ReaderBinding, UseReaderReturn } from './use-reader.js';
 export { useEditorBinding } from './use-editor.js';
 export type { EditorBinding } from './use-editor.js';
 
+export { measureBlockSizes, disposeMeasureSheet } from './pagination-measure.js';
+export type { MeasureBlockSizesInput } from './pagination-measure.js';
+
 export { default as BtBookView } from './components/BtBookView.vue';
 export { default as BtPager } from './components/BtPager.vue';
 export { default as BtToc } from './components/BtToc.vue';

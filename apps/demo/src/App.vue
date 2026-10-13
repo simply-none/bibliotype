@@ -12,7 +12,7 @@
  * （分页估算的行尺寸），保证「所见分页」与「所得排版」一致；
  * 主题切换重建 Reader（loadDocument 全链路重排），字号 / 行距变更原地重排。
  */
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import {
   COLOR_TOKENS,
   DEFAULT_THEME,
@@ -40,7 +40,7 @@ import {
   Reader,
   type BlockMeasureContext,
 } from '@bibliotype/reader';
-import { BtBookView, BtEditor, BtPager, BtToc } from '@bibliotype/vue';
+import { BtBookView, BtEditor, BtPager, BtToc, measureBlockSizes, disposeMeasureSheet } from '@bibliotype/vue';
 import { exportEpub } from '@bibliotype/exporter-epub';
 import { printBook } from '@bibliotype/exporter-pdf';
 import BookInfoDialog from './components/BookInfoDialog.vue';
@@ -190,35 +190,58 @@ const pageMainSize = computed(() =>
   resolvePageMainSize(effectiveLayout.value, tokens.value),
 );
 
-/** 创建已载入文档的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
-function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocument): Reader {
-  const reader = new Reader({
-    layout,
+/**
+ * DOM 实测块尺寸（块 id → 主轴尺寸 px）
+ *
+ * 由量尺工作表对当前文档逐块实测产出，同时喂给 Reader（预览逐页）与
+ * BtEditor（分页参考线），使两者分页归属一致；直排 / 多栏回退估算（空映射）。
+ */
+const blockSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
+
+/** 重测当前 Reader 文档的块尺寸并重排预览（DOM 实测，需已挂载） */
+function remeasure(): void {
+  const doc = reader.value.document ?? lunyuDocument;
+  const sizes = measureBlockSizes({
+    doc,
+    options: effectiveLayout.value,
+    tokens: tokens.value,
+    fontToken: theme.value.fontToken,
+    measure: typographyMeasure(),
+  });
+  blockSizes.value = sizes;
+  reader.value.repaginate({
+    blockSizes: sizes,
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
   });
-  reader.loadDocument(document);
-  return reader;
+}
+
+/** 去抖重测（等 DOM / 布局稳定，避免拖动字号 / 开本时频繁量尺） */
+let measureTimer: number | undefined;
+function scheduleRemeasure(): void {
+  if (measureTimer !== undefined) clearTimeout(measureTimer);
+  measureTimer = window.setTimeout(() => {
+    measureTimer = undefined;
+    void nextTick(remeasure);
+  }, 120);
+}
+
+/** 创建已载入文档的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
+function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocument): Reader {
+  const r = new Reader({
+    layout,
+    measure: typographyMeasure(),
+    pageMainSize: pageMainSize.value,
+    blockSizes: blockSizes.value,
+  });
+  r.loadDocument(document);
+  return r;
 }
 
 const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
 
-/** 字号 / 行距变更：原地重排（保持当前页，视觉由 tokens 联动） */
-watch([fontSize, lineHeight], () => {
-  reader.value.repaginate({
-    measure: typographyMeasure(),
-    pageMainSize: pageMainSize.value,
-  });
-});
-
-/** 开本变更：原地重排（更新页面尺寸与每页主轴尺寸） */
-watch(pageSizeKey, () => {
-  reader.value.repaginate({
-    layout: effectiveLayout.value,
-    measure: typographyMeasure(),
-    pageMainSize: pageMainSize.value,
-  });
-});
+/** 字号 / 行距 / 开本变更：重测块尺寸并原地重排（视觉由 tokens 联动） */
+watch([fontSize, lineHeight, pageSizeKey], scheduleRemeasure);
 
 function switchTheme(key: ThemeKey): void {
   if (key === themeKey.value) return;
@@ -226,6 +249,8 @@ function switchTheme(key: ThemeKey): void {
   const current = reader.value.document ?? lunyuDocument;
   themeKey.value = key;
   reader.value = createReader(effectiveLayout.value, current);
+  // 重建后按新排版重测（直排主题会回退估算，空映射安全）
+  scheduleRemeasure();
 }
 
 /* ---------------- 编辑模式（编辑 → 回写预览） ---------------- */
@@ -247,6 +272,8 @@ function enterEdit(): void {
     });
   }
   mode.value = 'edit';
+  // 进编辑前重测（编辑器由当前阅读文档创建，块 id 对齐 → 分页线与预览一致）
+  scheduleRemeasure();
 }
 
 /** 保存并预览：编辑产物回写 Reader（全链路重排，页码重算）并返回阅读 */
@@ -255,6 +282,8 @@ function saveAndPreview(): void {
   if (editor === null) return;
   reader.value.loadDocument(editor.getDocument());
   mode.value = 'read';
+  // 文档变更 → 重测新文档块尺寸（旧 id 映射对新文档不适用）
+  scheduleRemeasure();
 }
 
 /** 还原样册：编辑器内容重置为原始样例 */
@@ -411,10 +440,17 @@ function onKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
+  // 初次量尺（等挂载后布局完成）；字体就绪后再测一次（Web 字体影响行高）
+  void nextTick(remeasure);
+  if (typeof document !== 'undefined' && document.fonts?.ready !== undefined) {
+    document.fonts.ready.then(() => remeasure()).catch(() => undefined);
+  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   removeToolbarDragListeners();
+  if (measureTimer !== undefined) clearTimeout(measureTimer);
+  disposeMeasureSheet();
 });
 </script>
 
@@ -576,6 +612,7 @@ onBeforeUnmount(() => {
             :pagination="true"
             :page-main-size="pageMainSize"
             :measure="measureContext"
+            :block-sizes="blockSizes"
           >
             <template #default="slotProps">
               <EditorToolbar :binding="slotProps" @reset="resetSample" />

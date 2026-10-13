@@ -275,6 +275,27 @@ describe('Reader 重排', () => {
     expect(reader.pageMainSizePx).toBe(100);
   });
 
+  it('blockSizes 实测尺寸参与分页（影响页数）', () => {
+    const estimator = fixedEstimator({ 'h-1': 30, 'p-1': 60, 'p-2': 60, 'p-3': 100 });
+    // 无实测：h-1+p-1(60) 同页 → 3 页
+    const estimated = new Reader({ pageMainSize: 100, estimator });
+    estimated.loadDocument(sampleDoc());
+    expect(estimated.totalPages).toBe(3);
+
+    // p-1 实测 200（超页）→ 独占一页 → 4 页
+    const measured = new Reader({
+      pageMainSize: 100,
+      estimator,
+      blockSizes: new Map([['p-1', 200]]),
+    });
+    measured.loadDocument(sampleDoc());
+    expect(measured.totalPages).toBe(4);
+
+    // 清空实测（传 null）→ 回退估算 → 回到 3 页
+    measured.repaginate({ blockSizes: null });
+    expect(measured.totalPages).toBe(3);
+  });
+
   it('空文档分页为 0 页且进度为 0', () => {
     const reader = createReader();
     reader.loadDocument(createEmptyDocument({ title: '空书' }));

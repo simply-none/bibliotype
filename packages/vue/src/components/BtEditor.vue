@@ -43,6 +43,13 @@ const props = defineProps<{
   pageMainSize?: number;
   /** 块度量估算上下文（与预览 Reader 传同一份，保证分页归属一致） */
   measure?: BlockMeasureContext;
+  /**
+   * DOM 实测块尺寸映射（与预览 Reader 同源）
+   *
+   * 提供时分页参考线采用实测尺寸判定断页（与预览逐页一致）；
+   * 缺省回退到按字符数估算（配 measure）。
+   */
+  blockSizes?: ReadonlyMap<string, number>;
 }>();
 
 const canvasRef = ref<HTMLElement | null>(null);
@@ -133,7 +140,7 @@ function recomputeBreaks(): void {
   if (pm === null) return;
 
   const doc = props.editor.getDocument();
-  const blocks = extractBlocks(doc, { context: props.measure });
+  const blocks = extractBlocks(doc, { context: props.measure, blockSizes: props.blockSizes });
   const mainSize =
     props.pageMainSize ?? resolvePageMainSize(resolvedOptions.value, resolvedTokens.value);
   if (mainSize <= 0 || blocks.length === 0) {
@@ -217,7 +224,7 @@ onBeforeUnmount(() => {
 watch([resolvedTokens, resolvedOptions, () => props.fontToken], syncBookStyle);
 
 watch(
-  [() => props.pagination, () => props.pageMainSize, () => props.measure, vertical],
+  [() => props.pagination, () => props.pageMainSize, () => props.measure, () => props.blockSizes, vertical],
   scheduleRecompute,
 );
 

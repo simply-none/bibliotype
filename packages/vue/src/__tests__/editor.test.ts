@@ -4,7 +4,7 @@
  * 覆盖：EditorView 挂载 / 卸载、命令执行与版本自增、标记激活态、
  * undo / redo 可用性、组件挂载与插槽 binding 透传。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { effectScope, h } from 'vue';
 import { mount } from '@vue/test-utils';
 import { MARK_TYPES, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
@@ -213,5 +213,23 @@ describe('BtEditor', () => {
     const paginated = mount(BtEditor, { props: { editor, pagination: true } });
     expect(paginated.find('.bt-editor__overlay').exists()).toBe(true);
     paginated.unmount();
+  });
+
+  it('分页纸张：DOM 实测重算后渲染等高纸面面板（去抖 + rAF 后落位）', async () => {
+    vi.useFakeTimers();
+    const editor = createEditor();
+    const wrapper = mount(BtEditor, { props: { editor, pagination: true } });
+    // scheduleRecompute：120ms 去抖 → nextTick → rAF → recomputeSheets
+    await vi.advanceTimersByTimeAsync(150);
+    vi.useRealTimers();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await wrapper.vm.$nextTick();
+
+    const sheets = wrapper.findAll('.bt-editor__sheet');
+    expect(sheets.length).toBeGreaterThanOrEqual(1);
+    // happy-dom 尺寸均为 0 → DOM 实测不可得，回退估算仍须产出整页高纸张（等高网格）
+    const height = sheets[0]?.attributes('style')?.match(/height: (\d+(?:\.\d+)?)px/);
+    expect(Number(height?.[1])).toBeGreaterThan(0);
+    wrapper.unmount();
   });
 });

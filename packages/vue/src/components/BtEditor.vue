@@ -25,6 +25,7 @@ import {
   paginate,
   resolvePageMainSize,
   type LayoutOptions,
+  type MeasurableBlock,
 } from '@bibliotype/layout';
 import { buildBookCss, declarationToCss } from '@bibliotype/layout/html';
 import { extractBlocks, type BlockMeasureContext } from '@bibliotype/reader';
@@ -40,19 +41,20 @@ const props = defineProps<{
   options?: LayoutOptions;
   /** 正文字体族令牌键（古籍可传 FONT_TOKENS.CLASSICAL_BODY） */
   fontToken?: string;
-  /** 是否显示分页参考线（缺省 false：连续编辑，不叠加） */
+  /** 是否显示分页纸张效果（缺省 false：连续编辑，不叠加） */
   pagination?: boolean;
   /** 每页可用主轴尺寸（px）；缺省按 options.pageSize 与 page-margin 令牌推导 */
   pageMainSize?: number;
-  /** 块度量估算上下文（与预览 Reader 传同一份，保证分页归属一致） */
+  /** 块度量估算上下文（横排下仅作缺 DOM 实测时的回退估算口径） */
   measure?: BlockMeasureContext;
   /** 视图是否可编辑（缺省 true；false 时画布只读，拒绝用户输入） */
   editable?: boolean;
   /**
-   * DOM 实测块尺寸映射（与预览 Reader 同源）
+   * 外部实测块尺寸映射（块 id → 主轴尺寸 px）
    *
-   * 提供时分页参考线采用实测尺寸判定断页（与预览逐页一致）；
-   * 缺省回退到按字符数估算（配 measure）。
+   * 仅用于直排 / 多栏等无法 DOM 实测场景的分页回退；
+   * 横排下断页尺寸一律以编辑 DOM 实时实测为准（不依赖此映射，
+   * 避免外部量尺旧数据与编辑器渲染不一致导致内容溢出纸张）。
    */
   blockSizes?: ReadonlyMap<string, number>;
   /** 编辑态缩放比例（缺省 1；限幅 0.2~2，整页含分页参考线一起缩放） */
@@ -85,18 +87,36 @@ const nativeSize = ref({
   height: resolvedOptions.value.pageSize.height,
 });
 
-/** 舞台（按缩放后尺寸预留版面，横向居中） */
-const stageStyle = computed(() => ({
-  width: `${nativeSize.value.width * resolvedScale.value}px`,
-  height: `${nativeSize.value.height * resolvedScale.value}px`,
-}));
+/** 分页态主轴总长（含末页整页），原生 px；由 recomputeSheets 写入，用于撑开页盒 / 舞台以露出末页空白 */
+const pageExtent = ref(0);
 
-/** 页盒（原生宽度 + transform 缩放，左上为原点；分页参考线在其内随同缩放） */
-const pageZoomStyle = computed(() => ({
-  width: `${nativeSize.value.width}px`,
-  transform: `scale(${resolvedScale.value})`,
-  transformOrigin: 'top left',
-}));
+/** 舞台（按缩放后尺寸预留版面，横向居中；主轴至少覆盖到末页纸张底） */
+const stageStyle = computed(() => {
+  const scale = resolvedScale.value;
+  if (vertical.value) {
+    return {
+      width: `${Math.max(nativeSize.value.width, pageExtent.value) * scale}px`,
+      height: `${nativeSize.value.height * scale}px`,
+    };
+  }
+  return {
+    width: `${nativeSize.value.width * scale}px`,
+    height: `${Math.max(nativeSize.value.height, pageExtent.value) * scale}px`,
+  };
+});
+
+/** 页盒（原生宽度 + transform 缩放，左上为原点；分页纸张在其内随同缩放） */
+const pageZoomStyle = computed(() => {
+  const style: Record<string, string> = {
+    width: `${nativeSize.value.width}px`,
+    transform: `scale(${resolvedScale.value})`,
+    transformOrigin: 'top left',
+  };
+  // 主轴撑到末页纸张底，保证整页（含末页空白）可见可滚动
+  if (vertical.value) style.minWidth = `${pageExtent.value}px`;
+  else style.minHeight = `${pageExtent.value}px`;
+  return style;
+});
 
 /** 实测 .ProseMirror 原生尺寸（内容增删 / 字体变化经 ResizeObserver 自动更新） */
 let pageObserver: ResizeObserver | undefined;
@@ -191,9 +211,49 @@ function cssEscape(value: string): string {
   return value.replace(/["\\]/g, '\\$&');
 }
 
+/**
+ * 以编辑器 DOM 实时实测覆盖块的推进尺寸（横排，就地修改 blocks）。
+ *
+ * 相邻叶块「顶边差」即该块沿主轴的推进量（含折叠外边距），末块取
+ * 自身高 + 下外边距；与纸张定位同源，消除外部旧量尺导致的整页超高溢出。
+ * 量不到（缺 data-bt-id 节点 / happy-dom 零尺寸）时保留原估算值。
+ */
+function applyDomAdvances(pm: HTMLElement, blocks: MeasurableBlock[]): void {
+  const els = blocks.map((block) =>
+    pm.querySelector<HTMLElement>(`[data-bt-id="${cssEscape(block.id)}"]`),
+  );
+  for (let i = 0; i < blocks.length; i += 1) {
+    const el = els[i];
+    if (el === null) continue;
+    let j = i + 1;
+    while (j < els.length && els[j] === null) j += 1;
+    const nextEl = j < els.length ? (els[j] as HTMLElement) : undefined;
+    const advance =
+      nextEl !== undefined
+        ? nextEl.offsetTop - el.offsetTop
+        : el.offsetHeight + (Number.parseFloat(getComputedStyle(el).marginBottom) || 0);
+    const block = blocks[i] as MeasurableBlock;
+    if (Number.isFinite(advance) && advance > 0) block.mainSize = advance;
+  }
+}
+
+/** 注入到页首块的页间距元素（重算 / 卸载前需清除，回到自然布局再测量） */
+let styledEls: HTMLElement[] = [];
+
+function clearStyledMargins(): void {
+  for (const el of styledEls) {
+    el.style.removeProperty('margin-top');
+    el.style.removeProperty('margin-left');
+  }
+  styledEls = [];
+}
+
 function recomputeSheets(): void {
+  // 先撤除上次注入的页间距，回到自然布局再测量（否则 offsetTop 含旧 margin，逐次累加漂移）
+  clearStyledMargins();
   if (props.pagination !== true) {
     sheets.value = [];
+    pageExtent.value = 0;
     return;
   }
   const canvas = canvasRef.value;
@@ -203,13 +263,22 @@ function recomputeSheets(): void {
 
   const doc = props.editor.getDocument();
   const blocks = extractBlocks(doc, { context: props.measure, blockSizes: props.blockSizes });
+  // 纸书排版 Phase 1：横排断页尺寸改用编辑器 DOM 实时实测（与纸张定位同源），
+  // 不再依赖外部旧 blockSizes；直排 / 多栏量不到，仍按估算 / 外部映射回退。
+  if (!vertical.value) applyDomAdvances(pm, blocks);
   const mainSize =
     props.pageMainSize ?? resolvePageMainSize(resolvedOptions.value, resolvedTokens.value);
   if (mainSize <= 0 || blocks.length === 0) {
     sheets.value = [];
+    pageExtent.value = 0;
     return;
   }
   const result = paginate(blocks, { pageMainSize: mainSize });
+  if (result.pages.length === 0) {
+    sheets.value = [];
+    pageExtent.value = 0;
+    return;
+  }
 
   // 页面盒（.ProseMirror）相对定位原点（offsetParent = .bt-editor__page，与纸张同源）
   const pageLeft = pm.offsetLeft;
@@ -217,43 +286,71 @@ function recomputeSheets(): void {
   const pageWidth = pm.offsetWidth;
   const pageHeight = pm.offsetHeight;
   const isVertical = vertical.value;
-  // 主轴起点 / 交叉轴原点；首页从页盒起点开始（含页边距），末页到页盒末尾
-  const origin = isVertical ? pageLeft : pageTop;
-  const contentEnd = isVertical ? pageLeft + pageWidth : pageTop + pageHeight;
+  // 纸张主轴长度固定 = 版心页尺寸（与预览一致，逐页等高）；页缝 G，步长 S = 页 + 缝
+  const { pageSize } = resolvedOptions.value;
+  const sheetMain = isVertical ? pageSize.width : pageSize.height;
+  const gap = SHEET_GAP;
+  const stride = sheetMain + gap;
 
+  // 逐页首块元素 + 自然主轴起点（撤 margin 后测得，首页起点 = 版心内边距）
+  const firstEls: (HTMLElement | null)[] = [];
   const starts: number[] = [];
-  for (const [i, page] of result.pages.entries()) {
+  for (const page of result.pages) {
     const firstId = page.blocks[0]?.id;
     const el =
-      i === 0 || firstId === undefined
+      firstId === undefined
         ? null
         : pm.querySelector<HTMLElement>(`[data-bt-id="${cssEscape(firstId)}"]`);
-    starts.push(el !== null ? (isVertical ? el.offsetLeft : el.offsetTop) : origin);
+    firstEls.push(el);
+    starts.push(el !== null ? (isVertical ? el.offsetLeft : el.offsetTop) : 0);
   }
+  const padBase = starts[0] as number;
+  // 内容自然末尾（页盒主轴远端）：末页长度量到页盒底/右
+  const contentEnd = isVertical ? pageLeft + pageWidth : pageTop + pageHeight;
 
-  const half = SHEET_GAP / 2;
   const next: PageSheet[] = [];
+  let cum = 0; // 已累计注入的页间距
+  let mainEnd = 0;
   for (let i = 0; i < starts.length; i += 1) {
-    const start = starts[i] as number;
-    const end = i + 1 < starts.length ? (starts[i + 1] as number) : contentEnd;
-    const mainLen = Math.max(0, end - start - SHEET_GAP);
-    const mainPos = start + half;
+    // 本页自然内容长（到下一页起点，末页到页盒末尾）
+    const contentLen =
+      (i + 1 < starts.length ? (starts[i + 1] as number) : contentEnd) - (starts[i] as number);
+    if (i > 0) {
+      const prevLen = (starts[i] as number) - (starts[i - 1] as number);
+      // 常规页补足到统一网格（整页高 + 页缝）；超高页（整页内容高于一张纸）只留页缝
+      const margin = prevLen >= sheetMain ? gap : stride - prevLen;
+      cum += margin;
+      const el = firstEls[i];
+      if (el !== null && margin > 0) {
+        const prop = isVertical ? 'margin-left' : 'margin-top';
+        // 在块原有外边距基础上叠加页间距（直接赋值会覆盖标题等自带的顶边距→错位）
+        const natural = Number.parseFloat(getComputedStyle(el).getPropertyValue(prop)) || 0;
+        el.style.setProperty(prop, `${natural + margin}px`);
+        styledEls.push(el);
+      }
+    }
+    // 纸张主轴长度：固定整页；超高页随内容增高（宁可本页变长，不再溢出于纸外）
+    const sheetLen = Math.max(sheetMain, contentLen);
+    // 纸张主轴起点 = 内容实际起点 − 版心内边距（使内容落在纸内 padBase 处）
+    const sheetMainPos = (starts[i] as number) + cum - padBase;
+    mainEnd = sheetMainPos + sheetLen;
     const style = isVertical
       ? {
           top: `${pageTop}px`,
           height: `${pageHeight}px`,
-          left: `${mainPos}px`,
-          width: `${mainLen}px`,
+          left: `${sheetMainPos}px`,
+          width: `${sheetLen}px`,
         }
       : {
           left: `${pageLeft}px`,
           width: `${pageWidth}px`,
-          top: `${mainPos}px`,
-          height: `${mainLen}px`,
+          top: `${sheetMainPos}px`,
+          height: `${sheetLen}px`,
         };
     next.push({ page: i + 1, style });
   }
   sheets.value = next;
+  pageExtent.value = mainEnd;
 }
 
 /** 事务 / 尺寸 / 令牌变化后的去抖重算（等 DOM 稳定再测） */
@@ -262,7 +359,9 @@ let recomputeRaf = 0;
 
 function scheduleRecompute(): void {
   if (props.pagination !== true) {
+    clearStyledMargins();
     sheets.value = [];
+    pageExtent.value = 0;
     return;
   }
   if (recomputeTimer !== undefined) clearTimeout(recomputeTimer);
@@ -295,6 +394,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   binding.detach();
   removeBookStyle();
+  clearStyledMargins();
   resizeObserver?.disconnect();
   pageObserver?.disconnect();
   if (recomputeTimer !== undefined) clearTimeout(recomputeTimer);

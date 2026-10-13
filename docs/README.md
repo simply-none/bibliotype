@@ -40,6 +40,7 @@
 | [15 SSR 与 Node 同构](15-ssr-and-node.md) | 各模块环境要求对照与替代方案 | 全仓 |
 | [16 测试指南](16-testing.md) | 测试组织、vitest 运行、环境注入 | 全仓 |
 | [17 文档导入](17-document-import.md) | Markdown / HTML / docx / epub → BookDocument | `import` / `import-docx` / `import-epub` |
+| [18 纸书排版引擎路线图](18-pagination-engine-roadmap.md) | 行级拆分 / 孤寡行 / 预览编辑同源的阶段计划与引擎调研 | `layout` / `reader` / `vue` |
 
 ## 架构总览
 

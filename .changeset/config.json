@@ -13,7 +13,8 @@
       "@bibliotype/collab",
       "@bibliotype/adapter-indexeddb",
       "@bibliotype/exporter-epub",
-      "@bibliotype/exporter-pdf"
+      "@bibliotype/exporter-pdf",
+      "@bibliotype/import"
     ]
   ],
   "linked": [],

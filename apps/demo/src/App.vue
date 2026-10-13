@@ -5,10 +5,11 @@
  * - 工具栏：主题切换（现代横排 ↔ 古籍直排）/ 编辑 / 书籍信息 / 搜索 / 书签 / 目录 /
  *   设置 / 导出 EPUB / 打印 PDF；
  * - 左栏：设置面板、搜索面板、书签面板、目录（可分别开关）；
- * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；编辑态为 BtEditor；
+ * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；编辑态为 BtEditor
+ *   （工具条 + 属性检视器，后者跟随选区展示节点 / 标记可编辑属性）；
  * - 键盘：← / → 翻页；Esc 关闭书籍信息弹窗。
  *
- * 版式参数 = 补丁双层层：主题预设（基准）+ layoutPatch / tokenPatch（设置面板覆写），
+ * 版式参数 = 补丁双层：主题预设（基准）+ layoutPatch / tokenPatch（设置面板覆写），
  * 阅读 / 编辑 / 导出共用同一份 effectiveLayout 与 tokens，改一处三端联动；
  * 字号 / 行距变更经双通道联动（tokens 视觉 + repaginate measure 估算），
  * 主题切换重建 Reader 并清空布局补丁（书写方向随主题），字号等个人设置保留。
@@ -43,6 +44,7 @@ import { BtBookView, BtEditor, BtPager, BtToc, measureBlockSizes, disposeMeasure
 import { exportEpub } from '@bibliotype/exporter-epub';
 import { printBook } from '@bibliotype/exporter-pdf';
 import BookInfoDialog from './components/BookInfoDialog.vue';
+import AttrInspector from './components/AttrInspector.vue';
 import BookmarkPanel from './components/BookmarkPanel.vue';
 import EditorToolbar from './components/EditorToolbar.vue';
 import ProgressBar from './components/ProgressBar.vue';
@@ -614,6 +616,7 @@ onBeforeUnmount(() => {
           >
             <template #default="slotProps">
               <EditorToolbar :binding="slotProps" @reset="resetSample" />
+              <AttrInspector :binding="slotProps" />
             </template>
           </BtEditor>
         </div>

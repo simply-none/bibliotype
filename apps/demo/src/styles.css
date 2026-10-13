@@ -2,7 +2,8 @@
  * 全局基础样式（Demo）
  *
  * 仅做最小重置：盒模型、页面底色与字体；
- * 阅读区样式由 @bibliotype/layout 生成（注入 .bt-reader-page 容器）。
+ * 阅读区样式由 @bibliotype/layout 生成（注入 .bt-reader-page 容器）；
+ * 另附「结构节点题签徽标」演示专属样式（属性可视化，不进导出链）。
  */
 *,
 *::before,
@@ -22,4 +23,41 @@ body {
     -apple-system, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
   color: #3c3a34;
   background: #efe9dd;
+}
+
+/**
+ * 结构节点 title 属性徽标（演示层专属，编辑画布与阅读页双容器生效）
+ *
+ * attrs.title 的正式消费者是目录提取（resolveNodeTitle），不参与任何渲染；
+ * 默认 toDOM 与 HTML 序列化器都会把非默认属性输出为 data-title，
+ * 这里仅用 demo CSS 将其可视化为题签，方便属性检视器「改眼可见」；
+ * 导出（EPUB / 打印）不含本样式，版式保持书册原样。
+ */
+.bt-editor__canvas .ProseMirror :is(
+  .bt-volume,
+  .bt-chapter,
+  .bt-section,
+  .bt-appendix,
+  .bt-preface,
+  .bt-postscript
+)[data-title]::before,
+.bt-reader-page :is(
+  .bt-volume,
+  .bt-chapter,
+  .bt-section,
+  .bt-appendix,
+  .bt-preface,
+  .bt-postscript
+)[data-title]::before {
+  content: attr(data-title);
+  display: inline-block;
+  font-size: 0.72em;
+  line-height: 1.6;
+  letter-spacing: 0.08em;
+  color: var(--bt-accent, #8c5a2b);
+  border: 1px dashed currentColor;
+  border-radius: 4px;
+  padding: 0 0.5em;
+  margin: 0 0.4em 0.4em 0;
+  opacity: 0.8;
 }

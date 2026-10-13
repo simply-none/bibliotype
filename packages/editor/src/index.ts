@@ -51,6 +51,8 @@ export {
   toggleQuote,
   toggleBulletList,
   insertBlockAfterSelection,
+  setNodeAttrs,
+  setMarkAttrs,
 } from './commands.js';
 
 /* ---------- 插件与键位 ---------- */

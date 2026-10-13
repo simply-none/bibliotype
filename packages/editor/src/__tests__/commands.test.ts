@@ -12,6 +12,8 @@ import {
   insertBlockAfterSelection,
   redoCommand,
   setHeadingLevel,
+  setMarkAttrs,
+  setNodeAttrs,
   setParagraph,
   toggleBulletList,
   toggleMarkOfType,
@@ -104,6 +106,11 @@ function collectTextMarks(pm: PmNode): readonly Mark[] {
   return marks;
 }
 
+/** 章节点（卷 > 章） */
+function chapterNode(editor: BookEditor): BookDocument['root']['children'] | undefined {
+  return editor.getDocument().root.children?.[0]?.children;
+}
+
 describe('编辑命令', () => {
   it('toggleMarkOfType：对选中文本应用 / 取消 strong 标记', () => {
     const editor = createEditor();
@@ -189,6 +196,63 @@ describe('编辑命令', () => {
       }
     }
     expect(inside).toBe(true);
+  });
+
+  it('setNodeAttrs：修改祖先章的声明属性 title（id 不变）', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, setNodeAttrs(NODE_TYPES.CHAPTER, { title: '为新题名' }))).toBe(true);
+    const chapter = chapterNode(editor)?.[0];
+    expect(chapter?.type).toBe(NODE_TYPES.CHAPTER);
+    expect(chapter?.id).toBe('chap-1');
+    expect(chapter?.attrs?.title).toBe('为新题名');
+  });
+
+  it('setNodeAttrs：未声明属性经 rawAttrs 兜底往返，null 可清除', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, setNodeAttrs(NODE_TYPES.PARAGRAPH, { audience: '初学' }))).toBe(true);
+    let paragraph = firstLeafBlock(editor)?.[0];
+    expect(paragraph?.attrs?.audience).toBe('初学');
+
+    expect(run(editor, setNodeAttrs(NODE_TYPES.PARAGRAPH, { audience: null }))).toBe(true);
+    paragraph = firstLeafBlock(editor)?.[0];
+    expect(paragraph?.attrs?.audience).toBeUndefined();
+  });
+
+  it('setNodeAttrs：选区不在目标类型内 / 类型未注册时返回 false', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    // heading 已注册但选区祖先链内无标题
+    expect(run(editor, setNodeAttrs(NODE_TYPES.HEADING, { level: 2 }))).toBe(false);
+    // 未注册类型
+    expect(run(editor, setNodeAttrs('no-such-node', { title: 'x' }))).toBe(false);
+  });
+
+  it('setMarkAttrs：更新选区内 ruby 标记的注文 text', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+    const ruby = editor.bookSchema.marks[MARK_TYPES.RUBY];
+    expect(ruby).toBeDefined();
+
+    expect(run(editor, toggleMarkOfType(ruby!, { text: '旧注' }))).toBe(true);
+    expect(run(editor, setMarkAttrs(MARK_TYPES.RUBY, { text: '新注' }))).toBe(true);
+
+    const paragraph = firstLeafBlock(editor)?.[0];
+    const mark = paragraph?.children?.[0]?.marks?.[0];
+    expect(mark?.type).toBe(MARK_TYPES.RUBY);
+    expect(mark?.attrs?.text).toBe('新注');
+  });
+
+  it('setMarkAttrs：选区无该标记实例时返回 false', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, setMarkAttrs(MARK_TYPES.STRONG, { text: 'x' }))).toBe(false);
+    expect(run(editor, setMarkAttrs('no-such-mark', { text: 'x' }))).toBe(false);
   });
 
   it('undo / redo：历史回退与重放', () => {

@@ -16,6 +16,7 @@ import {
 } from '@bibliotype/editor';
 import { TextSelection } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
+import { DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
 import BtEditor from '../components/BtEditor.vue';
 import { useEditorBinding, type EditorBinding } from '../use-editor.js';
 
@@ -182,5 +183,35 @@ describe('BtEditor', () => {
 
     wrapper.unmount();
     expect(document.getElementById('bt-editor-book-css')).toBeNull();
+  });
+
+  it('选定开本驱动页面盒尺寸变量（--bt-page-w / --bt-page-h）', () => {
+    const editor = createEditor();
+    const wrapper = mount(BtEditor, {
+      props: {
+        editor,
+        options: {
+          ...DEFAULT_LAYOUT_OPTIONS,
+          pageSize: { name: 'A4', width: 794, height: 1123 },
+        },
+      },
+    });
+
+    const style = wrapper.find('.bt-editor__canvas').attributes('style') ?? '';
+    expect(style).toContain('--bt-page-w: 794px');
+    expect(style).toContain('--bt-page-h: 1123px');
+
+    wrapper.unmount();
+  });
+
+  it('pagination 开关控制分页参考线覆层（缺省不渲染）', () => {
+    const editor = createEditor();
+    const plain = mount(BtEditor, { props: { editor } });
+    expect(plain.find('.bt-editor__overlay').exists()).toBe(false);
+    plain.unmount();
+
+    const paginated = mount(BtEditor, { props: { editor, pagination: true } });
+    expect(paginated.find('.bt-editor__overlay').exists()).toBe(true);
+    paginated.unmount();
   });
 });

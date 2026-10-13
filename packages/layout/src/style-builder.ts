@@ -13,7 +13,7 @@ import {
   LAYOUT_TOKENS,
 } from '@bibliotype/core';
 import type { LayoutOptions } from './layout-options.js';
-import type { PageSize } from './page-size.js';
+import { resolveContentBox, type PageSize } from './page-size.js';
 import { TEXT_ORIENTATIONS, isVerticalMode } from './writing-mode.js';
 import { combineUprightCss } from './combine-upright.js';
 
@@ -103,6 +103,24 @@ export function buildPageStyle(
   };
   setIfPresent(style, 'padding', tokens[LAYOUT_TOKENS.PAGE_MARGIN]);
   return style;
+}
+
+/**
+ * 解析每页可用主轴尺寸（px）
+ *
+ * 横排取内容区高、直排取内容区宽；页边距按 page-margin 令牌
+ * （形如 "48px 56px"：上下 / 左右）解析。reader / 编辑画布 / PDF 共用
+ * 本函数，保证三处分页主轴口径一致。
+ */
+export function resolvePageMainSize(
+  options: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+): number {
+  const numbers = (tokens[LAYOUT_TOKENS.PAGE_MARGIN]?.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+  const marginY = numbers[0] ?? 0;
+  const marginX = numbers[1] ?? marginY;
+  const box = resolveContentBox(options.pageSize, marginY, marginX);
+  return isVerticalMode(options.writingMode) ? box.width : box.height;
 }
 
 /**

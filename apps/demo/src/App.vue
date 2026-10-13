@@ -27,9 +27,19 @@ import { BookEditor, createBookEditorPlugins } from '@bibliotype/editor';
 import {
   CLASSICAL_LAYOUT_OPTIONS,
   DEFAULT_LAYOUT_OPTIONS,
+  isVerticalMode,
+  mergeLayoutOptions,
+  PAGE_SIZES,
+  resolveContentBox,
+  resolvePageMainSize,
   type LayoutOptions,
+  type PageSize,
 } from '@bibliotype/layout';
-import { Reader, type BlockMeasureContext } from '@bibliotype/reader';
+import {
+  DEFAULT_MEASURE_CONTEXT,
+  Reader,
+  type BlockMeasureContext,
+} from '@bibliotype/reader';
 import { BtBookView, BtEditor, BtPager, BtToc } from '@bibliotype/vue';
 import { exportEpub } from '@bibliotype/exporter-epub';
 import { printBook } from '@bibliotype/exporter-pdf';
@@ -89,6 +99,23 @@ const THEME_ENTRIES: ReadonlyArray<{ key: ThemeKey; config: ThemeConfig }> = [
 const themeKey = ref<ThemeKey>('modern');
 const theme = computed<ThemeConfig>(() => THEMES[themeKey.value]);
 
+/* ---------------- 纸张开本（独立于主题，覆盖主题默认页面尺寸） ---------------- */
+
+type PageSizeKey = keyof typeof PAGE_SIZES;
+
+/** 开本下拉项（key + 展示名 / 尺寸） */
+const PAGE_SIZE_ENTRIES: ReadonlyArray<[PageSizeKey, PageSize]> = Object.entries(
+  PAGE_SIZES,
+) as ReadonlyArray<[PageSizeKey, PageSize]>;
+
+const pageSizeKey = ref<PageSizeKey>('A5');
+const pageSize = computed<PageSize>(() => PAGE_SIZES[pageSizeKey.value]);
+
+/** 生效布局：主题书写方向 / 页码样式 + 选定开本 */
+const effectiveLayout = computed<LayoutOptions>(() =>
+  mergeLayoutOptions(theme.value.layout, { pageSize: pageSize.value }),
+);
+
 /* ---------------- 排版设置（字号 / 行距 / 夜间） ---------------- */
 
 const FONT_SIZE_MIN = 12;
@@ -135,30 +162,62 @@ function cycleLineHeight(): void {
 /* ---------------- Reader（主题切换时重建） ---------------- */
 
 /**
- * 估算上下文（与字号 / 行距联动）
+ * 估算上下文（与字号 / 行距 / 开本联动）
  *
- * 基准：16px 字号 × 1.9 行距 ≈ 26 字/行、行尺寸 30px（见 DEFAULT_MEASURE_CONTEXT）；
- * 字号↑ → 每行字数↓；行尺寸 = 字号 × 行距。
+ * 每行字数按页面交叉轴（横排取内容宽 / 直排取内容高）与字号折算，
+ * 0.95 为 CJK 字宽近似因子（A5 @16px ≈ 26 字/行，与原默认一致）；
+ * 行尺寸（主轴每行）= 字号 × 行距。预览 Reader 与编辑画布共用同一结果。
  */
 function typographyMeasure(): Partial<BlockMeasureContext> {
+  const box = resolveContentBox(effectiveLayout.value.pageSize, 48, 56);
+  const cross = isVerticalMode(effectiveLayout.value.writingMode)
+    ? box.height
+    : box.width;
   return {
-    charsPerLine: Math.max(1, Math.round((26 * 16) / fontSize.value)),
+    charsPerLine: Math.max(1, Math.round((cross / fontSize.value) * 0.95)),
     lineSize: Math.round(fontSize.value * lineHeight.value),
   };
 }
 
+/** 完整估算上下文（传给 BtEditor，与 Reader 内部 { ...DEFAULT, ...measure } 同值） */
+const measureContext = computed<BlockMeasureContext>(() => ({
+  ...DEFAULT_MEASURE_CONTEXT,
+  ...typographyMeasure(),
+}));
+
+/** 每页可用主轴尺寸（预览与编辑共用同一口径，保证分页归属一致） */
+const pageMainSize = computed(() =>
+  resolvePageMainSize(effectiveLayout.value, tokens.value),
+);
+
 /** 创建已载入文档的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
-function createReader(key: ThemeKey, document: BookDocument = lunyuDocument): Reader {
-  const reader = new Reader({ layout: THEMES[key].layout, measure: typographyMeasure() });
+function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocument): Reader {
+  const reader = new Reader({
+    layout,
+    measure: typographyMeasure(),
+    pageMainSize: pageMainSize.value,
+  });
   reader.loadDocument(document);
   return reader;
 }
 
-const reader = shallowRef<Reader>(createReader('modern'));
+const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
 
 /** 字号 / 行距变更：原地重排（保持当前页，视觉由 tokens 联动） */
 watch([fontSize, lineHeight], () => {
-  reader.value.repaginate({ measure: typographyMeasure() });
+  reader.value.repaginate({
+    measure: typographyMeasure(),
+    pageMainSize: pageMainSize.value,
+  });
+});
+
+/** 开本变更：原地重排（更新页面尺寸与每页主轴尺寸） */
+watch(pageSizeKey, () => {
+  reader.value.repaginate({
+    layout: effectiveLayout.value,
+    measure: typographyMeasure(),
+    pageMainSize: pageMainSize.value,
+  });
 });
 
 function switchTheme(key: ThemeKey): void {
@@ -166,7 +225,7 @@ function switchTheme(key: ThemeKey): void {
   /* 以当前阅读文档重建 Reader（保留已保存的编辑内容），仅换布局 */
   const current = reader.value.document ?? lunyuDocument;
   themeKey.value = key;
-  reader.value = createReader(key, current);
+  reader.value = createReader(effectiveLayout.value, current);
 }
 
 /* ---------------- 编辑模式（编辑 → 回写预览） ---------------- */
@@ -226,7 +285,8 @@ function download(filename: string, blob: Blob): void {
 
 /** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得；含已保存的编辑内容） */
 function onExportEpub(): void {
-  const { layout, fontToken } = theme.value;
+  const { fontToken } = theme.value;
+  const layout = effectiveLayout.value;
   const book = reader.value.document ?? lunyuDocument;
   const bytes = exportEpub(book, { layout, tokens: tokens.value, fontToken });
   download('论语.epub', new Blob([new Uint8Array(bytes)], { type: 'application/epub+zip' }));
@@ -234,9 +294,9 @@ function onExportEpub(): void {
 
 /** 打印 / 另存 PDF（paged 预分页，与屏幕分页一致；含已保存的编辑内容） */
 function onPrintPdf(): void {
-  const { layout, fontToken } = theme.value;
+  const { fontToken } = theme.value;
   printBook(reader.value.document ?? lunyuDocument, {
-    layout,
+    layout: effectiveLayout.value,
     tokens: tokens.value,
     fontToken,
     mode: 'paged',
@@ -391,6 +451,16 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="toolbar__group">
+          <label class="toolbar__field">
+            <span class="toolbar__readout">开本</span>
+            <select v-model="pageSizeKey" class="toolbar__select">
+              <option v-for="[key, size] in PAGE_SIZE_ENTRIES" :key="key" :value="key">
+                {{ size.name }}
+              </option>
+            </select>
+          </label>
+        </div>
+        <div class="toolbar__group">
           <button
             type="button"
             class="toolbar__button"
@@ -501,8 +571,11 @@ onBeforeUnmount(() => {
             class="app__editor"
             :editor="bookEditor"
             :tokens="tokens"
-            :options="theme.layout"
+            :options="effectiveLayout"
             :font-token="theme.fontToken"
+            :pagination="true"
+            :page-main-size="pageMainSize"
+            :measure="measureContext"
           >
             <template #default="slotProps">
               <EditorToolbar :binding="slotProps" @reset="resetSample" />
@@ -644,6 +717,27 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-align: center;
   color: var(--demo-muted);
+}
+
+.toolbar__field {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__select {
+  padding: 5px 8px;
+  font-size: 13px;
+  color: var(--demo-text);
+  background: var(--demo-control);
+  border: 1px solid var(--demo-control-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.toolbar__select:hover {
+  border-color: var(--demo-accent);
 }
 
 .toolbar__button {

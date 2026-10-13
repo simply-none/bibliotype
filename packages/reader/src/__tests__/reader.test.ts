@@ -251,6 +251,30 @@ describe('Reader 重排', () => {
     expect(reader.layout.writingMode).toBe('vertical-rl');
   });
 
+  it('未显式给定 pageMainSize 时随布局重算', () => {
+    const reader = new Reader({
+      estimator: fixedEstimator({ 'h-1': 30, 'p-1': 60, 'p-2': 60, 'p-3': 100 }),
+    });
+    reader.loadDocument(sampleDoc());
+    // 默认 A5 横排：794 - 48×2 = 698
+    expect(reader.pageMainSizePx).toBe(698);
+
+    // 换 A4（1123 - 48×2 = 1027）→ pageMainSize 随之重算
+    reader.repaginate({ layout: { pageSize: { name: 'A4', width: 794, height: 1123 } } });
+    expect(reader.pageMainSizePx).toBe(1027);
+
+    // 切直排 → 取内容区宽度（794 - 56×2 = 682）
+    reader.repaginate({ layout: { writingMode: 'vertical-rl' } });
+    expect(reader.pageMainSizePx).toBe(682);
+  });
+
+  it('显式给定 pageMainSize 时不随布局重算', () => {
+    const reader = new Reader({ pageMainSize: 100, estimator: fixedEstimator({}) });
+    reader.loadDocument(sampleDoc());
+    reader.repaginate({ layout: { pageSize: { name: 'A4', width: 794, height: 1123 } } });
+    expect(reader.pageMainSizePx).toBe(100);
+  });
+
   it('空文档分页为 0 页且进度为 0', () => {
     const reader = createReader();
     reader.loadDocument(createEmptyDocument({ title: '空书' }));

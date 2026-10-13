@@ -12,6 +12,7 @@ import {
   buildCssVariables,
   buildPageStyle,
   buildRootStyle,
+  resolvePageMainSize,
 } from '../style-builder.js';
 
 describe('buildRootStyle', () => {
@@ -101,5 +102,49 @@ describe('buildCssVariables', () => {
   it('忽略空值与 undefined', () => {
     const vars = buildCssVariables({ a: '', b: undefined, c: 'ok' });
     expect(vars).toEqual({ '--bt-c': 'ok' });
+  });
+});
+
+describe('PAGE_SIZES 预设', () => {
+  it('覆盖国际 ISO 与中国出版常用开本', () => {
+    expect(Object.keys(PAGE_SIZES)).toEqual(
+      expect.arrayContaining(['A4', 'A5', 'B5', 'DACHU_16', 'FOLIO_16', 'DACHU_32', 'FOLIO_32']),
+    );
+  });
+
+  it('各预设尺寸为正且命名带规格标注', () => {
+    for (const size of Object.values(PAGE_SIZES)) {
+      expect(size.width).toBeGreaterThan(0);
+      expect(size.height).toBeGreaterThan(0);
+      expect(size.name).toMatch(/\d+×\d+/);
+    }
+  });
+});
+
+describe('resolvePageMainSize', () => {
+  it('横排取内容区高度（页高扣上下页边距）', () => {
+    // A5 794 高 - 48×2 = 698
+    const main = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, DEFAULT_THEME);
+    expect(main).toBe(PAGE_SIZES.A5.height - 48 * 2);
+  });
+
+  it('直排取内容区宽度（页宽扣左右页边距）', () => {
+    // A5 559 宽 - 56×2 = 447
+    const main = resolvePageMainSize(CLASSICAL_LAYOUT_OPTIONS, DEFAULT_THEME);
+    expect(main).toBe(CLASSICAL_LAYOUT_OPTIONS.pageSize.width - 56 * 2);
+  });
+
+  it('随页面尺寸开本切换而变化', () => {
+    const a5 = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, DEFAULT_THEME);
+    const a4 = resolvePageMainSize(
+      { ...DEFAULT_LAYOUT_OPTIONS, pageSize: PAGE_SIZES.A4 },
+      DEFAULT_THEME,
+    );
+    expect(a4).toBeGreaterThan(a5);
+  });
+
+  it('页边距缺省时回退为整页主轴尺寸', () => {
+    const main = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, {});
+    expect(main).toBe(DEFAULT_LAYOUT_OPTIONS.pageSize.height);
   });
 });

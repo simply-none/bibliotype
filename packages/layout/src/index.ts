@@ -38,6 +38,7 @@ export {
   buildRootStyle,
   buildPageStyle,
   buildCssVariables,
+  resolvePageMainSize,
 } from './style-builder.js';
 export type { StyleDeclaration, BuildRootStyleInput } from './style-builder.js';
 

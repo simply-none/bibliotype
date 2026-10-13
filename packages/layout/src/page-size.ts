@@ -15,18 +15,22 @@ export interface PageSize {
   height: number;
 }
 
-/** 预设页面尺寸 */
+/** 预设页面尺寸（含国际 ISO 与中国出版常用开本；mm→px @96dpi，px ≈ mm × 3.7795） */
 export const PAGE_SIZES = {
-  /** 国际 A4（96dpi） */
-  A4: { name: 'A4', width: 794, height: 1123 },
-  /** 国际 A5（96dpi） */
-  A5: { name: 'A5', width: 559, height: 794 },
-  /** 国际 B5（96dpi） */
-  B5: { name: 'B5', width: 665, height: 945 },
-  /** 16 开（传统图书常用，近似 185×260mm） */
-  FOLIO_16: { name: '16开', width: 699, height: 983 },
-  /** 32 开（传统图书常用，近似 130×184mm） */
-  FOLIO_32: { name: '32开', width: 491, height: 695 },
+  /** 国际 A4（210×297mm） */
+  A4: { name: 'A4　210×297', width: 794, height: 1123 },
+  /** 国际 A5（148×210mm） */
+  A5: { name: 'A5　148×210', width: 559, height: 794 },
+  /** 国际 B5（176×250mm） */
+  B5: { name: 'B5　176×250', width: 665, height: 945 },
+  /** 大度 16 开（889×1194 纸，成品 210×285mm） */
+  DACHU_16: { name: '大16开　210×285', width: 794, height: 1077 },
+  /** 正度 16 开（787×1092 纸，成品 185×260mm；传统图书常用） */
+  FOLIO_16: { name: '正16开　185×260', width: 699, height: 983 },
+  /** 大度 32 开（成品 140×203mm） */
+  DACHU_32: { name: '大32开　140×203', width: 529, height: 767 },
+  /** 正度 32 开（成品 130×184mm；传统图书常用） */
+  FOLIO_32: { name: '正32开　130×184', width: 491, height: 695 },
 } as const satisfies Record<string, PageSize>;
 
 /** 创建自定义页面尺寸 */

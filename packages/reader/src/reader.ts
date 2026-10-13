@@ -119,9 +119,12 @@ export class Reader {
   private outlineItems: OutlineItem[] = [];
   private pageIndex = 0;
   private readonly pageByBlockId = new Map<string, number>();
+  /** pageMainSize 是否由外部显式给定（否则随布局变化重算） */
+  private pageMainSizeExplicit: boolean;
 
   constructor(options: ReaderOptions = {}) {
     this.options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, options.layout ?? {});
+    this.pageMainSizeExplicit = options.pageMainSize !== undefined;
     this.pageMainSize = options.pageMainSize ?? defaultPageMainSize(this.options);
     this.measure = { ...DEFAULT_MEASURE_CONTEXT, ...options.measure };
     this.estimator = options.estimator ?? defaultEstimator;
@@ -153,9 +156,14 @@ export class Reader {
     }
     if (overrides.layout !== undefined) {
       this.options = mergeLayoutOptions(this.options, overrides.layout);
+      // 未显式给定每页主轴尺寸时，随页面尺寸 / 书写方向变化重算
+      if (!this.pageMainSizeExplicit) {
+        this.pageMainSize = defaultPageMainSize(this.options);
+      }
     }
     if (overrides.pageMainSize !== undefined) {
       this.pageMainSize = overrides.pageMainSize;
+      this.pageMainSizeExplicit = true;
     }
     if (overrides.measure !== undefined) {
       this.measure = { ...this.measure, ...overrides.measure };
@@ -193,6 +201,11 @@ export class Reader {
   /** 当前布局配置 */
   get layout(): LayoutOptions {
     return this.options;
+  }
+
+  /** 当前每页可用主轴尺寸（px）；随布局重算，供使用方对齐编辑态分页 */
+  get pageMainSizePx(): number {
+    return this.pageMainSize;
   }
 
   /** 当前页（自 0 起） */

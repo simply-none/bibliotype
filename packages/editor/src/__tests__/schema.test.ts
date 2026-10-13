@@ -67,6 +67,18 @@ describe('默认 schema', () => {
     const h1Dom = h1.type.spec.toDOM!(h1) as [string, Record<string, string>, number];
     expect(h1Dom[1]['data-level']).toBeUndefined();
   });
+
+  it('默认 toDOM 将稳定 id 输出为 data-bt-id（供编辑画布分页参考线定位）', () => {
+    const schema = buildEditorSchema();
+    const para = schema.node(NODE_TYPES.PARAGRAPH, { id: 'p-9' }, schema.text('子曰'));
+    const dom = para.type.spec.toDOM!(para) as [string, Record<string, string>, number];
+    expect(dom[1]['data-bt-id']).toBe('p-9');
+
+    // 无 id（null）时不输出 data-bt-id
+    const anon = schema.node(NODE_TYPES.PARAGRAPH, null, schema.text('无 id'));
+    const anonDom = anon.type.spec.toDOM!(anon) as [string, Record<string, string>, number];
+    expect(anonDom[1]['data-bt-id']).toBeUndefined();
+  });
 });
 
 describe('EditorSchemaRegistry', () => {

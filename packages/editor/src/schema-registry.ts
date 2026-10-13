@@ -101,6 +101,11 @@ function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
         class: className,
         ...domDataAttrs(spec.attrs, node.attrs),
       };
+      // 稳定 id 落到 data-bt-id（供编辑画布分页参考线按块定位）
+      const id = node.attrs.id;
+      if (typeof id === 'string' && id !== '') {
+        domAttrs['data-bt-id'] = id;
+      }
       return hasContent ? [tag, domAttrs, 0] : [tag, domAttrs];
     };
   }

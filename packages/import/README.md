@@ -51,6 +51,7 @@ const doc3 = importFromText('# 标题', format, schema, metadata);
 
 ## 相关
 
+- 用法参考：[docs/17 文档导入](../../docs/17-document-import.md)（md / html / docx / epub → BookDocument 全链路）
 - 转换引擎：[`@bibliotype/editor`](../editor/README.md)（`markdownToNodes` / `pmNodeToIr` / `parseDOM`）
 - 数据形态：[`@bibliotype/core`](../core/README.md)（`BookDocument` / `BookMetadata`）
 - 仓库主页：[bibliotype](../../README.md)

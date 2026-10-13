@@ -111,6 +111,7 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [14 常见问题与故障排查](docs/14-faq.md) | 经典问题排查：注文样式、点击跳转、样式作用域、Node 环境 |
 | [15 SSR 与 Node 同构](docs/15-ssr-and-node.md) | 环境对照表与浏览器依赖替代方案 |
 | [16 测试指南](docs/16-testing.md) | 测试组织、vitest、fake-indexeddb / happy-dom |
+| [17 文档导入](docs/17-document-import.md) | Markdown / HTML / docx / epub → BookDocument |
 
 参与贡献见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

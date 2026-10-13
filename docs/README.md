@@ -13,6 +13,7 @@
 | 做插件扩展（事件 / 自定义节点） | [01](01-document-model.md) → [13 核心运行时](13-core-runtime.md) → [02 编辑器与插件](02-editor-and-plugins.md) |
 | 做阅读器与版式 | [01](01-document-model.md) → [04 阅读与分页](04-reader-and-pagination.md) → [05 版式与 HTML](05-layout-and-html.md) → [11 主题令牌](11-theme-tokens.md) |
 | 做导出 | [05](05-layout-and-html.md) → [07 EPUB](07-export-epub.md) → [08 PDF 与打印](08-export-pdf.md) |
+| 做文档导入 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [17 文档导入](17-document-import.md) |
 | 做协同与存储 | [01](01-document-model.md) → [09 协同](09-collab.md) → [10 存储](10-storage-adapters.md) |
 | 工程维护与发布 | [12 工程化与发布](12-release-and-ci.md) → [16 测试指南](16-testing.md) |
 | 排查线上问题 | [14 常见问题与故障排查](14-faq.md) |
@@ -38,6 +39,7 @@
 | [14 常见问题与故障排查](14-faq.md) | 经典问题排查路径（注文样式 / 点击跳转 / 样式作用域 / Node 环境） | 全仓 |
 | [15 SSR 与 Node 同构](15-ssr-and-node.md) | 各模块环境要求对照与替代方案 | 全仓 |
 | [16 测试指南](16-testing.md) | 测试组织、vitest 运行、环境注入 | 全仓 |
+| [17 文档导入](17-document-import.md) | Markdown / HTML / docx / epub → BookDocument | `import` / `import-docx` / `import-epub` |
 
 ## 架构总览
 

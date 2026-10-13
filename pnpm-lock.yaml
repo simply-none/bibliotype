@@ -41,6 +41,12 @@ importers:
       '@bibliotype/import':
         specifier: workspace:*
         version: link:../../packages/import
+      '@bibliotype/import-docx':
+        specifier: workspace:*
+        version: link:../../packages/import-docx
+      '@bibliotype/import-epub':
+        specifier: workspace:*
+        version: link:../../packages/import-epub
       '@bibliotype/layout':
         specifier: workspace:*
         version: link:../../packages/layout

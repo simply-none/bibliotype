@@ -2,11 +2,12 @@
 /**
  * 文档导入面板（Demo 层）
  *
- * 选择 Markdown / HTML 文件 → detectImportFormat → importFromText（复用 @bibliotype/import）
- * 产出 BookDocument 后 emit('imported') 交父级载入阅读 / 编辑。
+ * 选择 Markdown / HTML / docx / epub 文件 → detectImportFormat 判格式 → 转 BookDocument → emit('imported')。
+ * - 文本类（md / html）：复用静态引入的 @bibliotype/import（importFromText）；
+ * - 二进制类（docx / epub）：**按需动态 `import()`** @bibliotype/import-docx / import-epub，
+ *   使 mammoth / fflate 等重依赖不进入首屏包体，仅在选中对应格式时才加载；
  * - schema 用与编辑器同款的古典 schema（IR 为纯数据，节点 / 标记集合一致即可安全载入）；
- * - docx / epub 属二进制，由后续独立包（import-docx / import-epub）提供，本面板给出提示；
- * - 文件读取（File.text()）与 DOM 属应用侧副作用，集中在本 Demo 组件。
+ * - 文件读取（File.text() / arrayBuffer()）与 DOM 属应用侧副作用，集中在本 Demo 组件。
  */
 import { ref } from 'vue';
 import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
@@ -29,7 +30,7 @@ function titleFromName(name: string): string {
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
-/** 选择文件：判定格式 → 文本类导入并产出 BookDocument；二进制 / 未知给提示 */
+/** 选择文件：判定格式 → 文本类走 import、二进制类动态加载对应包，产出 BookDocument */
 async function onFileChange(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -38,19 +39,28 @@ async function onFileChange(event: Event): Promise<void> {
   status.value = '';
 
   const format = detectImportFormat(file.name);
-  if (format !== 'markdown' && format !== 'html') {
-    status.value =
-      format === 'docx' || format === 'epub'
-        ? `暂不支持 ${format.toUpperCase()}（将由独立导入包提供），请选择 Markdown 或 HTML 文件。`
-        : '无法识别文件格式，请选择 .md / .html 文件。';
+  if (format === 'unknown') {
+    status.value = '无法识别文件格式，请选择 .md / .html / .docx / .epub 文件。';
     return;
   }
 
   busy.value = true;
   try {
-    const text = await file.text();
     const title = titleFromName(file.name);
-    const doc = importFromText(text, format, schema, { title });
+    const metadata = { title };
+    let doc: BookDocument;
+    if (format === 'markdown' || format === 'html') {
+      const text = await file.text();
+      doc = importFromText(text, format, schema, metadata);
+    } else if (format === 'docx') {
+      // 动态加载：mammoth 较重，仅在导入 docx 时进入分包
+      const { docxToBookDocument } = await import('@bibliotype/import-docx');
+      doc = await docxToBookDocument(await file.arrayBuffer(), schema, metadata);
+    } else {
+      // 动态加载：fflate + @xmldom/xmldom 仅在导入 epub 时进入分包
+      const { epubToBookDocument } = await import('@bibliotype/import-epub');
+      doc = epubToBookDocument(await file.arrayBuffer(), schema, metadata);
+    }
     emit('imported', doc);
     status.value = `已导入《${title}》。`;
   } catch (error) {
@@ -74,14 +84,14 @@ async function onFileChange(event: Event): Promise<void> {
       <input
         type="file"
         class="panel__file-input"
-        accept=".md,.markdown,.mdown,.mdwn,.html,.htm,.xhtml"
+        accept=".md,.markdown,.mdown,.mdwn,.html,.htm,.xhtml,.docx,.epub"
         :disabled="busy"
         @change="onFileChange"
       />
-      <span>{{ busy ? '导入中…' : '＋ 选择 Markdown / HTML 文件' }}</span>
+      <span>{{ busy ? '导入中…' : '＋ 选择文件（md / html / docx / epub）' }}</span>
     </label>
 
-    <p class="panel__hint">支持 .md / .html；docx、epub 将由独立导入包提供。</p>
+    <p class="panel__hint">支持 .md / .html / .docx / .epub；docx、epub 按需动态加载对应导入包。</p>
     <p v-if="status" class="panel__status">{{ status }}</p>
   </section>
 </template>

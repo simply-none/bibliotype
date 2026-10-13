@@ -27,6 +27,7 @@ import {
 import { CLASSICAL_THEME_OVERRIDES } from '@bibliotype/classical';
 import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
 import { BookEditor, createBookEditorPlugins } from '@bibliotype/editor';
+import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 import {
   CLASSICAL_LAYOUT_OPTIONS,
   DEFAULT_LAYOUT_OPTIONS,
@@ -303,10 +304,15 @@ function fitEditorWidth(): void {
   editorScale.value = Math.min(2, Math.max(0.2, ratio));
 }
 
-/* ---------- 脏标记 + 自动持久化（localStorage 草稿） ---------- */
+/* ---------- 脏标记 + 自动持久化（IndexedDB 草稿，复用 adapter-indexeddb） ---------- */
 
-/** 草稿存储键（切换 / 刷新后可恢复未保存编辑） */
-const DRAFT_KEY = 'bibliotype-demo-draft-v1';
+/** 草稿存储适配器：本地 IndexedDB 持久化（库 / 仓名与正式文档库区分） */
+const draftStore = new IndexedDbAdapter({
+  databaseName: 'bibliotype-demo',
+  storeName: 'drafts',
+});
+/** 草稿记录 id（Demo 单文档，固定键） */
+const DRAFT_ID = 'current';
 /** 自动保存去抖间隔（ms） */
 const AUTOSAVE_DELAY = 1500;
 
@@ -320,15 +326,15 @@ let unsubscribeEditor: (() => void) | null = null;
 /** 自动保存去抖计时器 */
 let autosaveTimer: number | undefined;
 
-/** 立即落盘当前文档并刷新脏基准 */
-function persistDraft(): void {
+/** 立即落盘当前文档并刷新脏基准（IndexedDB 异步写；updatedAt 由适配器内部注入） */
+async function persistDraft(): Promise<void> {
   const editor = bookEditor.value;
   if (editor === null) return;
   try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(editor.getDocument()));
+    await draftStore.save(DRAFT_ID, editor.getDocument());
     editor.markSaved();
   } catch {
-    /* 配额超限 / 隐私模式：忽略，保留脏标记 */
+    /* 写入失败（配额 / 环境不支持）：忽略，保留脏标记 */
     return;
   }
   dirty.value = false;
@@ -340,7 +346,7 @@ function scheduleAutosave(): void {
   cancelAutosave();
   autosaveTimer = window.setTimeout(() => {
     autosaveTimer = undefined;
-    persistDraft();
+    void persistDraft();
   }, AUTOSAVE_DELAY);
 }
 
@@ -362,32 +368,32 @@ function onEditorChange(): void {
   }
 }
 
-/** 读取本地草稿（无 / 解析失败回 null） */
-function readDraft(): BookDocument | null {
+/** 读取本地草稿（IndexedDB 异步；无 / 读取失败回 null） */
+async function readDraft(): Promise<BookDocument | null> {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
-    return raw === null ? null : (JSON.parse(raw) as BookDocument);
+    return (await draftStore.load(DRAFT_ID)) ?? null;
   } catch {
     return null;
   }
 }
 
-/** 清除本地草稿 */
-function clearDraft(): void {
+/** 清除本地草稿（IndexedDB 删除记录） */
+async function clearDraft(): Promise<void> {
   try {
-    localStorage.removeItem(DRAFT_KEY);
+    await draftStore.delete(DRAFT_ID);
   } catch {
     /* 忽略 */
   }
 }
 
 /** 进入编辑模式：以草稿（若有）或当前阅读文档 + 古籍 schema 创建编辑器（惰性） */
-function enterEdit(): void {
+async function enterEdit(): Promise<void> {
   if (bookEditor.value === null) {
     const schema = buildClassicalEditorSchema();
+    const draft = await readDraft();
     bookEditor.value = new BookEditor({
       schema,
-      document: readDraft() ?? reader.value.document ?? lunyuDocument,
+      document: draft ?? reader.value.document ?? lunyuDocument,
       plugins: createBookEditorPlugins(schema),
     });
     unsubscribeEditor = bookEditor.value.onChange(onEditorChange);
@@ -405,7 +411,7 @@ function saveAndPreview(): void {
   if (editor === null) return;
   cancelAutosave();
   reader.value.loadDocument(editor.getDocument());
-  persistDraft();
+  void persistDraft();
   mode.value = 'read';
   // 文档变更 → 重测新文档块尺寸（旧 id 映射对新文档不适用）
   scheduleRemeasure();
@@ -415,7 +421,7 @@ function saveAndPreview(): void {
 function resetSample(): void {
   cancelAutosave();
   bookEditor.value?.loadDocument(lunyuDocument);
-  clearDraft();
+  void clearDraft();
   dirty.value = false;
   savedAt.value = null;
 }
@@ -423,7 +429,7 @@ function resetSample(): void {
 /** 主工具栏「编辑 / 保存并预览」双向切换 */
 function toggleEditMode(): void {
   if (mode.value === 'read') {
-    enterEdit();
+    void enterEdit();
   } else {
     saveAndPreview();
   }
@@ -612,6 +618,7 @@ onBeforeUnmount(() => {
   cancelAutosave();
   unsubscribeEditor?.();
   unsubscribeEditor = null;
+  void draftStore.close();
   disposeMeasureSheet();
 });
 </script>

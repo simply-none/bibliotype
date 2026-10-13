@@ -11,6 +11,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@bibliotype/adapter-indexeddb": "workspace:*",
     "@bibliotype/classical": "workspace:*",
     "@bibliotype/core": "workspace:*",
     "@bibliotype/editor": "workspace:*",

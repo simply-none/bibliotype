@@ -20,6 +20,9 @@ importers:
 
   apps/demo:
     dependencies:
+      '@bibliotype/adapter-indexeddb':
+        specifier: workspace:*
+        version: link:../../packages/adapter-indexeddb
       '@bibliotype/classical':
         specifier: workspace:*
         version: link:../../packages/classical

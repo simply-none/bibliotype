@@ -2,7 +2,12 @@
  * BookEditor 门面测试（载入 / 导出 / 事务 / 变更订阅）
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
+import {
+  NODE_TYPES,
+  createEmptyDocument,
+  type BookDocument,
+  type BookMetadata,
+} from '@bibliotype/core';
 import { BookEditor } from '../editor.js';
 
 /** 构造样本文档：卷 > 章 > 段落 */
@@ -108,5 +113,64 @@ describe('BookEditor', () => {
 
     expect(received).toHaveLength(1);
     expect(received[0]?.metadata.title).toBe('论语');
+  });
+});
+
+describe('BookEditor 元数据', () => {
+  /** 载入含全量元数据的文档 */
+  function metaEditor(): BookEditor {
+    const doc = sampleDoc();
+    doc.metadata = {
+      title: '论语',
+      subtitle: '全集',
+      language: 'zh-Hans',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      contributors: [{ name: '何晏', dynasty: '魏', role: '集解' }],
+    } satisfies BookMetadata;
+    const editor = new BookEditor();
+    editor.loadDocument(doc);
+    return editor;
+  }
+
+  it('getMetadata 返回载入时的元数据快照', () => {
+    const editor = metaEditor();
+    expect(editor.getMetadata().title).toBe('论语');
+    expect(editor.getMetadata().subtitle).toBe('全集');
+  });
+
+  it('updateMetadata 合并字段、刷新 updatedAt 并广播变更', () => {
+    const editor = metaEditor();
+    const received: BookDocument[] = [];
+    editor.onChange((doc) => received.push(doc));
+
+    editor.updateMetadata({ title: '论语集解', volumeCount: 20 });
+
+    const meta = editor.getMetadata();
+    expect(meta.title).toBe('论语集解');
+    expect(meta.volumeCount).toBe(20);
+    expect(meta.subtitle).toBe('全集'); // 未提及字段保留
+    expect(typeof meta.updatedAt).toBe('string'); // 发生变更时刷新时间戳
+    expect(received).toHaveLength(1);
+    expect(received[0]?.metadata.title).toBe('论语集解');
+  });
+
+  it('updateMetadata：undefined 清空可选字段，空 title 不改，createdAt 不变', () => {
+    const editor = metaEditor();
+    editor.updateMetadata({ title: '', subtitle: undefined });
+
+    const meta = editor.getMetadata();
+    expect(meta.title).toBe('论语'); // 空串 title 被忽略
+    expect(meta.subtitle).toBeUndefined(); // undefined 清空
+    expect(meta.createdAt).toBe('2020-01-01T00:00:00.000Z'); // 创建时间不受补丁影响
+  });
+
+  it('updateMetadata：与当前一致的补丁不广播', () => {
+    const editor = metaEditor();
+    const received: BookDocument[] = [];
+    editor.onChange((doc) => received.push(doc));
+
+    editor.updateMetadata({ title: '论语', subtitle: '全集', language: 'zh-Hans' });
+
+    expect(received).toHaveLength(0);
   });
 });

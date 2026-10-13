@@ -61,6 +61,47 @@ export class BookEditor {
     return this.schema;
   }
 
+  /** 当前文档元数据（只读快照，修改请用 updateMetadata） */
+  getMetadata(): BookMetadata {
+    return this.metadata;
+  }
+
+  /**
+   * 合并更新元数据（保留未提及字段）
+   *
+   * - patch 中显式给出（含 undefined）的顶层键会被写入 / 移除；
+   *   利用此语义可清空 subtitle 等可选字段；
+   * - title 为必填：patch.title 为 undefined / 空串时忽略（不改原值）；
+   * - createdAt 保持不变，实际发生变更时自动刷新 updatedAt 为当前时间戳；
+   * - 与文档派发一致：更新后广播变更（订阅者可拿到含新元数据的快照）。
+   */
+  updateMetadata(patch: Partial<BookMetadata>): void {
+    const next: Record<string, unknown> = { ...this.metadata };
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'title') {
+        if (typeof value === 'string' && value !== '') {
+          next.title = value;
+        }
+        continue; // title 必填，不因 patch 而删除
+      }
+      if (key === 'createdAt') {
+        continue; // 创建时间不经由补丁修改
+      }
+      if (value === undefined) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+    }
+    const changed = JSON.stringify(next) !== JSON.stringify(this.metadata);
+    if (!changed) {
+      return;
+    }
+    next.updatedAt = new Date().toISOString();
+    this.metadata = next as unknown as BookMetadata;
+    this.emitChange();
+  }
+
   /** 载入文档（重建编辑状态并广播变更） */
   loadDocument(document: BookDocument): void {
     this.metadata = document.metadata;

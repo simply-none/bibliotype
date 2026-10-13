@@ -22,6 +22,7 @@ import {
   FONT_TOKENS,
   LAYOUT_TOKENS,
   type BookDocument,
+  type BookMetadata,
 } from '@bibliotype/core';
 import { CLASSICAL_THEME_OVERRIDES } from '@bibliotype/classical';
 import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
@@ -438,6 +439,22 @@ const infoOpen = ref(false);
 /** 编辑画布分页参考线（设置面板开关） */
 const showGuides = ref(true);
 
+/** 信息弹窗可编辑：仅编辑模式下（元数据写入 BookEditor.updateMetadata） */
+const infoEditable = computed(() => mode.value === 'edit' && bookEditor.value !== null);
+
+/** 当前元数据：编辑态取编辑器实时快照，阅读态取 Reader 文档（缺省样章） */
+const currentMetadata = computed<BookMetadata>(
+  () =>
+    (mode.value === 'edit' && bookEditor.value !== null
+      ? bookEditor.value.getMetadata()
+      : reader.value.document?.metadata) ?? lunyuDocument.metadata,
+);
+
+/** 元数据保存：写回编辑器（合并补丁 + 自动刷新 updatedAt）；阅读态不可达 */
+function onMetadataSave(patch: Partial<BookMetadata>): void {
+  bookEditor.value?.updateMetadata(patch);
+}
+
 /** 左栏是否有任一区块可见 */
 const asideVisible = computed(
   () => settingsOpen.value || searchOpen.value || bookmarksOpen.value || tocOpen.value,
@@ -629,7 +646,9 @@ onBeforeUnmount(() => {
 
     <BookInfoDialog
       v-if="infoOpen"
-      :metadata="lunyuDocument.metadata"
+      :metadata="currentMetadata"
+      :editable="infoEditable"
+      @save="onMetadataSave"
       @close="infoOpen = false"
     />
   </div>

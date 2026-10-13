@@ -15,17 +15,49 @@ export const COMMON_MARK_ATTRS = {
 
 /** core 标准标记规格 */
 export const CORE_EDITOR_MARK_SPECS: readonly EditorMarkSpecEntry[] = [
-  { type: MARK_TYPES.EMPHASIS, spec: { attrs: COMMON_MARK_ATTRS } },
-  { type: MARK_TYPES.STRONG, spec: { attrs: COMMON_MARK_ATTRS } },
-  { type: MARK_TYPES.UNDERLINE, spec: { attrs: COMMON_MARK_ATTRS } },
-  { type: MARK_TYPES.STRIKETHROUGH, spec: { attrs: COMMON_MARK_ATTRS } },
+  {
+    type: MARK_TYPES.EMPHASIS,
+    spec: { attrs: COMMON_MARK_ATTRS, parseDOM: [{ tag: 'span.bt-emphasis' }, { tag: 'em' }, { tag: 'i' }] },
+  },
+  {
+    type: MARK_TYPES.STRONG,
+    spec: { attrs: COMMON_MARK_ATTRS, parseDOM: [{ tag: 'span.bt-strong' }, { tag: 'strong' }, { tag: 'b' }] },
+  },
+  {
+    type: MARK_TYPES.UNDERLINE,
+    spec: {
+      attrs: COMMON_MARK_ATTRS,
+      parseDOM: [{ tag: 'span.bt-underline' }, { tag: 'u' }, { tag: 'ins' }],
+    },
+  },
+  {
+    type: MARK_TYPES.STRIKETHROUGH,
+    spec: {
+      attrs: COMMON_MARK_ATTRS,
+      parseDOM: [{ tag: 'span.bt-strikethrough' }, { tag: 's' }, { tag: 'del' }, { tag: 'strike' }],
+    },
+  },
   // 行内代码不可与其他标记叠加（PM 惯例）
-  { type: MARK_TYPES.CODE, spec: { excludes: '_', attrs: COMMON_MARK_ATTRS } },
+  {
+    type: MARK_TYPES.CODE,
+    spec: { excludes: '_', attrs: COMMON_MARK_ATTRS, parseDOM: [{ tag: 'span.bt-code' }, { tag: 'code' }] },
+  },
   {
     type: MARK_TYPES.LINK,
     spec: {
       inclusive: false,
       attrs: { ...COMMON_MARK_ATTRS, href: { default: null } },
+      parseDOM: [
+        { tag: 'span.bt-link' },
+        {
+          tag: 'a',
+          getAttrs: (dom): Record<string, unknown> | false => {
+            if (typeof dom === 'string') return false;
+            const href = dom.getAttribute('href');
+            return href === null ? false : { href };
+          },
+        },
+      ],
     },
   },
   {

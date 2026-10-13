@@ -13,6 +13,7 @@ import type { Schema } from 'prosemirror-model';
 import { splitListItem } from 'prosemirror-schema-list';
 import type { Command, Plugin } from 'prosemirror-state';
 import { redoCommand, setHeadingLevel, setParagraph, undoCommand } from './commands.js';
+import { createPasteMarkdownPlugin } from './paste.js';
 
 /**
  * 创建书籍编辑器键位（基础键位 + 书稿常用快捷键）
@@ -55,7 +56,7 @@ export function createBookEditorKeymap(schema: Schema): Record<string, Command> 
   return bindings;
 }
 
-/** 创建书籍编辑器插件集（history + keymap） */
+/** 创建书籍编辑器插件集（history + keymap + 粘贴增强） */
 export function createBookEditorPlugins(schema: Schema): Plugin[] {
-  return [history(), keymap(createBookEditorKeymap(schema))];
+  return [history(), keymap(createBookEditorKeymap(schema)), createPasteMarkdownPlugin()];
 }

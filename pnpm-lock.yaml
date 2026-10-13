@@ -163,6 +163,9 @@ importers:
         specifier: ^1.4.3
         version: 1.4.4
     devDependencies:
+      happy-dom:
+        specifier: ^15.11.0
+        version: 15.11.7
       tsup:
         specifier: ^8.3.0
         version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)

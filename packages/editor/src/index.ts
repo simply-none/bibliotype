@@ -82,3 +82,12 @@ export type { TextMatch } from './search.js';
 
 /* ---------- 插件与键位 ---------- */
 export { createBookEditorKeymap, createBookEditorPlugins } from './plugins.js';
+
+/* ---------- 粘贴增强（Markdown → PM） ---------- */
+export {
+  looksLikeMarkdown,
+  parseInlineToNodes,
+  markdownToNodes,
+  markdownToFragment,
+} from './markdown.js';
+export { createPasteMarkdownPlugin, buildPasteSlice } from './paste.js';

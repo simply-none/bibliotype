@@ -38,25 +38,65 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   { type: NODE_TYPES.TOC, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
 
   /* ---------- 块级内容节点 ---------- */
-  { type: NODE_TYPES.PARAGRAPH, spec: { group: 'block', content: 'inline*', attrs: COMMON_NODE_ATTRS } },
+  {
+    type: NODE_TYPES.PARAGRAPH,
+    spec: {
+      group: 'block',
+      content: 'inline*',
+      attrs: COMMON_NODE_ATTRS,
+      parseDOM: [{ tag: 'div.bt-paragraph' }, { tag: 'p' }],
+    },
+  },
   {
     type: NODE_TYPES.HEADING,
     spec: {
       group: 'block',
       content: 'inline*',
       attrs: { ...COMMON_NODE_ATTRS, level: { default: 1 } },
+      // 首位保留自有类选择器（不回归既有默认行为），再补充标准 h1~h6（level 由标签推断）
+      parseDOM: [
+        { tag: 'div.bt-heading' },
+        { tag: 'h1', getAttrs: () => ({ level: 1 }) },
+        { tag: 'h2', getAttrs: () => ({ level: 2 }) },
+        { tag: 'h3', getAttrs: () => ({ level: 3 }) },
+        { tag: 'h4', getAttrs: () => ({ level: 4 }) },
+        { tag: 'h5', getAttrs: () => ({ level: 5 }) },
+        { tag: 'h6', getAttrs: () => ({ level: 6 }) },
+      ],
     },
   },
-  { type: NODE_TYPES.QUOTE, spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS } },
+  {
+    type: NODE_TYPES.QUOTE,
+    spec: {
+      group: 'block',
+      content: 'block+',
+      attrs: COMMON_NODE_ATTRS,
+      parseDOM: [{ tag: 'div.bt-quote' }, { tag: 'blockquote' }],
+    },
+  },
   {
     type: NODE_TYPES.LIST,
     spec: {
       group: 'block',
       content: 'list_item+',
       attrs: { ...COMMON_NODE_ATTRS, ordered: { default: false } },
+      // ul → 无序；ol → 有序；自有 div.bt-list 置首保留回环
+      parseDOM: [
+        { tag: 'div.bt-list' },
+        { tag: 'ul', getAttrs: () => ({ ordered: false }) },
+        { tag: 'ol', getAttrs: () => ({ ordered: true }) },
+      ],
     },
   },
-  { type: NODE_TYPES.LIST_ITEM, spec: { group: 'list_item', content: 'block+', attrs: COMMON_NODE_ATTRS } },
+  {
+    type: NODE_TYPES.LIST_ITEM,
+    spec: {
+      group: 'list_item',
+      content: 'block+',
+      attrs: COMMON_NODE_ATTRS,
+      parseDOM: [{ tag: 'div.bt-list-item' }, { tag: 'li' }],
+    },
+  },
   {
     type: NODE_TYPES.IMAGE,
     spec: {
@@ -64,6 +104,14 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       content: '',
       atom: true,
       attrs: { ...COMMON_NODE_ATTRS, src: { default: null }, alt: { default: null } },
+      parseDOM: [
+        { tag: 'div.bt-image' },
+        {
+          tag: 'img',
+          getAttrs: (dom): Record<string, unknown> | false =>
+            typeof dom === 'string' ? false : { src: dom.getAttribute('src'), alt: dom.getAttribute('alt') },
+        },
+      ],
     },
   },
   { type: NODE_TYPES.CAPTION, spec: { group: 'block', content: 'inline*', attrs: COMMON_NODE_ATTRS } },
@@ -78,6 +126,10 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       marks: '',
       code: true,
       attrs: { ...COMMON_NODE_ATTRS, language: { default: null } },
+      parseDOM: [
+        { tag: 'div.bt-code-block', preserveWhitespace: 'full' },
+        { tag: 'pre', preserveWhitespace: 'full' },
+      ],
     },
   },
   {
@@ -96,6 +148,8 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       content: '',
       atom: true,
       attrs: { ...COMMON_NODE_ATTRS, variant: { default: null } },
+      // hr → 分隔线变体
+      parseDOM: [{ tag: 'div.bt-break' }, { tag: 'hr', getAttrs: () => ({ variant: 'hr' }) }],
     },
   },
 

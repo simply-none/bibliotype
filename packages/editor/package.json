@@ -48,6 +48,7 @@
     "prosemirror-state": "^1.4.3"
   },
   "devDependencies": {
+    "happy-dom": "^15.11.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

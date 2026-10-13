@@ -314,51 +314,72 @@ watch(pagination, () => {
   });
 });
 
-// 切入 scroll：首帧后对齐到当前页
+/* ---------- 观察器装配（随模式切换重挂） ---------- */
+
+/**
+ * 两种模式的容器各自由 v-if 控制，切换时 DOM 会被销毁 / 重建。
+ * 观察器必须在模式切换后重新挂到新容器上，否则切回 page 时
+ * 旧观察器指向已卸载节点、updateScale 不再触发→缩放失效→内容被裁剪。
+ */
+function attachPageObserver(): void {
+  updateScale();
+  if (typeof ResizeObserver === 'undefined' || rootRef.value === null) return;
+  observer?.disconnect();
+  observer = new ResizeObserver(updateScale);
+  observer.observe(rootRef.value);
+}
+
+function attachScrollObserver(): void {
+  updateScrollScale();
+  if (typeof ResizeObserver === 'undefined' || scrollerRef.value === null) return;
+  scrollObserver?.disconnect();
+  scrollObserver = new ResizeObserver(updateScrollScale);
+  scrollObserver.observe(scrollerRef.value);
+}
+
+function detachObservers(): void {
+  observer?.disconnect();
+  observer = undefined;
+  scrollObserver?.disconnect();
+  scrollObserver = undefined;
+}
+
+// 模式切换：卸旧观察器，等新容器挂载后重挂（scroll 额外对齐当前页）
 watch(
   () => props.mode,
-  (mode) => {
-    if (mode !== 'scroll') return;
-    void nextTick(() => {
-      updateScrollScale();
+  async (mode) => {
+    detachObservers();
+    await nextTick();
+    if (mode === 'scroll') {
+      attachScrollObserver();
       scrollToPage(props.reader.currentPage);
-    });
+    } else {
+      attachPageObserver();
+    }
   },
 );
 
 onMounted(() => {
-  updateScale();
-  if (
-    props.mode === 'page' &&
-    props.fit !== 'none' &&
-    typeof ResizeObserver !== 'undefined' &&
-    rootRef.value !== null
-  ) {
-    observer = new ResizeObserver(updateScale);
-    observer.observe(rootRef.value);
-  }
   if (props.mode === 'scroll') {
-    updateScrollScale();
-    if (typeof ResizeObserver !== 'undefined' && scrollerRef.value !== null) {
-      scrollObserver = new ResizeObserver(updateScrollScale);
-      scrollObserver.observe(scrollerRef.value);
-    }
+    attachScrollObserver();
     void nextTick(() => scrollToPage(props.reader.currentPage));
+  } else {
+    attachPageObserver();
   }
 });
 
 onBeforeUnmount(() => {
-  observer?.disconnect();
-  scrollObserver?.disconnect();
+  detachObservers();
   if (scrollRaf !== 0) {
     cancelAnimationFrame(scrollRaf);
     scrollRaf = 0;
   }
 });
 
-watch([() => props.fit, pageSize], updateScale);
-watch([() => props.mode, pageSize], () => {
+// 缩放策略 / 页面尺寸变化：按当前模式重算对应缩放
+watch([() => props.fit, pageSize], () => {
   if (props.mode === 'scroll') updateScrollScale();
+  else updateScale();
 });
 </script>
 

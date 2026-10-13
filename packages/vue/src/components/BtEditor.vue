@@ -169,16 +169,19 @@ function removeBookStyle(): void {
   document.getElementById(STYLE_ELEMENT_ID)?.remove();
 }
 
-/* ---------- 分页参考线（B3：与预览同源的块 → 页归属，按真实 DOM 定位） ---------- */
+/* ---------- 分页纸张效果（B3：与预览同源的块 → 页归属，按真实 DOM 定位） ---------- */
 
-interface PageBreak {
+interface PageSheet {
   /** 页码（自 1 起，展示用） */
   page: number;
-  /** 分隔线定位样式（相对滚动内容坐标） */
+  /** 纸张面板定位样式（相对页盒坐标，随缩放层一起 transform） */
   style: Record<string, string>;
 }
 
-const breaks = ref<PageBreak[]>([]);
+const sheets = ref<PageSheet[]>([]);
+
+/** 页间缝隙（px，原生坐标）：上下/左右各缩进一半，露出台面底色形成分页感 */
+const SHEET_GAP = 28;
 
 /** CSS 选择器转义（happy-dom / 老浏览器无 CSS.escape 时降级） */
 function cssEscape(value: string): string {
@@ -188,9 +191,9 @@ function cssEscape(value: string): string {
   return value.replace(/["\\]/g, '\\$&');
 }
 
-function recomputeBreaks(): void {
+function recomputeSheets(): void {
   if (props.pagination !== true) {
-    breaks.value = [];
+    sheets.value = [];
     return;
   }
   const canvas = canvasRef.value;
@@ -203,37 +206,54 @@ function recomputeBreaks(): void {
   const mainSize =
     props.pageMainSize ?? resolvePageMainSize(resolvedOptions.value, resolvedTokens.value);
   if (mainSize <= 0 || blocks.length === 0) {
-    breaks.value = [];
+    sheets.value = [];
     return;
   }
   const result = paginate(blocks, { pageMainSize: mainSize });
 
-  // 页面盒（.ProseMirror）相对定位原点的位置（offsetParent = .bt-editor__page，与参考线同源）
+  // 页面盒（.ProseMirror）相对定位原点（offsetParent = .bt-editor__page，与纸张同源）
   const pageLeft = pm.offsetLeft;
   const pageTop = pm.offsetTop;
   const pageWidth = pm.offsetWidth;
   const pageHeight = pm.offsetHeight;
   const isVertical = vertical.value;
+  // 主轴起点 / 交叉轴原点；首页从页盒起点开始（含页边距），末页到页盒末尾
+  const origin = isVertical ? pageLeft : pageTop;
+  const contentEnd = isVertical ? pageLeft + pageWidth : pageTop + pageHeight;
 
-  const next: PageBreak[] = [];
-  for (let i = 1; i < result.pages.length; i += 1) {
-    const firstId = result.pages[i]?.blocks[0]?.id;
-    if (firstId === undefined) continue;
-    const el = pm.querySelector<HTMLElement>(`[data-bt-id="${cssEscape(firstId)}"]`);
-    if (el === null) continue;
-    let style: Record<string, string>;
-    if (isVertical) {
-      style = {
-        top: `${pageTop}px`,
-        height: `${pageHeight}px`,
-        left: `${el.offsetLeft + el.offsetWidth}px`,
-      };
-    } else {
-      style = { left: `${pageLeft}px`, width: `${pageWidth}px`, top: `${el.offsetTop}px` };
-    }
+  const starts: number[] = [];
+  for (const [i, page] of result.pages.entries()) {
+    const firstId = page.blocks[0]?.id;
+    const el =
+      i === 0 || firstId === undefined
+        ? null
+        : pm.querySelector<HTMLElement>(`[data-bt-id="${cssEscape(firstId)}"]`);
+    starts.push(el !== null ? (isVertical ? el.offsetLeft : el.offsetTop) : origin);
+  }
+
+  const half = SHEET_GAP / 2;
+  const next: PageSheet[] = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const start = starts[i] as number;
+    const end = i + 1 < starts.length ? (starts[i + 1] as number) : contentEnd;
+    const mainLen = Math.max(0, end - start - SHEET_GAP);
+    const mainPos = start + half;
+    const style = isVertical
+      ? {
+          top: `${pageTop}px`,
+          height: `${pageHeight}px`,
+          left: `${mainPos}px`,
+          width: `${mainLen}px`,
+        }
+      : {
+          left: `${pageLeft}px`,
+          width: `${pageWidth}px`,
+          top: `${mainPos}px`,
+          height: `${mainLen}px`,
+        };
     next.push({ page: i + 1, style });
   }
-  breaks.value = next;
+  sheets.value = next;
 }
 
 /** 事务 / 尺寸 / 令牌变化后的去抖重算（等 DOM 稳定再测） */
@@ -242,7 +262,7 @@ let recomputeRaf = 0;
 
 function scheduleRecompute(): void {
   if (props.pagination !== true) {
-    breaks.value = [];
+    sheets.value = [];
     return;
   }
   if (recomputeTimer !== undefined) clearTimeout(recomputeTimer);
@@ -252,7 +272,7 @@ function scheduleRecompute(): void {
       if (recomputeRaf !== 0) cancelAnimationFrame(recomputeRaf);
       recomputeRaf = requestAnimationFrame(() => {
         recomputeRaf = 0;
-        recomputeBreaks();
+        recomputeSheets();
       });
     });
   }, 120);
@@ -326,18 +346,18 @@ watch(
             :class="[
               vertical ? 'bt-editor__canvas--vertical' : 'bt-editor__canvas--horizontal',
               isEditable ? '' : 'bt-editor__canvas--readonly',
+              pagination ? 'bt-editor__canvas--paged' : '',
             ]"
             :style="pageVars"
           />
           <div v-if="pagination" class="bt-editor__overlay" aria-hidden="true">
             <div
-              v-for="item in breaks"
+              v-for="item in sheets"
               :key="item.page"
-              class="bt-editor__break"
-              :class="vertical ? 'bt-editor__break--vertical' : 'bt-editor__break--horizontal'"
+              class="bt-editor__sheet"
               :style="item.style"
             >
-              <span class="bt-editor__break-label">第 {{ item.page }} 页</span>
+              <span class="bt-editor__sheet-label">第 {{ item.page }} 页</span>
             </div>
           </div>
         </div>
@@ -359,13 +379,13 @@ watch(
   flex: none;
 }
 
-/* 滚动视口：填满舞台并作为分页参考线的定位上下文 */
+/* 滚动视口：填满舞台并作为分页纸张的定位上下文；底色即「台面」，页间缝隙露出此色 */
 .bt-editor__scroll {
   position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: var(--bt-editor-stage, transparent);
+  background: var(--bt-editor-stage, #dcd6c9);
 }
 
 /* 舞台：按缩放后尺寸占位（横向居中），作为页盒的定位上下文 */
@@ -381,8 +401,10 @@ watch(
   left: 0;
 }
 
-/* 画布：内容高度增长（滚动交给 .bt-editor__scroll） */
+/* 画布：内容高度增长（滚动交给 .bt-editor__scroll）；置于纸张之上 */
 .bt-editor__canvas {
+  position: relative;
+  z-index: 1;
   width: 100%;
 }
 
@@ -393,6 +415,11 @@ watch(
   outline: none;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* 分页态：正文底色改由下层 .bt-editor__sheet 提供，这里透明以露出页间缝隙 */
+.bt-editor__canvas--paged :deep(.ProseMirror) {
+  background-color: transparent;
 }
 
 /* 横排：固定页宽（行宽与阅读页一致），高度随内容增长、至少一页 */
@@ -413,47 +440,34 @@ watch(
   cursor: default;
 }
 
-/* ---------- 分页参考线覆盖层 ---------- */
+/* ---------- 分页纸张覆盖层（位于正文之下，z-index 0） ---------- */
 
 .bt-editor__overlay {
   position: absolute;
   top: 0;
   left: 0;
+  z-index: 0;
   pointer-events: none;
 }
 
-.bt-editor__break {
+/* 单页纸张：纸色 + 阴影，页间留缝露出台面底色 */
+.bt-editor__sheet {
   position: absolute;
-  color: var(--bt-accent, #8c5a2b);
+  box-sizing: border-box;
+  background: var(--bt-background, #faf8f4);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.16),
+    0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
-.bt-editor__break--horizontal {
-  height: 0;
-  border-block-start: 1px dashed currentColor;
-}
-
-.bt-editor__break--vertical {
-  width: 0;
-  border-inline-start: 1px dashed currentColor;
-}
-
-.bt-editor__break-label {
+.bt-editor__sheet-label {
   position: absolute;
+  top: -18px;
+  left: 0;
   font-size: 11px;
   line-height: 1;
   letter-spacing: 0.05em;
   white-space: nowrap;
-  background: var(--bt-background, #fff);
-  padding: 1px 4px;
-}
-
-.bt-editor__break--horizontal .bt-editor__break-label {
-  top: -8px;
-  left: 0;
-}
-
-.bt-editor__break--vertical .bt-editor__break-label {
-  top: 0;
-  left: 2px;
+  color: var(--bt-accent, #8c5a2b);
 }
 </style>

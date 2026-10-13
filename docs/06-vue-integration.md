@@ -66,7 +66,7 @@ useReader(docRef);
 | `BtPager` | `reader: Reader` | 翻页控件：上一页 / 页码 / 下一页 |
 | `BtToc` | `reader: Reader`；emit `select(item)` | 目录树；点击经 `goToNode` 跳页并抛出 `select` |
 | `BtTocItem` | `item: OutlineItem`；emit `select` | 单个目录项（层级递归） |
-| `BtEditor` | `editor: BookEditor` | 编辑画布；默认插槽作用域透传 `EditorBinding` |
+| `BtEditor` | `editor: BookEditor`、`tokens?`、`options?`、`fontToken?`、`pagination?`、`pageMainSize?`、`measure?`、`blockSizes?`、`editable?`、`scale?` | 编辑画布；默认插槽作用域透传 `EditorBinding`。`pagination` 开启后以与预览同源的块→页归属渲染「分页纸张」（逐页纸面 + 页间缝隙 + 页码），非仅参考线 |
 
 ### 阅读器组合示例
 

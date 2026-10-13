@@ -73,7 +73,7 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `BtPager` | `reader` | 上一页 / 下一页按钮 + 页码状态 |
 | `BtToc` | `reader`；emit `select(item)` | 目录树（点击节点跳页并上报） |
 | `BtTocItem` | `item`、`depth?` | 递归目录项（供自定义目录结构复用） |
-| `BtEditor` | `editor`（`BookEditor`） | 编辑画布：挂载 / 卸载 ProseMirror 视图 |
+| `BtEditor` | `editor`（`BookEditor`）、`tokens?`、`options?`、`fontToken?`、`pagination?`、`pageMainSize?`、`measure?`、`blockSizes?`、`editable?`、`scale?` | 编辑画布：挂载 / 卸载 ProseMirror 视图；`pagination` 开启后渲染与预览同源的「分页纸张」（逐页纸面 + 页间缝隙 + 页码） |
 
 ## API 概览
 

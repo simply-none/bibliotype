@@ -386,10 +386,24 @@ const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarActi
   { key: 'classical', actions: classicalActions },
   { key: 'insert', actions: insertActions },
 ];
+
+/** 工具条横向滚动容器 */
+const barRef = ref<HTMLElement | null>(null);
+
+/** 鼠标滚轮（纵向）映射为工具条横向滚动；触控板横向手势保持原生行为 */
+function onWheel(event: WheelEvent): void {
+  const bar = barRef.value;
+  if (bar === null) return;
+  // 仅当存在横向溢出、且以纵向滚量为主时接管
+  const canScrollX = bar.scrollWidth - bar.clientWidth > 1;
+  if (!canScrollX || Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
+  event.preventDefault();
+  bar.scrollLeft += event.deltaY;
+}
 </script>
 
 <template>
-  <div class="editor-toolbar">
+  <div ref="barRef" class="editor-toolbar" @wheel="onWheel">
     <div
       v-for="group in TOOLBAR_GROUPS"
       :key="group.key"
@@ -454,18 +468,31 @@ const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarActi
 <style scoped>
 .editor-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px 12px;
   padding: 8px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
   border: 1px solid var(--demo-border);
   border-radius: 8px;
   background: var(--demo-panel);
   color: var(--demo-text);
 }
 
+.editor-toolbar::-webkit-scrollbar {
+  height: 8px;
+}
+
+.editor-toolbar::-webkit-scrollbar-thumb {
+  background: var(--demo-border);
+  border-radius: 4px;
+}
+
 .editor-toolbar__group {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 4px;
 }

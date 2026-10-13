@@ -2,15 +2,16 @@
 /**
  * Demo 主界面（App）
  *
- * - 工具栏：主题切换（现代横排 ↔ 古籍直排）/ 书籍信息 / 搜索 / 书签 / 目录 /
- *   字号 / 行距 / 夜间 / 导出 EPUB / 打印 PDF；
- * - 左栏：搜索面板、书签面板、目录（可分别开关）；
- * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；
+ * - 工具栏：主题切换（现代横排 ↔ 古籍直排）/ 编辑 / 书籍信息 / 搜索 / 书签 / 目录 /
+ *   设置 / 导出 EPUB / 打印 PDF；
+ * - 左栏：设置面板、搜索面板、书签面板、目录（可分别开关）；
+ * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；编辑态为 BtEditor；
  * - 键盘：← / → 翻页；Esc 关闭书籍信息弹窗。
  *
- * 字号 / 行距 = 双通道联动：tokens（视觉字号行高）+ repaginate measure
- * （分页估算的行尺寸），保证「所见分页」与「所得排版」一致；
- * 主题切换重建 Reader（loadDocument 全链路重排），字号 / 行距变更原地重排。
+ * 版式参数 = 补丁双层层：主题预设（基准）+ layoutPatch / tokenPatch（设置面板覆写），
+ * 阅读 / 编辑 / 导出共用同一份 effectiveLayout 与 tokens，改一处三端联动；
+ * 字号 / 行距变更经双通道联动（tokens 视觉 + repaginate measure 估算），
+ * 主题切换重建 Reader 并清空布局补丁（书写方向随主题），字号等个人设置保留。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import {
@@ -29,11 +30,9 @@ import {
   DEFAULT_LAYOUT_OPTIONS,
   isVerticalMode,
   mergeLayoutOptions,
-  PAGE_SIZES,
   resolveContentBox,
   resolvePageMainSize,
   type LayoutOptions,
-  type PageSize,
 } from '@bibliotype/layout';
 import {
   DEFAULT_MEASURE_CONTEXT,
@@ -48,6 +47,7 @@ import BookmarkPanel from './components/BookmarkPanel.vue';
 import EditorToolbar from './components/EditorToolbar.vue';
 import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
+import SettingsPanel from './components/SettingsPanel.vue';
 import { lunyuDocument } from './data/lunyu.js';
 
 /* ---------------- 主题定义 ---------------- */
@@ -99,36 +99,21 @@ const THEME_ENTRIES: ReadonlyArray<{ key: ThemeKey; config: ThemeConfig }> = [
 const themeKey = ref<ThemeKey>('modern');
 const theme = computed<ThemeConfig>(() => THEMES[themeKey.value]);
 
-/* ---------------- 纸张开本（独立于主题，覆盖主题默认页面尺寸） ---------------- */
+/* ---------------- 版式补丁（设置面板覆写主题基准） ---------------- */
 
-type PageSizeKey = keyof typeof PAGE_SIZES;
+/** 布局补丁（含页面尺寸；主题切换时清空） */
+const layoutPatch = ref<Partial<LayoutOptions>>({});
+/** 令牌补丁（字号 / 行距 / 字体族 / 版式 / 颜色等；跨主题保留） */
+const tokenPatch = ref<Record<string, string>>({});
 
-/** 开本下拉项（key + 展示名 / 尺寸） */
-const PAGE_SIZE_ENTRIES: ReadonlyArray<[PageSizeKey, PageSize]> = Object.entries(
-  PAGE_SIZES,
-) as ReadonlyArray<[PageSizeKey, PageSize]>;
-
-const pageSizeKey = ref<PageSizeKey>('A5');
-const pageSize = computed<PageSize>(() => PAGE_SIZES[pageSizeKey.value]);
-
-/** 生效布局：主题书写方向 / 页码样式 + 选定开本 */
+/** 生效布局：主题基准 + 补丁覆写 */
 const effectiveLayout = computed<LayoutOptions>(() =>
-  mergeLayoutOptions(theme.value.layout, { pageSize: pageSize.value }),
+  mergeLayoutOptions(theme.value.layout, layoutPatch.value),
 );
 
-/* ---------------- 排版设置（字号 / 行距 / 夜间） ---------------- */
+/* ---------------- 排版设置（夜间预设 + 面板补丁） ---------------- */
 
-const FONT_SIZE_MIN = 12;
-const FONT_SIZE_MAX = 24;
-const FONT_SIZE_STEP = 2;
-
-/** 正文字号（px，tokens 视觉 + measure 估算联动） */
-const fontSize = ref(16);
-/** 行距档位 */
-const LINE_HEIGHT_STEPS = [1.6, 1.9, 2.2] as const;
-type LineHeightStep = (typeof LINE_HEIGHT_STEPS)[number];
-const lineHeight = ref<LineHeightStep>(1.9);
-/** 夜间阅读（仅覆盖阅读区配色令牌，不动布局） */
+/** 夜间阅读（仅覆盖阅读区配色令牌，位于令牌链最顶层） */
 const night = ref(false);
 
 /** 夜间配色覆盖（正文 / 背景 / 注文 / 强调） */
@@ -139,25 +124,27 @@ const NIGHT_COLORS: Readonly<Record<string, string>> = {
   [COLOR_TOKENS.ACCENT]: '#c99a5b',
 };
 
-/** 当前生效令牌：主题基础 + 字号 / 行距 + 夜间覆盖 */
+/** 当前生效令牌：主题基础 + 面板补丁 + 夜间覆盖 */
 const tokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
   ...theme.value.tokens,
-  [FONT_SIZE_TOKENS.BODY]: `${fontSize.value}px`,
-  [LAYOUT_TOKENS.LINE_HEIGHT]: String(lineHeight.value),
+  ...tokenPatch.value,
   ...(night.value ? NIGHT_COLORS : {}),
 }));
 
-/** 字号步进（clamp 到 [12, 24]） */
-function stepFont(delta: number): void {
-  fontSize.value = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, fontSize.value + delta));
+/** 解析令牌前导数值（非法回退默认） */
+function parseTokenNum(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseFloat(value ?? '');
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/** 行距循环切换（紧凑 1.6 → 标准 1.9 → 宽松 2.2） */
-function cycleLineHeight(): void {
-  const index = LINE_HEIGHT_STEPS.indexOf(lineHeight.value);
-  const next = LINE_HEIGHT_STEPS[(index + 1) % LINE_HEIGHT_STEPS.length];
-  if (next !== undefined) lineHeight.value = next;
-}
+/** 正文字号（px，tokens 视觉 + measure 估算双通道联动） */
+const fontSizeNum = computed(() =>
+  parseTokenNum(tokens.value[FONT_SIZE_TOKENS.BODY], 16),
+);
+/** 正文行高（可连续调节） */
+const lineHeightNum = computed(() =>
+  parseTokenNum(tokens.value[LAYOUT_TOKENS.LINE_HEIGHT], 1.9),
+);
 
 /* ---------------- Reader（主题切换时重建） ---------------- */
 
@@ -174,8 +161,8 @@ function typographyMeasure(): Partial<BlockMeasureContext> {
     ? box.height
     : box.width;
   return {
-    charsPerLine: Math.max(1, Math.round((cross / fontSize.value) * 0.95)),
-    lineSize: Math.round(fontSize.value * lineHeight.value),
+    charsPerLine: Math.max(1, Math.round((cross / fontSizeNum.value) * 0.95)),
+    lineSize: Math.round(fontSizeNum.value * lineHeightNum.value),
   };
 }
 
@@ -198,7 +185,7 @@ const pageMainSize = computed(() =>
  */
 const blockSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
 
-/** 重测当前 Reader 文档的块尺寸并重排预览（DOM 实测，需已挂载） */
+/** 重测当前 Reader 文档的块尺寸并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
 function remeasure(): void {
   const doc = reader.value.document ?? lunyuDocument;
   const sizes = measureBlockSizes({
@@ -210,6 +197,7 @@ function remeasure(): void {
   });
   blockSizes.value = sizes;
   reader.value.repaginate({
+    layout: effectiveLayout.value,
     blockSizes: sizes,
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
@@ -240,14 +228,39 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
 
 const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
 
-/** 字号 / 行距 / 开本变更：重测块尺寸并原地重排（视觉由 tokens 联动） */
-watch([fontSize, lineHeight, pageSizeKey], scheduleRemeasure);
+/** 字号 / 行距 / 布局补丁变更：重测块尺寸并原地重排（视觉由 tokens 联动） */
+watch([fontSizeNum, lineHeightNum, effectiveLayout], scheduleRemeasure);
+
+/** 设置面板补丁写入（浅合并） */
+function onLayoutPatch(patch: Partial<LayoutOptions>): void {
+  layoutPatch.value = { ...layoutPatch.value, ...patch };
+}
+
+function onTokenPatch(key: string, value: string): void {
+  tokenPatch.value = { ...tokenPatch.value, [key]: value };
+}
+
+/** 是否存在任何覆写（控制面板「恢复主题预设」可用性） */
+const customized = computed(
+  () =>
+    night.value ||
+    Object.keys(layoutPatch.value).length > 0 ||
+    Object.keys(tokenPatch.value).length > 0,
+);
+
+/** 恢复主题预设：清空全部布局 / 令牌补丁与夜间开关 */
+function resetSettings(): void {
+  layoutPatch.value = {};
+  tokenPatch.value = {};
+  night.value = false;
+}
 
 function switchTheme(key: ThemeKey): void {
   if (key === themeKey.value) return;
-  /* 以当前阅读文档重建 Reader（保留已保存的编辑内容），仅换布局 */
+  /* 以当前阅读文档重建 Reader（保留已保存的编辑内容与字号设置），布局补丁随主题重置 */
   const current = reader.value.document ?? lunyuDocument;
   themeKey.value = key;
+  layoutPatch.value = {};
   reader.value = createReader(effectiveLayout.value, current);
   // 重建后按新排版重测（直排主题会回退估算，空映射安全）
   scheduleRemeasure();
@@ -418,10 +431,15 @@ function onToolbarClickCapture(event: MouseEvent): void {
 const tocOpen = ref(true);
 const searchOpen = ref(false);
 const bookmarksOpen = ref(false);
+const settingsOpen = ref(false);
 const infoOpen = ref(false);
+/** 编辑画布分页参考线（设置面板开关） */
+const showGuides = ref(true);
 
 /** 左栏是否有任一区块可见 */
-const asideVisible = computed(() => searchOpen.value || bookmarksOpen.value || tocOpen.value);
+const asideVisible = computed(
+  () => settingsOpen.value || searchOpen.value || bookmarksOpen.value || tocOpen.value,
+);
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -487,16 +505,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="toolbar__group">
-          <label class="toolbar__field">
-            <span class="toolbar__readout">开本</span>
-            <select v-model="pageSizeKey" class="toolbar__select">
-              <option v-for="[key, size] in PAGE_SIZE_ENTRIES" :key="key" :value="key">
-                {{ size.name }}
-              </option>
-            </select>
-          </label>
-        </div>
-        <div class="toolbar__group">
           <button
             type="button"
             class="toolbar__button"
@@ -507,6 +515,14 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="toolbar__group">
+          <button
+            type="button"
+            class="toolbar__button"
+            :class="{ 'toolbar__button--active': settingsOpen }"
+            @click="settingsOpen = !settingsOpen"
+          >
+            设置
+          </button>
           <button type="button" class="toolbar__button" @click="infoOpen = true">
             书籍信息
           </button>
@@ -536,38 +552,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="toolbar__group">
-          <button
-            type="button"
-            class="toolbar__button"
-            aria-label="减小字号"
-            :disabled="fontSize <= FONT_SIZE_MIN"
-            @click="stepFont(-FONT_SIZE_STEP)"
-          >
-            A−
-          </button>
-          <span class="toolbar__readout">{{ fontSize }}px</span>
-          <button
-            type="button"
-            class="toolbar__button"
-            aria-label="增大字号"
-            :disabled="fontSize >= FONT_SIZE_MAX"
-            @click="stepFont(FONT_SIZE_STEP)"
-          >
-            A＋
-          </button>
-          <button type="button" class="toolbar__button" @click="cycleLineHeight">
-            行距 {{ lineHeight.toFixed(1) }}
-          </button>
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': night }"
-            @click="night = !night"
-          >
-            {{ night ? '日间' : '夜间' }}
-          </button>
-        </div>
-        <div class="toolbar__group">
           <button type="button" class="toolbar__button" @click="onExportEpub">导出 EPUB</button>
           <button type="button" class="toolbar__button" @click="onPrintPdf">打印 PDF</button>
         </div>
@@ -576,6 +560,20 @@ onBeforeUnmount(() => {
 
     <div class="app__body">
       <aside v-show="asideVisible" class="app__aside">
+        <SettingsPanel
+          v-if="settingsOpen"
+          :layout="effectiveLayout"
+          :tokens="tokens"
+          :pagination="showGuides"
+          :night="night"
+          :customized="customized"
+          @update:layout="onLayoutPatch"
+          @update:token="onTokenPatch"
+          @update:pagination="showGuides = $event"
+          @update:night="night = $event"
+          @reset="resetSettings"
+          @close="settingsOpen = false"
+        />
         <SearchPanel
           v-if="searchOpen"
           :key="`search-${themeKey}`"
@@ -609,7 +607,7 @@ onBeforeUnmount(() => {
             :tokens="tokens"
             :options="effectiveLayout"
             :font-token="theme.fontToken"
-            :pagination="true"
+            :pagination="showGuides"
             :page-main-size="pageMainSize"
             :measure="measureContext"
             :block-sizes="blockSizes"
@@ -754,27 +752,6 @@ onBeforeUnmount(() => {
   font-size: 12px;
   text-align: center;
   color: var(--demo-muted);
-}
-
-.toolbar__field {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-}
-
-.toolbar__select {
-  padding: 5px 8px;
-  font-size: 13px;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.toolbar__select:hover {
-  border-color: var(--demo-accent);
 }
 
 .toolbar__button {

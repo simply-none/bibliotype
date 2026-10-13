@@ -96,6 +96,8 @@ loadDocument(bookDocument);
 </template>
 ```
 
+> `scroll` 采用窗口化虚拟滚动：各分页等高，按页步长精确推算总高与页位，仅序列化 / 挂载视口附近的页（含上下各 2 页缓冲），滚动条仍反映全书总长度，因此大部头书籍不会一次性渲染全部分页。
+
 ## useEditorBinding —— 编辑视图生命周期
 
 ```ts

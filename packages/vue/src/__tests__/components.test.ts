@@ -77,6 +77,26 @@ function createReader(): Reader {
   return reader;
 }
 
+/** N 段各占一页（每段尺寸 = 页主轴）：构造多页文档供虚拟化测试 */
+function createPagedReader(pageCount: number): Reader {
+  const sizes: Record<string, number> = {};
+  const children = [];
+  for (let i = 0; i < pageCount; i += 1) {
+    const id = `p-${i}`;
+    sizes[id] = 100;
+    children.push({
+      type: NODE_TYPES.PARAGRAPH,
+      id,
+      children: [{ type: 'text', text: `第${i}页` }],
+    });
+  }
+  const doc = createEmptyDocument({ title: '多页' });
+  doc.root.children = [{ type: NODE_TYPES.VOLUME, id: 'vol', children }];
+  const reader = new Reader({ pageMainSize: 100, estimator: fixedEstimator(sizes) });
+  reader.loadDocument(doc);
+  return reader;
+}
+
 describe('BtBookView', () => {
   it('渲染当前页内容、页框样式与书册样式表', () => {
     const reader = createReader();
@@ -179,6 +199,22 @@ describe('BtBookView', () => {
     reader.goToPage(2);
     await nextTick();
     expect(active()).toBe(2);
+  });
+
+  it('scroll 模式：窗口化只渲染可见页，轨道高度仍反映总页数', () => {
+    const reader = createPagedReader(20);
+    const wrapper = mount(BtBookView, { props: { reader, mode: 'scroll' } });
+
+    expect(reader.totalPages).toBe(20);
+    // 视口高度 0（happy-dom）：仅首页 + overscan 渲染，远少于 20 页
+    const slots = wrapper.findAll('.bt-scroll__slot');
+    expect(slots.length).toBeLessThan(20);
+    expect(slots.length).toBeGreaterThan(0);
+    // 轨道内联高度按 20 页总高撑出真实滚动条
+    const trackStyle = wrapper.find('.bt-scroll__track').attributes('style') ?? '';
+    expect(trackStyle).toMatch(/height: \d+p[xt]/);
+    const heightPx = Number(/height: (\d+(?:\.\d+)?)px/.exec(trackStyle)?.[1] ?? '0');
+    expect(heightPx).toBeGreaterThan(20 * 100); // 至少能容纳 20 个页位
   });
 });
 

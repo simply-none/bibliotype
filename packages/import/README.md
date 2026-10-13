@@ -3,7 +3,7 @@
 基础文档导入：把 **Markdown / HTML** 转换为中枢数据形态 [`BookDocument`](../core/README.md)（`@bibliotype/core` 的 IR）。
 零外部重依赖——文本 → PM 结构的解析复用 [`@bibliotype/editor`](../editor/README.md)（`markdownToNodes` 与扩充后的 `parseDOM`），本包只做**文档级组装**（块节点合成 `book` 根 + 注入 `metadata`）与**格式分发**。
 
-二进制格式按依赖足迹隔离在对应叶子包：docx 见 `@bibliotype/import-docx`、epub 见 `@bibliotype/import-epub`（规划中）。
+二进制格式按依赖足迹隔离在对应叶子包：docx 见 [`@bibliotype/import-docx`](../import-docx/README.md)、epub 见 [`@bibliotype/import-epub`](../import-epub/README.md)。
 
 ## 安装
 

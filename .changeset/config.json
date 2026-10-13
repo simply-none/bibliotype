@@ -15,7 +15,8 @@
       "@bibliotype/exporter-epub",
       "@bibliotype/exporter-pdf",
       "@bibliotype/import",
-      "@bibliotype/import-docx"
+      "@bibliotype/import-docx",
+      "@bibliotype/import-epub"
     ]
   ],
   "linked": [],

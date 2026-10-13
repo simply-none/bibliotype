@@ -276,6 +276,9 @@ function switchTheme(key: ThemeKey): void {
 /** 当前界面模式：阅读 / 编辑 */
 const mode = ref<'read' | 'edit'>('read');
 
+/** 阅读视图模式：单页翻页 / 连续滚动多页 */
+const viewMode = ref<'page' | 'scroll'>('page');
+
 /** 编辑器实例（首次进入编辑模式时惰性创建，之后复用） */
 const bookEditor = shallowRef<BookEditor | null>(null);
 
@@ -803,6 +806,7 @@ onBeforeUnmount(() => {
             :reader="reader"
             :tokens="tokens"
             :font-token="theme.fontToken"
+            :mode="viewMode"
           />
           <BtEditor
             v-else-if="bookEditor"
@@ -832,6 +836,14 @@ onBeforeUnmount(() => {
         <footer v-if="mode === 'read'" class="app__footer">
           <ProgressBar :key="themeKey" :reader="reader" />
           <BtPager :key="themeKey" :reader="reader" />
+          <button
+            type="button"
+            class="app__view-toggle"
+            :title="viewMode === 'page' ? '切换为连续滚动翻页' : '切换为单页翻页'"
+            @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
+          >
+            {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
+          </button>
         </footer>
       </main>
     </div>
@@ -1059,5 +1071,16 @@ onBeforeUnmount(() => {
   border-block-start: 1px solid var(--demo-border);
   background: var(--demo-panel);
   color: var(--demo-text);
+}
+
+.app__view-toggle {
+  margin-inline-start: auto;
+  padding: 4px 14px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
 }
 </style>

@@ -19,7 +19,7 @@ import {
   type ShallowRef,
 } from 'vue';
 import type { BookDocument, BookNode } from '@bibliotype/core';
-import type { LayoutOptions } from '@bibliotype/layout';
+import type { LayoutOptions, PaginatedPage } from '@bibliotype/layout';
 import {
   Reader,
   type OutlineItem,
@@ -39,6 +39,8 @@ export interface ReaderBinding {
   progress: Ref<number>;
   /** 当前布局配置（重排后更新引用） */
   layout: ShallowRef<LayoutOptions>;
+  /** 分页结果（重排 / 重载后更新引用；导航不改内容故同一引用不触发重建） */
+  pagination: ShallowRef<readonly PaginatedPage[]>;
   /** 目录树 */
   outline: ShallowRef<readonly OutlineItem[]>;
   /** 当前页节点（块 id 已还原为 IR 节点） */
@@ -73,6 +75,7 @@ export function useReaderBinding(reader: Reader): ReaderBinding {
   const totalPages = ref(reader.totalPages);
   const progress = ref(reader.progress);
   const layout = shallowRef<LayoutOptions>(reader.layout);
+  const pagination = shallowRef<readonly PaginatedPage[]>(reader.pagination);
   const outline = shallowRef<readonly OutlineItem[]>(reader.outline);
 
   const sync = (): void => {
@@ -80,6 +83,8 @@ export function useReaderBinding(reader: Reader): ReaderBinding {
     totalPages.value = reader.totalPages;
     progress.value = reader.progress;
     layout.value = reader.layout;
+    // 分页数组仅在重排 / 重载时换新引用，导航保持同一引用（shallowRef 不触发）
+    pagination.value = reader.pagination;
   };
   const syncWithOutline = (): void => {
     outline.value = reader.outline;
@@ -103,6 +108,7 @@ export function useReaderBinding(reader: Reader): ReaderBinding {
     totalPages,
     progress,
     layout,
+    pagination,
     outline,
     pageNodes: computed(() => reader.getPageNodes(currentPage.value)),
     pageNumberText: computed(() => {

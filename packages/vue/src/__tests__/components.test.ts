@@ -151,6 +151,35 @@ describe('BtBookView', () => {
     await nextTick();
     expect(wrapper.find('.bt-page-number').exists()).toBe(true);
   });
+
+  it('scroll 模式：一次渲染全部分页且页脚逐页标页码', () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader, mode: 'scroll' } });
+
+    const slots = wrapper.findAll('.bt-scroll__slot');
+    expect(slots).toHaveLength(3);
+    // 全部内容同屏出现（不再仅限当前页）
+    const html = wrapper.html();
+    expect(html).toContain('子曰');
+    expect(html).toContain('有朋自远方来');
+    expect(html).toContain('为政以德');
+    // 每页各带页脚页码 1 / 2 / 3
+    const numbers = wrapper.findAll('.bt-page-number').map((node) => node.text());
+    expect(numbers).toEqual(['1', '2', '3']);
+  });
+
+  it('scroll 模式：外部翻页为当前槽位高亮 is-active', async () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader, mode: 'scroll' } });
+
+    const active = () =>
+      wrapper.findAll('.bt-scroll__slot').findIndex((node) => node.classes().includes('is-active'));
+    expect(active()).toBe(0);
+
+    reader.goToPage(2);
+    await nextTick();
+    expect(active()).toBe(2);
+  });
 });
 
 describe('BtPager', () => {

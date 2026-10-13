@@ -62,7 +62,7 @@ useReader(docRef);
 
 | 组件 | props | 说明 |
 | --- | --- | --- |
-| `BtBookView` | `reader: Reader`、`tokens?`、`fontToken?`、`fit?: 'width' \| 'contain' \| 'none'`（默认 `contain`） | 书页视图：当前页 IR → HTML（与导出器同源序列化）、注入书册样式表、页脚页码（封面页自动隐藏）、按容器等比缩放 |
+| `BtBookView` | `reader: Reader`、`tokens?`、`fontToken?`、`fit?: 'width' \| 'contain' \| 'none'`（默认 `contain`，仅 `page` 模式）、`mode?: 'page' \| 'scroll'`（默认 `page`） | 书页视图：IR → HTML（与导出器同源序列化）、注入书册样式表、页脚页码（封面页自动隐藏）。`page` 一次渲染当前页并按容器等比缩放；`scroll` 连续滚动多页（滚动 ↔ 页态双向同步） |
 | `BtPager` | `reader: Reader` | 翻页控件：上一页 / 页码 / 下一页 |
 | `BtToc` | `reader: Reader`；emit `select(item)` | 目录树；点击经 `goToNode` 跳页并抛出 `select` |
 | `BtTocItem` | `item: OutlineItem`；emit `select` | 单个目录项（层级递归） |
@@ -84,6 +84,15 @@ loadDocument(bookDocument);
     <BtBookView :reader="reader" fit="contain" />
     <BtPager :reader="reader" />
   </div>
+</template>
+```
+
+想要连续滚动翻页（滚轮 / 触控板即翻页，同时保留按钮与键盘），将 `mode` 设为 `scroll`：
+
+```vue
+<template>
+  <BtBookView :reader="reader" mode="scroll" />
+  <BtPager :reader="reader" />
 </template>
 ```
 

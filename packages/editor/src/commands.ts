@@ -7,10 +7,10 @@
  * 所有命令均为纯函数（Command），由视图层或编辑状态机执行；
  * 节点类型名通过 NODE_TYPES 对齐，schema 未注册对应节点时命令返回 false。
  */
-import { NODE_TYPES } from '@bibliotype/core';
+import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
 import { lift, setBlockType, toggleMark, wrapIn } from 'prosemirror-commands';
 import { redo, undo } from 'prosemirror-history';
-import type { Attrs, Mark, MarkType, NodeType, Schema } from 'prosemirror-model';
+import type { Attrs, Mark, MarkType, Node as PmNode, NodeType, Schema } from 'prosemirror-model';
 import { liftListItem, wrapInList } from 'prosemirror-schema-list';
 import { TextSelection, type Command, type EditorState } from 'prosemirror-state';
 import { RAW_ATTRS_ATTR, declaredAttrNames } from './attr-mapper.js';
@@ -47,6 +47,82 @@ function selectionInsideNode(state: EditorState, type: NodeType): boolean {
 /** 切换行内标记（attrs 缺省取标记规格默认值） */
 export function toggleMarkOfType(markType: MarkType, attrs?: Attrs): Command {
   return toggleMark(markType, attrs);
+}
+
+/** 按 IR 标记类型名切换标记（schema 未注册时不可用）；
+ * requireSelection 为 true 时空选区不执行（避免工具条按钮误清空待输入标记） */
+export function toggleMarkByName(
+  markName: string,
+  attrs?: Attrs,
+  requireSelection = false,
+): Command {
+  return (state, dispatch, view) => {
+    if (requireSelection && state.selection.empty) {
+      return false;
+    }
+    const markType = state.schema.marks[markName];
+    if (markType === undefined) {
+      return false;
+    }
+    return toggleMarkOfType(markType, attrs)(state, dispatch, view);
+  };
+}
+
+/* ---------- 链接 ---------- */
+
+/**
+ * 为选区设置 / 更新链接（link 标记携 href）
+ *
+ * - 选区非空：整段应用链接标记（已有实例则替换 href）；
+ * - 空选区：光标处存在待输入链接标记时更新其 href，否则不可用；
+ * - schema 未注册 link 标记或 href 为空串时返回 false。
+ */
+export function setLink(href: string): Command {
+  return (state, dispatch) => {
+    const type = state.schema.marks[MARK_TYPES.LINK];
+    if (type === undefined || href === '') {
+      return false;
+    }
+    const { from, to, empty } = state.selection;
+    if (empty) {
+      const $cursor =
+        state.selection instanceof TextSelection ? state.selection.$cursor : null;
+      const stored: readonly Mark[] =
+        state.storedMarks ?? ($cursor !== null ? $cursor.marks() : []);
+      const mark = type.isInSet(stored);
+      if (mark === undefined) {
+        return false;
+      }
+      dispatch?.(state.tr.setStoredMarks(stored.map((m) => (m === mark ? type.create({ href }) : m))));
+      return true;
+    }
+    dispatch?.(state.tr.addMark(from, to, type.create({ href })).scrollIntoView());
+    return true;
+  };
+}
+
+/** 移除选区 / 光标 storedMarks 中的链接 */
+export function unsetLink(): Command {
+  return (state, dispatch) => {
+    const type = state.schema.marks[MARK_TYPES.LINK];
+    if (type === undefined) {
+      return false;
+    }
+    const { from, to, empty } = state.selection;
+    if (empty) {
+      const $cursor =
+        state.selection instanceof TextSelection ? state.selection.$cursor : null;
+      const stored: readonly Mark[] =
+        state.storedMarks ?? ($cursor !== null ? $cursor.marks() : []);
+      if (type.isInSet(stored) === undefined) {
+        return false;
+      }
+      dispatch?.(state.tr.setStoredMarks(stored.filter((m) => m.type !== type)));
+      return true;
+    }
+    dispatch?.(state.tr.removeMark(from, to, type));
+    return true;
+  };
 }
 
 /* ---------- 段落与块级 ---------- */
@@ -87,8 +163,9 @@ export function toggleQuote(): Command {
   };
 }
 
-/** 切换无序列表：选区位于列表内则提升列表项（退出列表），否则包裹为列表 */
-export function toggleBulletList(): Command {
+/** 切换列表（包裹 / 退出 / 有序无序互转）：选区位于列表内时，类型一致则提升退出，
+ * 否则切换 ordered 属性；列表外包裹目标类型列表 */
+function toggleList(ordered: boolean): Command {
   return (state, dispatch, view) => {
     const list = findNodeType(state.schema, NODE_TYPES.LIST);
     const listItem = findNodeType(state.schema, NODE_TYPES.LIST_ITEM);
@@ -96,10 +173,33 @@ export function toggleBulletList(): Command {
       return false;
     }
     if (selectionInsideNode(state, list)) {
-      return liftListItem(listItem)(state, dispatch, view);
+      const { $from } = state.selection;
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        const node = $from.node(depth);
+        if (node.type === list) {
+          if (Boolean(node.attrs.ordered) === ordered) {
+            return liftListItem(listItem)(state, dispatch, view);
+          }
+          dispatch?.(state.tr.setNodeMarkup($from.before(depth), undefined, {
+            ...node.attrs,
+            ordered,
+          }).scrollIntoView());
+          return true;
+        }
+      }
     }
-    return wrapInList(list)(state, dispatch, view);
+    return wrapInList(list, { ordered } as Attrs)(state, dispatch, view);
   };
+}
+
+/** 切换无序列表 */
+export function toggleBulletList(): Command {
+  return toggleList(false);
+}
+
+/** 切换有序列表 */
+export function toggleOrderedList(): Command {
+  return toggleList(true);
 }
 
 /* ---------- 属性合并（IR 语义 patch → PM attrs） ---------- */
@@ -237,7 +337,8 @@ export function setMarkAttrs(markName: string, patch: Attrs): Command {
 /**
  * 在当前叶块之后插入块节点
  *
- * - 新块显式内嵌一个空段落（适用于 content: 'block+' 类容器）；
+ * - embedParagraph 为 true（默认）时显式内嵌一个空段落（适用于 content: 'block+' 类容器）；
+ *   置 false 适用于无内容原子块（如鱼尾），仅校验规格后直接插入；
  * - 插入后光标进入新块内首个可编辑位置；
  * - 供古籍注疏节点（双行小注 / 眉批 / 校勘记）等命令复用。
  */
@@ -245,11 +346,15 @@ export function insertBlockAfterSelection(
   schema: Schema,
   typeName: string,
   attrs?: Attrs,
+  embedParagraph = true,
 ): Command {
   return (state, dispatch) => {
     const type = findNodeType(schema, typeName);
-    const paragraph = findNodeType(schema, NODE_TYPES.PARAGRAPH);
-    if (type === undefined || paragraph === undefined) {
+    if (type === undefined) {
+      return false;
+    }
+    const paragraph = embedParagraph ? findNodeType(schema, NODE_TYPES.PARAGRAPH) : null;
+    if (embedParagraph && paragraph === null) {
       return false;
     }
 
@@ -258,10 +363,345 @@ export function insertBlockAfterSelection(
       return false;
     }
     const insertPos = $to.after($to.depth);
-    const block = type.create(attrs, paragraph.create());
+    const block = embedParagraph
+      ? type.createChecked(attrs ?? null, paragraph!.create())
+      : type.createChecked(attrs ?? null);
+    if (block === null) {
+      return false;
+    }
     const transaction = state.tr.insert(insertPos, block);
-    transaction.setSelection(TextSelection.near(transaction.doc.resolve(insertPos + 1)));
+    if (embedParagraph) {
+      transaction.setSelection(TextSelection.near(transaction.doc.resolve(insertPos + 1)));
+    }
     dispatch?.(transaction.scrollIntoView());
+    return true;
+  };
+}
+
+/** 在当前叶块之后插入块容器（取当前状态 schema，免调用方传参） */
+export function insertBlockOfType(typeName: string, attrs?: Attrs, embedParagraph = true): Command {
+  return (state, dispatch, view) =>
+    insertBlockAfterSelection(state.schema, typeName, attrs, embedParagraph)(
+      state,
+      dispatch,
+      view,
+    );
+}
+
+/* ---------- 结构容器插入 ---------- */
+
+/** 结构 / 书页类节点名（插入时作为定位“结构层”的判据） */
+export const STRUCTURE_BLOCK_TYPE_NAMES: readonly string[] = [
+  NODE_TYPES.COVER,
+  NODE_TYPES.TITLE_PAGE,
+  NODE_TYPES.COPYRIGHT_PAGE,
+  NODE_TYPES.BACK_COVER,
+  NODE_TYPES.VOLUME,
+  NODE_TYPES.CHAPTER,
+  NODE_TYPES.SECTION,
+  NODE_TYPES.APPENDIX,
+  NODE_TYPES.PREFACE,
+  NODE_TYPES.POSTSCRIPT,
+  NODE_TYPES.TOC,
+];
+
+/**
+ * 在最近的「结构层」祖先之后插入同级结构容器（章后加章不嵌套）
+ *
+ * - 沿祖先链自内向外首个结构类节点（卷 / 章 / 节 / 封面等）之后插入；
+ * - 无结构祖先（光标直接在书根的块层）时，在当前叶块之后插入；
+ * - 新容器内嵌空段落，光标进入其内。
+ */
+export function insertStructureBlock(typeName: string, attrs?: Attrs): Command {
+  return (state, dispatch) => {
+    const type = findNodeType(state.schema, typeName);
+    const paragraph = findNodeType(state.schema, NODE_TYPES.PARAGRAPH);
+    if (type === undefined || paragraph === undefined) {
+      return false;
+    }
+    const { $from } = state.selection;
+    let targetDepth = 0;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      if (STRUCTURE_BLOCK_TYPE_NAMES.includes($from.node(depth).type.name)) {
+        targetDepth = depth;
+        break;
+      }
+    }
+    if (targetDepth === 0) {
+      if ($from.depth === 0) {
+        return false;
+      }
+      targetDepth = $from.depth;
+    }
+    const block = type.create(attrs ?? null, paragraph.create());
+    const insertPos = $from.after(targetDepth);
+    const tr = state.tr.insert(insertPos, block);
+    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/* ---------- 行内容器 / 原子节点插入 ---------- */
+
+/**
+ * 用行内容器节点包裹选区（如夹注 / 异体字 / 避讳字载体）
+ *
+ * - 选区非空：取选区内行内容包裹进节点（含块级内容时 createChecked 校验失败返回 false）；
+ * - 空选区：插入空容器并将光标置于其内。
+ */
+export function insertInlineNodeWrapping(typeName: string, attrs?: Attrs): Command {
+  return (state, dispatch) => {
+    const type = findNodeType(state.schema, typeName);
+    if (type === undefined) {
+      return false;
+    }
+    const { from, to, empty } = state.selection;
+    if (empty) {
+      const node = type.createChecked(attrs ?? null);
+      if (node === null) {
+        return false;
+      }
+      const tr = state.tr.replaceRangeWith(from, to, node);
+      const inside = tr.doc.resolve(from + 1);
+      tr.setSelection(TextSelection.between(inside, inside));
+      dispatch?.(tr.scrollIntoView());
+      return true;
+    }
+    const node = type.createChecked(attrs ?? null, state.selection.content().content);
+    if (node === null) {
+      return false;
+    }
+    dispatch?.(state.tr.replaceRangeWith(from, to, node).scrollIntoView());
+    return true;
+  };
+}
+
+/** 在光标 / 选区处插入原子节点（图片 / 公式 / 印章 / 鱼尾等，内容由 attrs 承载） */
+export function insertAtomicNode(typeName: string, attrs?: Attrs): Command {
+  return (state, dispatch) => {
+    const type = findNodeType(state.schema, typeName);
+    if (type === undefined) {
+      return false;
+    }
+    const node = type.createChecked(attrs ?? null);
+    if (node === null) {
+      return false;
+    }
+    dispatch?.(state.tr.replaceSelectionWith(node, false).scrollIntoView());
+    return true;
+  };
+}
+
+/* ---------- 常用内容插入（在通用插入工厂上预置属性与光标行为） ---------- */
+
+/** 在光标 / 选区处插入图片（src 缺省用占位图；alt 为替代文） */
+export function insertImage(attrs: { src?: string; alt?: string } = {}): Command {
+  return insertAtomicNode(NODE_TYPES.IMAGE, {
+    src: attrs.src ?? 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
+    alt: attrs.alt ?? '',
+  });
+}
+
+/** 在当前叶块之后插入代码块（language 缺省纯文本），光标进入块内 */
+export function insertCodeBlock(language?: string): Command {
+  return (state, dispatch) => {
+    const type = findNodeType(state.schema, NODE_TYPES.CODE_BLOCK);
+    if (type === undefined) {
+      return false;
+    }
+    const { $to } = state.selection;
+    if ($to.depth === 0) {
+      return false;
+    }
+    const block = type.create(language === undefined ? null : { language });
+    const insertPos = $to.after($to.depth);
+    const tr = state.tr.insert(insertPos, block);
+    // 空 textblock 用 near 前探落位（between 会停在块前的块层）
+    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/* ---------- 表格（简化模型：无跨行 / 跨列） ---------- */
+
+/** 表格上下文（选区位于单元格时产出） */
+interface TableContext {
+  table: PmNode;
+  tablePos: number;
+  row: PmNode;
+  rowPos: number;
+  rowIndex: number;
+  columnIndex: number;
+}
+
+/** 从选区定位表格上下文（cell → row → table 祖先前两两校验） */
+function tableContext(state: EditorState): TableContext | null {
+  const table = findNodeType(state.schema, NODE_TYPES.TABLE);
+  const row = findNodeType(state.schema, NODE_TYPES.TABLE_ROW);
+  const cell = findNodeType(state.schema, NODE_TYPES.TABLE_CELL);
+  if (table === undefined || row === undefined || cell === undefined) {
+    return null;
+  }
+  const { $from } = state.selection;
+  for (let depth = $from.depth; depth >= 2; depth -= 1) {
+    if (
+      $from.node(depth).type === cell &&
+      $from.node(depth - 1).type === row &&
+      $from.node(depth - 2).type === table
+    ) {
+      const tableNode = $from.node(depth - 2);
+      return {
+        table: tableNode,
+        tablePos: $from.before(depth - 2),
+        row: $from.node(depth - 1),
+        rowPos: $from.before(depth - 1),
+        rowIndex: $from.index(depth - 2),
+        columnIndex: $from.index(depth - 1),
+      };
+    }
+  }
+  return null;
+}
+
+/** 新建空单元格工厂（内嵌空段落，每次调用产出独立实例） */
+function emptyCellFactory(schema: Schema): (() => PmNode) | null {
+  const cell = findNodeType(schema, NODE_TYPES.TABLE_CELL);
+  const paragraph = findNodeType(schema, NODE_TYPES.PARAGRAPH);
+  if (cell === undefined || paragraph === undefined) {
+    return null;
+  }
+  return () => cell.create(null, paragraph.create());
+}
+
+/** 在当前叶块之后插入表格（默认 3×3，无跨格简化模型） */
+export function insertTable(rows = 3, columns = 3): Command {
+  return (state, dispatch) => {
+    const schema = state.schema;
+    const table = findNodeType(schema, NODE_TYPES.TABLE);
+    const rowType = findNodeType(schema, NODE_TYPES.TABLE_ROW);
+    if (table === undefined || rowType === undefined) {
+      return false;
+    }
+    const createCell = emptyCellFactory(schema);
+    if (createCell === null) {
+      return false;
+    }
+    const safeRows = Math.max(1, Math.round(rows));
+    const safeColumns = Math.max(1, Math.round(columns));
+    const node = table.create(
+      null,
+      Array.from({ length: safeRows }, () =>
+        rowType.create(null, Array.from({ length: safeColumns }, createCell)),
+      ),
+    );
+    const { $to } = state.selection;
+    if ($to.depth === 0) {
+      return false;
+    }
+    const insertPos = $to.after($to.depth);
+    dispatch?.(state.tr.insert(insertPos, node).scrollIntoView());
+    return true;
+  };
+}
+
+/** 在当前行之后追加同列数的新行 */
+export function tableAddRow(): Command {
+  return (state, dispatch) => {
+    const ctx = tableContext(state);
+    const rowType = findNodeType(state.schema, NODE_TYPES.TABLE_ROW);
+    if (ctx === null || rowType === undefined) {
+      return false;
+    }
+    const createCell = emptyCellFactory(state.schema);
+    if (createCell === null) {
+      return false;
+    }
+    const newRow = rowType.create(
+      null,
+      Array.from({ length: ctx.row.childCount }, createCell),
+    );
+    dispatch?.(state.tr.insert(ctx.rowPos + ctx.row.nodeSize, newRow).scrollIntoView());
+    return true;
+  };
+}
+
+/** 在当前列之后追加同位的新列（逐行插入，经事务映射保持位置正确） */
+export function tableAddColumn(): Command {
+  return (state, dispatch) => {
+    const ctx = tableContext(state);
+    if (ctx === null) {
+      return false;
+    }
+    const createCell = emptyCellFactory(state.schema);
+    if (createCell === null) {
+      return false;
+    }
+    const tr = state.tr;
+    let rowOffset = 1;
+    ctx.table.forEach((row) => {
+      let inside = 1;
+      for (let index = 0; index < ctx.columnIndex && index < row.childCount; index += 1) {
+        inside += row.child(index).nodeSize;
+      }
+      tr.insert(tr.mapping.map(ctx.tablePos + rowOffset + inside), createCell());
+      rowOffset += row.nodeSize;
+    });
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** 删除当前行（末行时删除整个表格） */
+export function tableDeleteRow(): Command {
+  return (state, dispatch) => {
+    const ctx = tableContext(state);
+    if (ctx === null) {
+      return false;
+    }
+    const tr = state.tr;
+    if (ctx.table.childCount <= 1) {
+      tr.delete(ctx.tablePos, ctx.tablePos + ctx.table.nodeSize);
+    } else {
+      tr.delete(ctx.rowPos, ctx.rowPos + ctx.row.nodeSize);
+    }
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** 删除当前列（末列时删除整个表格；自下而上删除保持前方位置有效） */
+export function tableDeleteColumn(): Command {
+  return (state, dispatch) => {
+    const ctx = tableContext(state);
+    if (ctx === null) {
+      return false;
+    }
+    if (ctx.row.childCount <= 1) {
+      dispatch?.(state.tr.delete(ctx.tablePos, ctx.tablePos + ctx.table.nodeSize).scrollIntoView());
+      return true;
+    }
+    const tr = state.tr;
+    const offsets: number[] = [];
+    let rowOffset = 1;
+    ctx.table.forEach((row) => {
+      offsets.push(rowOffset);
+      rowOffset += row.nodeSize;
+    });
+    for (let index = offsets.length - 1; index >= 0; index -= 1) {
+      const row = ctx.table.child(index);
+      if (ctx.columnIndex >= row.childCount) {
+        continue;
+      }
+      let inside = 1;
+      for (let cellIndex = 0; cellIndex < ctx.columnIndex; cellIndex += 1) {
+        inside += row.child(cellIndex).nodeSize;
+      }
+      const cellPos = ctx.tablePos + offsets[index]! + inside;
+      tr.delete(cellPos, cellPos + row.child(ctx.columnIndex).nodeSize);
+    }
+    dispatch?.(tr.scrollIntoView());
     return true;
   };
 }

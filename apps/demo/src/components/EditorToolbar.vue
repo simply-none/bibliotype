@@ -3,31 +3,51 @@
  * 编辑工具条（Demo 层）
  *
  * 接收 BtEditor 作用域插槽透传的 EditorBinding（binding）：
- * 撤销 / 重做｜正文与标题级别｜引用 / 列表｜粗 / 斜 / 下划线 / 高亮｜
- * 专名号 / 书名号 / 圈点 / 异体｜插入双行注 / 眉批 / 校勘记 / 出校符号｜还原样册。
+ * 撤销 / 重做｜正文与标题级别｜引用 / 无序 / 有序列表｜粗 / 斜 / 下划线 / 高亮 /
+ * 删除线 / 行内代码 / 链接 / 注音｜专名号 / 书名号 / 圈点 / 异体 / 注Ref / 避讳 /
+ * 夹注 / 异体载体 / 避讳载体｜插入双行注 / 眉批 / 校勘记 / 出校符号 / 跋文 / 牌记 /
+ * 题记 / 版框 / 鱼尾 / 印章 / 图片 / 表格 / 脚注 / 尾注 / 边注｜还原样册。
  * 激活态由 binding.version 驱动（每次事务后重算 isMarkActive / isNodeActive）。
  */
 import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
 import type { EditorBinding } from '@bibliotype/vue';
 import {
+  insertBlockOfType,
+  insertImage,
+  insertTable,
   redoCommand,
   setHeadingLevel,
+  setLink,
   setParagraph,
   toggleBulletList,
+  toggleMarkByName,
   toggleMarkOfType,
+  toggleOrderedList,
   toggleQuote,
   undoCommand,
+  unsetLink,
 } from '@bibliotype/editor';
 import { CLASSICAL_MARK_TYPES } from '@bibliotype/classical';
 import {
+  insertBorderFrame,
   insertCollationNote,
   insertCollationSymbol,
+  insertColophon,
   insertDoubleNote,
+  insertFishTail,
   insertHeadNote,
+  insertImprint,
+  insertSeal,
+  insertTailNote,
   toggleBookTitle,
   toggleCircleEmphasis,
+  toggleInlineNote,
+  toggleNoteRef,
   toggleProperName,
+  toggleTaboo,
+  toggleTabooChar,
   toggleVariant,
+  toggleVariantChar,
 } from '@bibliotype/classical/editor';
 
 const props = defineProps<{ binding: EditorBinding }>();
@@ -117,9 +137,16 @@ const blockActions: readonly ToolbarAction[] = [
     active: () => nodeOn(NODE_TYPES.QUOTE),
   },
   {
-    label: '列表',
+    label: '无序',
     run: () => execute(toggleBulletList()),
-    active: () => nodeOn(NODE_TYPES.LIST),
+    active: () => nodeOn(NODE_TYPES.LIST, { ordered: false }),
+    title: '无序列表',
+  },
+  {
+    label: '有序',
+    run: () => execute(toggleOrderedList()),
+    active: () => nodeOn(NODE_TYPES.LIST, { ordered: true }),
+    title: '有序列表',
   },
 ];
 
@@ -149,7 +176,55 @@ const inlineActions: readonly ToolbarAction[] = [
     active: () => markOn(MARK_TYPES.HIGHLIGHT),
     title: '高亮',
   },
+  {
+    label: '删除线',
+    run: () => execute(toggleMarkByName(MARK_TYPES.STRIKETHROUGH, undefined, true)),
+    active: () => markOn(MARK_TYPES.STRIKETHROUGH),
+    title: '删除线（需选中文字）',
+  },
+  {
+    label: '代码',
+    run: () => execute(toggleMarkByName(MARK_TYPES.CODE, undefined, true)),
+    active: () => markOn(MARK_TYPES.CODE),
+    title: '行内代码（需选中文字）',
+  },
+  {
+    label: '链接',
+    run: () => toggleLink(),
+    active: () => markOn(MARK_TYPES.LINK),
+    title: '选中文字后输入地址；已有链接时点击移除',
+  },
+  {
+    label: '注音',
+    run: () => toggleRuby(),
+    active: () => markOn(MARK_TYPES.RUBY),
+    title: '选中文字后输入注文（ruby）',
+  },
 ];
+
+/** 链接：选中文字输 href；已有链接时再次点击移除 */
+function toggleLink(): void {
+  if (markOn(MARK_TYPES.LINK)) {
+    execute(unsetLink());
+    return;
+  }
+  const href = window.prompt('链接地址（取消则不插入）');
+  if (href) {
+    execute(setLink(href));
+  }
+}
+
+/** 注音：选中文字输注文；已有注音时再次点击移除标记 */
+function toggleRuby(): void {
+  if (markOn(MARK_TYPES.RUBY)) {
+    execute(toggleMarkByName(MARK_TYPES.RUBY, undefined, true));
+    return;
+  }
+  const text = window.prompt('注文内容（取消则不添加）');
+  if (text !== null) {
+    execute(toggleMarkByName(MARK_TYPES.RUBY, { text }));
+  }
+}
 
 /** 古籍标记（classical 编辑命令） */
 const classicalActions: readonly ToolbarAction[] = [
@@ -177,6 +252,33 @@ const classicalActions: readonly ToolbarAction[] = [
     active: () => markOn(CLASSICAL_MARK_TYPES.VARIANT),
     title: '异体字标记',
   },
+  {
+    label: '注Ref',
+    run: () => execute(toggleNoteRef()),
+    active: () => markOn(CLASSICAL_MARK_TYPES.NOTE_REF),
+    title: '注Ref标记（noteId 在属性栏录入）',
+  },
+  {
+    label: '避讳',
+    run: () => execute(toggleTaboo()),
+    active: () => markOn(CLASSICAL_MARK_TYPES.TABOO),
+    title: '避讳字标记',
+  },
+  {
+    label: '夹注',
+    run: () => execute(toggleInlineNote()),
+    title: '选中文字包裹为夹注（空光标插入容器）',
+  },
+  {
+    label: '异体载体',
+    run: () => execute(toggleVariantChar()),
+    title: '选中文字包裹为异体字载体',
+  },
+  {
+    label: '避讳载体',
+    run: () => execute(toggleTabooChar()),
+    title: '选中文字包裹为避讳字载体',
+  },
 ];
 
 /** 块插入与符号（在当前叶块之后插入容器；符号插入在光标处） */
@@ -200,6 +302,71 @@ const insertActions: readonly ToolbarAction[] = [
     label: '出校符号',
     run: () => execute(insertCollationSymbol()),
     title: '在光标处插入出校符号（○）',
+  },
+  {
+    label: '跋文',
+    run: () => execute(insertTailNote()),
+    title: '在当前段落之后插入跋文',
+  },
+  {
+    label: '牌记',
+    run: () => execute(insertImprint()),
+    title: '在当前段落之后插入牌记',
+  },
+  {
+    label: '题记',
+    run: () => execute(insertColophon()),
+    title: '在当前段落之后插入题记',
+  },
+  {
+    label: '版框',
+    run: () => execute(insertBorderFrame()),
+    title: '在当前段落之后插入版框',
+  },
+  {
+    label: '鱼尾',
+    run: () => execute(insertFishTail()),
+    title: '在当前段落之后插入鱼尾',
+  },
+  {
+    label: '印章',
+    run: () => {
+      const text = window.prompt('印文（取消则不插入，确定留空用占位）');
+      if (text !== null) {
+        execute(insertSeal(text || undefined));
+      }
+    },
+    title: '在光标处插入印章',
+  },
+  {
+    label: '图片',
+    run: () => {
+      const src = window.prompt('图片地址（留空用占位图）', '');
+      if (src !== null) {
+        execute(insertImage({ src: src || undefined, alt: '' }));
+      }
+    },
+    title: '在光标处插入图片（src / alt 可在属性栏修改）',
+  },
+  {
+    label: '表格',
+    run: () => execute(insertTable(3, 3)),
+    title: '在当前段落之后插入 3×3 表格',
+  },
+  {
+    label: '脚注',
+    run: () => execute(insertBlockOfType(NODE_TYPES.FOOTNOTE)),
+    title: '在当前段落之后插入脚注',
+  },
+  {
+    label: '尾注',
+    run: () => execute(insertBlockOfType(NODE_TYPES.ENDNOTE)),
+    title: '在当前段落之后插入尾注',
+  },
+  {
+    label: '边注',
+    run: () => execute(insertBlockOfType(NODE_TYPES.MARGIN_NOTE)),
+    title: '在当前段落之后插入边注',
   },
 ];
 

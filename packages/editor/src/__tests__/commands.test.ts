@@ -9,16 +9,25 @@ import { MARK_TYPES, NODE_TYPES, createEmptyDocument, type BookDocument } from '
 import type { Mark, Node as PmNode } from 'prosemirror-model';
 import { TextSelection, type Command } from 'prosemirror-state';
 import {
+  insertAtomicNode,
   insertBlockAfterSelection,
+  insertCodeBlock,
+  insertImage,
+  insertTable,
   redoCommand,
   setHeadingLevel,
+  setLink,
   setMarkAttrs,
   setNodeAttrs,
   setParagraph,
+  tableAddRow,
   toggleBulletList,
+  toggleMarkByName,
   toggleMarkOfType,
+  toggleOrderedList,
   toggleQuote,
   undoCommand,
+  unsetLink,
 } from '../commands.js';
 import { BookEditor } from '../editor.js';
 import { createBookEditorKeymap, createBookEditorPlugins } from '../plugins.js';
@@ -253,6 +262,95 @@ describe('编辑命令', () => {
 
     expect(run(editor, setMarkAttrs(MARK_TYPES.STRONG, { text: 'x' }))).toBe(false);
     expect(run(editor, setMarkAttrs('no-such-mark', { text: 'x' }))).toBe(false);
+  });
+
+  it('toggleOrderedList / toggleMarkByName：有序列表切换与按名标记切换', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, toggleOrderedList())).toBe(true);
+    expect(firstLeafBlock(editor)?.[0]?.attrs?.ordered).toBe(true);
+
+    // 同为列表类型：退出列表
+    expect(run(editor, toggleOrderedList())).toBe(true);
+    expect(firstLeafBlock(editor)?.[0]?.type).toBe(NODE_TYPES.PARAGRAPH);
+
+    // 按名切换标记与未知名
+    expect(run(editor, toggleMarkByName(MARK_TYPES.STRIKETHROUGH))).toBe(true);
+    expect(collectTextMarks(editor.editorState.doc).map((m) => m.type.name)).toContain(
+      MARK_TYPES.STRIKETHROUGH,
+    );
+    expect(run(editor, toggleMarkByName('no-such-mark'))).toBe(false);
+  });
+
+  it('setLink / unsetLink：选区加链、换 href、移除', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, setLink('https://example.com'))).toBe(true);
+    const linkMark = () =>
+      collectTextMarks(editor.editorState.doc).find((m) => m.type.name === MARK_TYPES.LINK);
+    expect(linkMark()?.attrs?.href).toBe('https://example.com');
+
+    // 已有实例时更新 href
+    expect(run(editor, setLink('https://example.org'))).toBe(true);
+    expect(linkMark()?.attrs?.href).toBe('https://example.org');
+
+    // 空 href 不可用
+    expect(run(editor, setLink(''))).toBe(false);
+
+    expect(run(editor, unsetLink())).toBe(true);
+    expect(linkMark()).toBeUndefined();
+  });
+
+  it('insertImage：光标处插入带占位 src 的图片，未注册类型返回 false', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+    const { to } = firstTextRange(editor);
+    editor.dispatch(
+      editor.editorState.tr.setSelection(TextSelection.create(editor.editorState.doc, to)),
+    );
+
+    expect(run(editor, insertImage({ alt: '插图' }))).toBe(true);
+    const image = firstLeafBlock(editor)?.[1];
+    expect(image?.type).toBe(NODE_TYPES.IMAGE);
+    expect(image?.attrs?.alt).toBe('插图');
+    expect(typeof image?.attrs?.src).toBe('string');
+
+    expect(run(editor, insertAtomicNode('no-such-node'))).toBe(false);
+  });
+
+  it('insertCodeBlock：叶块后插入代码块且光标进入块内', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, insertCodeBlock('ts'))).toBe(true);
+    const blocks = firstLeafBlock(editor);
+    expect(blocks).toHaveLength(2);
+    expect(blocks?.[1]?.type).toBe(NODE_TYPES.CODE_BLOCK);
+    expect(blocks?.[1]?.attrs?.language).toBe('ts');
+    expect(editor.editorState.selection.$from.parent.type.name).toBe(NODE_TYPES.CODE_BLOCK);
+  });
+
+  it('insertTable / tableAddRow：插入表格与追加行', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, insertTable(2, 3))).toBe(true);
+    const blocks = firstLeafBlock(editor);
+    expect(blocks).toHaveLength(2);
+    expect(blocks?.[1]?.type).toBe(NODE_TYPES.TABLE);
+    expect(blocks?.[1]?.children).toHaveLength(2);
+    expect(blocks?.[1]?.children?.[0]?.children).toHaveLength(3);
+
+    // 光标移入首单元格：表格紧随原叶块，从其开标签处 near 前探即落入首格段落
+    const { to } = firstTextRange(editor);
+    const $table = TextSelection.near(editor.editorState.doc.resolve(to + 1));
+    editor.dispatch(editor.editorState.tr.setSelection($table));
+    expect(run(editor, tableAddRow())).toBe(true);
+    const table = firstLeafBlock(editor)?.[1];
+    expect(table?.type).toBe(NODE_TYPES.TABLE);
+    expect(table?.children).toHaveLength(3);
   });
 
   it('undo / redo：历史回退与重放', () => {

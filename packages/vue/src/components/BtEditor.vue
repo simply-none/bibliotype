@@ -9,6 +9,8 @@
  *   以与预览同源的 extractBlocks + paginate（同 measure / 同 pageMainSize）算出
  *   「块 → 页」归属，再按各页首块在真实 DOM 中的位置叠加分页线与页码；
  * - props.editable（缺省 true）：为 false 时画布只读（拒绝输入 / 粘贴 / 拖拽）；
+ * - props.scale（缺省 1）：编辑态缩放，整页（含分页参考线）一起 transform 缩放，
+ *   滚动区按缩放后尺寸预留版面（与 BtBookView 的 fit 缩放同口径）；
  * - 默认插槽作用域透传 EditorBinding（供工具条访问命令与激活态）；
  * - 挂载时创建 EditorView，卸载时销毁；editor 实例替换时重建视图；
  * - 书册样式表以 `.bt-editor__canvas .ProseMirror` 为根容器注入（与 BtBookView
@@ -53,6 +55,8 @@ const props = defineProps<{
    * 缺省回退到按字符数估算（配 measure）。
    */
   blockSizes?: ReadonlyMap<string, number>;
+  /** 编辑态缩放比例（缺省 1；限幅 0.2~2，整页含分页参考线一起缩放） */
+  scale?: number;
 }>();
 
 const canvasRef = ref<HTMLElement | null>(null);
@@ -66,6 +70,56 @@ const resolvedTokens = computed<Readonly<Record<string, string | undefined>>>(
 );
 const resolvedOptions = computed<LayoutOptions>(() => props.options ?? DEFAULT_LAYOUT_OPTIONS);
 const vertical = computed(() => isVerticalMode(resolvedOptions.value.writingMode));
+
+/* ---------- 编辑态缩放（整页 + 分页参考线一起 transform 缩放，滚动区预留缩放后尺寸） ---------- */
+
+/** 缩放比例（限幅 0.2~2，非法回退 1） */
+const resolvedScale = computed(() => {
+  const raw = props.scale ?? 1;
+  return Number.isFinite(raw) ? Math.min(2, Math.max(0.2, raw)) : 1;
+});
+
+/** 页面盒原生尺寸（未缩放，px）；初值取开本尺寸避免挂载前闪烁，挂载后由 .ProseMirror 实测覆盖 */
+const nativeSize = ref({
+  width: resolvedOptions.value.pageSize.width,
+  height: resolvedOptions.value.pageSize.height,
+});
+
+/** 舞台（按缩放后尺寸预留版面，横向居中） */
+const stageStyle = computed(() => ({
+  width: `${nativeSize.value.width * resolvedScale.value}px`,
+  height: `${nativeSize.value.height * resolvedScale.value}px`,
+}));
+
+/** 页盒（原生宽度 + transform 缩放，左上为原点；分页参考线在其内随同缩放） */
+const pageZoomStyle = computed(() => ({
+  width: `${nativeSize.value.width}px`,
+  transform: `scale(${resolvedScale.value})`,
+  transformOrigin: 'top left',
+}));
+
+/** 实测 .ProseMirror 原生尺寸（内容增删 / 字体变化经 ResizeObserver 自动更新） */
+let pageObserver: ResizeObserver | undefined;
+function measureNative(): void {
+  const pm = binding.view.value?.dom;
+  if (pm === undefined || pm === null) return;
+  nativeSize.value = { width: pm.offsetWidth, height: pm.offsetHeight };
+}
+
+// 视图挂载 / 重建后接管其 DOM 尺寸监听
+watch(
+  () => binding.view.value,
+  (next) => {
+    pageObserver?.disconnect();
+    pageObserver = undefined;
+    if (typeof ResizeObserver !== 'undefined' && next !== null && next !== undefined) {
+      pageObserver = new ResizeObserver(measureNative);
+      pageObserver.observe(next.dom);
+    }
+    measureNative();
+  },
+  { immediate: true },
+);
 
 /* ---------- 书页尺寸盒（画布内 .ProseMirror 作为「一页」） ---------- */
 
@@ -154,7 +208,7 @@ function recomputeBreaks(): void {
   }
   const result = paginate(blocks, { pageMainSize: mainSize });
 
-  // 页面盒（.ProseMirror）相对滚动内容原点的位置（offsetParent = 滚动容器）
+  // 页面盒（.ProseMirror）相对定位原点的位置（offsetParent = .bt-editor__page，与参考线同源）
   const pageLeft = pm.offsetLeft;
   const pageTop = pm.offsetTop;
   const pageWidth = pm.offsetWidth;
@@ -222,6 +276,7 @@ onBeforeUnmount(() => {
   binding.detach();
   removeBookStyle();
   resizeObserver?.disconnect();
+  pageObserver?.disconnect();
   if (recomputeTimer !== undefined) clearTimeout(recomputeTimer);
   if (recomputeRaf !== 0) cancelAnimationFrame(recomputeRaf);
 });
@@ -263,24 +318,28 @@ watch(
       <slot v-bind="binding" />
     </div>
     <div ref="scrollRef" class="bt-editor__scroll">
-      <div
-        ref="canvasRef"
-        class="bt-editor__canvas"
-        :class="[
-          vertical ? 'bt-editor__canvas--vertical' : 'bt-editor__canvas--horizontal',
-          isEditable ? '' : 'bt-editor__canvas--readonly',
-        ]"
-        :style="pageVars"
-      />
-      <div v-if="pagination" class="bt-editor__overlay" aria-hidden="true">
-        <div
-          v-for="item in breaks"
-          :key="item.page"
-          class="bt-editor__break"
-          :class="vertical ? 'bt-editor__break--vertical' : 'bt-editor__break--horizontal'"
-          :style="item.style"
-        >
-          <span class="bt-editor__break-label">第 {{ item.page }} 页</span>
+      <div class="bt-editor__stage" :style="stageStyle">
+        <div class="bt-editor__page" :style="pageZoomStyle">
+          <div
+            ref="canvasRef"
+            class="bt-editor__canvas"
+            :class="[
+              vertical ? 'bt-editor__canvas--vertical' : 'bt-editor__canvas--horizontal',
+              isEditable ? '' : 'bt-editor__canvas--readonly',
+            ]"
+            :style="pageVars"
+          />
+          <div v-if="pagination" class="bt-editor__overlay" aria-hidden="true">
+            <div
+              v-for="item in breaks"
+              :key="item.page"
+              class="bt-editor__break"
+              :class="vertical ? 'bt-editor__break--vertical' : 'bt-editor__break--horizontal'"
+              :style="item.style"
+            >
+              <span class="bt-editor__break-label">第 {{ item.page }} 页</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -307,6 +366,19 @@ watch(
   min-height: 0;
   overflow: auto;
   background: var(--bt-editor-stage, transparent);
+}
+
+/* 舞台：按缩放后尺寸占位（横向居中），作为页盒的定位上下文 */
+.bt-editor__stage {
+  position: relative;
+  margin-inline: auto;
+}
+
+/* 页盒：原生尺寸定位 + transform 缩放（左上原点）；内部 canvas 与参考线同处缩放层 */
+.bt-editor__page {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 /* 画布：内容高度增长（滚动交给 .bt-editor__scroll） */

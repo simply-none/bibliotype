@@ -280,6 +280,29 @@ const bookEditor = shallowRef<BookEditor | null>(null);
 /** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效） */
 const editorReadonly = ref(false);
 
+/* ---------- 编辑态缩放（透传 BtEditor.scale） ---------- */
+
+/** 缩放比例（默认 1） */
+const editorScale = ref(1);
+/** 编辑舞台元素（用于「适应宽度」测量可用宽） */
+const editorStageRef = ref<HTMLElement | null>(null);
+
+/** 缩放步进（限幅 0.2~2，两位小数） */
+function zoomStep(delta: number): void {
+  const next = Math.round((editorScale.value + delta) * 100) / 100;
+  editorScale.value = Math.min(2, Math.max(0.2, next));
+}
+
+/** 适应宽度：按舞台可用宽 / 页宽折算缩放（扣除 .app__stage 左右内边距各 20px） */
+function fitEditorWidth(): void {
+  const el = editorStageRef.value;
+  const pageWidth = effectiveLayout.value.pageSize.width;
+  if (el === null || pageWidth <= 0) return;
+  const available = el.clientWidth - 40;
+  const ratio = Math.round((available / pageWidth) * 100) / 100;
+  editorScale.value = Math.min(2, Math.max(0.2, ratio));
+}
+
 /* ---------- 脏标记 + 自动持久化（localStorage 草稿） ---------- */
 
 /** 草稿存储键（切换 / 刷新后可恢复未保存编辑） */
@@ -642,6 +665,19 @@ onBeforeUnmount(() => {
             {{ mode === 'edit' ? '保存并预览' : '编辑' }}
           </button>
         </div>
+        <div v-if="mode === 'edit'" class="toolbar__group">
+          <button type="button" class="toolbar__button" title="缩小" @click="zoomStep(-0.1)">
+            −
+          </button>
+          <span class="toolbar__readout">{{ Math.round(editorScale * 100) }}%</span>
+          <button type="button" class="toolbar__button" title="放大" @click="zoomStep(0.1)">+</button>
+          <button type="button" class="toolbar__button" title="恢复 100%" @click="editorScale = 1">
+            100%
+          </button>
+          <button type="button" class="toolbar__button" title="按宽度缩放整页" @click="fitEditorWidth">
+            适应宽度
+          </button>
+        </div>
         <div class="toolbar__group">
           <button
             type="button"
@@ -720,7 +756,7 @@ onBeforeUnmount(() => {
       </aside>
 
       <main class="app__main">
-        <div class="app__stage">
+        <div ref="editorStageRef" class="app__stage">
           <BtBookView
             v-if="mode === 'read'"
             :key="themeKey"
@@ -740,6 +776,7 @@ onBeforeUnmount(() => {
             :measure="measureContext"
             :block-sizes="blockSizes"
             :editable="!editorReadonly"
+            :scale="editorScale"
           >
             <template #default="slotProps">
               <EditorToolbar

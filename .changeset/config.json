@@ -14,7 +14,8 @@
       "@bibliotype/adapter-indexeddb",
       "@bibliotype/exporter-epub",
       "@bibliotype/exporter-pdf",
-      "@bibliotype/import"
+      "@bibliotype/import",
+      "@bibliotype/import-docx"
     ]
   ],
   "linked": [],

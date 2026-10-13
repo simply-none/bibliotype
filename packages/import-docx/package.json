@@ -1,0 +1,54 @@
+{
+  "name": "@bibliotype/import-docx",
+  "version": "0.1.0",
+  "description": "docx 导入：.docx → HTML（mammoth）→ BookDocument（复用 @bibliotype/import 的 HTML 通路） - bibliotype docx 导入包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/import-docx"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/import-docx#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean"
+  },
+  "dependencies": {
+    "@bibliotype/core": "workspace:*",
+    "@bibliotype/import": "workspace:*",
+    "mammoth": "^1.13.0",
+    "prosemirror-model": "^1.23.0"
+  },
+  "devDependencies": {
+    "@bibliotype/editor": "workspace:*",
+    "happy-dom": "^15.11.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

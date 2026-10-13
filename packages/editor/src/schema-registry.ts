@@ -6,7 +6,14 @@
  * 卸载时按命名空间注销，保证未安装插件时 editor 独立可用。
  */
 import { NODE_TYPES } from '@bibliotype/core';
-import { Schema, type DOMOutputSpec, type MarkSpec, type NodeSpec } from 'prosemirror-model';
+import {
+  Schema,
+  type DOMOutputSpec,
+  type MarkSpec,
+  type Node as PmNode,
+  type NodeSpec,
+} from 'prosemirror-model';
+import { RAW_ATTRS_ATTR } from './attr-mapper.js';
 
 /** 编辑器节点规格条目 */
 export interface EditorNodeSpecEntry {
@@ -37,6 +44,47 @@ export const DEFAULT_EDITOR_TOP_NODE: string = NODE_TYPES.BOOK;
 /** 默认 DOM 表现的类名前缀（与书册样式 bt- 约定一致） */
 const DEFAULT_DOM_CLASS_PREFIX = 'bt-';
 
+/**
+ * 默认 DOM 的 data-* 属性表（与 @bibliotype/layout/html 序列化器对齐）
+ *
+ * 让编辑画布与阅读 / 导出共用同一套书册样式：结构页 `[data-role]`、
+ * 校勘符号 `.bt-collation-mark::after { content: attr(data-symbol) }` 等
+ * 规则依赖节点属性落到 data-*。产出规则与序列化器一致：
+ * - rawAttrs 兜底容器逐键展开；
+ * - spec 显式声明属性（排除 id / rawAttrs）在非空且不等于默认值时输出
+ *   （与 PM → IR 的「默认值规范化省略」同口径）。
+ */
+function domDataAttrs(
+  specAttrs: NodeSpec['attrs'],
+  nodeAttrs: PmNode['attrs'],
+): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  const raw = nodeAttrs[RAW_ATTRS_ATTR];
+  if (typeof raw === 'object' && raw !== null) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (value === undefined || value === null) continue;
+      result[`data-${key}`] = String(value);
+    }
+  }
+
+  if (specAttrs && !Array.isArray(specAttrs)) {
+    for (const [key, attrSpec] of Object.entries(specAttrs)) {
+      if (key === 'id' || key === RAW_ATTRS_ATTR) continue;
+      const value = nodeAttrs[key];
+      if (value === undefined || value === null) continue;
+      const def =
+        typeof attrSpec === 'object' && attrSpec !== null
+          ? (attrSpec as { default?: unknown }).default
+          : undefined;
+      if (def !== undefined && def === value) continue;
+      result[`data-${key}`] = String(value);
+    }
+  }
+
+  return result;
+}
+
 /** 为缺省 toDOM / parseDOM 的节点规格生成默认 DOM 表现（解锁视图渲染） */
 function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
   // text 节点由 ProseMirror 直接渲染为文本，无需 DOM 表现
@@ -48,8 +96,13 @@ function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
   const tag = spec.inline === true || spec.group === 'inline' ? 'span' : 'div';
   if (next.toDOM === undefined || next.toDOM === null) {
     const hasContent = typeof spec.content === 'string' && spec.content.length > 0;
-    next.toDOM = (): DOMOutputSpec =>
-      hasContent ? [tag, { class: className }, 0] : [tag, { class: className }];
+    next.toDOM = (node: PmNode): DOMOutputSpec => {
+      const domAttrs: Record<string, string> = {
+        class: className,
+        ...domDataAttrs(spec.attrs, node.attrs),
+      };
+      return hasContent ? [tag, domAttrs, 0] : [tag, domAttrs];
+    };
   }
   if (next.parseDOM === undefined || next.parseDOM === null) {
     next.parseDOM = [{ tag: `${tag}.${className}` }];

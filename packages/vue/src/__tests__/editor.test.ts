@@ -170,4 +170,17 @@ describe('BtEditor', () => {
 
     wrapper.unmount();
   });
+
+  it('注入与阅读同源的书册样式表（容器限定在编辑画布，卸载时移除）', () => {
+    const editor = createEditor();
+    const wrapper = mount(BtEditor, { props: { editor } });
+
+    const styleElement = document.getElementById('bt-editor-book-css');
+    expect(styleElement).not.toBeNull();
+    expect(styleElement!.textContent).toContain('.bt-editor__canvas .ProseMirror');
+    expect(styleElement!.textContent).toContain('.bt-paragraph');
+
+    wrapper.unmount();
+    expect(document.getElementById('bt-editor-book-css')).toBeNull();
+  });
 });

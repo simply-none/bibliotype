@@ -496,7 +496,14 @@ onBeforeUnmount(() => {
             :tokens="tokens"
             :font-token="theme.fontToken"
           />
-          <BtEditor v-else-if="bookEditor" class="app__editor" :editor="bookEditor">
+          <BtEditor
+            v-else-if="bookEditor"
+            class="app__editor"
+            :editor="bookEditor"
+            :tokens="tokens"
+            :options="theme.layout"
+            :font-token="theme.fontToken"
+          >
             <template #default="slotProps">
               <EditorToolbar :binding="slotProps" @reset="resetSample" />
             </template>

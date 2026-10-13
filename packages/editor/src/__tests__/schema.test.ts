@@ -49,6 +49,24 @@ describe('默认 schema', () => {
     expect(strong?.spec.toDOM).toBeDefined();
     expect(strong?.spec.parseDOM?.[0]?.tag).toBe('span.bt-strong');
   });
+
+  it('默认 toDOM 将节点属性输出为 data-*（与序列化器对齐，供书册样式定向）', () => {
+    const schema = buildEditorSchema();
+
+    // 未声明属性经 rawAttrs 兜底 → 展开为 data-role
+    const cover = schema.node(NODE_TYPES.PARAGRAPH, { rawAttrs: { role: 'cover-title' } }, schema.text('论语集解'));
+    const coverDom = cover.type.spec.toDOM!(cover) as [string, Record<string, string>, number];
+    expect(coverDom[1]['data-role']).toBe('cover-title');
+    expect(coverDom[1]['class']).toBe('bt-paragraph');
+
+    // 声明属性非默认值 → data-level；等于默认值 → 规范化省略
+    const h2 = schema.node(NODE_TYPES.HEADING, { level: 2 }, schema.text('章'));
+    const h2Dom = h2.type.spec.toDOM!(h2) as [string, Record<string, string>, number];
+    expect(h2Dom[1]['data-level']).toBe('2');
+    const h1 = schema.node(NODE_TYPES.HEADING, { level: 1 }, schema.text('章'));
+    const h1Dom = h1.type.spec.toDOM!(h1) as [string, Record<string, string>, number];
+    expect(h1Dom[1]['data-level']).toBeUndefined();
+  });
 });
 
 describe('EditorSchemaRegistry', () => {

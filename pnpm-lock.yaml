@@ -38,6 +38,9 @@ importers:
       '@bibliotype/exporter-pdf':
         specifier: workspace:*
         version: link:../../packages/exporter-pdf
+      '@bibliotype/import':
+        specifier: workspace:*
+        version: link:../../packages/import
       '@bibliotype/layout':
         specifier: workspace:*
         version: link:../../packages/layout

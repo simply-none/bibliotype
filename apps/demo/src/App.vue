@@ -49,6 +49,7 @@ import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
 import BookmarkPanel from './components/BookmarkPanel.vue';
 import EditorToolbar from './components/EditorToolbar.vue';
+import ImportPanel from './components/ImportPanel.vue';
 import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
@@ -426,6 +427,18 @@ function resetSample(): void {
   savedAt.value = null;
 }
 
+/** 导入文档：载入阅读预览，若编辑器已建则同步内容（loadDocument 重置脏基准），并落盘草稿 + 重排 */
+function onImported(doc: BookDocument): void {
+  cancelAutosave();
+  reader.value.loadDocument(doc);
+  bookEditor.value?.loadDocument(doc);
+  dirty.value = bookEditor.value?.isDirty ?? false;
+  savedAt.value = null;
+  void persistDraft();
+  scheduleRemeasure();
+  importOpen.value = false;
+}
+
 /** 主工具栏「编辑 / 保存并预览」双向切换 */
 function toggleEditMode(): void {
   if (mode.value === 'read') {
@@ -555,6 +568,8 @@ const searchOpen = ref(false);
 const bookmarksOpen = ref(false);
 const settingsOpen = ref(false);
 const infoOpen = ref(false);
+/** 文档导入面板（Markdown / HTML） */
+const importOpen = ref(false);
 /** 编辑画布分页参考线（设置面板开关） */
 const showGuides = ref(true);
 
@@ -576,7 +591,12 @@ function onMetadataSave(patch: Partial<BookMetadata>): void {
 
 /** 左栏是否有任一区块可见 */
 const asideVisible = computed(
-  () => settingsOpen.value || searchOpen.value || bookmarksOpen.value || tocOpen.value,
+  () =>
+    settingsOpen.value ||
+    searchOpen.value ||
+    bookmarksOpen.value ||
+    importOpen.value ||
+    tocOpen.value,
 );
 
 function onKeydown(event: KeyboardEvent): void {
@@ -716,6 +736,14 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="toolbar__button"
+            :class="{ 'toolbar__button--active': importOpen }"
+            @click="importOpen = !importOpen"
+          >
+            导入
+          </button>
+          <button
+            type="button"
+            class="toolbar__button"
             :class="{ 'toolbar__button--active': tocOpen }"
             @click="tocOpen = !tocOpen"
           >
@@ -756,6 +784,11 @@ onBeforeUnmount(() => {
           :key="`bookmark-${themeKey}`"
           :reader="reader"
           @close="bookmarksOpen = false"
+        />
+        <ImportPanel
+          v-if="importOpen"
+          @close="importOpen = false"
+          @imported="onImported"
         />
         <div v-show="tocOpen" class="app__toc">
           <BtToc :key="`toc-${themeKey}`" :reader="reader" />

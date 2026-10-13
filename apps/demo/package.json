@@ -17,6 +17,7 @@
     "@bibliotype/editor": "workspace:*",
     "@bibliotype/exporter-epub": "workspace:*",
     "@bibliotype/exporter-pdf": "workspace:*",
+    "@bibliotype/import": "workspace:*",
     "@bibliotype/layout": "workspace:*",
     "@bibliotype/reader": "workspace:*",
     "@bibliotype/vue": "workspace:*",

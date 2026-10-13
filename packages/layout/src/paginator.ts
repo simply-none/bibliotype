@@ -1,16 +1,21 @@
 /**
- * 分页器（POC 骨架）
+ * 分页器（纸书排版引擎 Phase 2：行级拆分 + 孤寡行控制）
  *
- * 输入为「已测量高度的内容块」序列，输出页码编排结果。
- * 测量环节由渲染层负责（DOM 实测或预测量），本模块保持纯函数：
+ * 输入为「已测量主轴尺寸的内容块」序列，输出页码编排结果。测量环节由渲染层
+ * （DOM 实测或预测量）负责，本模块保持纯函数：
  *
- * - 贪心装箱：块沿主轴方向累加，超页则换页；
+ * - 贪心装箱：块沿主轴累加，超页则换页；
  * - breakBefore / breakAfter：强制换页（章首、卷末）；
- * - keepWithNext：与下一块同页（标题+首段），放不下则整体换页；
- * - 超大块：独占一页（避免死循环）。
+ * - keepWithNext：与下一块保持同页（标题 + 首段），放不下则整体换页；
+ * - 行级拆分（纸书核心）：块标记 splittable 且给出 lineSize 时，装不下的段落
+ *   可在「行」处断开跨页续排（页是固定框、正文如水流动），而非整块挪页留白；
+ * - 孤寡行控制：拆分后首页片段至少 minFirst 行、末页片段至少 minLast 行，
+ *   不满足则相应增减本行取用或整体换页（避免报纸式孤行）；
+ * - 超大块：可拆者按每页容纳行数连续拆分跨页；不可拆者独占一页（避免死循环）。
  *
- * 注：直排场景下「主轴」为横向（自右向左的行款），
- * 故字段统一命名为 mainSize，由调用方按书写方向传入相应测量值。
+ * 注：直排场景下「主轴」为横向（自右向左的行款），故字段统一命名为 mainSize，
+ * 由调用方按书写方向传入相应测量值。向后兼容：不给 splittable / lineSize 时，
+ * 行为与块原子版完全一致。
  */
 
 /** 可分页内容块 */
@@ -25,22 +30,54 @@ export interface MeasurableBlock {
   breakAfter?: boolean;
   /** 与下一块保持同页 */
   keepWithNext?: boolean;
+  /** 单行沿主轴的尺寸（px）；与 splittable 配合启用行级拆分 */
+  lineSize?: number;
+  /**
+   * 是否允许按行跨页拆分（仅正文段落为 true）
+   *
+   * 标题 / 封面 / 注文 / 牌记等须整块呈现，恒为 falsy。
+   */
+  splittable?: boolean;
+}
+
+/** 页内条目：一个块片段（未拆分时即整块） */
+export interface PageItem {
+  /** 源块 */
+  block: MeasurableBlock;
+  /** 本片段起始行（0 起，块内相对；未拆分为 0） */
+  fromLine: number;
+  /** 本片段行数（未拆分 / 不可拆块为 0，表示「整块渲染」） */
+  lineCount: number;
+  /** 本片段沿主轴尺寸（px） */
+  mainSize: number;
 }
 
 /** 分页结果中的单页 */
 export interface PaginatedPage {
   /** 页码（自 0 起） */
   index: number;
-  /** 本页容纳的块 */
+  /** 本页片段序列（行级渲染契约） */
+  items: PageItem[];
+  /** 本页出现的块（跨页拆分的块会在多页各出现一次；向后兼容旧消费方） */
   blocks: MeasurableBlock[];
   /** 本页已用主轴尺寸 */
   usedMainSize: number;
+}
+
+/** 孤寡行控制 */
+export interface WidowControl {
+  /** 拆分后「首页片段」最少行数（孤行控制，默认 2） */
+  minFirst?: number;
+  /** 拆分后「末页片段」最少行数（寡行控制，默认 2） */
+  minLast?: number;
 }
 
 /** 分页选项 */
 export interface PaginateOptions {
   /** 每页可用主轴尺寸（px） */
   pageMainSize: number;
+  /** 孤寡行控制（缺省 2 / 2） */
+  widowControl?: WidowControl;
 }
 
 /** 分页统计 */
@@ -50,6 +87,15 @@ export interface PaginationResult {
   totalPages: number;
   /** 总块数 */
   totalBlocks: number;
+}
+
+/** 块是否可按行拆分 */
+function isSplittable(block: MeasurableBlock): boolean {
+  return (
+    block.splittable === true &&
+    typeof block.lineSize === 'number' &&
+    block.lineSize > 0
+  );
 }
 
 /**
@@ -65,58 +111,143 @@ export function paginate(
   if (pageMainSize <= 0) {
     throw new RangeError(`pageMainSize 必须为正数：${pageMainSize}`);
   }
-
   for (const block of blocks) {
     if (block.mainSize < 0) {
       throw new RangeError(`块 "${block.id}" 的 mainSize 不能为负：${block.mainSize}`);
     }
   }
 
-  const pages: PaginatedPage[] = [];
-  let current: PaginatedPage | undefined;
+  const minFirst = Math.max(1, options.widowControl?.minFirst ?? 2);
+  const minLast = Math.max(1, options.widowControl?.minLast ?? 2);
 
-  const startPage = (): PaginatedPage => {
-    const page: PaginatedPage = {
-      index: pages.length,
-      blocks: [],
-      usedMainSize: 0,
-    };
+  if (blocks.length === 0) {
+    return { pages: [], totalPages: 0, totalBlocks: 0 };
+  }
+
+  interface MutablePage {
+    items: PageItem[];
+    usedMainSize: number;
+  }
+  const pages: MutablePage[] = [];
+  let cur: MutablePage = startPage();
+  let pendingBreak = false;
+
+  function startPage(): MutablePage {
+    const page: MutablePage = { items: [], usedMainSize: 0 };
     pages.push(page);
     return page;
-  };
+  }
 
-  for (let i = 0; i < blocks.length; i += 1) {
-    const block = blocks[i] as MeasurableBlock;
+  function pushFragment(block: MeasurableBlock, fromLine: number, lineCount: number, size: number): void {
+    cur.items.push({ block, fromLine, lineCount, mainSize: size });
+    cur.usedMainSize += size;
+  }
 
-    if (current === undefined || (block.breakBefore && current.blocks.length > 0)) {
-      current = startPage();
-    }
-
-    // keepWithNext：需求尺寸含下一块（下一块强制换页时不连坐）
-    const next = blocks[i + 1];
-    const keepWithNext = block.keepWithNext === true
-      && next !== undefined
-      && next.breakBefore !== true;
-    const required = keepWithNext
-      ? block.mainSize + (next?.mainSize ?? 0)
+  /** keepWithNext 时下一块「至少需与标题同页」的头部尺寸 */
+  function headSizeOf(block: MeasurableBlock): number {
+    return isSplittable(block)
+      ? Math.min(block.mainSize, minFirst * (block.lineSize as number))
       : block.mainSize;
+  }
 
-    const fits = current.usedMainSize + required <= pageMainSize;
-    if (!fits && current.blocks.length > 0) {
-      current = startPage();
+  /** 不可拆块：整块贪心放置（保持块原子版行为） */
+  function placeAtomic(block: MeasurableBlock, next: MeasurableBlock | undefined): void {
+    const keep = block.keepWithNext === true && next !== undefined && next.breakBefore !== true;
+    const required = block.mainSize + (keep ? headSizeOf(next as MeasurableBlock) : 0);
+    const fits = cur.usedMainSize + required <= pageMainSize;
+    if (!fits && cur.items.length > 0) {
+      cur = startPage();
     }
+    // 空页也必须放置（超大块独占一页，避免死循环）
+    pushFragment(block, 0, 0, block.mainSize);
+  }
 
-    current.blocks.push(block);
-    current.usedMainSize += block.mainSize;
+  /** 可拆块：按行跨页续排，含孤寡行约束 */
+  function placeSplittable(block: MeasurableBlock): void {
+    const lineSize = block.lineSize as number;
+    const totalLines = Math.max(1, Math.round(block.mainSize / lineSize));
+    let from = 0;
+    let remaining = totalLines;
 
-    if (block.breakAfter && i < blocks.length - 1) {
-      current = undefined;
+    while (remaining > 0) {
+      const avail = pageMainSize - cur.usedMainSize;
+      let availLines = Math.floor(avail / lineSize);
+      if (availLines <= 0) {
+        if (cur.items.length > 0) {
+          cur = startPage();
+          continue;
+        }
+        availLines = 1; // 空页至少推进一行
+      }
+
+      let take = Math.min(availLines, remaining);
+      const leftover = remaining - take;
+      // 整块从块首起完整落入本页：按「未拆分」输出（与原子块同一契约 lineCount=0）
+      if (from === 0 && leftover === 0) {
+        pushFragment(block, 0, 0, block.mainSize);
+        break;
+      }
+      if (leftover > 0) {
+        // 将拆分：先保证末页片段 ≥ minLast（不足则少取，把行留给续页）
+        if (leftover < minLast) {
+          take = remaining - minLast;
+        }
+        // 再保证首页片段 ≥ minFirst（块首片段在本页放不下合规头部则整体换页）
+        if (from === 0 && take < minFirst) {
+          if (cur.items.length > 0) {
+            cur = startPage();
+            continue;
+          }
+          take = Math.min(remaining, availLines);
+        }
+        if (take < 1) {
+          if (cur.items.length > 0) {
+            cur = startPage();
+            continue;
+          }
+          take = 1; // 病态页（行高 > 页）兜底推进
+        }
+      }
+
+      const size = take * lineSize;
+      pushFragment(block, from, take, size);
+      from += take;
+      remaining -= take;
+      if (remaining > 0) {
+        cur = startPage(); // 余下部分续到下一页
+      }
     }
   }
 
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i] as MeasurableBlock;
+    const onFreshPage = cur.items.length === 0;
+    if (!onFreshPage && (pendingBreak || block.breakBefore === true)) {
+      cur = startPage();
+    }
+    pendingBreak = false;
+
+    if (isSplittable(block)) {
+      placeSplittable(block);
+    } else {
+      placeAtomic(block, blocks[i + 1]);
+    }
+
+    if (block.breakAfter === true) {
+      pendingBreak = true;
+    }
+  }
+
+  const resultPages: PaginatedPage[] = pages.map((page, index) => ({
+    index,
+    items: page.items,
+    blocks: page.items.map((item) => item.block),
+    usedMainSize: page.usedMainSize,
+  }));
+
   return {
-    pages,
-    totalPages: pages.length,
+    pages: resultPages,
+    totalPages: resultPages.length,
     totalBlocks: blocks.length,
   };
 }

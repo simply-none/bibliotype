@@ -26,9 +26,12 @@
 - **Phase 1（已完成）编辑态止血**：`BtEditor` 横排断页尺寸改用编辑器 DOM 实时实测
   （相邻叶块顶边差），与纸张定位同源；不再依赖外部旧 `blockSizes`（仅直排 / 多栏回退）。
   纸张逐页等高，超高页随内容增高、不溢出纸外。
-- **Phase 2 layout 行级拆分**：`MeasurableBlock` 增 `lineSize` / `splittable`；
-  `paginate` 输出页内片段（`fromLine` / `lineCount`），含孤寡行约束（拆分后首页片段
-  与续页片段各 ≥ 2 行，可配）；超高块按每页可容纳行数连续拆分。
+- **Phase 2 layout 行级拆分（已完成）**：`MeasurableBlock` 增 `lineSize` / `splittable`；
+  `paginate` 输出页内片段 `items: PageItem[]`（`fromLine` / `lineCount`，未拆分时
+  `lineCount=0` 按整块渲染，`blocks` 向后兼容），含孤寡行约束（`widowControl`
+  首页片段 ≥ minFirst、末页片段 ≥ minLast，默认 2 / 2，不足则让行或整体换页）；
+  超高块按每页可容纳行数连续拆分；`keepWithNext` 在下块可拆时仅要求头部 minFirst
+  行同页。不传新字段时行为与块原子版一致（消费方接入属 Phase 3 / 4）。
 - **Phase 3 预览同源**：`extractBlocks` 为正文段落输出 `splittable` + `lineSize`；
   `pagination-measure` 量尺输出扩展 `{ advance, lineSize }`；`BtBookView` 片段以
   裁剪窗口渲染（固定高 + overflow hidden + `translateY(-fromLine * lineSize)`），不拆 IR / DOM。

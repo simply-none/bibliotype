@@ -46,7 +46,9 @@ export type { StyleDeclaration, BuildRootStyleInput } from './style-builder.js';
 export { paginate } from './paginator.js';
 export type {
   MeasurableBlock,
+  PageItem,
   PaginatedPage,
   PaginateOptions,
   PaginationResult,
+  WidowControl,
 } from './paginator.js';

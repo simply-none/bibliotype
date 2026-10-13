@@ -47,15 +47,20 @@ const { pages, totalPages } = paginate(
   [
     { id: 'p-1', mainSize: 64 },
     { id: 'h-2', mainSize: 48, breakBefore: true, keepWithNext: true },
-    { id: 'p-2', mainSize: 96 },
+    /* 正文段落标 splittable + lineSize → 装不下时行级拆分跨页 */
+    { id: 'p-2', mainSize: 700, lineSize: 30, splittable: true },
   ],
-  { pageMainSize: 620 },
+  { pageMainSize: 620, widowControl: { minFirst: 2, minLast: 2 } },
 );
+// pages[i].items → 行级片段（fromLine / lineCount）；pages[i].blocks → 向后兼容的块视图
 ```
 
 - `breakBefore` / `breakAfter`：强制换页（章首 / 卷末）；
-- `keepWithNext`：与下一块同页（标题 + 首段），放不下则整体换页；
-- 超大块独占一页；直排场景「主轴」为横向，`mainSize` 由调用方按书写方向传入。
+- `keepWithNext`：与下一块同页（标题 + 首段），放不下则整体换页（下块可拆时仅要求头部 minFirst 行同页）；
+- **行级拆分**：块标 `splittable: true` 且给 `lineSize` 时，装不下的段落在行处断开跨页续排（页固定、正文流动）；
+- **孤寡行控制**：`widowControl.minFirst` / `minLast`（默认 2 / 2）约束拆分后首 / 尾片段最少行数，不满足则让行或整体换页；
+- 超大块：可拆者按每页行数连续跨页，不可拆者独占一页；直排「主轴」为横向，`mainSize` 由调用方按书写方向传入。
+- 不传 `splittable` / `lineSize` / `widowControl` 时，行为与块原子版完全一致。
 
 ### HTML 序列化与书册样式表（`./html`）
 
@@ -79,7 +84,7 @@ const css = buildBookCss({
 | 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`、`combineUprightCss`、`needsCombineUpright` |
 | 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
-| 分页 | `paginate`（`MeasurableBlock` / `PaginatedPage` / `PaginationResult`） |
+| 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |
 | `./html` | `serializeNode`、`escapeHtml`、`buildBookCss`、`declarationToCss` |
 
 ## 相关

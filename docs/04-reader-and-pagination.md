@@ -131,9 +131,13 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 | --- | --- |
 | 贪心装箱 | 块沿主轴累加，超页换页 |
 | `breakBefore` / `breakAfter` | 强制换页（章首 / 卷末） |
-| `keepWithNext` | 与下一块同页；放不下则整体换页（下一块强制换页时不连坐） |
-| 超大块 | 独占一页（避免死循环） |
+| `keepWithNext` | 与下一块同页；放不下则整体换页（下一块强制换页时不连坐；下块可拆时仅要求头部 minFirst 行同页） |
+| 行级拆分（`splittable` + `lineSize`） | 装不下的正文段落在行处断开跨页续排，页输出 `items: PageItem[]`（`fromLine` / `lineCount`）；未拆分时 `lineCount=0` 按整块渲染，`blocks` 字段向后兼容 |
+| 孤寡行控制（`widowControl`） | 拆分后首页片段 ≥ minFirst 行、末页片段 ≥ minLast 行（默认 2 / 2），不满足则让行或整体换页 |
+| 超大块 | 可拆者按每页容纳行数连续跨页；不可拆者独占一页（避免死循环） |
 | 非法输入 | `pageMainSize <= 0` 或块尺寸为负抛 `RangeError` |
+
+不传 `splittable` / `lineSize` / `widowControl` 时，行为与块原子版完全一致；行级拆分能力的消费方接入见 [18 纸书排版引擎路线图](18-pagination-engine-roadmap.md)（Phase 3 / 4）。
 
 ## 相关
 

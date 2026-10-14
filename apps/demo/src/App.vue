@@ -12,7 +12,8 @@
  * 版式参数 = 补丁双层：主题预设（基准）+ layoutPatch / tokenPatch（设置面板覆写），
  * 阅读 / 编辑 / 导出共用同一份 effectiveLayout 与 tokens，改一处三端联动；
  * 字号 / 行距变更经双通道联动（tokens 视觉 + repaginate measure 估算），
- * 主题切换重建 Reader 并清空布局补丁（书写方向随主题），字号等个人设置保留。
+ * 主题切换重建 Reader 并清空布局补丁（书写方向随主题），字号等个人设置保留；
+ * 刷新启动恢复上次会话：内容取 IndexedDB 草稿回写预览，页码取 localStorage 回跳。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import {
@@ -285,6 +286,9 @@ function switchTheme(key: ThemeKey): void {
 /** 当前界面模式：阅读 / 编辑 */
 const mode = ref<'read' | 'edit'>('read');
 
+/** 启动恢复完成（草稿内容 + 页码已回灌）；就绪前视图不渲染，避免样章闪烁 */
+const booted = ref(false);
+
 /** 阅读视图模式：单页翻页 / 连续滚动多页 */
 const viewMode = ref<'page' | 'scroll'>('page');
 
@@ -401,6 +405,65 @@ async function clearDraft(): Promise<void> {
     await draftStore.delete(DRAFT_ID);
   } catch {
     /* 忽略 */
+  }
+}
+
+/* ---------- 启动恢复上次会话（内容 = 草稿，页码 = localStorage） ---------- */
+
+/** 阅读位置 localStorage 键（页码自 0 起；文档内容草稿在 IndexedDB） */
+const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
+
+/** 读取上次保存的页码（非法 / 不可用 → 0） */
+function readLastPage(): number {
+  try {
+    const raw = Number.parseInt(window.localStorage.getItem(LAST_PAGE_KEY) ?? '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** 落盘当前页码（存储不可用环境静默失败） */
+function writeLastPage(pageIndex: number): void {
+  try {
+    window.localStorage.setItem(LAST_PAGE_KEY, String(pageIndex));
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 页态订阅退订句柄（绑定当前 Reader 实例，实例重建时重挂） */
+let unsubscribePage: (() => void) | null = null;
+
+/** 订阅 Reader page:change → 页码持久化（翻页 / 滚动回写 / 目录书签跳转全覆盖） */
+function attachPageTracking(): void {
+  unsubscribePage?.();
+  unsubscribePage = reader.value.events.on('page:change', (payload) => {
+    writeLastPage(payload.pageIndex);
+  });
+}
+
+// 主题切换等重建 Reader：重新订阅新实例
+watch(reader, () => attachPageTracking());
+
+/** 启动恢复：草稿回灌预览 + 回跳上次阅读页；就绪后置 booted */
+async function bootstrap(): Promise<void> {
+  try {
+    const last = readLastPage();
+    const draft = await readDraft();
+    if (draft !== null) {
+      reader.value.loadDocument(draft);
+      // 立即按实测重排，让恢复页码落在真实页数口径上（与编辑 / 导出同源）
+      remeasure();
+    }
+    const target = Math.min(last, Math.max(0, reader.value.totalPages - 1));
+    if (target > 0) reader.value.goToPage(target);
+    // 页数变少被限幅时回写，避免下次启动重复越界钳位
+    writeLastPage(target);
+  } finally {
+    booted.value = true;
+    // 恢复完成后才开始连续落盘，避免中间态覆盖保存值
+    attachPageTracking();
   }
 }
 
@@ -652,6 +715,8 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
   window.addEventListener('beforeunload', onBeforeUnload);
+  // 启动恢复上次会话（草稿内容 + 页码），就绪后视图才渲染
+  void bootstrap();
   // 初次量尺（等挂载后布局完成）；字体就绪后再测一次（Web 字体影响行高）
   void nextTick(remeasure);
   if (typeof document !== 'undefined' && document.fonts?.ready !== undefined) {
@@ -666,6 +731,8 @@ onBeforeUnmount(() => {
   cancelAutosave();
   unsubscribeEditor?.();
   unsubscribeEditor = null;
+  unsubscribePage?.();
+  unsubscribePage = null;
   void draftStore.close();
   disposeMeasureSheet();
 });
@@ -826,7 +893,7 @@ onBeforeUnmount(() => {
       <main class="app__main">
         <div ref="editorStageRef" class="app__stage">
           <BtBookView
-            v-if="mode === 'read'"
+            v-if="booted && mode === 'read'"
             :key="themeKey"
             :reader="reader"
             :tokens="tokens"
@@ -834,7 +901,7 @@ onBeforeUnmount(() => {
             :mode="viewMode"
           />
           <BtEditor
-            v-else-if="bookEditor"
+            v-else-if="booted && bookEditor"
             class="app__editor"
             :editor="bookEditor"
             :tokens="tokens"
@@ -860,7 +927,7 @@ onBeforeUnmount(() => {
             </template>
           </BtEditor>
         </div>
-        <footer v-if="mode === 'read'" class="app__footer">
+        <footer v-if="booted && mode === 'read'" class="app__footer">
           <ProgressBar :key="themeKey" :reader="reader" />
           <BtPager :key="themeKey" :reader="reader" />
           <button

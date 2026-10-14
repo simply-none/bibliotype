@@ -12,6 +12,7 @@ import {
   buildCssVariables,
   buildPageStyle,
   buildRootStyle,
+  resolvePageBorderWidth,
   resolvePageMainSize,
 } from '../style-builder.js';
 
@@ -146,5 +147,21 @@ describe('resolvePageMainSize', () => {
   it('页边距缺省时回退为整页主轴尺寸', () => {
     const main = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, {});
     expect(main).toBe(DEFAULT_LAYOUT_OPTIONS.pageSize.height);
+  });
+
+  it('版框边框侵占 border-box 内容区：主轴尺寸同步扣除两侧边框宽', () => {
+    const noBorder = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, DEFAULT_THEME);
+    const bordered = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, {
+      ...DEFAULT_THEME,
+      'page-border': '3px double #b09a76',
+    });
+    expect(noBorder - bordered).toBe(6);
+  });
+
+  it('resolvePageBorderWidth 仅解析 px 前缀值，缺省 / 非 px 归 0', () => {
+    expect(resolvePageBorderWidth({ 'page-border': '3px double #b09a76' })).toBe(3);
+    expect(resolvePageBorderWidth({ 'page-border': '1.5px solid black' })).toBe(1.5);
+    expect(resolvePageBorderWidth({ 'page-border': '2em solid black' })).toBe(0);
+    expect(resolvePageBorderWidth({})).toBe(0);
   });
 });

@@ -2,7 +2,8 @@
  * 编辑态分页内核（阶段一）
  *
  * 以 BookEditor(ProseMirror) 文档为唯一真相源，复用与预览 / 导出同源的三段管线：
- * - `measurePagination`：离屏量尺产出「块 → 主轴尺寸」与「块 → 每行起始字符偏移」；
+ * - `measurePagination`：离屏量尺产出「块 → 主轴推进尺寸」「块 → 每行起始字符偏移」
+ *   与「块 → 真实行高（不含块间距）」；
  * - `extractBlocks`：IR 树展开为线性块序列（正文段落自动标 `splittable`）；
  * - `paginate` + `sliceNodeByCharRange`：按行把跨页段落切成片段，逐页产出「片段节点序列」。
  *
@@ -94,6 +95,8 @@ export interface BuildPagedResult {
   lineOffsets: ReadonlyMap<string, number[]>;
   /** 块 id → 主轴推进尺寸（增量重排时供下轮合并复用） */
   sizes: ReadonlyMap<string, number>;
+  /** 块 id → 真实行高 px（不含块间距；增量重排时供下轮合并复用） */
+  lineSizes: ReadonlyMap<string, number>;
   /** 生效的每行字符估算（回退口径，供片段归属换算同源复用） */
   charsPerLine: number;
 }
@@ -135,6 +138,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     blocks: [],
     lineOffsets: new Map(),
     sizes: new Map(),
+    lineSizes: new Map(),
     charsPerLine: context.charsPerLine,
   };
 
@@ -158,7 +162,9 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   for (const [id, v] of fresh.sizes) sizes.set(id, v);
   const lineOffsets = new Map<string, number[]>(incremental ? input.previous!.lineOffsets : []);
   for (const [id, v] of fresh.lineOffsets) lineOffsets.set(id, v);
-  const blocks = extractBlocks(doc, { context, blockSizes: sizes });
+  const lineSizes = new Map<string, number>(incremental ? input.previous!.lineSizes : []);
+  for (const [id, v] of fresh.lineSizes) lineSizes.set(id, v);
+  const blocks = extractBlocks(doc, { context, blockSizes: sizes, lineOffsets, lineSizes });
   if (blocks.length === 0) return empty;
 
   // 未变块切片复用：(块id|起始行|行数) → 已切节点（整块引用木身廉价，不入缓存）
@@ -208,6 +214,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     pages,
     blocks,
     lineOffsets,
+    lineSizes,
     sizes,
     charsPerLine: context.charsPerLine,
   };

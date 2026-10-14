@@ -88,13 +88,18 @@ function syncStyle(): void {
     fontToken: props.fontToken,
     containerSelector: CONTAINER_SELECTOR,
   });
+  // 续页片段（fromLine>0）是上一页面段落的接续行：书排惯例不缩进，
+  // 去掉 .bt-paragraph 的首行 text-indent（仅片段首段，段内后续行本就不缩进）
+  const continuationRule =
+    `\n${FRAG_SELECTOR}[data-from-line]:not([data-from-line="0"]) > .bt-paragraph:first-child {\n  text-indent: 0;\n}\n`;
   let el = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   if (el === null) {
     el = document.createElement('style');
     el.id = STYLE_ELEMENT_ID;
     document.head.appendChild(el);
   }
-  if (el.textContent !== css) el.textContent = css;
+  const next = css + continuationRule;
+  if (el.textContent !== next) el.textContent = next;
 }
 
 function removeStyle(): void {

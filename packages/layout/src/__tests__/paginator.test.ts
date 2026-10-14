@@ -193,4 +193,41 @@ describe('paginate（行级拆分 / 孤寡行控制）', () => {
     expect(result.totalPages).toBe(3);
     expect(result.pages.every((p) => p.items.length === 1)).toBe(true);
   });
+
+  it('显式 lineCount：推进量含块尾间距时不折幽灵行，尾片段一次性结算余量', () => {
+    // 页高 100；段推进量 96 = 8 行×10 + 块尾折叠外边距 16
+    const result = paginate(
+      [
+        { id: 'head', mainSize: 25 },
+        { id: 'para', mainSize: 96, lineSize: 10, lineCount: 8, splittable: true },
+        { id: 'tail', mainSize: 20 },
+      ],
+      { pageMainSize: 100 },
+    );
+    // 第 1 页：head 25 → 余 75 → availLines=7，leftover=1<minLast → 只放 6 行（无 lineCount 会折出 10 行幽灵行）
+    expect(result.pages[0]?.items.map((i) => [i.block.id, i.fromLine, i.lineCount, i.mainSize])).toEqual([
+      ['head', 0, 0, 25],
+      ['para', 0, 6, 60],
+    ]);
+    // 第 2 页：para 尾片段 2 行 + 块尾间距 16 一并结算 = 36
+    expect(result.pages[1]?.items.map((i) => [i.block.id, i.fromLine, i.lineCount, i.mainSize])).toEqual([
+      ['para', 6, 2, 36],
+      ['tail', 0, 0, 20],
+    ]);
+  });
+
+  it('lineCount 消除整块尾部的幽灵行页数', () => {
+    // 推进量 116 = 10 行×10 + 间距 16；无 lineCount 时 round(116/10)=12 → 多占一页
+    const result = paginate(
+      [
+        { id: 'para', mainSize: 116, lineSize: 10, lineCount: 10, splittable: true },
+        { id: 'next', mainSize: 20 },
+      ],
+      { pageMainSize: 100 },
+    );
+    // para 整块未拆（lineCount=10 恰好放下）→ n=0；next 第 2 页
+    expect(result.totalPages).toBe(2);
+    expect(result.pages[0]?.items[0]?.lineCount).toBe(0);
+    expect(result.pages[1]?.items[0]?.block.id).toBe('next');
+  });
 });

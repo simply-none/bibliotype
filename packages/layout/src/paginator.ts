@@ -33,6 +33,13 @@ export interface MeasurableBlock {
   /** 单行沿主轴的尺寸（px）；与 splittable 配合启用行级拆分 */
   lineSize?: number;
   /**
+   * 真实行数（DOM 实测行边界时给定）
+   *
+   * 缺省时 paginate 按 round(mainSize/lineSize) 折算；mainSize 含块尾间距时
+   * 该折算会多出幽灵行，故实测链路应显式给定行数。
+   */
+  lineCount?: number;
+  /**
    * 是否允许按行跨页拆分（仅正文段落为 true）
    *
    * 标题 / 封面 / 注文 / 牌记等须整块呈现，恒为 falsy。
@@ -165,7 +172,7 @@ export function paginate(
   /** 可拆块：按行跨页续排，含孤寡行约束 */
   function placeSplittable(block: MeasurableBlock): void {
     const lineSize = block.lineSize as number;
-    const totalLines = Math.max(1, Math.round(block.mainSize / lineSize));
+    const totalLines = block.lineCount ?? Math.max(1, Math.round(block.mainSize / lineSize));
     let from = 0;
     let remaining = totalLines;
 
@@ -209,7 +216,11 @@ export function paginate(
         }
       }
 
-      const size = take * lineSize;
+      // 块尾片段一次性结算 mainSize 余量（含块尾折叠外边距），行高不含间距时不丢账
+      const size =
+        from + take >= totalLines
+          ? Math.max(take * lineSize, block.mainSize - from * lineSize)
+          : take * lineSize;
       pushFragment(block, from, take, size);
       from += take;
       remaining -= take;

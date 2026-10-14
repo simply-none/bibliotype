@@ -152,6 +152,37 @@ describe('extractBlocks', () => {
     expect(blocks.find((b) => b.id === 'p-3')?.breakBefore).toBe(true);
   });
 
+  it('lineOffsets 命中时 splittable 段落行高改用实测均高并显式给定行数', () => {
+    const blocks = extractBlocks(sampleDoc(), {
+      blockSizes: new Map([['p-1', 608], ['p-2', 40]]), // p-1 实渲 20 行×30.4；p-2 单行
+      lineOffsets: new Map([['p-1', Array.from({ length: 20 }, (_, i) => i * 26)]]),
+    });
+    // 多行命中：均高 608/20=30.4（而非估算 30，消除 paginate 幽灵行页底空白）
+    const p1 = blocks.find((b) => b.id === 'p-1');
+    expect(p1?.lineSize).toBeCloseTo(30.4);
+    // 行数显式给定：mainSize 含块尾间距时不再被 round 折算出幽灵行
+    expect(p1?.lineCount).toBe(20);
+    // 未命中 lineOffsets：回退 context 行高，不标行数
+    const p2 = blocks.find((b) => b.id === 'p-2');
+    expect(p2?.lineSize).toBe(30);
+    expect(p2?.lineCount).toBeUndefined();
+    // 不可拆块不标 lineSize
+    expect(blocks.find((b) => b.id === 'h-1')?.lineSize).toBeUndefined();
+  });
+
+  it('lineSizes 命中时行高优先用真实行高（自身高÷行数，不含块间距）', () => {
+    const blocks = extractBlocks(sampleDoc(), {
+      // 推进量 624 = 20 行×30.4 + 块尾折叠外边距 16；旧口径会摊成 31.2/行
+      blockSizes: new Map([['p-1', 624]]),
+      lineOffsets: new Map([['p-1', Array.from({ length: 20 }, (_, i) => i * 26)]]),
+      lineSizes: new Map([['p-1', 608 / 20]]),
+    });
+    const p1 = blocks.find((b) => b.id === 'p-1');
+    expect(p1?.lineSize).toBeCloseTo(30.4);
+    expect(p1?.lineCount).toBe(20);
+    expect(p1?.mainSize).toBe(624);
+  });
+
   it('含行内载体（空元素/纯文本载体）的块不拆开', () => {
     const doc = createEmptyDocument({ title: '行内载体' });
     doc.root.children = [

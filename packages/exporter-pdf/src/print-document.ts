@@ -57,6 +57,12 @@ export interface PrintDocumentOptions {
    * 浏览器侧若已实测可传入，使跨页段落切片与屏幕逐页一致。
    */
   lineOffsets?: ReadonlyMap<string, number[]>;
+  /**
+   * 块 id → 真实行高（px，DOM 实测，不含块间距，仅 paged）
+   *
+   * 与 lineOffsets / blockSizes 同源产出；使分页行高口径与屏幕逐页一致。
+   */
+  lineSizes?: ReadonlyMap<string, number>;
   /** 节点类型 → 标签覆盖（透传序列化器，用于插件节点定制） */
   tagOverrides?: Readonly<Record<string, string>>;
 }
@@ -117,6 +123,7 @@ function renderPagedBody(
     blockSizes: options.blockSizes,
     pageMainSize: options.pageMainSize ?? defaultPageMainSize(layout, tokens),
     lineOffsets: options.lineOffsets,
+    lineSizes: options.lineSizes,
   });
   reader.loadDocument(book);
   const pages = reader.pagination;

@@ -191,11 +191,12 @@ const pageMainSize = computed(() =>
  */
 const blockSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
 const blockLineOffsets = shallowRef<ReadonlyMap<string, number[]>>(new Map());
+const blockLineSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
 
-/** 重测当前 Reader 文档的块尺寸 / 行边界并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
+/** 重测当前 Reader 文档的块尺寸 / 行边界 / 真实行高并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
 function remeasure(): void {
   const doc = reader.value.document ?? lunyuDocument;
-  const { sizes, lineOffsets } = measurePagination({
+  const { sizes, lineOffsets, lineSizes } = measurePagination({
     doc,
     options: effectiveLayout.value,
     tokens: tokens.value,
@@ -204,10 +205,12 @@ function remeasure(): void {
   });
   blockSizes.value = sizes;
   blockLineOffsets.value = lineOffsets;
+  blockLineSizes.value = lineSizes;
   reader.value.repaginate({
     layout: effectiveLayout.value,
     blockSizes: sizes,
     lineOffsets,
+    lineSizes,
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
   });
@@ -231,6 +234,7 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
     pageMainSize: pageMainSize.value,
     blockSizes: blockSizes.value,
     lineOffsets: blockLineOffsets.value,
+    lineSizes: blockLineSizes.value,
   });
   r.loadDocument(document);
   return r;
@@ -489,6 +493,7 @@ function onPrintPdf(): void {
     context: typographyMeasure(),
     blockSizes: blockSizes.value,
     lineOffsets: blockLineOffsets.value,
+    lineSizes: blockLineSizes.value,
   });
 }
 

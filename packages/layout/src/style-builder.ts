@@ -106,6 +106,20 @@ export function buildPageStyle(
 }
 
 /**
+ * 解析版框令牌（page-border，如 '3px double #b09a76'）的边框宽度（px）
+ *
+ * 书页盒为 box-sizing: border-box，边框会侵占内容区；量尺 / 分页主轴
+ * 尺寸需同步扣除，否则量尺比实际版心宽、行高行数系统性偏小。
+ * 非 px 单位（em 等）或缺省 → 0（不扣）。
+ */
+export function resolvePageBorderWidth(
+  tokens: Readonly<Record<string, string | undefined>>,
+): number {
+  const match = /^\s*(\d+(?:\.\d+)?)px/.exec(tokens['page-border'] ?? '');
+  return match === null ? 0 : Number(match[1]);
+}
+
+/**
  * 解析每页可用主轴尺寸（px）
  *
  * 横排取内容区高、直排取内容区宽；页边距按 page-margin 令牌
@@ -120,7 +134,10 @@ export function resolvePageMainSize(
   const marginY = numbers[0] ?? 0;
   const marginX = numbers[1] ?? marginY;
   const box = resolveContentBox(options.pageSize, marginY, marginX);
-  return isVerticalMode(options.writingMode) ? box.width : box.height;
+  // 版框边框侵占 border-box 内容区（两侧各一份）
+  const border = resolvePageBorderWidth(tokens) * 2;
+  const main = isVerticalMode(options.writingMode) ? box.width : box.height;
+  return Math.max(1, main - border);
 }
 
 /**

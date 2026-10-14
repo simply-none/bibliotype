@@ -53,6 +53,8 @@ export interface RepaginateOptions {
    * 供 getPageFragments 把跨页块按真实行切成片段；缺省回退 charsPerLine 估算。
    */
   lineOffsets?: ReadonlyMap<string, number[]> | null;
+  /** 块 id → 真实行高（px，DOM 实测，不含块间距）；与 lineOffsets 同源产出 */
+  lineSizes?: ReadonlyMap<string, number> | null;
 }
 
 /** 搜索选项 */
@@ -111,6 +113,8 @@ export interface ReaderOptions {
    * 块 → 每行起始字符偏移表（DOM 实测）；供 getPageFragments 按真实行切片
    */
   lineOffsets?: ReadonlyMap<string, number[]>;
+  /** 块 id → 真实行高（px，DOM 实测，不含块间距）；与 lineOffsets 同源产出 */
+  lineSizes?: ReadonlyMap<string, number>;
   /** 外部事件总线（与 core 实例共享）；默认自建 */
   events?: EventBus<BibliotypeEventMap>;
 }
@@ -136,6 +140,8 @@ export class Reader {
   private blockSizes: ReadonlyMap<string, number> | undefined;
   /** 块 → 每行起始字符偏移表（DOM 实测）；供 getPageFragments 按真实行切片 */
   private lineOffsets: ReadonlyMap<string, number[]> | undefined;
+  /** 块 id → 真实行高（px，DOM 实测，不含块间距） */
+  private lineSizes: ReadonlyMap<string, number> | undefined;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
@@ -153,6 +159,7 @@ export class Reader {
     this.estimator = options.estimator ?? defaultEstimator;
     this.blockSizes = options.blockSizes;
     this.lineOffsets = options.lineOffsets;
+    this.lineSizes = options.lineSizes;
     this.events = options.events ?? createEventBus();
   }
 
@@ -199,11 +206,16 @@ export class Reader {
     if (overrides.lineOffsets !== undefined) {
       this.lineOffsets = overrides.lineOffsets ?? undefined;
     }
+    if (overrides.lineSizes !== undefined) {
+      this.lineSizes = overrides.lineSizes ?? undefined;
+    }
 
     this.blocks = extractBlocks(this.doc, {
       estimator: this.estimator,
       context: this.measure,
       blockSizes: this.blockSizes,
+      lineOffsets: this.lineOffsets,
+      lineSizes: this.lineSizes,
     });
     const result = paginate(this.blocks, { pageMainSize: this.pageMainSize });
     this.pages = result.pages;

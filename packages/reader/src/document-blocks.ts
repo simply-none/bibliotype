@@ -107,6 +107,25 @@ export interface ExtractBlocksOptions {
    * 消除按字符数估算导致的预览裁切 / 空白。分块结构与 flags 不受影响。
    */
   blockSizes?: ReadonlyMap<string, number>;
+  /**
+   * 块 → 每行起始字符偏移表（DOM 实测，与 blockSizes 同源产出）
+   *
+   * 可拆段落命中实测尺寸且有实测多行时，行数由此显式给定（lineCount），行高
+   * 优先取 lineSizes（未命中回退「实测推进量 ÷ 真实行数」均高）：估算行高
+   * （如 16px×1.9 取整 30 ≠ 实渲 30.4）会使 paginate round(mainSize/lineSize)
+   * 多出幽灵行、页底空白逐段累积，改用实测口径后行数精确。未命中回退
+   * context.lineSize。
+   */
+  lineOffsets?: ReadonlyMap<string, number[]>;
+  /**
+   * 块 id → 真实行高（px，DOM 实测：块自身高度 ÷ 真实行数，不含块间距）
+   *
+   * blockSizes 是到下一块的「推进量」（含折叠外边距），若用它除以行数会
+   * 把块间距摊进行高，使 paginate 的 floor(avail/lineSize) 每页少放 1~2 行、
+   * 页底留白；命中本映射时行高改用真实值，行数另由 lineOffsets 显式给定
+   * （lineCount），块尾余量（间距）由 paginate 在末片段一次性结算。
+   */
+  lineSizes?: ReadonlyMap<string, number>;
 }
 
 /** 当前处理中的叶块标记 */
@@ -156,6 +175,8 @@ export function extractBlocks(
 ): MeasurableBlock[] {
   const estimator = options.estimator ?? defaultEstimator;
   const blockSizes = options.blockSizes;
+  const lineOffsets = options.lineOffsets;
+  const lineSizes = options.lineSizes;
   const context: BlockMeasureContext = {
     ...DEFAULT_MEASURE_CONTEXT,
     ...options.context,
@@ -170,13 +191,27 @@ export function extractBlocks(
       const id = node.id ?? path;
       // 实测尺寸优先（命中且为正），否则回退估算
       const measured = blockSizes?.get(id);
+      const hasMeasured = measured !== undefined && measured > 0;
       // 正文段落可按行跨页续排（纸书逻辑）：标 splittable + 行高，供 paginate 行级拆分；
       // 标题 / 注文 / 牌记 / 封面等版式块恒整块呈现，不标。
       const splittable = node.type === NODE_TYPES.PARAGRAPH;
+      // 可拆段：行高用真实实测值（不含块间距），行数用实测行边界显式给定，
+      // 消除「推进量÷行数」把间距摊入行高导致的每页少放 1~2 行页底空白
+      const lines = lineOffsets?.get(id)?.length ?? 0;
+      let lineSize = context.lineSize;
+      if (splittable && hasMeasured && lines > 1) {
+        lineSize = lineSizes?.get(id) ?? (measured as number) / lines;
+      }
       blocks.push({
         id,
-        mainSize: measured !== undefined && measured > 0 ? measured : estimator(node, context),
-        ...(splittable ? { splittable: true, lineSize: context.lineSize } : {}),
+        mainSize: hasMeasured ? (measured as number) : estimator(node, context),
+        ...(splittable
+          ? {
+              splittable: true,
+              lineSize,
+              ...(hasMeasured && lines > 1 ? { lineCount: lines } : {}),
+            }
+          : {}),
         ...(flags.breakBefore === true ? { breakBefore: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
       });

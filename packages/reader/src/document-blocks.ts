@@ -134,6 +134,17 @@ export function isLeafBlock(node: BookNode): boolean {
 }
 
 /**
+ * 按「节点类型名」判定是否为版式文本容器（恒整体成块）。
+ *
+ * 供渲染层（ProseMirror DOM 遍历）复用，使「块 → DOM 元素」的叶块口径与
+ * extractBlocks 严格一致：注文 / 牌记 / 题记等容器在 IR 侧只出一个块、不下钻，
+ * DOM 侧也必须把它当叶块整体取用（否则其内部段落被拆成多块，序列错位）。
+ */
+export function isLeafBlockTypeName(typeName: string): boolean {
+  return TEXT_CONTAINER_TYPES.has(typeName);
+}
+
+/**
  * 把文档树展开为块序列
  *
  * 块 id 优先取节点 id；无 id 时按树路径生成（如 "/0/1/2"），
@@ -159,9 +170,13 @@ export function extractBlocks(
       const id = node.id ?? path;
       // 实测尺寸优先（命中且为正），否则回退估算
       const measured = blockSizes?.get(id);
+      // 正文段落可按行跨页续排（纸书逻辑）：标 splittable + 行高，供 paginate 行级拆分；
+      // 标题 / 注文 / 牌记 / 封面等版式块恒整块呈现，不标。
+      const splittable = node.type === NODE_TYPES.PARAGRAPH;
       blocks.push({
         id,
         mainSize: measured !== undefined && measured > 0 ? measured : estimator(node, context),
+        ...(splittable ? { splittable: true, lineSize: context.lineSize } : {}),
         ...(flags.breakBefore === true ? { breakBefore: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
       });

@@ -1,0 +1,89 @@
+/**
+ * 编辑态分页外壳（PagedCanvas）组件测试
+ *
+ * happy-dom 无布局：仅验证「渲染结构正确」——真实页槽渲染、片段格只读/可编辑
+ * 属性、页脚页码存在；交互式输入（beforeinput / caret 还原）依赖真实选区与布局，
+ * 由模型级单测（paged-bridge / paged-input）+ 浏览器手动验收覆盖。
+ */
+import { describe, expect, it } from 'vitest';
+import { mount } from '@vue/test-utils';
+import { DEFAULT_THEME, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
+import { DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
+import { BookEditor, buildEditorSchema } from '@bibliotype/editor';
+import { extractBlocks } from '@bibliotype/reader';
+import { disposeMeasureSheet } from '../pagination-measure.js';
+import { buildPagedLayout, collectPmLeafPositions } from '../paged-editor/use-paged-layout.js';
+import { buildPagedIndex } from '../paged-editor/selection-bridge.js';
+import PagedCanvas from '../paged-editor/PagedCanvas.vue';
+
+function longDoc(): BookDocument {
+  const doc = createEmptyDocument({ title: '测试' });
+  doc.root.children = [
+    {
+      type: NODE_TYPES.CHAPTER,
+      id: 'chap-1',
+      children: [{ type: NODE_TYPES.PARAGRAPH, id: 'p-0', children: [{ type: 'text', text: '仁义礼智信忠孝节悌'.repeat(400) }] }],
+    },
+  ];
+  return doc;
+}
+
+describe('PagedCanvas', () => {
+  it('渲染真实页槽（只读片段 + 页脚页码）', () => {
+    const { pages } = buildPagedLayout({ doc: longDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    expect(pages.length).toBeGreaterThan(0);
+
+    const wrapper = mount(PagedCanvas, {
+      props: { pages, options: DEFAULT_LAYOUT_OPTIONS, tokens: DEFAULT_THEME },
+    });
+
+    const frames = wrapper.findAll('.bt-paged-page');
+    expect(frames.length).toBeGreaterThanOrEqual(1);
+    // 只读：片段格 contenteditable=false
+    const frag = wrapper.find('.bt-paged-frag');
+    expect(frag.exists()).toBe(true);
+    expect(frag.attributes('contenteditable')).toBe('false');
+    // 页脚页码存在
+    expect(wrapper.find('.bt-paged-page__no').exists()).toBe(true);
+
+    wrapper.unmount();
+    disposeMeasureSheet();
+  });
+
+  it('可编辑态：片段格 contenteditable=true 且携带块定位数据', () => {
+    const doc = createEmptyDocument({ title: '测试' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '子曰学而时习之' }] },
+    ];
+    const editor = new BookEditor({ schema: buildEditorSchema(), document: doc });
+    const { pages } = buildPagedLayout({ doc: editor.getDocument(), options: DEFAULT_LAYOUT_OPTIONS });
+    const index = buildPagedIndex(
+      extractBlocks(editor.getDocument(), {}),
+      collectPmLeafPositions(editor.editorState.doc),
+      new Map(),
+    );
+    const wrapper = mount(PagedCanvas, {
+      props: {
+        pages,
+        options: DEFAULT_LAYOUT_OPTIONS,
+        tokens: DEFAULT_THEME,
+        editable: true,
+        editor,
+        index,
+      },
+    });
+    const frag = wrapper.find('.bt-paged-frag');
+    expect(frag.exists()).toBe(true);
+    expect(frag.attributes('contenteditable')).toBe('true');
+    expect(frag.attributes('data-block-id')).toBe('p-1');
+    wrapper.unmount();
+  });
+
+  it('空页序列不渲染页槽', () => {
+    const wrapper = mount(PagedCanvas, {
+      props: { pages: [], options: DEFAULT_LAYOUT_OPTIONS, tokens: DEFAULT_THEME },
+    });
+    expect(wrapper.findAll('.bt-paged-page').length).toBe(0);
+    wrapper.unmount();
+  });
+});

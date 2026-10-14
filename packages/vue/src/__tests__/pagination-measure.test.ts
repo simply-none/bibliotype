@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
-import { measureBlockSizes, disposeMeasureSheet } from '../pagination-measure.js';
+import { measureBlockSizes, measurePagination, disposeMeasureSheet } from '../pagination-measure.js';
 
 function sampleDoc(): BookDocument {
   const doc = createEmptyDocument({ title: '论语' });
@@ -55,6 +55,44 @@ describe('measureBlockSizes', () => {
     // 无 DOM 布局时全部推进量为 0 → 空映射，不含任何 p-* 键
     const sizes = measureBlockSizes({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
     expect(sizes.has('p-1')).toBe(false);
+    disposeMeasureSheet();
+  });
+});
+
+describe('measurePagination', () => {
+  it('单栏横排：返回 sizes / lineOffsets 两个映射，工作表可回收', () => {
+    const result = measurePagination({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    expect(result.sizes).toBeInstanceOf(Map);
+    expect(result.lineOffsets).toBeInstanceOf(Map);
+    expect(document.getElementById('bt-measure-sheet')).not.toBeNull();
+    disposeMeasureSheet();
+    expect(document.getElementById('bt-measure-sheet')).toBeNull();
+  });
+
+  it('happy-dom 无真实行盒：不产出多行 lineOffsets（仅真实浏览器逐行实测）', () => {
+    const { lineOffsets } = measurePagination({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    // getClientRects 在 happy-dom 下为空 → measureLineOffsets 返回 [0]（单行）→ 不入 map
+    expect(lineOffsets.size).toBe(0);
+    disposeMeasureSheet();
+  });
+
+  it('直排 / 多栏回退空映射（sizes 与 lineOffsets 皆空）', () => {
+    const vertical = measurePagination({ doc: sampleDoc(), options: CLASSICAL_LAYOUT_OPTIONS });
+    expect(vertical.sizes.size).toBe(0);
+    expect(vertical.lineOffsets.size).toBe(0);
+
+    const multiColumn = measurePagination({
+      doc: sampleDoc(),
+      options: { ...DEFAULT_LAYOUT_OPTIONS, columns: 2 },
+    });
+    expect(multiColumn.sizes.size).toBe(0);
+    expect(multiColumn.lineOffsets.size).toBe(0);
+  });
+
+  it('sizes 与 measureBlockSizes 同源（委托一致）', () => {
+    const pagination = measurePagination({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    const legacy = measureBlockSizes({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    expect(pagination.sizes.size).toBe(legacy.size);
     disposeMeasureSheet();
   });
 });

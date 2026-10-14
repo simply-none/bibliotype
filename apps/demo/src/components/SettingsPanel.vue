@@ -10,7 +10,7 @@
  * - 版面与页面（LayoutOptions）：书写方向 / 页面尺寸 / 分栏 / 页码样式 / 直排数字合并；
  * - 文字与版式（主题令牌）：字号 / 行高 / 注文与标题字号 / 字距 / 缩进 / 页边距 / 栏间距 / 字体族；
  * - 颜色：正文 / 背景 / 注文 / 强调 + 夜间预设；
- * - 编辑画布：分页参考线开关。
+ * - 编辑画布：书页分页开关。
  * 「恢复主题预设」清空全部补丁回到当前主题基准值。
  */
 import { computed } from 'vue';
@@ -37,7 +37,7 @@ const props = defineProps<{
   layout: LayoutOptions;
   /** 当前生效令牌表（含夜间后的最终值，控件读其展示） */
   tokens: Readonly<Record<string, string | undefined>>;
-  /** 分页参考线是否显示（编辑画布） */
+  /** 书页分页是否开启（编辑画布，paged 引擎；关闭即连续画布） */
   pagination: boolean;
   /** 夜间预设是否开启 */
   night: boolean;
@@ -50,7 +50,7 @@ const emit = defineEmits<{
   'update:layout': [patch: Partial<LayoutOptions>];
   /** 单令牌写入 */
   'update:token': [key: string, value: string];
-  /** 分页参考线开关 */
+  /** 书页分页开关 */
   'update:pagination': [value: boolean];
   /** 夜间预设开关 */
   'update:night': [value: boolean];
@@ -383,7 +383,7 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
     <div class="panel__field">
       <label class="panel__switch">
         <input type="checkbox" :checked="pagination" @change="emit('update:pagination', ($event.target as HTMLInputElement).checked)" />
-        分页参考线
+        书页分页
       </label>
     </div>
 

@@ -19,6 +19,7 @@ export {
   collectNodeText,
   extractBlocks,
   isLeafBlock,
+  isLeafBlockTypeName,
 } from './document-blocks.js';
 export type {
   BlockMeasureContext,

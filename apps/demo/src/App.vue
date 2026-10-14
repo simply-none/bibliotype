@@ -42,7 +42,7 @@ import {
   Reader,
   type BlockMeasureContext,
 } from '@bibliotype/reader';
-import { BtBookView, BtEditor, BtPager, BtToc, measureBlockSizes, disposeMeasureSheet } from '@bibliotype/vue';
+import { BtBookView, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet } from '@bibliotype/vue';
 import { exportEpub } from '@bibliotype/exporter-epub';
 import { printBook } from '@bibliotype/exporter-pdf';
 import BookInfoDialog from './components/BookInfoDialog.vue';
@@ -183,17 +183,19 @@ const pageMainSize = computed(() =>
 );
 
 /**
- * DOM 实测块尺寸（块 id → 主轴尺寸 px）
+ * DOM 实测块尺寸（块 id → 主轴尺寸 px）与每行起始字符偏移（块 id → number[]）
  *
- * 由量尺工作表对当前文档逐块实测产出，同时喂给 Reader（预览逐页）与
- * BtEditor（分页参考线），使两者分页归属一致；直排 / 多栏回退估算（空映射）。
+ * 由量尺工作表对当前文档逐块实测产出，喂给 Reader（预览逐页）：
+ * 尺寸定分页归属，行偏移定跨页块的真实行切片；直排 / 多栏回退估算（空映射）。
+ * BtEditor（paged 内核）自带同源量尺，不再消费此映射。
  */
 const blockSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
+const blockLineOffsets = shallowRef<ReadonlyMap<string, number[]>>(new Map());
 
-/** 重测当前 Reader 文档的块尺寸并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
+/** 重测当前 Reader 文档的块尺寸 / 行边界并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
 function remeasure(): void {
   const doc = reader.value.document ?? lunyuDocument;
-  const sizes = measureBlockSizes({
+  const { sizes, lineOffsets } = measurePagination({
     doc,
     options: effectiveLayout.value,
     tokens: tokens.value,
@@ -201,9 +203,11 @@ function remeasure(): void {
     measure: typographyMeasure(),
   });
   blockSizes.value = sizes;
+  blockLineOffsets.value = lineOffsets;
   reader.value.repaginate({
     layout: effectiveLayout.value,
     blockSizes: sizes,
+    lineOffsets,
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
   });
@@ -226,6 +230,7 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
     blockSizes: blockSizes.value,
+    lineOffsets: blockLineOffsets.value,
   });
   r.loadDocument(document);
   return r;
@@ -472,7 +477,7 @@ function onExportEpub(): void {
   download('论语.epub', new Blob([new Uint8Array(bytes)], { type: 'application/epub+zip' }));
 }
 
-/** 打印 / 另存 PDF（paged 预分页，与屏幕分页一致；含已保存的编辑内容） */
+/** 打印 / 另存 PDF（paged 预分页，复用与屏幕同一实测尺寸 / 行边界 / 页主轴，逐页一致；含已保存的编辑内容） */
 function onPrintPdf(): void {
   const { fontToken } = theme.value;
   printBook(reader.value.document ?? lunyuDocument, {
@@ -480,6 +485,10 @@ function onPrintPdf(): void {
     tokens: tokens.value,
     fontToken,
     mode: 'paged',
+    pageMainSize: pageMainSize.value,
+    context: typographyMeasure(),
+    blockSizes: blockSizes.value,
+    lineOffsets: blockLineOffsets.value,
   });
 }
 
@@ -818,7 +827,6 @@ onBeforeUnmount(() => {
             :pagination="showGuides"
             :page-main-size="pageMainSize"
             :measure="measureContext"
-            :block-sizes="blockSizes"
             :editable="!editorReadonly"
             :scale="editorScale"
           >

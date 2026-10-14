@@ -19,6 +19,7 @@ import {
   mergeLayoutOptions,
   paginate,
   resolveContentBox,
+  sliceNodeByCharRange,
   type LayoutOptions,
   type MeasurableBlock,
   type PaginatedPage,
@@ -46,6 +47,12 @@ export interface RepaginateOptions {
   measure?: Partial<BlockMeasureContext>;
   /** 实测块尺寸映射；传 null 清空回退估算，传 undefined 保持当前映射 */
   blockSizes?: ReadonlyMap<string, number> | null;
+  /**
+   * 块 → 每行起始字符偏移表（DOM 实测）
+   *
+   * 供 getPageFragments 把跨页块按真实行切成片段；缺省回退 charsPerLine 估算。
+   */
+  lineOffsets?: ReadonlyMap<string, number[]> | null;
 }
 
 /** 搜索选项 */
@@ -100,6 +107,10 @@ export interface ReaderOptions {
    * 由渲染层 DOM 实测产出；命中且为正的块采用实测值，否则回退 estimator 估算。
    */
   blockSizes?: ReadonlyMap<string, number>;
+  /**
+   * 块 → 每行起始字符偏移表（DOM 实测）；供 getPageFragments 按真实行切片
+   */
+  lineOffsets?: ReadonlyMap<string, number[]>;
   /** 外部事件总线（与 core 实例共享）；默认自建 */
   events?: EventBus<BibliotypeEventMap>;
 }
@@ -123,6 +134,8 @@ export class Reader {
   private measure: BlockMeasureContext;
   /** 实测块尺寸映射（DOM 实测）；缺省回退估算 */
   private blockSizes: ReadonlyMap<string, number> | undefined;
+  /** 块 → 每行起始字符偏移表（DOM 实测）；供 getPageFragments 按真实行切片 */
+  private lineOffsets: ReadonlyMap<string, number[]> | undefined;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
@@ -139,6 +152,7 @@ export class Reader {
     this.measure = { ...DEFAULT_MEASURE_CONTEXT, ...options.measure };
     this.estimator = options.estimator ?? defaultEstimator;
     this.blockSizes = options.blockSizes;
+    this.lineOffsets = options.lineOffsets;
     this.events = options.events ?? createEventBus();
   }
 
@@ -181,6 +195,9 @@ export class Reader {
     }
     if (overrides.blockSizes !== undefined) {
       this.blockSizes = overrides.blockSizes ?? undefined;
+    }
+    if (overrides.lineOffsets !== undefined) {
+      this.lineOffsets = overrides.lineOffsets ?? undefined;
     }
 
     this.blocks = extractBlocks(this.doc, {
@@ -268,6 +285,49 @@ export class Reader {
       if (node !== undefined) nodes.push(node);
     }
     return nodes;
+  }
+
+  /**
+   * 取某页的「行片段」节点（纸书跨页续排的渲染契约）
+   *
+   * 与 getPageNodes 的区别：跨页拆分的块只输出本页应显示的那部分文本
+   * （按 page.items 的 fromLine / lineCount 切片），未拆块原样返回。
+   * 预览 / 导出按此渲染即可消除整段重复与裁切。行→字符偏移优先用
+   * DOM 实测 lineOffsets，缺省回退 charsPerLine 估算。
+   */
+  getPageFragments(pageIndex: number): readonly BookNode[] {
+    if (this.doc === undefined) return [];
+    const page = this.pages[pageIndex];
+    if (page === undefined) return [];
+    const nodes: BookNode[] = [];
+    for (const item of page.items) {
+      const node = findNodeById(this.doc.root, item.block.id);
+      if (node === undefined) continue;
+      // lineCount === 0：未拆分（整块），原样返回
+      if (item.lineCount === 0) {
+        nodes.push(node);
+        continue;
+      }
+      const { from, to } = this.charRangeForLines(item.block.id, item.fromLine, item.lineCount);
+      nodes.push(sliceNodeByCharRange(node, from, to));
+    }
+    return nodes;
+  }
+
+  /** 行区间 [fromLine, fromLine+lineCount) → 字符半开区间（实测优先，回退估算） */
+  private charRangeForLines(
+    id: string,
+    fromLine: number,
+    lineCount: number,
+  ): { from: number; to: number } {
+    const offsets = this.lineOffsets?.get(id);
+    if (offsets !== undefined && offsets.length > 0) {
+      const from = offsets[fromLine] ?? offsets[offsets.length - 1] ?? 0;
+      const to = offsets[fromLine + lineCount] ?? Number.MAX_SAFE_INTEGER;
+      return { from, to };
+    }
+    const cpl = Math.max(1, this.measure.charsPerLine);
+    return { from: fromLine * cpl, to: (fromLine + lineCount) * cpl };
   }
 
   /** 当前页的展示页码（按配置的页码样式） */

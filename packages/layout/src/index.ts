@@ -42,6 +42,9 @@ export {
 } from './style-builder.js';
 export type { StyleDeclaration, BuildRootStyleInput } from './style-builder.js';
 
+/* ---------- 行级切片（纸书跨页片段渲染契约） ---------- */
+export { sliceNodeByCharRange } from './node-slice.js';
+
 /* ---------- 分页 ---------- */
 export { paginate } from './paginator.js';
 export type {

@@ -38,13 +38,24 @@ const props = withDefaults(
   { fit: 'contain', mode: 'page' },
 );
 
-const { layout, pagination, pageNodes, pageNumberText, currentPage } = useReaderBinding(props.reader);
+const { layout, pagination, pageNumberText, currentPage } = useReaderBinding(props.reader);
 const tokens = computed<Readonly<Record<string, string | undefined>>>(
   () => props.tokens ?? DEFAULT_THEME,
 );
 const pageSize = computed(() => layout.value.pageSize);
 
 /* ---------- 页内容与样式 ---------- */
+
+/**
+ * 当前页「行片段」节点（纸书跨页续排）。
+ *
+ * 与旧 getPageNodes 的区别：跨页长段只取本页应显示的那部分（按真实行切片），
+ * 未拆块原样返回。依赖 pagination 使重排 / 换布局后重算。
+ */
+const pageNodes = computed<readonly BookNode[]>(() => {
+  void pagination.value;
+  return props.reader.getPageFragments(currentPage.value);
+});
 
 /** 当前页 HTML 片段（文本叶子不输出） */
 const pageHtml = computed(() =>
@@ -246,7 +257,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
   const step = stride.value;
   const list: RenderedPage[] = [];
   for (let i = start; i <= end; i += 1) {
-    const nodes = props.reader.getPageNodes(i);
+    const nodes = props.reader.getPageFragments(i);
     const blockNodes = nodes.filter((node) => !isTextNode(node));
     const firstBlock = blockNodes[0];
     list.push({

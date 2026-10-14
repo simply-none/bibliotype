@@ -36,6 +36,11 @@ export interface MeasureBlockSizesInput {
   fontToken?: string;
   /** 估算上下文（仅用于 extractBlocks 结构与回退，不影响实测值） */
   measure?: Partial<BlockMeasureContext>;
+  /**
+   * 增量实测起点块 id：仅渲染 / 实测该块及之后（之前的块本轮不产出，
+   * 由调用方合并旧缓存）。未命中 / 首位 / 缺省则全量实测。
+   */
+  fromBlockId?: string;
 }
 
 const SHEET_ID = 'bt-measure-sheet';
@@ -117,17 +122,98 @@ function lastBlockSize(el: HTMLElement): number {
   return el.offsetHeight + marginTop + marginBottom;
 }
 
+/** 收集元素内文本节点及其起始全局字符偏移（与 collectNodeText / 切片口径一致） */
+function collectTextOffsets(el: HTMLElement): { node: Text; start: number; len: number }[] {
+  const list: { node: Text; start: number; len: number }[] = [];
+  if (typeof document === 'undefined' || typeof document.createTreeWalker !== 'function') {
+    return list;
+  }
+  let offset = 0;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let n = walker.nextNode() as Text | null;
+  while (n !== null) {
+    const len = n.data.length;
+    if (len > 0) list.push({ node: n, start: offset, len });
+    offset += len;
+    n = walker.nextNode() as Text | null;
+  }
+  return list;
+}
+
+/** 全局字符偏移定位到 (文本节点, 节点内序号) */
+function locateChar(
+  list: { node: Text; start: number; len: number }[],
+  g: number,
+): { node: Text; local: number } | null {
+  for (const entry of list) {
+    if (g >= entry.start && g < entry.start + entry.len) {
+      return { node: entry.node, local: g - entry.start };
+    }
+  }
+  const last = list[list.length - 1];
+  if (last !== undefined) return { node: last.node, local: Math.max(0, last.len - 1) };
+  return null;
+}
+
 /**
- * 实测各块沿主轴（横排为高）的真实推进尺寸。
+ * 实测单块每行起始字符偏移（横排）。
  *
- * @returns 「块 id → 尺寸(px)」映射；非单栏横排或无 DOM 时为空映射（回退估算）。
+ * 用整块 Range.getClientRects 归并出各行上缘，再对每个行边界二分查找首个
+ * 「字符矩形 top 落入该行」的全局偏移。happy-dom 无布局（rects 为空）→ 仅返回
+ * [0]（单行），由调用方回退估算。浏览器下产出的行边界 = 真实换行位置。
  */
-export function measureBlockSizes(input: MeasureBlockSizesInput): ReadonlyMap<string, number> {
-  if (typeof document === 'undefined') return new Map();
+function measureLineOffsets(el: HTMLElement): number[] {
+  const list = collectTextOffsets(el);
+  const total = list.reduce((sum, entry) => sum + entry.len, 0);
+  if (total === 0) return [0];
+
+  const full = document.createRange();
+  full.selectNodeContents(el);
+  const rects = Array.from(full.getClientRects()).filter((r) => r.height > 0 || r.width > 0);
+  if (rects.length <= 1) return [0];
+
+  // 归并各行上缘（容差 2px 合并同一行的多段矩形）
+  const tops: number[] = [];
+  for (const rect of rects) {
+    if (!tops.some((t) => Math.abs(t - rect.top) <= 2)) tops.push(rect.top);
+  }
+  tops.sort((a, b) => a - b);
+  if (tops.length <= 1) return [0];
+
+  const topAt = (g: number): number => {
+    const loc = locateChar(list, Math.min(g, total - 1));
+    if (loc === null) return 0;
+    const r = document.createRange();
+    const local = Math.min(loc.local, Math.max(0, loc.node.data.length - 1));
+    r.setStart(loc.node, local);
+    r.setEnd(loc.node, local + 1);
+    return r.getBoundingClientRect().top;
+  };
+
+  const offsets = [0];
+  for (let k = 1; k < tops.length; k += 1) {
+    const target = tops[k] as number;
+    let lo = offsets[offsets.length - 1] as number;
+    let hi = total - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (topAt(mid) >= target - 2) hi = mid;
+      else lo = mid + 1;
+    }
+    if (lo > (offsets[offsets.length - 1] as number)) offsets.push(lo);
+  }
+  return offsets;
+}
+
+/** 建表并渲染各块（复用），返回与 blocks 对齐的已渲染元素（含空位 null） */
+function renderMeasureSheet(
+  input: MeasureBlockSizesInput,
+): { blocks: ReturnType<typeof extractBlocks>; rendered: (HTMLElement | null)[] } | null {
+  if (typeof document === 'undefined') return null;
 
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
   // 仅单栏横排做 DOM 实测；其余回退估算（空映射 → extractBlocks 采用 estimator）
-  if (isVerticalMode(options.writingMode) || (options.columns ?? 1) > 1) return new Map();
+  if (isVerticalMode(options.writingMode) || (options.columns ?? 1) > 1) return null;
 
   const tokens = input.tokens ?? DEFAULT_THEME;
   const [marginY, marginX] = resolveMargins(tokens);
@@ -141,8 +227,14 @@ export function measureBlockSizes(input: MeasureBlockSizesInput): ReadonlyMap<st
     box.width,
   );
 
-  const blocks = extractBlocks(input.doc, { context: input.measure });
-  // 仅保留能还原为节点且 serializeNode 有产出的块，顺序与 blocks 一致
+  const allBlocks = extractBlocks(input.doc, { context: input.measure });
+  // 增量：只渲染 / 实测起点块及之后（起点未命中或在首位则全量）
+  let start = 0;
+  if (input.fromBlockId !== undefined) {
+    const i = allBlocks.findIndex((block) => block.id === input.fromBlockId);
+    if (i > 0) start = i;
+  }
+  const blocks = start > 0 ? allBlocks.slice(start) : allBlocks;
   sheet.innerHTML = blocks
     .map((block) => {
       const node = findNodeById(input.doc.root, block.id);
@@ -153,20 +245,67 @@ export function measureBlockSizes(input: MeasureBlockSizesInput): ReadonlyMap<st
     })
     .join('');
 
-  const rendered = Array.from(sheet.children) as HTMLElement[];
-  const sizes = new Map<string, number>();
-  for (let i = 0; i < rendered.length; i += 1) {
-    const el = rendered[i] as HTMLElement;
+  const nodes = Array.from(sheet.children) as HTMLElement[];
+  // 按 data-measure-id 对齐回 blocks（空块未渲染 → null 占位）
+  const byId = new Map<string, HTMLElement>();
+  for (const el of nodes) {
     const id = el.getAttribute('data-measure-id');
-    if (id === null) continue;
-    // 逐块推进量 = 到下一渲染块上缘的距离（含块间折叠外边距）；末块取自身尺寸 + 两端外边距
-    const next = rendered[i + 1] as HTMLElement | undefined;
-    const advance = next === undefined ? lastBlockSize(el) : next.offsetTop - el.offsetTop;
-    if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
+    if (id !== null) byId.set(id, el);
   }
+  const rendered = blocks.map((block) => byId.get(block.id) ?? null);
+  return { blocks, rendered };
+}
 
-  // 空块（无产出）不进入映射 → 对应块回退估算，不影响其余实测
-  return sizes;
+/** 分页量尺结果：块推进尺寸 + 每行起始字符偏移 */
+export interface MeasurePaginationResult {
+  /** 块 id → 主轴推进尺寸(px) */
+  sizes: ReadonlyMap<string, number>;
+  /** 块 id → 每行起始字符偏移[]（仅多行块产出） */
+  lineOffsets: ReadonlyMap<string, number[]>;
+}
+
+/**
+ * 一次建表，同时实测「块推进尺寸」与「每行起始字符偏移」。
+ *
+ * 前者供分页归属，后者供 getPageFragments 把跨页块按真实行切片，两者同源。
+ *
+ * @returns 非单栏横排或无 DOM 时为空映射（回退估算）。
+ */
+export function measurePagination(input: MeasureBlockSizesInput): MeasurePaginationResult {
+  const sheet = renderMeasureSheet(input);
+  if (sheet === null) return { sizes: new Map(), lineOffsets: new Map() };
+  const { blocks, rendered } = sheet;
+
+  const sizes = new Map<string, number>();
+  const lineOffsets = new Map<string, number[]>();
+  for (let i = 0; i < blocks.length; i += 1) {
+    const el = rendered[i];
+    if (el === null) continue;
+    const id = (blocks[i] as (typeof blocks)[number]).id;
+    // 逐块推进量 = 到下一渲染块上缘的距离（含块间折叠外边距）；末块取自身尺寸 + 两端外边距
+    let nextEl: HTMLElement | null = null;
+    for (let j = i + 1; j < rendered.length; j += 1) {
+      const cand = rendered[j];
+      if (cand !== null) {
+        nextEl = cand;
+        break;
+      }
+    }
+    const advance = nextEl === null ? lastBlockSize(el) : nextEl.offsetTop - el.offsetTop;
+    if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
+    const offsets = measureLineOffsets(el);
+    if (offsets.length > 1) lineOffsets.set(id, offsets);
+  }
+  return { sizes, lineOffsets };
+}
+
+/**
+ * 实测各块沿主轴（横排为高）的真实推进尺寸。
+ *
+ * @returns 「块 id → 尺寸(px)」映射；非单栏横排或无 DOM 时为空映射（回退估算）。
+ */
+export function measureBlockSizes(input: MeasureBlockSizesInput): ReadonlyMap<string, number> {
+  return measurePagination(input).sizes;
 }
 
 /** 移除量尺工作表与注入样式（使用方卸载时调用，避免节点残留） */

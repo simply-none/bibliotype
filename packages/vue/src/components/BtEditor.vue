@@ -4,33 +4,32 @@
  *
  * - props.editor：BookEditor 实例（由使用方创建 / 管理生命周期）；
  * - props.tokens / options / fontToken：与 BtBookView 同源的主题令牌 / 布局 / 字体，
- *   用于让编辑态套用与阅读 / 导出「同一套书册样式」（所见即所得）；
- * - props.pagination / pageMainSize / measure：编辑态分页参考线（B3）——
- *   以与预览同源的 extractBlocks + paginate（同 measure / 同 pageMainSize）算出
- *   「块 → 页」归属，再按各页首块在真实 DOM 中的位置叠加分页线与页码；
+ *   让编辑态套用与阅读 / 导出「同一套书册样式」（所见即所得）；
+ * - props.pagination（缺省 false）+ paginationMode（缺省 'paged'）：编辑态分页——
+ *   'paged' 走自定义可编辑分页引擎（usePagedLayout 内核 + PagedCanvas 真实书页盒，
+ *   行级跨页续排、缝隙处结构上无字、编辑经 selection-bridge 落 BookEditor 事务）；
+ *   内核不可用（直排 / 多栏 / 无量尺）或显式 'overlay' 时回退连续画布（不叠纸张）；
  * - props.editable（缺省 true）：为 false 时画布只读（拒绝输入 / 粘贴 / 拖拽）；
- * - props.scale（缺省 1）：编辑态缩放，整页（含分页参考线）一起 transform 缩放，
- *   滚动区按缩放后尺寸预留版面（与 BtBookView 的 fit 缩放同口径）；
+ * - props.scale（缺省 1）：连续画布缩放（paged 模式由 PagedCanvas 自适应宽度）；
  * - 默认插槽作用域透传 EditorBinding（供工具条访问命令与激活态）；
  * - 挂载时创建 EditorView，卸载时销毁；editor 实例替换时重建视图；
  * - 书册样式表以 `.bt-editor__canvas .ProseMirror` 为根容器注入（与 BtBookView
  *   的 buildBookCss 生成逻辑一致，节点 / 角色选择器限定在编辑画布内不外泄）。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, LAYOUT_TOKENS } from '@bibliotype/core';
 import {
   buildRootStyle,
   DEFAULT_LAYOUT_OPTIONS,
   isVerticalMode,
-  paginate,
-  resolvePageMainSize,
   type LayoutOptions,
-  type MeasurableBlock,
 } from '@bibliotype/layout';
 import { buildBookCss, declarationToCss } from '@bibliotype/layout/html';
-import { extractBlocks, type BlockMeasureContext } from '@bibliotype/reader';
+import type { BlockMeasureContext } from '@bibliotype/reader';
 import type { BookEditor } from '@bibliotype/editor';
 import { useEditorBinding } from '../use-editor.js';
+import PagedCanvas from '../paged-editor/PagedCanvas.vue';
+import { usePagedLayout } from '../paged-editor/use-paged-layout.js';
 import 'prosemirror-view/style/prosemirror.css';
 
 const props = defineProps<{
@@ -41,23 +40,29 @@ const props = defineProps<{
   options?: LayoutOptions;
   /** 正文字体族令牌键（古籍可传 FONT_TOKENS.CLASSICAL_BODY） */
   fontToken?: string;
-  /** 是否显示分页纸张效果（缺省 false：连续编辑，不叠加） */
+  /** 是否分页（缺省 false：连续编辑，不分页） */
   pagination?: boolean;
+  /**
+   * 分页渲染模式（缺省 'paged'：自定义可编辑分页引擎）
+   *
+   * 'overlay' 为历史值，现回退为连续画布（旧「叠层纸张 + 注入 margin」因逐页漂移
+   * 无法根治已废弃）；paged 内核不可用（直排 / 多栏 / 无 DOM 量尺）时同样回退连续画布。
+   */
+  paginationMode?: 'overlay' | 'paged';
   /** 每页可用主轴尺寸（px）；缺省按 options.pageSize 与 page-margin 令牌推导 */
   pageMainSize?: number;
-  /** 块度量估算上下文（横排下仅作缺 DOM 实测时的回退估算口径） */
+  /** 块度量估算上下文（横排下作缺 DOM 实测时的回退估算口径） */
   measure?: BlockMeasureContext;
   /** 视图是否可编辑（缺省 true；false 时画布只读，拒绝用户输入） */
   editable?: boolean;
   /**
    * 外部实测块尺寸映射（块 id → 主轴尺寸 px）
    *
-   * 仅用于直排 / 多栏等无法 DOM 实测场景的分页回退；
-   * 横排下断页尺寸一律以编辑 DOM 实时实测为准（不依赖此映射，
-   * 避免外部量尺旧数据与编辑器渲染不一致导致内容溢出纸张）。
+   * 已废弃：paged 内核自带同源 DOM 量尺（measurePagination），不再消费此映射；
+   * 保留签名仅为兼容既有调用方。
    */
   blockSizes?: ReadonlyMap<string, number>;
-  /** 编辑态缩放比例（缺省 1；限幅 0.2~2，整页含分页参考线一起缩放） */
+  /** 连续画布缩放比例（缺省 1；限幅 0.2~2；paged 模式忽略，按容器宽自适应） */
   scale?: number;
 }>();
 
@@ -73,7 +78,54 @@ const resolvedTokens = computed<Readonly<Record<string, string | undefined>>>(
 const resolvedOptions = computed<LayoutOptions>(() => props.options ?? DEFAULT_LAYOUT_OPTIONS);
 const vertical = computed(() => isVerticalMode(resolvedOptions.value.writingMode));
 
-/* ---------- 编辑态缩放（整页 + 分页参考线一起 transform 缩放，滚动区预留缩放后尺寸） ---------- */
+/* ---------- 自定义可编辑分页引擎（paged 模式） ---------- */
+
+const fontTokenRef = computed(() => props.fontToken);
+const measureRef = computed(() => props.measure);
+const pageMainSizeRef = computed(() => props.pageMainSize);
+
+const paged = usePagedLayout({
+  editor: props.editor,
+  options: resolvedOptions,
+  tokens: resolvedTokens,
+  fontToken: fontTokenRef,
+  measure: measureRef,
+  pageMainSize: pageMainSizeRef,
+  version: binding.version,
+});
+
+/**
+ * paged 生效：开启分页 + 未显式要求连续（paginationMode !== 'overlay'）+ 内核可用。
+ *
+ * 缺省（paginationMode 未给）即尝试 paged（翻默认）；直排 / 多栏等 usable=false 时
+ * 自动回退连续画布，不劣化。
+ */
+const pagedActive = computed(
+  () => props.pagination === true && props.paginationMode !== 'overlay' && paged.usable.value,
+);
+
+/**
+ * paged 编辑事件桥（方案 S）：PagedCanvas 已把输入经 selection-bridge 落成
+ * BookEditor 事务（editor.dispatch），此处补齐视图同步与重排：
+ * - edited：refresh（同步隐藏 PM 视图 + version++）→ 携块 id 提示走增量重排；
+ * - sync：选区落模后仅 refresh（纯选区不改 doc，重排守卫自动跳过）；
+ * - history：撤销 / 重做走 PM 插件栈（binding.undo/redo），随后 version 驱动重排。
+ */
+function onPagedEdited(blockId: string): void {
+  binding.refresh();
+  paged.scheduleRelayout(blockId);
+}
+
+function onPagedSync(): void {
+  binding.refresh();
+}
+
+function onPagedHistory(dir: 'undo' | 'redo'): void {
+  if (dir === 'undo') binding.undo();
+  else binding.redo();
+}
+
+/* ---------- 连续画布缩放（paged 不可用 / 未分页时；paged 模式由 PagedCanvas 自适应） ---------- */
 
 /** 缩放比例（限幅 0.2~2，非法回退 1） */
 const resolvedScale = computed(() => {
@@ -87,36 +139,18 @@ const nativeSize = ref({
   height: resolvedOptions.value.pageSize.height,
 });
 
-/** 分页态主轴总长（含末页整页），原生 px；由 recomputeSheets 写入，用于撑开页盒 / 舞台以露出末页空白 */
-const pageExtent = ref(0);
+/** 舞台（按缩放后尺寸预留版面，横向居中） */
+const stageStyle = computed(() => ({
+  width: `${nativeSize.value.width * resolvedScale.value}px`,
+  height: `${nativeSize.value.height * resolvedScale.value}px`,
+}));
 
-/** 舞台（按缩放后尺寸预留版面，横向居中；主轴至少覆盖到末页纸张底） */
-const stageStyle = computed(() => {
-  const scale = resolvedScale.value;
-  if (vertical.value) {
-    return {
-      width: `${Math.max(nativeSize.value.width, pageExtent.value) * scale}px`,
-      height: `${nativeSize.value.height * scale}px`,
-    };
-  }
-  return {
-    width: `${nativeSize.value.width * scale}px`,
-    height: `${Math.max(nativeSize.value.height, pageExtent.value) * scale}px`,
-  };
-});
-
-/** 页盒（原生宽度 + transform 缩放，左上为原点；分页纸张在其内随同缩放） */
-const pageZoomStyle = computed(() => {
-  const style: Record<string, string> = {
-    width: `${nativeSize.value.width}px`,
-    transform: `scale(${resolvedScale.value})`,
-    transformOrigin: 'top left',
-  };
-  // 主轴撑到末页纸张底，保证整页（含末页空白）可见可滚动
-  if (vertical.value) style.minWidth = `${pageExtent.value}px`;
-  else style.minHeight = `${pageExtent.value}px`;
-  return style;
-});
+/** 页盒（原生宽度 + transform 缩放，左上为原点） */
+const pageZoomStyle = computed(() => ({
+  width: `${nativeSize.value.width}px`,
+  transform: `scale(${resolvedScale.value})`,
+  transformOrigin: 'top left',
+}));
 
 /** 实测 .ProseMirror 原生尺寸（内容增删 / 字体变化经 ResizeObserver 自动更新） */
 let pageObserver: ResizeObserver | undefined;
@@ -141,7 +175,7 @@ watch(
   { immediate: true },
 );
 
-/* ---------- 书页尺寸盒（画布内 .ProseMirror 作为「一页」） ---------- */
+/* ---------- 书页尺寸盒（连续画布内 .ProseMirror 作为「一页」） ---------- */
 
 /** 页面几何 CSS 变量（供 scoped 样式驱动 .ProseMirror 的宽 / 高 / 页边距） */
 const pageVars = computed<Record<string, string>>(() => {
@@ -189,216 +223,42 @@ function removeBookStyle(): void {
   document.getElementById(STYLE_ELEMENT_ID)?.remove();
 }
 
-/* ---------- 分页纸张效果（B3：与预览同源的块 → 页归属，按真实 DOM 定位） ---------- */
-
-interface PageSheet {
-  /** 页码（自 1 起，展示用） */
-  page: number;
-  /** 纸张面板定位样式（相对页盒坐标，随缩放层一起 transform） */
-  style: Record<string, string>;
-}
-
-const sheets = ref<PageSheet[]>([]);
-
-/** 页间缝隙（px，原生坐标）：上下/左右各缩进一半，露出台面底色形成分页感 */
-const SHEET_GAP = 28;
-
-/** CSS 选择器转义（happy-dom / 老浏览器无 CSS.escape 时降级） */
-function cssEscape(value: string): string {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
-    return CSS.escape(value);
-  }
-  return value.replace(/["\\]/g, '\\$&');
-}
-
 /**
- * 以编辑器 DOM 实时实测覆盖块的推进尺寸（横排，就地修改 blocks）。
+ * 字体加载完成后重排分页。
  *
- * 相邻叶块「顶边差」即该块沿主轴的推进量（含折叠外边距），末块取
- * 自身高 + 下外边距；与纸张定位同源，消除外部旧量尺导致的整页超高溢出。
- * 量不到（缺 data-bt-id 节点 / happy-dom 零尺寸）时保留原估算值。
+ * 挂载首帧往往用回退字体量尺；古籍正文字体（异步 webfont）到位后行高与换行位置
+ * 整体变化，需重跑 measurePagination。paged 模式下重排由 usePagedLayout 负责。
  */
-function applyDomAdvances(pm: HTMLElement, blocks: MeasurableBlock[]): void {
-  const els = blocks.map((block) =>
-    pm.querySelector<HTMLElement>(`[data-bt-id="${cssEscape(block.id)}"]`),
-  );
-  for (let i = 0; i < blocks.length; i += 1) {
-    const el = els[i];
-    if (el === null) continue;
-    let j = i + 1;
-    while (j < els.length && els[j] === null) j += 1;
-    const nextEl = j < els.length ? (els[j] as HTMLElement) : undefined;
-    const advance =
-      nextEl !== undefined
-        ? nextEl.offsetTop - el.offsetTop
-        : el.offsetHeight + (Number.parseFloat(getComputedStyle(el).marginBottom) || 0);
-    const block = blocks[i] as MeasurableBlock;
-    if (Number.isFinite(advance) && advance > 0) block.mainSize = advance;
-  }
+function onFontsSettled(): void {
+  paged.scheduleRelayout();
 }
 
-/** 注入到页首块的页间距元素（重算 / 卸载前需清除，回到自然布局再测量） */
-let styledEls: HTMLElement[] = [];
-
-function clearStyledMargins(): void {
-  for (const el of styledEls) {
-    el.style.removeProperty('margin-top');
-    el.style.removeProperty('margin-left');
+function watchFontLoad(): void {
+  if (typeof document === 'undefined') return;
+  const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+  if (fonts !== undefined) {
+    if (fonts.status === 'loaded') return;
+    void fonts.ready.then(onFontsSettled).catch(() => undefined);
+    fonts.addEventListener?.('loadingdone', onFontsSettled);
+    fonts.addEventListener?.('loadingerror', onFontsSettled);
+  } else if (typeof window !== 'undefined') {
+    window.addEventListener('load', onFontsSettled, { once: true });
   }
-  styledEls = [];
 }
-
-function recomputeSheets(): void {
-  // 先撤除上次注入的页间距，回到自然布局再测量（否则 offsetTop 含旧 margin，逐次累加漂移）
-  clearStyledMargins();
-  if (props.pagination !== true) {
-    sheets.value = [];
-    pageExtent.value = 0;
-    return;
-  }
-  const canvas = canvasRef.value;
-  if (canvas === null) return;
-  const pm = canvas.querySelector<HTMLElement>('.ProseMirror');
-  if (pm === null) return;
-
-  const doc = props.editor.getDocument();
-  const blocks = extractBlocks(doc, { context: props.measure, blockSizes: props.blockSizes });
-  // 纸书排版 Phase 1：横排断页尺寸改用编辑器 DOM 实时实测（与纸张定位同源），
-  // 不再依赖外部旧 blockSizes；直排 / 多栏量不到，仍按估算 / 外部映射回退。
-  if (!vertical.value) applyDomAdvances(pm, blocks);
-  const mainSize =
-    props.pageMainSize ?? resolvePageMainSize(resolvedOptions.value, resolvedTokens.value);
-  if (mainSize <= 0 || blocks.length === 0) {
-    sheets.value = [];
-    pageExtent.value = 0;
-    return;
-  }
-  const result = paginate(blocks, { pageMainSize: mainSize });
-  if (result.pages.length === 0) {
-    sheets.value = [];
-    pageExtent.value = 0;
-    return;
-  }
-
-  // 页面盒（.ProseMirror）相对定位原点（offsetParent = .bt-editor__page，与纸张同源）
-  const pageLeft = pm.offsetLeft;
-  const pageTop = pm.offsetTop;
-  const pageWidth = pm.offsetWidth;
-  const pageHeight = pm.offsetHeight;
-  const isVertical = vertical.value;
-  // 纸张主轴长度固定 = 版心页尺寸（与预览一致，逐页等高）；页缝 G，步长 S = 页 + 缝
-  const { pageSize } = resolvedOptions.value;
-  const sheetMain = isVertical ? pageSize.width : pageSize.height;
-  const gap = SHEET_GAP;
-  const stride = sheetMain + gap;
-
-  // 逐页首块元素 + 自然主轴起点（撤 margin 后测得，首页起点 = 版心内边距）
-  const firstEls: (HTMLElement | null)[] = [];
-  const starts: number[] = [];
-  for (const page of result.pages) {
-    const firstId = page.blocks[0]?.id;
-    const el =
-      firstId === undefined
-        ? null
-        : pm.querySelector<HTMLElement>(`[data-bt-id="${cssEscape(firstId)}"]`);
-    firstEls.push(el);
-    starts.push(el !== null ? (isVertical ? el.offsetLeft : el.offsetTop) : 0);
-  }
-  const padBase = starts[0] as number;
-  // 内容自然末尾（页盒主轴远端）：末页长度量到页盒底/右
-  const contentEnd = isVertical ? pageLeft + pageWidth : pageTop + pageHeight;
-
-  const next: PageSheet[] = [];
-  let cum = 0; // 已累计注入的页间距
-  let mainEnd = 0;
-  for (let i = 0; i < starts.length; i += 1) {
-    // 本页自然内容长（到下一页起点，末页到页盒末尾）
-    const contentLen =
-      (i + 1 < starts.length ? (starts[i + 1] as number) : contentEnd) - (starts[i] as number);
-    if (i > 0) {
-      const prevLen = (starts[i] as number) - (starts[i - 1] as number);
-      // 常规页补足到统一网格（整页高 + 页缝）；超高页（整页内容高于一张纸）只留页缝
-      const margin = prevLen >= sheetMain ? gap : stride - prevLen;
-      cum += margin;
-      const el = firstEls[i];
-      if (el !== null && margin > 0) {
-        const prop = isVertical ? 'margin-left' : 'margin-top';
-        // 在块原有外边距基础上叠加页间距（直接赋值会覆盖标题等自带的顶边距→错位）
-        const natural = Number.parseFloat(getComputedStyle(el).getPropertyValue(prop)) || 0;
-        el.style.setProperty(prop, `${natural + margin}px`);
-        styledEls.push(el);
-      }
-    }
-    // 纸张主轴长度：固定整页；超高页随内容增高（宁可本页变长，不再溢出于纸外）
-    const sheetLen = Math.max(sheetMain, contentLen);
-    // 纸张主轴起点 = 内容实际起点 − 版心内边距（使内容落在纸内 padBase 处）
-    const sheetMainPos = (starts[i] as number) + cum - padBase;
-    mainEnd = sheetMainPos + sheetLen;
-    const style = isVertical
-      ? {
-          top: `${pageTop}px`,
-          height: `${pageHeight}px`,
-          left: `${sheetMainPos}px`,
-          width: `${sheetLen}px`,
-        }
-      : {
-          left: `${pageLeft}px`,
-          width: `${pageWidth}px`,
-          top: `${sheetMainPos}px`,
-          height: `${sheetLen}px`,
-        };
-    next.push({ page: i + 1, style });
-  }
-  sheets.value = next;
-  pageExtent.value = mainEnd;
-}
-
-/** 事务 / 尺寸 / 令牌变化后的去抖重算（等 DOM 稳定再测） */
-let recomputeTimer: ReturnType<typeof setTimeout> | undefined;
-let recomputeRaf = 0;
-
-function scheduleRecompute(): void {
-  if (props.pagination !== true) {
-    clearStyledMargins();
-    sheets.value = [];
-    pageExtent.value = 0;
-    return;
-  }
-  if (recomputeTimer !== undefined) clearTimeout(recomputeTimer);
-  recomputeTimer = setTimeout(() => {
-    recomputeTimer = undefined;
-    void nextTick(() => {
-      if (recomputeRaf !== 0) cancelAnimationFrame(recomputeRaf);
-      recomputeRaf = requestAnimationFrame(() => {
-        recomputeRaf = 0;
-        recomputeSheets();
-      });
-    });
-  }, 120);
-}
-
-let resizeObserver: ResizeObserver | undefined;
 
 onMounted(() => {
   syncBookStyle();
   if (canvasRef.value !== null) {
     binding.attach(canvasRef.value);
   }
-  scheduleRecompute();
-  if (typeof ResizeObserver !== 'undefined' && scrollRef.value !== null) {
-    resizeObserver = new ResizeObserver(scheduleRecompute);
-    resizeObserver.observe(scrollRef.value);
-  }
+  paged.scheduleRelayout();
+  watchFontLoad();
 });
 
 onBeforeUnmount(() => {
   binding.detach();
   removeBookStyle();
-  clearStyledMargins();
-  resizeObserver?.disconnect();
   pageObserver?.disconnect();
-  if (recomputeTimer !== undefined) clearTimeout(recomputeTimer);
-  if (recomputeRaf !== 0) cancelAnimationFrame(recomputeRaf);
 });
 
 watch([resolvedTokens, resolvedOptions, () => props.fontToken], syncBookStyle);
@@ -412,23 +272,20 @@ watch(
   },
 );
 
-watch(
-  [() => props.pagination, () => props.pageMainSize, () => props.measure, () => props.blockSizes, vertical],
-  scheduleRecompute,
-);
-
-// 每次编辑事务（版本自增）后重算分页线
-watch(() => binding.version.value, scheduleRecompute);
-
-// editor 实例替换（如切换文档后重建）时重新挂载视图
+// editor 实例替换（如切换文档后重建）时重新挂载视图并重排
 watch(
   () => props.editor,
   () => {
     if (canvasRef.value !== null) {
       binding.attach(canvasRef.value);
     }
-    scheduleRecompute();
+    paged.scheduleRelayout();
   },
+);
+
+// 分页模式 / 每页尺寸 / 度量变化时重排，确保 pages 及时就绪
+watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure], () =>
+  paged.scheduleRelayout(),
 );
 </script>
 
@@ -438,7 +295,22 @@ watch(
       <slot v-bind="binding" />
     </div>
     <div ref="scrollRef" class="bt-editor__scroll">
-      <div class="bt-editor__stage" :style="stageStyle">
+      <PagedCanvas
+        v-if="pagedActive"
+        class="bt-editor__paged"
+        :pages="paged.pages.value"
+        :options="resolvedOptions"
+        :tokens="resolvedTokens"
+        :font-token="props.fontToken"
+        :editable="isEditable"
+        :editor="props.editor"
+        :index="paged.pagedIndex.value"
+        :chars-per-line="paged.charsPerLine.value"
+        @edited="onPagedEdited"
+        @sync="onPagedSync"
+        @history="onPagedHistory"
+      />
+      <div v-show="!pagedActive" class="bt-editor__stage" :style="stageStyle">
         <div class="bt-editor__page" :style="pageZoomStyle">
           <div
             ref="canvasRef"
@@ -446,20 +318,9 @@ watch(
             :class="[
               vertical ? 'bt-editor__canvas--vertical' : 'bt-editor__canvas--horizontal',
               isEditable ? '' : 'bt-editor__canvas--readonly',
-              pagination ? 'bt-editor__canvas--paged' : '',
             ]"
             :style="pageVars"
           />
-          <div v-if="pagination" class="bt-editor__overlay" aria-hidden="true">
-            <div
-              v-for="item in sheets"
-              :key="item.page"
-              class="bt-editor__sheet"
-              :style="item.style"
-            >
-              <span class="bt-editor__sheet-label">第 {{ item.page }} 页</span>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -479,7 +340,7 @@ watch(
   flex: none;
 }
 
-/* 滚动视口：填满舞台并作为分页纸张的定位上下文；底色即「台面」，页间缝隙露出此色 */
+/* 滚动视口：填满舞台；底色即「台面」 */
 .bt-editor__scroll {
   position: relative;
   flex: 1;
@@ -488,23 +349,28 @@ watch(
   background: var(--bt-editor-stage, #dcd6c9);
 }
 
-/* 舞台：按缩放后尺寸占位（横向居中），作为页盒的定位上下文 */
+/* paged 模式：自定义分页外壳填满滚动区（PM 画布仍在 DOM 内，v-show 隐藏供编辑接管） */
+.bt-editor__paged {
+  position: absolute;
+  inset: 0;
+}
+
+/* 舞台：连续画布按缩放后尺寸占位（横向居中），作为页盒的定位上下文 */
 .bt-editor__stage {
   position: relative;
   margin-inline: auto;
 }
 
-/* 页盒：原生尺寸定位 + transform 缩放（左上原点）；内部 canvas 与参考线同处缩放层 */
+/* 页盒：原生尺寸定位 + transform 缩放（左上原点） */
 .bt-editor__page {
   position: absolute;
   top: 0;
   left: 0;
 }
 
-/* 画布：内容高度增长（滚动交给 .bt-editor__scroll）；置于纸张之上 */
+/* 画布：内容高度增长（滚动交给 .bt-editor__scroll） */
 .bt-editor__canvas {
   position: relative;
-  z-index: 1;
   width: 100%;
 }
 
@@ -515,11 +381,6 @@ watch(
   outline: none;
   white-space: pre-wrap;
   word-wrap: break-word;
-}
-
-/* 分页态：正文底色改由下层 .bt-editor__sheet 提供，这里透明以露出页间缝隙 */
-.bt-editor__canvas--paged :deep(.ProseMirror) {
-  background-color: transparent;
 }
 
 /* 横排：固定页宽（行宽与阅读页一致），高度随内容增长、至少一页 */
@@ -538,36 +399,5 @@ watch(
 /* 只读：取消文本光标暗示（contenteditable=false 已由视图保证不可输入） */
 .bt-editor__canvas--readonly :deep(.ProseMirror) {
   cursor: default;
-}
-
-/* ---------- 分页纸张覆盖层（位于正文之下，z-index 0） ---------- */
-
-.bt-editor__overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-
-/* 单页纸张：纸色 + 阴影，页间留缝露出台面底色 */
-.bt-editor__sheet {
-  position: absolute;
-  box-sizing: border-box;
-  background: var(--bt-background, #faf8f4);
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.16),
-    0 6px 18px rgba(0, 0, 0, 0.12);
-}
-
-.bt-editor__sheet-label {
-  position: absolute;
-  top: -18px;
-  left: 0;
-  font-size: 11px;
-  line-height: 1;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
-  color: var(--bt-accent, #8c5a2b);
 }
 </style>

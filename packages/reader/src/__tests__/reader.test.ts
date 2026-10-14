@@ -196,6 +196,48 @@ describe('Reader 页节点解析', () => {
     expect(reader.getPageNodes(99)).toEqual([]);
   });
 
+  it('getPageFragments 将跨页长段按行切片，拼接还原全文（lineOffsets 实测）', () => {
+    const doc = createEmptyDocument({ title: '论语' });
+    const full = 'ABCDEFGHIJ'; // 10 字
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'c-1',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-long', children: [{ type: 'text', text: full }] },
+        ],
+      },
+    ];
+    // mainSize 90 / lineSize 30 → 3 行；pageMainSize 50 → 每页 1 行 → 跨 3 页
+    const reader = new Reader({
+      pageMainSize: 50,
+      estimator: fixedEstimator({ 'p-long': 90 }),
+      lineOffsets: new Map([['p-long', [0, 3, 6]]]),
+    });
+    reader.loadDocument(doc);
+
+    expect(reader.totalPages).toBeGreaterThanOrEqual(2);
+    const textOf = (pageIndex: number): string =>
+      reader
+        .getPageFragments(pageIndex)
+        .flatMap((node) => (node.children ?? []).map((c) => c.text ?? ''))
+        .join('');
+    let joined = '';
+    for (let i = 0; i < reader.totalPages; i += 1) {
+      const t = textOf(i);
+      // 每页片段均为全文的严格子串（非整段重复）
+      expect(full.startsWith(joined) && t.length > 0 && t.length < full.length).toBe(true);
+      joined += t;
+    }
+    expect(joined).toBe(full);
+    // 旧 API 不变：getPageNodes 仍返回整块（全文）
+    const fullFromNodes = reader
+      .getPageNodes(0)
+      .flatMap((node) => (node.children ?? []).map((c) => c.text ?? ''))
+      .join('');
+    expect(fullFromNodes).toBe(full);
+  });
+
   it('规范形态的版式文本容器整体渲染并可定位（编辑保存后注文样式回归）', () => {
     const doc = createEmptyDocument({ title: '注文' });
     doc.root.children = [
@@ -282,14 +324,14 @@ describe('Reader 重排', () => {
     estimated.loadDocument(sampleDoc());
     expect(estimated.totalPages).toBe(3);
 
-    // p-1 实测 200（超页）→ 独占一页 → 4 页
+    // p-1 实测 200（超页）→ 正文段落可拆，按行跨多页续排（纸书逻辑）→ 5 页
     const measured = new Reader({
       pageMainSize: 100,
       estimator,
       blockSizes: new Map([['p-1', 200]]),
     });
     measured.loadDocument(sampleDoc());
-    expect(measured.totalPages).toBe(4);
+    expect(measured.totalPages).toBe(5);
 
     // 清空实测（传 null）→ 回退估算 → 回到 3 页
     measured.repaginate({ blockSizes: null });

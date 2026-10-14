@@ -76,6 +76,20 @@ describe('extractBlocks', () => {
     expect(blocks.find((b) => b.id === 'p-1')?.keepWithNext).toBeUndefined();
   });
 
+  it('正文段落标 splittable + lineSize，标题不标（纸书行级续排）', () => {
+    const blocks = extractBlocks(sampleDoc());
+    const p1 = blocks.find((b) => b.id === 'p-1');
+    expect(p1?.splittable).toBe(true);
+    expect(p1?.lineSize).toBe(DEFAULT_MEASURE_CONTEXT.lineSize);
+    // 标题恒整块，不标可拆
+    expect(blocks.find((b) => b.id === 'h-1')?.splittable).toBeUndefined();
+  });
+
+  it('lineSize 随估算上下文行高联动', () => {
+    const blocks = extractBlocks(sampleDoc(), { context: { lineSize: 42 } });
+    expect(blocks.find((b) => b.id === 'p-2')?.lineSize).toBe(42);
+  });
+
   it('无 id 节点使用稳定的路径 id', () => {
     const doc = createEmptyDocument({ title: '无 id' });
     doc.root.children = [

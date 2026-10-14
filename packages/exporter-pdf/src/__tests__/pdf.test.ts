@@ -208,6 +208,37 @@ describe('renderPrintHtml：paged 模式（预分页）', () => {
     expect(html.match(/class="bt-page"/g)).toHaveLength(2);
     expect(html).toContain('data-page="2"');
   });
+
+  it('跨页段落按行切片：续页不重复前页文本（与预览同源）', () => {
+    /* 单段 78 字，每行 26 字；mainSize=90 / lineSize=30 → 3 行；页主轴 60 → 拆两页 */
+    const doc = createEmptyDocument({ title: '切片' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        id: 'p-1',
+        children: [{ type: 'text', text: 'A'.repeat(26) + 'B'.repeat(26) + 'C'.repeat(26) }],
+      },
+    ];
+    const html = renderPrintHtml(doc, {
+      mode: 'paged',
+      pageMainSize: 60,
+      context: { charsPerLine: 26, lineSize: 30 },
+      estimator: () => 90,
+    });
+
+    const pages = html.split('class="bt-page"').slice(1);
+    expect(pages.length).toBe(2);
+    /* 首页含 A、B 不含 C；续页含 C 不含 A/B（无整段重复） */
+    expect(pages[0]).toContain('A');
+    expect(pages[0]).toContain('B');
+    expect(pages[0]).not.toContain('C');
+    expect(pages[1]).toContain('C');
+    expect(pages[1]).not.toContain('A');
+    /* 各字符总次数 = 源次数（切片不重复） */
+    const body = pages.join('');
+    expect((body.match(/A/g) ?? []).length).toBe(26);
+    expect((body.match(/C/g) ?? []).length).toBe(26);
+  });
 });
 
 describe('printHtml（浏览器打印辅助）', () => {

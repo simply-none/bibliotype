@@ -204,32 +204,34 @@ describe('BtEditor', () => {
     wrapper.unmount();
   });
 
-  it('pagination 开关控制分页参考线覆层（缺省不渲染）', () => {
+  it('pagination 开关控制分页渲染（缺省连续画布，不分页）', () => {
     const editor = createEditor();
     const plain = mount(BtEditor, { props: { editor } });
-    expect(plain.find('.bt-editor__overlay').exists()).toBe(false);
+    expect(plain.find('.bt-paged').exists()).toBe(false);
+    expect(plain.find('.bt-editor__canvas').exists()).toBe(true);
     plain.unmount();
 
+    // 旧「叠层纸张」形态已删除：不再产出 .bt-editor__overlay
     const paginated = mount(BtEditor, { props: { editor, pagination: true } });
-    expect(paginated.find('.bt-editor__overlay').exists()).toBe(true);
+    expect(paginated.find('.bt-editor__overlay').exists()).toBe(false);
     paginated.unmount();
   });
 
-  it('分页纸张：DOM 实测重算后渲染等高纸面面板（去抖 + rAF 后落位）', async () => {
+  it('pagination 开启：去抖重排后渲染真实书页（paged 缺省模式）', async () => {
     vi.useFakeTimers();
     const editor = createEditor();
     const wrapper = mount(BtEditor, { props: { editor, pagination: true } });
-    // scheduleRecompute：120ms 去抖 → nextTick → rAF → recomputeSheets
+    // usePagedLayout：120ms 去抖 → relayout（happy-dom 估算回退仍产页）→ pagedActive
     await vi.advanceTimersByTimeAsync(150);
     vi.useRealTimers();
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     await wrapper.vm.$nextTick();
 
-    const sheets = wrapper.findAll('.bt-editor__sheet');
-    expect(sheets.length).toBeGreaterThanOrEqual(1);
-    // happy-dom 尺寸均为 0 → DOM 实测不可得，回退估算仍须产出整页高纸张（等高网格）
-    const height = sheets[0]?.attributes('style')?.match(/height: (\d+(?:\.\d+)?)px/);
-    expect(Number(height?.[1])).toBeGreaterThan(0);
+    expect(wrapper.find('.bt-paged').exists()).toBe(true);
+    expect(wrapper.findAll('.bt-paged-page').length).toBeGreaterThanOrEqual(1);
+    // 片段格存在且携块定位
+    const frag = wrapper.find('.bt-paged-frag');
+    expect(frag.exists()).toBe(true);
+    expect(frag.attributes('data-block-id')).toBeTruthy();
     wrapper.unmount();
   });
 });

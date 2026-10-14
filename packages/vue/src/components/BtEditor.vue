@@ -10,6 +10,8 @@
  *   行级跨页续排、缝隙处结构上无字、编辑经 selection-bridge 落 BookEditor 事务）；
  *   内核不可用（直排 / 多栏 / 无量尺）或显式 'overlay' 时回退连续画布（不叠纸张）；
  * - props.editable（缺省 true）：为 false 时画布只读（拒绝输入 / 粘贴 / 拖拽）；
+ * - props.loading（缺省 false）：分页开启时，首次分页完成前以加载占位覆盖画布，
+ *   避免大文档在去抖 + 全量 DOM 实测期间先暴露未分页的连续内容；
  * - props.scale（缺省 1）：连续画布缩放（paged 模式由 PagedCanvas 自适应宽度）；
  * - 默认插槽作用域透传 EditorBinding（供工具条访问命令与激活态）；
  * - 挂载时创建 EditorView，卸载时销毁；editor 实例替换时重建视图；
@@ -55,6 +57,13 @@ const props = defineProps<{
   measure?: BlockMeasureContext;
   /** 视图是否可编辑（缺省 true；false 时画布只读，拒绝用户输入） */
   editable?: boolean;
+  /**
+   * 首次分页前显示加载占位（缺省 false：维持现行为，分页就绪前短暂展示连续画布）
+   *
+   * 为 true 且 pagination 开启时，在分页内核首次产出结果（成功或判定不可用）之前，
+   * 用不透明 loading 遮罩覆盖整个编辑视口；仅首次触发，后续增量重排不再出现。
+   */
+  loading?: boolean;
   /**
    * 外部实测块尺寸映射（块 id → 主轴尺寸 px）
    *
@@ -102,6 +111,14 @@ const paged = usePagedLayout({
  */
 const pagedActive = computed(
   () => props.pagination === true && props.paginationMode !== 'overlay' && paged.usable.value,
+);
+
+/** 首轮分页是否已产出结果（成功或判定不可用均算完成，避免直排/多栏永久 loading） */
+const firstLayoutDone = computed(() => paged.lastResult.value !== null);
+
+/** loading 遮罩：显式开启 loading + 分页开启 + 首轮重排未就绪 */
+const showLoading = computed(
+  () => props.loading === true && props.pagination === true && !firstLayoutDone.value,
 );
 
 /**
@@ -323,6 +340,10 @@ watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure
           />
         </div>
       </div>
+      <div v-if="showLoading" class="bt-editor__loading">
+        <span class="bt-editor__loading-spinner" />
+        <span>正在分页…</span>
+      </div>
     </div>
   </div>
 </template>
@@ -353,6 +374,35 @@ watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure
 .bt-editor__paged {
   position: absolute;
   inset: 0;
+}
+
+/* loading 遮罩：首次分页就绪前覆盖整个视口（不透明，隐藏未分页内容） */
+.bt-editor__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #6b5f4c;
+  font-size: 14px;
+  background: var(--bt-editor-stage, #dcd6c9);
+}
+
+.bt-editor__loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: bt-editor-loading-spin 0.8s linear infinite;
+}
+
+@keyframes bt-editor-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* 舞台：连续画布按缩放后尺寸占位（横向居中），作为页盒的定位上下文 */

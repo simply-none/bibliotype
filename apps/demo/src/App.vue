@@ -825,6 +825,7 @@ onBeforeUnmount(() => {
             :options="effectiveLayout"
             :font-token="theme.fontToken"
             :pagination="showGuides"
+            :loading="true"
             :page-main-size="pageMainSize"
             :measure="measureContext"
             :editable="!editorReadonly"

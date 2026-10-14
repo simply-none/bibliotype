@@ -234,4 +234,28 @@ describe('BtEditor', () => {
     expect(frag.attributes('data-block-id')).toBeTruthy();
     wrapper.unmount();
   });
+
+  it('loading 开启：首次分页就绪前显示遮罩，就绪后消失；缺省不显示', async () => {
+    vi.useFakeTimers();
+    const editor = createEditor();
+    const wrapper = mount(BtEditor, { props: { editor, pagination: true, loading: true } });
+    // 去抖未触发前：首轮重排未产出 → loading 遮罩覆盖，不暴露未分页内容
+    expect(wrapper.find('.bt-editor__loading').exists()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(150);
+    vi.useRealTimers();
+    await wrapper.vm.$nextTick();
+
+    // 首轮产出后遮罩消失，书页已就绪
+    expect(wrapper.find('.bt-editor__loading').exists()).toBe(false);
+    expect(wrapper.find('.bt-paged').exists()).toBe(true);
+    wrapper.unmount();
+
+    // 缺省（未传 loading）维持现行为：无遮罩
+    vi.useFakeTimers();
+    const plain = mount(BtEditor, { props: { editor: createEditor(), pagination: true } });
+    expect(plain.find('.bt-editor__loading').exists()).toBe(false);
+    plain.unmount();
+    vi.useRealTimers();
+  });
 });

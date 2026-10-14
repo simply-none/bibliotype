@@ -263,11 +263,16 @@ const customized = computed(
     Object.keys(tokenPatch.value).length > 0,
 );
 
-/** 恢复主题预设：清空全部布局 / 令牌补丁与夜间开关 */
+/** 恢复主题预设：清空全部布局 / 令牌补丁与夜间开关，并清除已保存的设置快照（刷新不再回灌覆写） */
 function resetSettings(): void {
   layoutPatch.value = {};
   tokenPatch.value = {};
   night.value = false;
+  try {
+    window.localStorage.removeItem(SETTINGS_KEY);
+  } catch {
+    /* 忽略 */
+  }
 }
 
 function switchTheme(key: ThemeKey): void {
@@ -412,6 +417,86 @@ async function clearDraft(): Promise<void> {
 
 /** 阅读位置 localStorage 键（页码自 0 起；文档内容草稿在 IndexedDB） */
 const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
+/** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
+const SETTINGS_KEY = 'bibliotype-demo:settings';
+
+/** 设置快照：主题键 + 双层补丁 + 夜间 / 视图模式 / 分页开关 */
+interface SettingsSnapshot {
+  themeKey: ThemeKey;
+  layoutPatch: Partial<LayoutOptions>;
+  tokenPatch: Record<string, string>;
+  night: boolean;
+  viewMode: 'page' | 'scroll';
+  showGuides: boolean;
+}
+
+/** 读取设置快照（非法 / 缺失 → null，逐字段容错回退默认） */
+function readSettingsSnapshot(): SettingsSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as Partial<SettingsSnapshot>;
+    if (parsed.themeKey !== 'modern' && parsed.themeKey !== 'classical') return null;
+    return {
+      themeKey: parsed.themeKey,
+      layoutPatch:
+        typeof parsed.layoutPatch === 'object' && parsed.layoutPatch !== null
+          ? parsed.layoutPatch
+          : {},
+      tokenPatch:
+        typeof parsed.tokenPatch === 'object' && parsed.tokenPatch !== null
+          ? parsed.tokenPatch
+          : {},
+      night: parsed.night === true,
+      viewMode: parsed.viewMode === 'scroll' ? 'scroll' : 'page',
+      showGuides: parsed.showGuides !== false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 应用设置快照（逐 ref 赋值；effectiveLayout / tokens 响应式派生，Reader 由调用方重建） */
+function applySettingsSnapshot(snapshot: SettingsSnapshot): void {
+  themeKey.value = snapshot.themeKey;
+  layoutPatch.value = snapshot.layoutPatch;
+  tokenPatch.value = snapshot.tokenPatch;
+  night.value = snapshot.night;
+  viewMode.value = snapshot.viewMode;
+  showGuides.value = snapshot.showGuides;
+}
+
+/** 收集当前设置快照并落盘 */
+function persistSettingsSnapshot(): void {
+  const snapshot: SettingsSnapshot = {
+    themeKey: themeKey.value,
+    layoutPatch: layoutPatch.value,
+    tokenPatch: tokenPatch.value,
+    night: night.value,
+    viewMode: viewMode.value,
+    showGuides: showGuides.value,
+  };
+  try {
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));
+  } catch {
+    /* 存储不可用环境忽略 */
+  }
+}
+
+/**
+ * 保存设置（设置面板「保存设置」）：持久化快照并按当前版式刷新书本——
+ * 重建 Reader 重走全链路分页（保留已载入文档与当前页，页数变少时限幅）。
+ */
+function saveSettings(): void {
+  persistSettingsSnapshot();
+  const page = reader.value.currentPage;
+  const current = reader.value.document ?? lunyuDocument;
+  reader.value = createReader(effectiveLayout.value, current);
+  remeasure();
+  const target = Math.min(page, Math.max(0, reader.value.totalPages - 1));
+  if (target > 0) reader.value.goToPage(target);
+  writeLastPage(target);
+}
 
 /** 读取上次保存的页码（非法 / 不可用 → 0） */
 function readLastPage(): number {
@@ -443,19 +528,25 @@ function attachPageTracking(): void {
   });
 }
 
-// 主题切换等重建 Reader：重新订阅新实例
-watch(reader, () => attachPageTracking());
+// 主题切换 / 保存设置等重建 Reader：启动完成后才重新订阅新实例
+watch(reader, () => {
+  if (booted.value) attachPageTracking();
+});
 
-/** 启动恢复：草稿回灌预览 + 回跳上次阅读页；就绪后置 booted */
+/** 启动恢复：设置快照 + 草稿内容回灌并刷新书本 + 回跳上次阅读页；就绪后置 booted */
 async function bootstrap(): Promise<void> {
   try {
     const last = readLastPage();
+    const snapshot = readSettingsSnapshot();
+    if (snapshot !== null) applySettingsSnapshot(snapshot);
     const draft = await readDraft();
-    if (draft !== null) {
-      reader.value.loadDocument(draft);
-      // 立即按实测重排，让恢复页码落在真实页数口径上（与编辑 / 导出同源）
-      remeasure();
-    }
+    // 按恢复后的版式重建 Reader（初次创建仍是默认主题基准）并载入草稿内容
+    reader.value = createReader(
+      effectiveLayout.value,
+      draft ?? reader.value.document ?? lunyuDocument,
+    );
+    // 立即按实测重排，让恢复页码落在真实页数口径上（与编辑 / 导出同源）
+    remeasure();
     const target = Math.min(last, Math.max(0, reader.value.totalPages - 1));
     if (target > 0) reader.value.goToPage(target);
     // 页数变少被限幅时回写，避免下次启动重复越界钳位
@@ -865,6 +956,7 @@ onBeforeUnmount(() => {
           @update:token="onTokenPatch"
           @update:pagination="showGuides = $event"
           @update:night="night = $event"
+          @save="saveSettings"
           @reset="resetSettings"
           @close="settingsOpen = false"
         />

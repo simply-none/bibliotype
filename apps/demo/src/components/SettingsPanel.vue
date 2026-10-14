@@ -11,9 +11,10 @@
  * - 文字与版式（主题令牌）：字号 / 行高 / 注文与标题字号 / 字距 / 缩进 / 页边距 / 栏间距 / 字体族；
  * - 颜色：正文 / 背景 / 注文 / 强调 + 夜间预设；
  * - 编辑画布：书页分页开关。
- * 「恢复主题预设」清空全部补丁回到当前主题基准值。
+ * 「恢复主题预设」清空全部补丁回到当前主题基准值；
+ * 「保存设置」持久化当前版式覆写并按新设置刷新书本（刷新后沿用）。
  */
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, ref } from 'vue';
 import {
   COLOR_TOKENS,
   FONT_SIZE_TOKENS,
@@ -56,11 +57,28 @@ const emit = defineEmits<{
   'update:night': [value: boolean];
   /** 清空全部补丁 */
   reset: [];
+  /** 保存当前设置（持久化快照 + 按新设置刷新书本） */
+  save: [];
   /** 关闭面板 */
   close: [];
 }>();
 
 /* ---------- 数值解析工具 ---------- */
+
+/** 「已保存」瞬时反馈态 */
+const saveFeedback = ref(false);
+let saveFeedbackTimer: number | undefined;
+function onSaveClick(): void {
+  emit('save');
+  saveFeedback.value = true;
+  if (saveFeedbackTimer !== undefined) clearTimeout(saveFeedbackTimer);
+  saveFeedbackTimer = window.setTimeout(() => {
+    saveFeedback.value = false;
+  }, 1500);
+}
+onBeforeUnmount(() => {
+  if (saveFeedbackTimer !== undefined) clearTimeout(saveFeedbackTimer);
+});
 
 /** 解析 px / em / 纯数值串的前导数字（失败回退 fallback） */
 function parseNum(value: string | undefined, fallback: number): number {
@@ -391,6 +409,9 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
       <button type="button" class="panel__reset" :disabled="!customized" @click="emit('reset')">
         恢复主题预设
       </button>
+      <button type="button" class="panel__save" @click="onSaveClick">
+        {{ saveFeedback ? '已保存' : '保存设置' }}
+      </button>
     </footer>
   </section>
 </template>
@@ -574,10 +595,13 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
 
 .panel__footer {
   margin-block-start: 12px;
+  display: flex;
+  gap: 8px;
 }
 
-.panel__reset {
-  width: 100%;
+.panel__reset,
+.panel__save {
+  flex: 1;
   padding: 6px;
   font-size: 12px;
   color: var(--demo-text);
@@ -587,7 +611,8 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
   cursor: pointer;
 }
 
-.panel__reset:hover:not(:disabled) {
+.panel__reset:hover:not(:disabled),
+.panel__save:hover {
   border-color: var(--demo-accent);
   color: var(--demo-accent);
 }
@@ -595,5 +620,9 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
 .panel__reset:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.panel__save {
+  color: var(--demo-accent);
 }
 </style>

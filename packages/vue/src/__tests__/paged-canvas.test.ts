@@ -86,4 +86,29 @@ describe('PagedCanvas', () => {
     expect(wrapper.findAll('.bt-paged-page').length).toBe(0);
     wrapper.unmount();
   });
+
+  it('initialPage：首轮分页就绪后定位到目标页并回写可见页（一次性）', async () => {
+    const { pages } = buildPagedLayout({ doc: longDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    expect(pages.length).toBeGreaterThan(3);
+    // 先挂空页序列（模拟分页未就绪），再就绪触发一次性定位
+    const wrapper = mount(PagedCanvas, {
+      props: { pages: [], options: DEFAULT_LAYOUT_OPTIONS, tokens: DEFAULT_THEME, initialPage: 2 },
+    });
+    await wrapper.setProps({ pages });
+    await wrapper.vm.$nextTick();
+
+    const scroller = wrapper.element as HTMLElement;
+    const stride = DEFAULT_LAYOUT_OPTIONS.pageSize.height + 28;
+    expect(scroller.scrollTop).toBe(16 + 2 * stride);
+    expect(wrapper.emitted('update:visiblePage')?.[0]).toEqual([2]);
+
+    // 一次性消费：后续重排不强行回拉位置
+    scroller.scrollTop = 0;
+    await wrapper.setProps({ pages: pages.slice(0, -1) });
+    await wrapper.vm.$nextTick();
+    expect(scroller.scrollTop).toBe(0);
+
+    wrapper.unmount();
+    disposeMeasureSheet();
+  });
 });

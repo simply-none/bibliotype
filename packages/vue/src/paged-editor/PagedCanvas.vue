@@ -59,6 +59,8 @@ const props = withDefaults(
     index?: PagedIndex | null;
     /** 每行字符估算（回退口径，须与分页构建同源） */
     charsPerLine?: number;
+    /** 首轮分页就绪后定位到该页（自 0 起；「阅读当前页 → 进编辑」位置记忆链路，一次性消费） */
+    initialPage?: number;
   }>(),
   { editable: false, fit: true, editor: null, index: null, charsPerLine: 40 },
 );
@@ -245,6 +247,28 @@ function scrollToPage(index: number): void {
 }
 
 defineExpose({ scrollToPage, syncViewport });
+
+/* ---------- 首轮分页就绪后定位（「记住位置」：进编辑对齐阅读模式当前页） ---------- */
+
+let initialApplied = false;
+watch(
+  [() => props.initialPage, pageCount],
+  () => {
+    const page = props.initialPage;
+    if (initialApplied || page === undefined || pageCount.value === 0) return;
+    initialApplied = true;
+    void nextTick(() => {
+      if (scrollerRef.value === null) {
+        initialApplied = false; // 尚未挂载成功，待页码下次变化重试
+        return;
+      }
+      const target = Math.min(Math.max(0, page), pageCount.value - 1);
+      scrollToPage(target);
+      emit('update:visiblePage', target);
+    });
+  },
+  { immediate: true },
+);
 
 let observer: ResizeObserver | undefined;
 onMounted(() => {

@@ -294,6 +294,11 @@ const bookEditor = shallowRef<BookEditor | null>(null);
 /** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效） */
 const editorReadonly = ref(false);
 
+/** 编辑态视口页（PagedCanvas 回写；「保存并预览」时回定位到阅读该页，自 0 起） */
+const editorVisiblePage = ref(0);
+/** 进编辑时的定位页（阅读模式当前页；BtEditor 首轮分页就绪后滚到此页） */
+const editStartPage = ref(0);
+
 /* ---------- 编辑态缩放（透传 BtEditor.scale） ---------- */
 
 /** 缩放比例（默认 1） */
@@ -414,6 +419,9 @@ async function enterEdit(): Promise<void> {
   }
   mode.value = 'edit';
   editorReadonly.value = false;
+  // 位置记忆：进编辑定位到阅读模式当前页（分页三端同源，页码可直接对齐）
+  editStartPage.value = reader.value.currentPage;
+  editorVisiblePage.value = editStartPage.value;
   // 进编辑前重测（编辑器由当前阅读文档创建，块 id 对齐 → 分页线与预览一致）
   scheduleRemeasure();
 }
@@ -424,6 +432,9 @@ function saveAndPreview(): void {
   if (editor === null) return;
   cancelAutosave();
   reader.value.loadDocument(editor.getDocument());
+  // 位置记忆：回定位到编辑退出时的视口页（新文档页数可能变少，限幅后再跳）
+  const target = Math.min(editorVisiblePage.value, reader.value.totalPages - 1);
+  if (target >= 0) reader.value.goToPage(target);
   void persistDraft();
   mode.value = 'read';
   // 文档变更 → 重测新文档块尺寸（旧 id 映射对新文档不适用）
@@ -835,6 +846,8 @@ onBeforeUnmount(() => {
             :measure="measureContext"
             :editable="!editorReadonly"
             :scale="editorScale"
+            :initial-page="editStartPage"
+            @update:visible-page="editorVisiblePage = $event"
           >
             <template #default="slotProps">
               <EditorToolbar

@@ -63,6 +63,22 @@ describe('paginate', () => {
     expect(result.pages[1]?.blocks.map((b) => b.id)).toEqual(['heading', 'para']);
   });
 
+  it('keepWithNext 角点：后段剩余行数不满足孤寡约束会整体换页时，标题随行不孤悬', () => {
+    // 页高 100：filler 60 + 标题 20 后仅容 2 行；para 3 行 → 2 行落入本页会
+    // 触发「末页片段 < minLast → 少取 → 首片段 < minFirst」而整体换页，
+    // 标题若按「标题 + minFirst 行头部」验证容量将被孤悬页尾
+    const result = paginate(
+      [
+        block('filler', 60),
+        block('heading', 20, { keepWithNext: true }),
+        { id: 'para', mainSize: 30, splittable: true, lineSize: 10 },
+      ],
+      { pageMainSize: 100 },
+    );
+    expect(result.pages[0]?.blocks.map((b) => b.id)).toEqual(['filler']);
+    expect(result.pages[1]?.blocks.map((b) => b.id)).toEqual(['heading', 'para']);
+  });
+
   it('超大块独占一页且不陷入循环', () => {
     const result = paginate(
       [block('big', 500), block('small', 10)],

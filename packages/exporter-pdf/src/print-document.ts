@@ -10,11 +10,10 @@
  * 与 EPUB 共用 @bibliotype/layout/html 的序列化器与书册样式；
  * 不依赖 DOM，可在 Node（无头浏览器）与浏览器中同构生成。
  */
-import { DEFAULT_THEME, LAYOUT_TOKENS, type BookDocument } from '@bibliotype/core';
+import { DEFAULT_THEME, type BookDocument } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
-  isVerticalMode,
-  resolveContentBox,
+  resolvePageMainSize,
   type LayoutOptions,
 } from '@bibliotype/layout';
 import { buildBookCss, escapeHtml, serializeNode } from '@bibliotype/layout/html';
@@ -149,22 +148,10 @@ function renderPagedBody(
     .join('\n');
 }
 
-/** 每页可用主轴尺寸（与 reader 默认一致：页边距取 page-margin 令牌） */
+/** 每页可用主轴尺寸（与 reader / 编辑画布同源：resolvePageMainSize，含页边距与版框边框扣除） */
 function defaultPageMainSize(
   layout: LayoutOptions,
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
-  const { vertical, horizontal } = parsePageMargin(
-    tokens[LAYOUT_TOKENS.PAGE_MARGIN] ?? '48px 56px',
-  );
-  const box = resolveContentBox(layout.pageSize, vertical, horizontal);
-  return isVerticalMode(layout.writingMode) ? box.width : box.height;
-}
-
-/** 解析 page-margin 令牌（如 "48px 56px"；取纵向 / 横向两向值） */
-function parsePageMargin(value: string): { vertical: number; horizontal: number } {
-  const numbers = (value.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
-  const vertical = numbers[0] ?? 0;
-  const horizontal = numbers[1] ?? vertical;
-  return { vertical, horizontal };
+  return resolvePageMainSize(layout, tokens);
 }

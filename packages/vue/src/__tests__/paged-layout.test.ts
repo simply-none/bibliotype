@@ -111,6 +111,84 @@ describe('buildPagedLayout', () => {
     for (const frag of reuse) expect(same.has(frag.node)).toBe(true);
     disposeMeasureSheet();
   });
+
+  it('定点实测：targetBlockId 命中旧尺寸缓存时走探针路径并保留未测块缓存', () => {
+    const doc = docWithParagraphs(['仁义礼智信忠孝节悌'.repeat(400), '子曰学而时习之不亦说乎'.repeat(300)]);
+    const full = buildPagedLayout({ doc, options: DEFAULT_LAYOUT_OPTIONS });
+    // 注入全量尺寸缓存（模拟真实浏览器实测产物），使探针「全部块 id ⊆ prev.sizes」成立
+    const prev = {
+      ...full,
+      sizes: new Map(full.blocks.map((b) => [b.id, 300 + b.id.length])),
+    };
+    const target = full.blocks[1]!.id;
+    const inc = buildPagedLayout({
+      doc,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      fromBlockId: target,
+      targetBlockId: target,
+      previous: prev,
+    });
+    expect(inc.usable).toBe(true);
+    // 未重测块沿用缓存值；本轮实测（happy-dom 空映射）不覆盖
+    expect(inc.sizes.get('p-0')).toBe(prev.sizes.get('p-0'));
+    expect(inc.sizes.get('p-1')).toBe(prev.sizes.get('p-1'));
+    // 块序列与分页骨架保持稳定
+    expect(inc.blocks.map((b) => b.id)).toEqual(full.blocks.map((b) => b.id));
+    disposeMeasureSheet();
+  });
+
+  it('增量重排删块后：三表裁剪陈旧项（回删并段不留幽灵缓存）', () => {
+    const doc = docWithParagraphs(['子曰学而时习之不亦说乎'.repeat(200), '有朋自远方来不亦乐乎'.repeat(200)]);
+    // 注入尺寸缓存（happy-dom 无实测产物），使裁剪逻辑可观察
+    const full = {
+      ...buildPagedLayout({ doc, options: DEFAULT_LAYOUT_OPTIONS }),
+      sizes: new Map([
+        ['p-0', 300],
+        ['p-1', 400],
+      ]),
+      lineOffsets: new Map([['p-1', [0, 26]]]),
+      lineSizes: new Map([['p-1', 30]]),
+    };
+    expect(full.sizes.has('p-0')).toBe(true);
+    expect(full.sizes.has('p-1')).toBe(true);
+
+    // 模拟回删并段：p-1 文本并入 p-0，p-1 消失
+    const shrunk = docWithParagraphs([
+      '子曰学而时习之不亦说乎'.repeat(200) + '有朋自远方来不亦乐乎'.repeat(200),
+    ]);
+    const inc = buildPagedLayout({
+      doc: shrunk,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      fromBlockId: 'p-0',
+      previous: full,
+    });
+    expect(inc.blocks.map((b) => b.id)).toEqual(['p-0']);
+    expect(inc.sizes.has('p-1')).toBe(false);
+    expect(inc.lineOffsets.has('p-1')).toBe(false);
+    expect(inc.lineSizes.has('p-1')).toBe(false);
+    disposeMeasureSheet();
+  });
+
+  it('片段 node 惰性切片：文本为原文子串且重复访问同一引用', () => {
+    const full = '仁义礼智信忠孝节悌'.repeat(400);
+    const result = buildPagedLayout({
+      doc: docWithParagraphs([full]),
+      options: DEFAULT_LAYOUT_OPTIONS,
+    });
+    const split = result.pages.flatMap((p) => p.fragments).find((f) => f.lineCount > 0);
+    expect(split).toBeDefined();
+    const first = split!.node;
+    expect(split!.node).toBe(first); // 闭包缓存：二次访问不再切片
+    const textOf = (node: { children?: unknown[]; text?: string }): string =>
+      typeof node.text === 'string'
+        ? node.text
+        : (node.children as Array<{ children?: unknown[]; text?: string }> | undefined)
+              ?.map(textOf)
+              .join('') ?? '';
+    const t = textOf(first as never);
+    if (t.length > 0) expect(full.includes(t)).toBe(true);
+    disposeMeasureSheet();
+  });
 });
 
 describe('usePagedLayout 重排守卫（阶段五）', () => {

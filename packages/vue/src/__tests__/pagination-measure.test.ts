@@ -95,4 +95,27 @@ describe('measurePagination', () => {
     expect(pagination.sizes.size).toBe(legacy.size);
     disposeMeasureSheet();
   });
+
+  it('targetBlockId 定点模式：不抛错且回退空映射（happy-dom 无布局），工作表可回收', () => {
+    const result = measurePagination({
+      doc: sampleDoc(),
+      options: DEFAULT_LAYOUT_OPTIONS,
+      targetBlockId: 'p-1',
+    });
+    expect(result.sizes).toBeInstanceOf(Map);
+    expect(result.lineOffsets.size).toBe(0);
+    expect(result.lineSizes.size).toBe(0);
+    disposeMeasureSheet();
+    expect(document.getElementById('bt-measure-sheet')).toBeNull();
+  });
+
+  it('targetBlockId 未命中：安全回退全量（不抛错）', () => {
+    const result = measurePagination({
+      doc: sampleDoc(),
+      options: DEFAULT_LAYOUT_OPTIONS,
+      targetBlockId: 'missing',
+    });
+    expect(result.sizes).toBeInstanceOf(Map);
+    disposeMeasureSheet();
+  });
 });

@@ -94,13 +94,18 @@ function syncStyle(): void {
   // 去掉 .bt-paragraph 的首行 text-indent（仅片段首段，段内后续行本就不缩进）
   const continuationRule =
     `\n${FRAG_SELECTOR}[data-from-line]:not([data-from-line="0"]) > .bt-paragraph:first-child {\n  text-indent: 0;\n}\n`;
+  // 页首块 margin 吞掉（书排惯例）：分页模型把块间折叠间距计入前一块推进量，
+  // 新页从版心上缘 0 起排；首片段若保留 margin-top（标题 UA 外边距 / 注文间距）
+  // 会塌穿 frag / flow 外溢到页边距区，页首多空隙且页尾末行被 overflow 裁切
+  const pageStartRule =
+    `\n${CONTAINER_SELECTOR}__flow > ${FRAG_SELECTOR}:first-child > :first-child {\n  margin-block-start: 0;\n}\n`;
   let el = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   if (el === null) {
     el = document.createElement('style');
     el.id = STYLE_ELEMENT_ID;
     document.head.appendChild(el);
   }
-  const next = css + continuationRule;
+  const next = css + continuationRule + pageStartRule;
   if (el.textContent !== next) el.textContent = next;
 }
 
@@ -175,9 +180,18 @@ interface RenderedPage {
   numberText: string;
 }
 
+/** 序列化缓存（node 引用级）：增量重排复用同一片段节点 → 免重复 serializeNode */
+const htmlCache = new WeakMap<BookNode, string>();
+
 function fragHtml(frag: PagedFragment): string {
   const node: BookNode = frag.node;
-  return isTextNode(node) ? '' : serializeNode(node);
+  if (isTextNode(node)) return '';
+  let html = htmlCache.get(node);
+  if (html === undefined) {
+    html = serializeNode(node);
+    htmlCache.set(node, html);
+  }
+  return html;
 }
 
 const renderedPages = computed<RenderedPage[]>(() => {
@@ -283,6 +297,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   observer?.disconnect();
   if (scrollRaf !== 0) cancelAnimationFrame(scrollRaf);
+  if (selRaf !== 0) cancelAnimationFrame(selRaf);
   detachSelectionSync();
 });
 
@@ -675,8 +690,15 @@ function syncSelectionToModel(): void {
   }
 }
 
+/** selectionchange 合流（rAF）：高频触发只保留最后一帧的同步 */
+let selRaf = 0;
+
 function onDocumentSelectionChange(): void {
-  syncSelectionToModel();
+  if (selRaf !== 0) return;
+  selRaf = requestAnimationFrame(() => {
+    selRaf = 0;
+    syncSelectionToModel();
+  });
 }
 
 function attachSelectionSync(): void {
@@ -689,15 +711,36 @@ function detachSelectionSync(): void {
   document.removeEventListener('selectionchange', onDocumentSelectionChange);
 }
 
-/* ---------- 重排后 caret 还原 ---------- */
+/* ---------- 重排后 caret 还原（渲染签名降噪） ---------- */
+
+/** 上次 caret 还原时的视口渲染签名（片段 key + html；未变 = v-html 不重建 DOM，caret 原样） */
+let restoredSig: string | null = null;
+
+/** 视口内片段渲染签名（供还原降噪比对；node 引用复用使 html 命中缓存，成本近零） */
+function renderSig(): string {
+  const { start, end } = range.value;
+  let sig = `${start}:${end}`;
+  for (let i = start; i <= end; i += 1) {
+    const page = props.pages[i];
+    if (page === undefined) continue;
+    for (const frag of page.fragments) {
+      sig += `\u0001${frag.blockId}@${frag.fromLine}+${frag.lineCount}\u0002${fragHtml(frag)}`;
+    }
+  }
+  return sig;
+}
 
 watch(
   () => props.pages,
   () => {
-    if (restorePending && editableNow.value) {
-      restorePending = false;
-      void nextTick(() => restoreCaretFromModel());
-    }
+    if (!restorePending || !editableNow.value) return;
+    restorePending = false;
+    // 片段渲染签名未变：v-html 不会重建 DOM，caret / 焦点原样保留 → 跳过还原
+    // （远端块编辑 / 尺寸未变内容的重排不再抢焦点、不触发 selectionchange 回环）
+    const sig = renderSig();
+    if (sig === restoredSig) return;
+    restoredSig = sig;
+    void nextTick(() => restoreCaretFromModel());
   },
 );
 </script>

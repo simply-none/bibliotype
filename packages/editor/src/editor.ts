@@ -5,8 +5,8 @@
  * 提供文档载入 / 导出、事务派发与变更订阅；
  * DOM 视图（prosemirror-view）与框架绑定由 vue / react 封装层负责。
  */
-import { createEmptyDocument, type BookDocument, type BookMetadata } from '@bibliotype/core';
-import type { Schema } from 'prosemirror-model';
+import { createEmptyDocument, type BookDocument, type BookMetadata, type BookNode } from '@bibliotype/core';
+import type { Node as PmNode, Schema } from 'prosemirror-model';
 import { EditorState, type Plugin, type Transaction } from 'prosemirror-state';
 import { createDefaultEditorSchemaRegistry } from './default-schema.js';
 import { irNodeToPm } from './ir-to-pm.js';
@@ -40,6 +40,14 @@ export class BookEditor {
   private changeSeq = 0;
   /** 上次「保存」时的变更序号（markSaved 刷新） */
   private savedSeq = 0;
+  /**
+   * PM→IR 增量转换备忘录（getSharedDocument 用）
+   *
+   * PM 树不可变且编辑事务结构共享：未变子树命中缓存直接复用同一 IR 节点，
+   * 单块编辑的快照成本从 O(全文档) 降到 O(变更子树)。loadDocument 重建整棵
+   * PM 树后旧键不再可达，由 GC 自然回收，无需显式失效。
+   */
+  private readonly irCache = new WeakMap<PmNode, BookNode>();
 
   constructor(options: BookEditorOptions = {}) {
     this.schema =
@@ -129,6 +137,21 @@ export class BookEditor {
     };
   }
 
+  /**
+   * 导出当前文档（共享 IR：未变子树复用缓存的同一 IR 节点）
+   *
+   * 与 getDocument 深度同构，但单块编辑后未变块的 IR 节点是同一引用
+   * （O(变更子树) 增量快照）。供高频管线（编辑态分页重排）替代 getDocument；
+   * 消费方必须视返回的 IR 树为只读，不得原地修改。
+   */
+  getSharedDocument(): BookDocument {
+    return {
+      schemaVersion: this.schemaVersion,
+      metadata: this.metadata,
+      root: pmNodeToIr(this.state.doc, this.irCache),
+    };
+  }
+
   /** 创建基于当前状态的事务 */
   createTransaction(): Transaction {
     return this.state.tr;
@@ -166,8 +189,11 @@ export class BookEditor {
     };
   }
 
-  /** 广播变更（快照当前文档） */
+  /** 广播变更（快照当前文档；无订阅者时零开销早退，不做全量 IR 转换空转） */
   private emitChange(): void {
+    if (this.changeHandlers.size === 0) {
+      return;
+    }
     const document = this.getDocument();
     for (const handler of [...this.changeHandlers]) {
       handler(document);

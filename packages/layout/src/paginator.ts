@@ -35,8 +35,9 @@ export interface MeasurableBlock {
   /**
    * 真实行数（DOM 实测行边界时给定）
    *
-   * 缺省时 paginate 按 round(mainSize/lineSize) 折算；mainSize 含块尾间距时
-   * 该折算会多出幽灵行，故实测链路应显式给定行数。
+   * 缺省时 paginate 按 floor(mainSize/lineSize) 折算；估算 mainSize 含块尾间距
+   * （lines×lineSize + blockSpacing），round 会在间距 ≥ 半行时多出幽灵行
+   * （如 blockSpacing=12、lineSize=24 → +1 行），floor 折算稳定还原真实行数。
    */
   lineCount?: number;
   /**
@@ -151,16 +152,26 @@ export function paginate(
   }
 
   /** keepWithNext 时下一块「至少需与标题同页」的头部尺寸 */
-  function headSizeOf(block: MeasurableBlock): number {
-    return isSplittable(block)
-      ? Math.min(block.mainSize, minFirst * (block.lineSize as number))
-      : block.mainSize;
+  function headSizeOf(block: MeasurableBlock, next: MeasurableBlock): number {
+    if (!isSplittable(next)) return next.mainSize;
+    const lineSize = next.lineSize as number;
+    const totalLines = lineCountOf(next);
+    // 放置标题后，下一段在本页可容纳的行数；模拟 placeSplittable 的取行约束：
+    // 头部合规行数取不足（minFirst / minLast 不满足）时下一段会整体换页，
+    // 此时改要求整段随标题同页，避免标题违反 keepWithNext 孤悬页尾
+    const availLines = Math.floor((pageMainSize - cur.usedMainSize - block.mainSize) / lineSize);
+    if (availLines < totalLines) {
+      const leftover = totalLines - availLines;
+      const take = leftover < minLast ? totalLines - minLast : availLines;
+      if (take < minFirst) return next.mainSize;
+    }
+    return Math.min(next.mainSize, minFirst * lineSize);
   }
 
   /** 不可拆块：整块贪心放置（保持块原子版行为） */
   function placeAtomic(block: MeasurableBlock, next: MeasurableBlock | undefined): void {
     const keep = block.keepWithNext === true && next !== undefined && next.breakBefore !== true;
-    const required = block.mainSize + (keep ? headSizeOf(next as MeasurableBlock) : 0);
+    const required = block.mainSize + (keep ? headSizeOf(block, next as MeasurableBlock) : 0);
     const fits = cur.usedMainSize + required <= pageMainSize;
     if (!fits && cur.items.length > 0) {
       cur = startPage();
@@ -169,10 +180,15 @@ export function paginate(
     pushFragment(block, 0, 0, block.mainSize);
   }
 
+  /** 块的真实行数：显式 lineCount 优先，缺省按 mainSize/lineSize 下折算 */
+  function lineCountOf(block: MeasurableBlock): number {
+    return block.lineCount ?? Math.max(1, Math.floor(block.mainSize / (block.lineSize as number)));
+  }
+
   /** 可拆块：按行跨页续排，含孤寡行约束 */
   function placeSplittable(block: MeasurableBlock): void {
     const lineSize = block.lineSize as number;
-    const totalLines = block.lineCount ?? Math.max(1, Math.round(block.mainSize / lineSize));
+    const totalLines = lineCountOf(block);
     let from = 0;
     let remaining = totalLines;
 

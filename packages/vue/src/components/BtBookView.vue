@@ -111,6 +111,11 @@ const pageStyle = computed(() => ({
 /** 注入 / 更新全局书册样式表（多实例共享，以最后写入为准） */
 const STYLE_ELEMENT_ID = 'bt-book-css';
 
+/** 页首块 margin 吞掉（书排惯例）：分页模型把块间折叠间距计入前一块推进量，
+ * 新页从版心上缘 0 起排；渲染若保留首块 margin-top 会塌穿 flow 外溢到页边距区，
+ * 页首多出空隙且页尾末行被 overflow 裁切（标题 UA 外边距 ~23px、注文 0.55em）。 */
+const PAGE_START_RULE = `\n.bt-reader-page__flow > :first-child {\n  margin-block-start: 0;\n}\n`;
+
 function syncBookStyle(): void {
   if (typeof document === 'undefined') return;
   const css = buildBookCss({
@@ -119,14 +124,15 @@ function syncBookStyle(): void {
     fontToken: props.fontToken,
     containerSelector: '.bt-reader-page',
   });
+  const next = css + PAGE_START_RULE;
   let element = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   if (element === null) {
     element = document.createElement('style');
     element.id = STYLE_ELEMENT_ID;
     document.head.appendChild(element);
   }
-  if (element.textContent !== css) {
-    element.textContent = css;
+  if (element.textContent !== next) {
+    element.textContent = next;
   }
 }
 

@@ -11,7 +11,7 @@
  * 分栏宽度与回流难以逐块隔离度量，故这些场景返回空映射，回退到字符数估算
  * （保证不劣化、不崩渲染）。
  */
-import { DEFAULT_THEME, LAYOUT_TOKENS, type BookDocument } from '@bibliotype/core';
+import { DEFAULT_THEME, type BookDocument } from '@bibliotype/core';
 import {
   buildRootStyle,
   DEFAULT_LAYOUT_OPTIONS,
@@ -19,11 +19,12 @@ import {
   mergeLayoutOptions,
   resolveContentBox,
   resolvePageBorderWidth,
+  resolvePageMargins,
   type LayoutOptions,
   type StyleDeclaration,
 } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
-import { extractBlocks, findNodeById, type BlockMeasureContext } from '@bibliotype/reader';
+import { extractBlocksIndexed, type BlockMeasureContext } from '@bibliotype/reader';
 
 /** 量尺输入 */
 export interface MeasureBlockSizesInput {
@@ -42,6 +43,13 @@ export interface MeasureBlockSizesInput {
    * 由调用方合并旧缓存）。未命中 / 首位 / 缺省则全量实测。
    */
   fromBlockId?: string;
+  /**
+   * 定点实测模式：仅实测该块。量尺仍渲染其后一块（保块间折叠外边距口径），
+   * 但结果只产出该块的尺寸 / 行偏移 / 行高。单栏定宽流下块高彼此独立，
+   * 纯文本编辑（无增删块）只需重测被编辑块；未命中则回退全量实测。
+   * 优先级高于 fromBlockId。
+   */
+  targetBlockId?: string;
 }
 
 const SHEET_ID = 'bt-measure-sheet';
@@ -49,12 +57,9 @@ const CSS_ID = 'bt-measure-css';
 const CONTAINER_SELECTOR = '.bt-measure-sheet';
 const BLOCK_CLASS = 'bt-measure-block';
 
-/** 解析页边距令牌（"48px 56px" → [Y, X]；缺省 [48, 56]） */
+/** 解析页边距令牌（"48px 56px" → [Y, X]；与 resolvePageMainSize 同源，仅支持 px） */
 function resolveMargins(tokens: Readonly<Record<string, string | undefined>>): [number, number] {
-  const numbers = (tokens[LAYOUT_TOKENS.PAGE_MARGIN]?.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
-  const marginY = numbers[0] ?? 48;
-  const marginX = numbers[1] ?? marginY;
-  return [marginY, marginX];
+  return resolvePageMargins(tokens);
 }
 
 /** 属性值转义（id 落入 data-measure-id 属性） */
@@ -213,7 +218,7 @@ function measureLineOffsets(el: HTMLElement): number[] {
 /** 建表并渲染各块（复用），返回与 blocks 对齐的已渲染元素（含空位 null） */
 function renderMeasureSheet(
   input: MeasureBlockSizesInput,
-): { blocks: ReturnType<typeof extractBlocks>; rendered: (HTMLElement | null)[] } | null {
+): { blocks: ReturnType<typeof extractBlocksIndexed>['blocks']; rendered: (HTMLElement | null)[]; targetedOnly: boolean } | null {
   if (typeof document === 'undefined') return null;
 
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
@@ -233,17 +238,28 @@ function renderMeasureSheet(
     box.width - resolvePageBorderWidth(tokens) * 2,
   );
 
-  const allBlocks = extractBlocks(input.doc, { context: input.measure });
-  // 增量：只渲染 / 实测起点块及之后（起点未命中或在首位则全量）
+  const indexed = extractBlocksIndexed(input.doc, { context: input.measure });
+  const allBlocks = indexed.blocks;
+  // 渲染范围：定点 [target, target+1]（后一块仅为折叠口径参照）；尾测 [from, 末]；缺省全量
   let start = 0;
-  if (input.fromBlockId !== undefined) {
+  let end = allBlocks.length;
+  let targetedOnly = false;
+  if (input.targetBlockId !== undefined) {
+    const i = allBlocks.findIndex((block) => block.id === input.targetBlockId);
+    if (i >= 0) {
+      start = i;
+      end = Math.min(i + 2, allBlocks.length);
+      targetedOnly = true;
+    }
+  } else if (input.fromBlockId !== undefined) {
+    // 增量：只渲染 / 实测起点块及之后（起点未命中或在首位则全量）
     const i = allBlocks.findIndex((block) => block.id === input.fromBlockId);
     if (i > 0) start = i;
   }
-  const blocks = start > 0 ? allBlocks.slice(start) : allBlocks;
+  const blocks = allBlocks.slice(start, end);
   sheet.innerHTML = blocks
     .map((block) => {
-      const node = findNodeById(input.doc.root, block.id);
+      const node = indexed.nodeById.get(block.id);
       if (node === undefined) return '';
       const html = serializeNode(node);
       if (html.trim() === '') return '';
@@ -259,7 +275,7 @@ function renderMeasureSheet(
     if (id !== null) byId.set(id, el);
   }
   const rendered = blocks.map((block) => byId.get(block.id) ?? null);
-  return { blocks, rendered };
+  return { blocks, rendered, targetedOnly };
 }
 
 /** 分页量尺结果：块推进尺寸 + 每行起始字符偏移 + 真实行高 */
@@ -282,12 +298,14 @@ export interface MeasurePaginationResult {
 export function measurePagination(input: MeasureBlockSizesInput): MeasurePaginationResult {
   const sheet = renderMeasureSheet(input);
   if (sheet === null) return { sizes: new Map(), lineOffsets: new Map(), lineSizes: new Map() };
-  const { blocks, rendered } = sheet;
+  const { blocks, rendered, targetedOnly } = sheet;
 
   const sizes = new Map<string, number>();
   const lineOffsets = new Map<string, number[]>();
   const lineSizes = new Map<string, number>();
   for (let i = 0; i < blocks.length; i += 1) {
+    // 定点模式：仅产出目标块（index 0）；后一块只为折叠口径参照，不入结果
+    if (targetedOnly && i > 0) break;
     const el = rendered[i];
     if (el === null) continue;
     const id = (blocks[i] as (typeof blocks)[number]).id;

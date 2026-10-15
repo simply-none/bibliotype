@@ -26,8 +26,7 @@ import {
 } from '@bibliotype/layout';
 import {
   DEFAULT_MEASURE_CONTEXT,
-  extractBlocks,
-  findNodeById,
+  extractBlocksIndexed,
   isLeafBlockTypeName,
   type BlockMeasureContext,
 } from '@bibliotype/reader';
@@ -77,6 +76,12 @@ export interface BuildPagedInput {
    * 之前的块尺寸 / 行偏移沿用 previous 缓存。需与 previous 同用。
    */
   fromBlockId?: string;
+  /**
+   * 定点实测候选（S1）：仅当与 previous 同用且探针判定「无增删块（纯文本编辑）」时，
+   * 量尺只实测该块（其余块沿用缓存）；否则自动回退 fromBlockId 尾测。
+   * 调用方须保证本轮只有该块被编辑（多块编辑请只传 fromBlockId）。
+   */
+  targetBlockId?: string;
   /** 上一次构建结果（增量复用：实测子集 + 未改块切片复用） */
   previous?: BuildPagedResult;
 }
@@ -123,8 +128,13 @@ function charRangeFromLines(
  * 纯函数：由文档快照构建分页片段（可单测，无副作用之外的响应式）。
  *
  * 增量（阶段五）：传 fromBlockId + previous 时，DOM 实测只覆盖该块及之后，
- * 之前块的尺寸 / 行偏移沿用缓存；切片节点按 (块, 起始行, 行数) 键复用，
- * 未受影响块不重新 sliceNodeByCharRange。
+ * 之前的块尺寸 / 行偏移沿用缓存；未实测块的切片按 (块, 起始行, 行数) 整体
+ * 复用旧片段对象（同引用 → 视图 v-html 不重建），实测过的块一律重建。
+ *
+ * 定点（S1）：再传 targetBlockId 时先探针判定「无增删块」（全部块 id 命中
+ * 旧尺寸缓存）：单栏定宽流块高彼此独立，纯文本编辑只实测该块（另渲染其后
+ * 一块保折叠口径），其余块沿用缓存；探针未过自动回退 fromBlockId 尾测。
+ * 切片节点惰性产出（首次访问 `node` 才 sliceNodeByCharRange），成本摊到视口页。
  */
 export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
@@ -148,7 +158,27 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   if (pageMainSize <= 0) return empty;
 
   const doc = input.doc;
-  const incremental = input.previous !== undefined && input.fromBlockId !== undefined;
+  const prev = input.previous;
+  const incremental = prev !== undefined && input.fromBlockId !== undefined;
+
+  // 定点判定探针：新块序列全部命中旧尺寸缓存 = 无结构性变化（纯文本编辑）
+  let targetBlockId: string | undefined;
+  if (incremental && input.targetBlockId !== undefined && input.targetBlockId !== '') {
+    const candidate = input.targetBlockId;
+    const probe = extractBlocksIndexed(doc, {
+      context,
+      blockSizes: prev.sizes,
+      lineOffsets: prev.lineOffsets,
+      lineSizes: prev.lineSizes,
+    });
+    if (
+      probe.blocks.some((block) => block.id === candidate) &&
+      probe.blocks.every((block) => prev.sizes.has(block.id))
+    ) {
+      targetBlockId = candidate;
+    }
+  }
+
   const fresh = measurePagination({
     doc,
     options,
@@ -156,54 +186,92 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     fontToken: input.fontToken,
     measure: input.measure,
     fromBlockId: incremental ? input.fromBlockId : undefined,
+    targetBlockId,
   });
   // 增量：起点块之前合并旧缓存（本轮未实测）；非增量时基空表 = 全量结果
-  const sizes = new Map<string, number>(incremental ? input.previous!.sizes : []);
+  const sizes = new Map<string, number>(incremental ? prev.sizes : []);
   for (const [id, v] of fresh.sizes) sizes.set(id, v);
-  const lineOffsets = new Map<string, number[]>(incremental ? input.previous!.lineOffsets : []);
+  const lineOffsets = new Map<string, number[]>(incremental ? prev.lineOffsets : []);
   for (const [id, v] of fresh.lineOffsets) lineOffsets.set(id, v);
-  const lineSizes = new Map<string, number>(incremental ? input.previous!.lineSizes : []);
+  const lineSizes = new Map<string, number>(incremental ? prev.lineSizes : []);
   for (const [id, v] of fresh.lineSizes) lineSizes.set(id, v);
-  const blocks = extractBlocks(doc, { context, blockSizes: sizes, lineOffsets, lineSizes });
+  const indexed = extractBlocksIndexed(doc, {
+    context,
+    blockSizes: sizes,
+    lineOffsets,
+    lineSizes,
+  });
+  const blocks = indexed.blocks;
   if (blocks.length === 0) return empty;
 
-  // 未变块切片复用：(块id|起始行|行数) → 已切节点（整块引用木身廉价，不入缓存）
-  const sliceCache = new Map<string, BookNode>();
+  // 按最终块序列裁剪三表：剔除已删块（回删并段）的陈旧项，防缓存无限累积
   if (incremental) {
-    for (const page of input.previous!.pages) {
+    const live = new Set(blocks.map((block) => block.id));
+    for (const id of [...sizes.keys()]) {
+      if (!live.has(id)) sizes.delete(id);
+    }
+    for (const id of [...lineOffsets.keys()]) {
+      if (!live.has(id)) lineOffsets.delete(id);
+    }
+    for (const id of [...lineSizes.keys()]) {
+      if (!live.has(id)) lineSizes.delete(id);
+    }
+  }
+
+  // 切片复用：仅「本轮未实测」的块可整体复用旧片段对象（内容必然一致）；
+  // 实测过的块一律惰性重建，杜绝旧切片复用的陈旧渲染
+  const measuredIds = new Set<string>(fresh.sizes.keys());
+  const prevFragByKey = new Map<string, PagedFragment>();
+  if (incremental) {
+    for (const page of prev.pages) {
       for (const frag of page.fragments) {
-        if (frag.lineCount > 0) {
-          sliceCache.set(`${frag.blockId}|${frag.fromLine}|${frag.lineCount}`, frag.node);
-        }
+        prevFragByKey.set(`${frag.blockId}|${frag.fromLine}|${frag.lineCount}`, frag);
       }
     }
   }
 
+  const nodeById = indexed.nodeById;
   const result = paginate(blocks, { pageMainSize });
   const pages: PagedPage[] = result.pages.map((page) => {
     const fragments: PagedFragment[] = [];
     for (const item of page.items) {
-      const node = findNodeById(doc.root, item.block.id);
-      if (node === undefined) continue;
-      let rendered: BookNode = node;
-      if (item.lineCount > 0) {
-        const cacheKey = `${item.block.id}|${item.fromLine}|${item.lineCount}`;
-        const cached = sliceCache.get(cacheKey);
-        if (cached !== undefined) {
-          rendered = cached;
-        } else {
-          const { from, to } = charRangeFromLines(
-            item.block.id,
-            item.fromLine,
-            item.lineCount,
-            lineOffsets,
-            context.charsPerLine,
-          );
-          rendered = sliceNodeByCharRange(node, from, to);
-          sliceCache.set(cacheKey, rendered);
+      const blockId = item.block.id;
+      if (!measuredIds.has(blockId)) {
+        const reused = prevFragByKey.get(`${blockId}|${item.fromLine}|${item.lineCount}`);
+        if (reused !== undefined) {
+          fragments.push(reused);
+          continue;
         }
       }
-      fragments.push({ blockId: item.block.id, node: rendered, fromLine: item.fromLine, lineCount: item.lineCount });
+      // 新片段：惰性切片（首次访问 node 才查表 / 切片，成本摊到实际渲染的视口页）
+      const fromLine = item.fromLine;
+      const lineCount = item.lineCount;
+      let cachedNode: BookNode | undefined;
+      fragments.push({
+        blockId,
+        get node(): BookNode {
+          if (cachedNode === undefined) {
+            const src = nodeById.get(blockId);
+            if (src === undefined) {
+              cachedNode = { type: 'text', text: '' };
+            } else if (lineCount > 0) {
+              const { from, to } = charRangeFromLines(
+                blockId,
+                fromLine,
+                lineCount,
+                lineOffsets,
+                context.charsPerLine,
+              );
+              cachedNode = sliceNodeByCharRange(src, from, to);
+            } else {
+              cachedNode = src;
+            }
+          }
+          return cachedNode;
+        },
+        fromLine,
+        lineCount,
+      });
     }
     return { index: page.index, fragments, firstBlockId: page.items[0]?.block.id ?? '' };
   });
@@ -282,13 +350,24 @@ export interface UsePagedLayoutReturn {
   scheduleRelayout: (fromBlockId?: string) => void;
 }
 
+/** 输入活跃窗口：距最近一次编辑提示小于该值视为连续键入 */
+const TYPING_ACTIVE_MS = 800;
+/** 连续键入期的去抖间隔（合流快速键入，量尺成本摊薄） */
+const TYPING_DELAY = 250;
+/** 分帧兜底间隔：rAF 不触发（后台标签 / fake timers）时保证量尺仍在去抖窗口内起跑 */
+const FRAME_FALLBACK_MS = 16;
+
 /**
  * 响应式分页：监听 version / 布局变化，去抖重建 pages。
  *
  * 守卫：纯选区事务（doc 引用不变且非 force）不重排 —— 选区同步高频触发时
  * 避免无谓重建与光标闪烁；布局 / 令牌 / 尺寸变化一律 force。
- * 增量：传入 fromBlockId 时携带上次结果作缓存（阶段五）。重排耗时超预算
- * （>33ms）自动加大去抖间隔节流。
+ *
+ * 性能（大文件编辑优化落地）：
+ * - 定点实测：单块编辑提示 + 探针无增删块 → 量尺只测该块（buildPagedLayout targetBlockId）；
+ * - 双档去抖：连续键入（800ms 活跃窗）250ms 合流，空闲期沿用预算自适应档（120/300ms）；
+ * - 分帧执行：去抖到期后经 requestAnimationFrame 让出一帧再跑量尺（16ms 兜底保证触发）；
+ * - 增量 IR：文档快照改走 getSharedDocument()（PM→IR 结构共享，未变子树直接复用）。
  */
 export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutReturn {
   const pages = shallowRef<PagedPage[]>([]);
@@ -298,22 +377,29 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
   const lastResult = shallowRef<BuildPagedResult | null>(null);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let pendingFromBlockId: string | undefined;
+  let frameRaf = 0;
+  let frameFallback: ReturnType<typeof setTimeout> | undefined;
+  let pendingHints: string[] = [];
+  let lastHintAt = 0;
+  let hintPmDoc: PMNode | null = null;
   let lastPmDoc: PMNode | null = null;
   let delay = 120;
 
-  const relayout = (fromBlockId?: string, force = false): void => {
+  const runLayout = (hints: readonly string[], force: boolean, allowTargeted: boolean): void => {
     const pmDoc = opts.editor.editorState.doc;
     if (!force && lastResult.value !== null && pmDoc === lastPmDoc) return;
     const started = Date.now();
+    const fromBlockId = hints.length > 0 ? hints[0] : undefined;
     const result = buildPagedLayout({
-      doc: opts.editor.getDocument(),
+      doc: opts.editor.getSharedDocument(),
       options: opts.options.value,
       tokens: opts.tokens.value,
       fontToken: opts.fontToken.value,
       measure: opts.measure?.value,
       pageMainSize: opts.pageMainSize?.value,
       fromBlockId,
+      // 定点只信任「单块提示 + 提示后 PM 文档未再变」（提示后有外部事务则退回尾测）
+      targetBlockId: allowTargeted && hints.length === 1 ? hints[0] : undefined,
       previous: fromBlockId !== undefined ? lastResult.value ?? undefined : undefined,
     });
     lastPmDoc = pmDoc;
@@ -328,15 +414,59 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
     delay = Date.now() - started > 33 ? 300 : 120;
   };
 
+  const relayout = (fromBlockId?: string, force = false): void => {
+    runLayout(fromBlockId !== undefined ? [fromBlockId] : [], force, false);
+  };
+
+  function clearFrame(): void {
+    if (frameRaf !== 0) cancelAnimationFrame(frameRaf);
+    frameRaf = 0;
+    if (frameFallback !== undefined) clearTimeout(frameFallback);
+    frameFallback = undefined;
+  }
+
+  /** 分帧执行：让出一帧再跑量尺，避免长任务阻塞当帧输入 / 绘制；rAF 不可用时立即执行 */
+  function fireInFrame(task: () => void): void {
+    clearFrame();
+    let fired = false;
+    const fire = (): void => {
+      if (fired) return;
+      fired = true;
+      const fallback = frameFallback;
+      frameRaf = 0;
+      frameFallback = undefined;
+      if (fallback !== undefined) clearTimeout(fallback);
+      task();
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      frameRaf = requestAnimationFrame(fire);
+      // 兜底：fake timers / 后台标签下 rAF 可能不触发，≤16ms 保证仍在去抖窗口内起跑
+      frameFallback = setTimeout(fire, FRAME_FALLBACK_MS);
+    } else {
+      frameFallback = setTimeout(fire, 0);
+    }
+  }
+
+  /** 下一档去抖：输入活跃窗内用合流档（250ms），空闲期用预算自适应档（120/300ms） */
+  function nextDelay(): number {
+    return Date.now() - lastHintAt < TYPING_ACTIVE_MS ? TYPING_DELAY : delay;
+  }
+
   const scheduleRelayout = (fromBlockId?: string): void => {
-    if (fromBlockId !== undefined) pendingFromBlockId = fromBlockId;
+    if (fromBlockId !== undefined && fromBlockId !== '') {
+      if (pendingHints[pendingHints.length - 1] !== fromBlockId) pendingHints.push(fromBlockId);
+      lastHintAt = Date.now();
+      hintPmDoc = opts.editor.editorState.doc;
+    }
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      const hint = pendingFromBlockId;
-      pendingFromBlockId = undefined;
-      relayout(hint);
-    }, delay);
+      const hints = pendingHints;
+      pendingHints = [];
+      const targeted = hints.length === 1 && hintPmDoc === opts.editor.editorState.doc;
+      hintPmDoc = null;
+      fireInFrame(() => runLayout(hints, false, targeted));
+    }, nextDelay());
   };
 
   watch([opts.options, opts.tokens, opts.fontToken], () => scheduleForced());
@@ -349,12 +479,15 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      relayout(undefined, true);
-    }, delay);
+      pendingHints = [];
+      hintPmDoc = null;
+      fireInFrame(() => runLayout([], true, false));
+    }, nextDelay());
   }
 
   onScopeDispose(() => {
     if (timer !== undefined) clearTimeout(timer);
+    clearFrame();
   });
 
   // 暴露响应式 pages / usable

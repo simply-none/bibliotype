@@ -163,16 +163,27 @@ export function isLeafBlockTypeName(typeName: string): boolean {
   return TEXT_CONTAINER_TYPES.has(typeName);
 }
 
+/** extractBlocksIndexed 结果：块序列 + 块 id → 源节点索引 */
+export interface ExtractedBlocks {
+  /** 线性块序列（与 extractBlocks 输出一致） */
+  blocks: MeasurableBlock[];
+  /** 块 id → 源 IR 节点（id 口径与 blocks 一致；供切片 / 渲染免二次全树查找） */
+  nodeById: Map<string, BookNode>;
+}
+
 /**
- * 把文档树展开为块序列
+ * 把文档树展开为块序列，同时产出「块 id → 源节点」索引
  *
  * 块 id 优先取节点 id；无 id 时按树路径生成（如 "/0/1/2"），
  * 保证同一文档多次提取结果稳定（目录跳转依赖其确定性）。
+ *
+ * 索引版供高频管线（分页量尺 / 编辑态切片）复用：一次遍历同时拿到
+ * 块序列与节点映射，替代逐块 findNodeById 的 O(N²) 全树查找。
  */
-export function extractBlocks(
+export function extractBlocksIndexed(
   doc: BookDocument,
   options: ExtractBlocksOptions = {},
-): MeasurableBlock[] {
+): ExtractedBlocks {
   const estimator = options.estimator ?? defaultEstimator;
   const blockSizes = options.blockSizes;
   const lineOffsets = options.lineOffsets;
@@ -183,12 +194,14 @@ export function extractBlocks(
   };
 
   const blocks: MeasurableBlock[] = [];
+  const nodeById = new Map<string, BookNode>();
 
   const walk = (node: BookNode, path: string, flags: PendingFlags): void => {
     if (isLeafBlock(node)) {
       // 空书根不产块；其余叶块（或空容器）产出可测量块
       if (node.type === NODE_TYPES.BOOK) return;
       const id = node.id ?? path;
+      nodeById.set(id, node);
       // 实测尺寸优先（命中且为正），否则回退估算
       const measured = blockSizes?.get(id);
       const hasMeasured = measured !== undefined && measured > 0;
@@ -230,5 +243,15 @@ export function extractBlocks(
   };
 
   walk(doc.root, '', {});
-  return blocks;
+  return { blocks, nodeById };
+}
+
+/**
+ * 把文档树展开为块序列（extractBlocksIndexed 的便捷封装）
+ */
+export function extractBlocks(
+  doc: BookDocument,
+  options: ExtractBlocksOptions = {},
+): MeasurableBlock[] {
+  return extractBlocksIndexed(doc, options).blocks;
 }

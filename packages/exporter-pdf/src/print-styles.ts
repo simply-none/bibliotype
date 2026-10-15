@@ -68,6 +68,11 @@ export function buildPrintCss(input: PrintCssOptions): string {
 .bt-page:last-child {
   break-after: auto;
 }
+/* 页首块 margin 吞掉（书排惯例）：分页模型把块间折叠间距计入前一块推进量，
+   新页从版心上缘 0 起排；保留首块 margin-top 会溢出到页边距区并裁掉末行 */
+.bt-page > :first-child {
+  margin-block-start: 0;
+}
 .bt-page-number {
   position: absolute;
   bottom: 0.5em;

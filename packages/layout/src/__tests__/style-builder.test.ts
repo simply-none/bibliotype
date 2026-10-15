@@ -14,6 +14,7 @@ import {
   buildRootStyle,
   resolvePageBorderWidth,
   resolvePageMainSize,
+  resolvePageMargins,
 } from '../style-builder.js';
 
 describe('buildRootStyle', () => {
@@ -163,5 +164,21 @@ describe('resolvePageMainSize', () => {
     expect(resolvePageBorderWidth({ 'page-border': '1.5px solid black' })).toBe(1.5);
     expect(resolvePageBorderWidth({ 'page-border': '2em solid black' })).toBe(0);
     expect(resolvePageBorderWidth({})).toBe(0);
+  });
+});
+
+describe('resolvePageMargins', () => {
+  it('解析 "48px 56px" 为 [上下, 左右]', () => {
+    expect(resolvePageMargins({ 'page-margin': '48px 56px' })).toEqual([48, 56]);
+  });
+
+  it('单值时横向取纵向同值；缺省令牌回退 [0, 0]', () => {
+    expect(resolvePageMargins({ 'page-margin': '40px' })).toEqual([40, 40]);
+    expect(resolvePageMargins({})).toEqual([0, 0]);
+  });
+
+  it('非 px 单位显式拒绝（避免分页主轴与 CSS 版心静默错位）', () => {
+    expect(() => resolvePageMargins({ 'page-margin': '3em 4em' })).toThrow(RangeError);
+    expect(() => resolvePageMargins({ 'page-margin': '48px 10%' })).toThrow(RangeError);
   });
 });

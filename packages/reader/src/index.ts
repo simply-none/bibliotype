@@ -18,6 +18,7 @@ export {
   defaultEstimator,
   collectNodeText,
   extractBlocks,
+  extractBlocksIndexed,
   isLeafBlock,
   isLeafBlockTypeName,
 } from './document-blocks.js';
@@ -25,6 +26,7 @@ export type {
   BlockMeasureContext,
   BlockSizeEstimator,
   ExtractBlocksOptions,
+  ExtractedBlocks,
 } from './document-blocks.js';
 
 /* ---------- 块解析 ---------- */

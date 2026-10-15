@@ -15,16 +15,26 @@ import { toIrAttrs } from './attr-mapper.js';
  * 将 ProseMirror 节点（含子树）转换为 IR 节点
  *
  * @param pmNode PM 节点（非纯文本节点，顶层通常为 book 根）
+ * @param cache 增量转换备忘录（可选）：PM 树不可变且编辑时结构共享，
+ *   未变子树命中缓存直接复用同一 IR 节点（O(变更子树)），供
+ *   BookEditor.getSharedDocument 高频快照复用；消费方须视 IR 为只读。
  */
-export function pmNodeToIr(pmNode: PmNode): BookNode {
+export function pmNodeToIr(pmNode: PmNode, cache?: WeakMap<PmNode, BookNode>): BookNode {
   if (pmNode.isText) {
     throw new RangeError('pmNodeToIr 不接受纯文本节点，文本由父级行内聚合处理。');
   }
-  return elementToIr(pmNode);
+  return elementToIr(pmNode, cache);
 }
 
-/** 元素节点转换（含子节点递归） */
-function elementToIr(node: PmNode): BookNode {
+/** 元素节点转换（含子节点递归；cache 后序写入，子树先于父级入缓存） */
+function elementToIr(node: PmNode, cache?: WeakMap<PmNode, BookNode>): BookNode {
+  if (cache !== undefined) {
+    const cached = cache.get(node);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
   const result: BookNode = { type: node.type.name };
 
   const id = node.attrs.id;
@@ -51,12 +61,16 @@ function elementToIr(node: PmNode): BookNode {
       }
       children.push(textNode);
     } else {
-      children.push(elementToIr(child));
+      children.push(elementToIr(child, cache));
     }
   });
 
   if (children.length > 0) {
     result.children = children;
+  }
+
+  if (cache !== undefined) {
+    cache.set(node, result);
   }
   return result;
 }

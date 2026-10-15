@@ -120,6 +120,36 @@ export function resolvePageBorderWidth(
 }
 
 /**
+ * 解析页边距令牌（"48px 56px" → [上下 marginY, 左右 marginX]，单位 px）
+ *
+ * 仅支持 px：非 px 单位（em / % 等）会使「分页主轴 = 页高 − 边距」与 CSS
+ * 实际版心错位（buildPageStyle 原样透传，浏览器按 em 计算 padding），导致
+ * 系统性溢出裁切，故显式拒绝而非静默按数字截取。令牌缺省时返回 [0, 0]
+ * （与 buildPageStyle 缺省不内缩的渲染语义一致）。
+ *
+ * @throws RangeError 当令牌含非 px 单位值。
+ */
+export function resolvePageMargins(
+  tokens: Readonly<Record<string, string | undefined>>,
+): [number, number] {
+  const raw = tokens[LAYOUT_TOKENS.PAGE_MARGIN];
+  if (raw === undefined || raw.trim() === '') return [0, 0];
+  const values = raw
+    .trim()
+    .split(/\s+/)
+    .map((part) => {
+      const match = /^(-?\d+(?:\.\d+)?)px$/.exec(part);
+      if (match === null) {
+        throw new RangeError(`page-margin 令牌仅支持 px 单位（如 "48px 56px"），收到："${raw}"`);
+      }
+      return Number(match[1]);
+    });
+  const marginY = values[0] ?? 0;
+  const marginX = values[1] ?? marginY;
+  return [marginY, marginX];
+}
+
+/**
  * 解析每页可用主轴尺寸（px）
  *
  * 横排取内容区高、直排取内容区宽；页边距按 page-margin 令牌
@@ -130,9 +160,7 @@ export function resolvePageMainSize(
   options: LayoutOptions,
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
-  const numbers = (tokens[LAYOUT_TOKENS.PAGE_MARGIN]?.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
-  const marginY = numbers[0] ?? 0;
-  const marginX = numbers[1] ?? marginY;
+  const [marginY, marginX] = resolvePageMargins(tokens);
   const box = resolveContentBox(options.pageSize, marginY, marginX);
   // 版框边框侵占 border-box 内容区（两侧各一份）
   const border = resolvePageBorderWidth(tokens) * 2;

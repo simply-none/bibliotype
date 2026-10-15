@@ -116,6 +116,58 @@ describe('BookEditor', () => {
   });
 });
 
+describe('BookEditor getSharedDocument（增量 IR）', () => {
+  it('与 getDocument 深度同构', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    expect(editor.getSharedDocument()).toEqual(editor.getDocument());
+    expect(editor.getSharedDocument()).toEqual(sampleDoc());
+  });
+
+  it('文档未变时同一子树复用同一 IR 引用', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    const first = editor.getSharedDocument();
+    const second = editor.getSharedDocument();
+    expect(second.root).toBe(first.root);
+  });
+
+  it('单块编辑后：未变子树复用引用，变更子树为新对象（内容正确）', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    const before = editor.getSharedDocument();
+
+    // 在 p-1 段内插入文字（该段落 PM 节点重建，祖先链也重建；其余兄弟结构共享）
+    const tr = editor.createTransaction();
+    tr.insertText('仁', 4); // 段内文本
+    editor.dispatch(tr);
+
+    const after = editor.getSharedDocument();
+    expect(after).toEqual(editor.getDocument()); // 仍与全量导出同构
+    const beforeP = before.root.children?.[0] as { children?: unknown[] };
+    const afterP = after.root.children?.[0] as { children?: unknown[] };
+    // 编辑过的块：新对象
+    expect(afterP).not.toBe(beforeP);
+    expect(JSON.stringify(after)).toContain('仁');
+  });
+
+  it('dispatch 不订阅 onChange 时不出快照（isDirty 仍正确）', () => {
+    const editor = new BookEditor();
+    editor.loadDocument(sampleDoc());
+    expect(editor.isDirty).toBe(false);
+
+    const tr = editor.createTransaction();
+    tr.insertText('仁', 4);
+    editor.dispatch(tr);
+
+    expect(editor.isDirty).toBe(true);
+    const volume = editor.getSharedDocument().root.children?.[0] as {
+      children?: Array<{ children?: Array<{ children?: Array<{ text?: string }> }> }>;
+    };
+    expect(volume.children?.[0]?.children?.[0]?.children?.[0]?.text).toContain('仁');
+  });
+});
+
 describe('BookEditor 元数据', () => {
   /** 载入含全量元数据的文档 */
   function metaEditor(): BookEditor {

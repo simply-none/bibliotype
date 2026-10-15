@@ -133,23 +133,30 @@ const showLoading = computed(
 /**
  * paged 编辑事件桥（方案 S）：PagedCanvas 已把输入经 selection-bridge 落成
  * BookEditor 事务（editor.dispatch），此处补齐视图同步与重排：
- * - edited：refresh（同步隐藏 PM 视图 + version++）→ 携块 id 提示走增量重排；
+ * - edited：refresh({skipViewSync})（version++，PM 视图隐藏不同步）→ 携块 id 提示走增量重排；
  * - sync：选区落模后仅 refresh（纯选区不改 doc，重排守卫自动跳过）；
  * - history：撤销 / 重做走 PM 插件栈（binding.undo/redo），随后 version 驱动重排。
  */
 function onPagedEdited(blockId: string): void {
-  binding.refresh();
+  // paged 态 PM 视图隐藏（v-show）：跳过 updateState（全量 PM DOM 重建），仅 version++ 驱动重排
+  binding.refresh({ skipViewSync: true });
   paged.scheduleRelayout(blockId);
 }
 
 function onPagedSync(): void {
-  binding.refresh();
+  // 纯选区落模：不改 doc，PM 视图无需同步，仅 version++ 维持激活态 / 守卫响应
+  binding.refresh({ skipViewSync: true });
 }
 
 function onPagedHistory(dir: 'undo' | 'redo'): void {
   if (dir === 'undo') binding.undo();
   else binding.redo();
 }
+
+// 切回连续画布时补全量视图同步：paged 态期间 PM DOM 停在旧状态（skipViewSync 积累的偏差）
+watch(pagedActive, (active) => {
+  if (!active) binding.refresh();
+});
 
 /* ---------- 连续画布缩放（paged 不可用 / 未分页时；paged 模式由 PagedCanvas 自适应） ---------- */
 

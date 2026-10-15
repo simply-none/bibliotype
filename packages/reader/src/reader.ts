@@ -6,6 +6,7 @@
  */
 import {
   NODE_TYPES,
+  DEFAULT_THEME,
   createEventBus,
   isTextNode,
   type BibliotypeEventMap,
@@ -15,10 +16,9 @@ import {
 } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
-  isVerticalMode,
   mergeLayoutOptions,
   paginate,
-  resolveContentBox,
+  resolvePageMainSize,
   sliceNodeByCharRange,
   type LayoutOptions,
   type MeasurableBlock,
@@ -115,15 +115,24 @@ export interface ReaderOptions {
   lineOffsets?: ReadonlyMap<string, number[]>;
   /** 块 id → 真实行高（px，DOM 实测，不含块间距）；与 lineOffsets 同源产出 */
   lineSizes?: ReadonlyMap<string, number>;
+  /**
+   * 主题令牌值表（缺省 DEFAULT_THEME）
+   *
+   * page-margin / page-border 令牌参与默认每页主轴尺寸推导（resolvePageMainSize），
+   * 与编辑画布 / PDF 导出同源；未传 pageMainSize 且主题含版框时必须传入，
+   * 否则兜底口径按无边框计算。
+   */
+  tokens?: Readonly<Record<string, string | undefined>>;
   /** 外部事件总线（与 core 实例共享）；默认自建 */
   events?: EventBus<BibliotypeEventMap>;
 }
 
-/** 默认每页主轴尺寸（横排取内容区高，竖排取内容区宽） */
-function defaultPageMainSize(layout: LayoutOptions): number {
-  // 页边距与默认主题 page-margin（48px 56px）一致
-  const box = resolveContentBox(layout.pageSize, 48, 56);
-  return isVerticalMode(layout.writingMode) ? box.width : box.height;
+/** 默认每页主轴尺寸（横排取内容区高，竖排取内容区宽；含页边距与版框边框扣除） */
+function defaultPageMainSize(
+  layout: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+): number {
+  return resolvePageMainSize(layout, tokens);
 }
 
 /** 阅读器状态机 */
@@ -134,6 +143,8 @@ export class Reader {
   private doc: BookDocument | undefined;
   private options: LayoutOptions;
   private pageMainSize: number;
+  /** 主题令牌值表（默认每页主轴尺寸推导用） */
+  private readonly tokens: Readonly<Record<string, string | undefined>>;
   private readonly estimator: BlockSizeEstimator;
   private measure: BlockMeasureContext;
   /** 实测块尺寸映射（DOM 实测）；缺省回退估算 */
@@ -153,8 +164,9 @@ export class Reader {
 
   constructor(options: ReaderOptions = {}) {
     this.options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, options.layout ?? {});
+    this.tokens = options.tokens ?? DEFAULT_THEME;
     this.pageMainSizeExplicit = options.pageMainSize !== undefined;
-    this.pageMainSize = options.pageMainSize ?? defaultPageMainSize(this.options);
+    this.pageMainSize = options.pageMainSize ?? defaultPageMainSize(this.options, this.tokens);
     this.measure = { ...DEFAULT_MEASURE_CONTEXT, ...options.measure };
     this.estimator = options.estimator ?? defaultEstimator;
     this.blockSizes = options.blockSizes;
@@ -190,7 +202,7 @@ export class Reader {
       this.options = mergeLayoutOptions(this.options, overrides.layout);
       // 未显式给定每页主轴尺寸时，随页面尺寸 / 书写方向变化重算
       if (!this.pageMainSizeExplicit) {
-        this.pageMainSize = defaultPageMainSize(this.options);
+        this.pageMainSize = defaultPageMainSize(this.options, this.tokens);
       }
     }
     if (overrides.pageMainSize !== undefined) {

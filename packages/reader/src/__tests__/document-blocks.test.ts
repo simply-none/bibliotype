@@ -7,6 +7,7 @@ import {
   DEFAULT_MEASURE_CONTEXT,
   defaultEstimator,
   extractBlocks,
+  extractBlocksIndexed,
 } from '../document-blocks.js';
 
 /** 构造：书 > 卷 > 章（标题 + 两段） + 章（一段） */
@@ -291,5 +292,27 @@ describe('extractBlocks', () => {
     ]) {
       expect(blocks.find((b) => b.id === id)?.breakBefore).toBe(true);
     }
+  });
+});
+
+describe('extractBlocksIndexed', () => {
+  it('blocks 与 extractBlocks 一致，nodeById 为块 id → 源节点索引', () => {
+    const doc = sampleDoc();
+    const indexed = extractBlocksIndexed(doc);
+    expect(indexed.blocks.map((b) => b.id)).toEqual(extractBlocks(doc).map((b) => b.id));
+    expect([...indexed.nodeById.keys()]).toEqual(['h-1', 'p-1', 'p-2', 'p-3']);
+    // 节点引用指向源 IR 树（切片 / 渲染免二次全树查找）
+    const volume = doc.root.children?.[0] as { children?: Array<{ children?: Array<{ id?: string }> }> };
+    expect(indexed.nodeById.get('h-1')).toBe(volume.children?.[0]?.children?.[0]);
+    expect(indexed.nodeById.get('p-3')).toBe(volume.children?.[1]?.children?.[0]);
+  });
+
+  it('路径 id 的块同样入索引', () => {
+    const doc = createEmptyDocument({ title: '无 id' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '第一段' }] },
+    ];
+    const indexed = extractBlocksIndexed(doc);
+    expect(indexed.nodeById.get('/0')).toBe(doc.root.children?.[0]);
   });
 });

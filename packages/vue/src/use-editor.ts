@@ -46,8 +46,8 @@ export interface EditorBinding {
   /** 撤销 / 重做 */
   undo: () => boolean;
   redo: () => boolean;
-  /** 外部 loadDocument 后同步视图与版本 */
-  refresh: () => void;
+  /** 外部 loadDocument 后同步视图与版本（skipViewSync: 仅 version++，跳过 PM 视图重建） */
+  refresh: (options?: { skipViewSync?: boolean }) => void;
 }
 
 /** useEditorBinding 可选配置 */
@@ -136,8 +136,12 @@ export function useEditorBinding(
   const execute = (command: Command): boolean =>
     command(editor.editorState, (transaction) => applyTransaction(transaction));
 
-  const refresh = (): void => {
-    view.value?.updateState(editor.editorState);
+  const refresh = (options?: { skipViewSync?: boolean }): void => {
+    // skipViewSync：paged 态下 PM 视图隐藏且 stale（真相在模型），逐键 updateState
+    // 是全量 PM DOM 重建的纯浪费；切回连续画布时由调用方补一次全量 refresh
+    if (options?.skipViewSync !== true) {
+      view.value?.updateState(editor.editorState);
+    }
     version.value += 1;
   };
 

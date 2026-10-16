@@ -16,8 +16,11 @@ import {
   insertHeadNote,
   toggleBookTitle,
   toggleCircleEmphasis,
+  toggleInlineNote,
   toggleProperName,
+  toggleTabooChar,
   toggleVariant,
+  toggleVariantChar,
 } from '../editor-commands.js';
 import { buildClassicalEditorSchema } from '../editor-registration.js';
 import { CLASSICAL_MARK_TYPES } from '../mark-types.js';
@@ -192,6 +195,79 @@ describe('古籍块插入命令', () => {
       (child) => child.type === CLASSICAL_NODE_TYPES.COLLATION_MARK,
     );
     expect(symbols?.map((node) => node.attrs?.symbol)).toEqual(['△', '○']);
+  });
+});
+
+describe('行内容器包裹命令（修复 R1）', () => {
+  it('toggleInlineNote：选中文字包裹为夹注，内容正确、文档变化、光标落入夹注', () => {
+    const editor = createEditor();
+    const { from } = firstTextRange(editor);
+    selectText(editor, from + 2, 2); // "学而"
+
+    expect(run(editor, toggleInlineNote())).toBe(true);
+
+    // 段落内出现夹注，且内容恰为选中文字
+    let noteText: string | null = null;
+    editor.editorState.doc.descendants((node) => {
+      if (node.type.name === CLASSICAL_NODE_TYPES.INLINE_NOTE) {
+        noteText = node.textContent;
+        return false;
+      }
+      return true;
+    });
+    expect(noteText).toBe('学而');
+
+    // 光标已落入夹注内（祖先链含 inline-note）
+    const noteType = editor.bookSchema.nodes[CLASSICAL_NODE_TYPES.INLINE_NOTE];
+    const { $from } = editor.editorState.selection;
+    let inside = false;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      if ($from.node(depth).type === noteType) inside = true;
+    }
+    expect(inside).toBe(true);
+  });
+
+  it('toggleVariantChar / toggleTabooChar：选中文字包裹同样生效（不再抛异常）', () => {
+    const editor = createEditor();
+    const { from } = firstTextRange(editor);
+    selectText(editor, from + 2, 2);
+    expect(run(editor, toggleVariantChar())).toBe(true);
+
+    const editor2 = createEditor();
+    const { from: f2 } = firstTextRange(editor2);
+    selectText(editor2, f2 + 2, 2);
+    expect(run(editor2, toggleTabooChar())).toBe(true);
+  });
+
+  it('toggleInlineNote：跨块选区返回 false（不抛异常、不改文档）', () => {
+    const doc = createEmptyDocument({ title: '论' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        attrs: { title: 'x' },
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '甲' }] },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-2', children: [{ type: 'text', text: '乙' }] },
+        ],
+      },
+    ];
+    const editor = new BookEditor({ schema: buildClassicalEditorSchema(), document: doc });
+    const ranges: Array<{ from: number; to: number }> = [];
+    editor.editorState.doc.descendants((node, pos) => {
+      if (node.isText) ranges.push({ from: pos, to: pos + node.nodeSize });
+      return true;
+    });
+    expect(ranges).toHaveLength(2);
+    editor.dispatch(
+      editor.editorState.tr.setSelection(
+        TextSelection.create(editor.editorState.doc, ranges[0]!.from, ranges[1]!.to),
+      ),
+    );
+
+    const before = editor.getDocument();
+    expect(run(editor, toggleInlineNote())).toBe(false);
+    expect(editor.getDocument()).toEqual(before);
   });
 });
 

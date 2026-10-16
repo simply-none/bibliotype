@@ -155,6 +155,53 @@ describe('编辑命令', () => {
     expect(firstLeafBlock(editor)?.[0]?.type).toBe(NODE_TYPES.PARAGRAPH);
   });
 
+  it('setHeadingLevel / setParagraph：切换后保留原块 id（R2 修复）', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+
+    expect(run(editor, setHeadingLevel(2))).toBe(true);
+    let block = firstLeafBlock(editor)?.[0];
+    expect(block?.type).toBe(NODE_TYPES.HEADING);
+    expect(block?.id).toBe('p-1'); // id 应保留，而非被清空
+
+    expect(run(editor, setParagraph())).toBe(true);
+    block = firstLeafBlock(editor)?.[0];
+    expect(block?.type).toBe(NODE_TYPES.PARAGRAPH);
+    expect(block?.id).toBe('p-1');
+  });
+
+  it('setHeadingLevel：跨段落选区逐块保留各自 id（R2 修复）', () => {
+    const doc = createEmptyDocument({ title: 'x' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'c1',
+        attrs: { title: 't' },
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-a', children: [{ type: 'text', text: '甲' }] },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-b', children: [{ type: 'text', text: '乙' }] },
+        ],
+      },
+    ];
+    const editor = new BookEditor({ schema: buildEditorSchema(), document: doc });
+    const ranges: Array<{ from: number; to: number }> = [];
+    editor.editorState.doc.descendants((node, pos) => {
+      if (node.isText) ranges.push({ from: pos, to: pos + node.nodeSize });
+      return true;
+    });
+    expect(ranges).toHaveLength(2);
+    editor.dispatch(
+      editor.editorState.tr.setSelection(
+        TextSelection.create(editor.editorState.doc, ranges[0]!.from, ranges[1]!.to),
+      ),
+    );
+
+    expect(run(editor, setHeadingLevel(1))).toBe(true);
+    const blocks = editor.getDocument().root.children?.[0]?.children;
+    expect(blocks?.[0]).toMatchObject({ type: NODE_TYPES.HEADING, id: 'p-a' });
+    expect(blocks?.[1]).toMatchObject({ type: NODE_TYPES.HEADING, id: 'p-b' });
+  });
+
   it('toggleQuote：包裹引用与提升回退', () => {
     const editor = createEditor();
     selectFirstText(editor);

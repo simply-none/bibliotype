@@ -40,3 +40,33 @@
   = 该位置之前的注文字数。
 - 验证限制：`lineOffsets` 依赖真实布局（`getClientRects`），happy-dom 无布局引擎 → 单测覆盖不到，
   需在浏览器 / demo 手工确认。
+
+## 已知缺陷 / 第三方 API 陷阱（分析结论，修复前不得「想当然」）
+
+> 详见仓库根 `编辑次工具栏-功能失效分析.md`（含完整实测矩阵与探针原始输出）。
+
+- **`Node.cut()` 返回同类 Node，不是 Fragment**（`prosemirror-model` 类型声明 `Node.cut(from,to): Node`）。
+  想拿一段「行内内容碎片」必须用 `Fragment.cut`，即 `paragraph.content.cut(relFrom, relTo)`；
+  写成 `paragraph.cut(from,to)` 会把整个 `<paragraph("…")>` 当内容传出。
+- **`Selection.content()` 默认 `includeParents=true`** → 切片根是块级祖先
+  （`doc.slice(from,to,true)` → `children=["chapter"], openStart=2`）。**行内节点包裹命令绝不能直接拿它当内容**：
+  `packages/editor/src/commands.ts` 的 `insertInlineNodeWrapping` 现就是这么写的 → 夹注 / 异体载体 /
+  避讳载体在「选中文字」时必抛 `Invalid content for node <type>: <chapter(paragraph(...))>`，
+  且因抛在 `dispatch` 之前而**完全无反应**（异常 → 无事务 → `version` 不自增 → 不重排）。
+- **prosemirror 1.25 起 `Node.hasMarkup(type, null)` 不再短路**（改为与 `type.defaultAttrs` 比较，
+  见 prosemirror-model dist `hasMarkup`）。后果：`prosemirror-commands.setBlockType(type)` /
+  `Transform.setBlockType` 最终执行 `type.create(attrsHere, null, node.marks)`，**attrsHere=null →
+  节点属性整体归默认** → 用 `setParagraph()` / `setHeadingLevel(n)` 会把块 **`id` 清空**
+  （实测 `irId p-1 => undefined`）。自定义「改块类型」命令时须显式保留 `id`
+  （`{...node.attrs, ...patch}` 或 `tr.setNodeMarkup`）。`wrapIn`（如 `toggleQuote`）不受影响。
+- **IR 属性输出规则**：`schema-registry` / `pm-to-ir` 对「等于 spec 默认值」的属性**省略不输出**。
+  因此**兜底默认值必须与 spec 默认一致**：heading spec `level.default = 1`，而
+  `html-serializer` 缺省回退 **2** → **H1 经 IR 往返后渲染 / 导出成 `<h2>`**（H2/H3 正常）。
+- **`book-css.ts` 样式覆盖存在空洞**（序列化产物有 class，但没有对应规则 → 插入后不可见）：
+  `.bt-seal`（印文只在 `attrs.text`，元素为空）、`.bt-fish-tail`、`.bt-border-frame`、`.bt-inline-note`、
+  `.bt-variant-char`（注意 `.bt-mark-variant` 有、载体没有，**不对称**）、`.bt-tail-note`（只出现在
+  后代选择器里，无基样式）。已覆盖的：double-note / head-note / collation-note / imprint / colophon /
+  footnote / endnote / margin-note / collation-mark（`::after{content:attr(data-symbol)}`）/ taboo-char。
+- **分页落模丢标记继承**：`packages/vue/src/paged-editor/edit-applier.ts` 的 `applyFragmentEdit` 用
+  `state.schema.text(text)`（无 marks）→ 点标记后打字 / 在已标记文本中间打字都不继承（PM 原生
+  `insertText` 会继承 `storedMarks || $from.marks()`）。

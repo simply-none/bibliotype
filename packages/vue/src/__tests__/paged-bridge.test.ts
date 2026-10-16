@@ -5,7 +5,7 @@
  * edit-applier：以真实 BookEditor（ProseMirror 模型）验证文本插入 / 删除落到 IR 文档，脱浏览器可测。
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
+import { MARK_TYPES, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import type { MeasurableBlock } from '@bibliotype/layout';
 import { BookEditor, buildEditorSchema } from '@bibliotype/editor';
 import { collectNodeText, extractBlocks, findNodeById } from '@bibliotype/reader';
@@ -156,5 +156,30 @@ describe('edit-applier 落模（真实 BookEditor）', () => {
     expect(editor.editorState.doc).toBe(before);
     expect(editor.editorState.selection.from).toBe(2);
     expect(editor.editorState.selection.to).toBe(4);
+  });
+
+  it('片段落模继承 storedMarks（先点标记再打字不丢标记，R5 修复）', () => {
+    const { editor, id } = freshEditor('子曰学而时习之');
+    const strong = editor.bookSchema.marks[MARK_TYPES.STRONG];
+    expect(strong).toBeDefined();
+    // 模拟「工具栏点了 B」：光标处挂待输入 strong 标记
+    editor.dispatch(editor.editorState.tr.setStoredMarks([strong!.create()]));
+
+    const ok = applyFragmentEdit(editor, indexFor(editor), id, 0, 0, 0, 'X', 26);
+    expect(ok).toBe(true);
+
+    // 插入的「X」应携带 strong 标记（修复前 schema.text(text) 不带 marks 会丢失）
+    let hasStrong = false;
+    editor.editorState.doc.descendants((node) => {
+      if (
+        node.isText &&
+        node.text === 'X' &&
+        node.marks.some((mark) => mark.type.name === MARK_TYPES.STRONG)
+      ) {
+        hasStrong = true;
+      }
+      return true;
+    });
+    expect(hasStrong).toBe(true);
   });
 });

@@ -56,7 +56,7 @@ describe('元素与结构', () => {
     );
   });
 
-  it('heading：level 映射 h1~h6 并钳制，缺省 h2', () => {
+  it('heading：level 映射 h1~h6 并钳制，缺省 h1（与 spec 默认对齐，R3）', () => {
     expect(
       serializeNode({
         type: NODE_TYPES.HEADING,
@@ -65,8 +65,9 @@ describe('元素与结构', () => {
       }),
     ).toBe('<h3 class="bt-heading" data-level="3">章一</h3>');
 
+    // 省略 level（等于 spec 默认值 1）时回退 h1，不再退化成 h2
     expect(serializeNode({ type: NODE_TYPES.HEADING, children: [] })).toBe(
-      '<h2 class="bt-heading"></h2>',
+      '<h1 class="bt-heading"></h1>',
     );
     expect(serializeNode({ type: NODE_TYPES.HEADING, attrs: { level: 9 } })).toBe(
       '<h6 class="bt-heading" data-level="9"></h6>',

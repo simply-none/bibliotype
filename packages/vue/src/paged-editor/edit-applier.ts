@@ -37,7 +37,10 @@ export function applyFragmentEdit(
 
   const tr = state.tr;
   if (text.length > 0) {
-    tr.replaceWith(from, to, state.schema.text(text));
+    // 继承光标处的标记（与 PM 原生 insertText 一致）：优先 storedMarks（工具栏点选的待输入标记），
+    // 否则取光标所在处的 marks。否则分页态下「先点标记再打字」会丢失标记（R5）。
+    const marks = state.storedMarks ?? state.doc.resolve(from).marks();
+    tr.replaceWith(from, to, state.schema.text(text, marks));
   } else {
     if (from === to) return false;
     tr.delete(from, to);

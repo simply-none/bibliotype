@@ -12,7 +12,12 @@ import { lift, setBlockType, toggleMark, wrapIn } from 'prosemirror-commands';
 import { redo, undo } from 'prosemirror-history';
 import type { Attrs, Mark, MarkType, Node as PmNode, NodeType, Schema } from 'prosemirror-model';
 import { liftListItem, wrapInList } from 'prosemirror-schema-list';
-import { TextSelection, type Command, type EditorState } from 'prosemirror-state';
+import {
+  TextSelection,
+  type Command,
+  type EditorState,
+  type Transaction,
+} from 'prosemirror-state';
 import { RAW_ATTRS_ATTR, declaredAttrNames } from './attr-mapper.js';
 
 /* ---------- 历史 ---------- */
@@ -127,25 +132,68 @@ export function unsetLink(): Command {
 
 /* ---------- 段落与块级 ---------- */
 
+/**
+ * 切换选中文本块的类型，但显式保留每个块的 `id`。
+ *
+ * 背景：prosemirror-commands 的 `setBlockType` 以 `type.create(attrsHere, null, marks)`
+ * 重建节点，且 `prosemirror-model@1.25` 的 `hasMarkup` 不再对 `attrs == null` 短路，
+ * 导致即便「已是该类型」也会重写、`id` 被整体归默认 —— 表现为工具栏「正文 / H1 / H2 / H3」
+ * 每次点击都把块的 `id` 清空（`packages/editor/src/commands.ts` R2）。此处改用
+ * `tr.setNodeMarkup` 并为每个块合并 `{ ...原 attrs, ...patch }`，从而保留 `id` 与 `rawAttrs`。
+ *
+ * 跨文本块选区会逐块处理，分别保留各自 `id`；与原生 `setBlockType` 不同，本函数不会把
+ * 单一 `attrs` 套用到所有块。
+ */
+function setBlockTypeKeepingId(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  nodeType: NodeType,
+  patch: Attrs = {},
+): boolean {
+  const { from, to } = state.selection;
+  const tr = state.tr;
+  let changed = false;
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isTextblock) {
+      return true; // 继续向块内下钻
+    }
+    if (!node.type.compatibleContent(nodeType)) {
+      return false; // 目标类型不兼容，跳过该块
+    }
+    const merged = { ...node.attrs, ...patch };
+    if (node.hasMarkup(nodeType, merged)) {
+      return false; // 已是目标类型且属性一致，无需改写
+    }
+    tr.setNodeMarkup(pos, nodeType, merged);
+    changed = true;
+    return false; // 不再下钻文本块内部
+  });
+  if (changed) {
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  }
+  return false;
+}
+
 /** 将当前块设为标题（level 1~6；schema 未注册 heading 时不可用） */
 export function setHeadingLevel(level: number): Command {
-  return (state, dispatch, view) => {
+  return (state, dispatch) => {
     const heading = findNodeType(state.schema, NODE_TYPES.HEADING);
     if (heading === undefined) {
       return false;
     }
-    return setBlockType(heading, { level })(state, dispatch, view);
+    return setBlockTypeKeepingId(state, dispatch, heading, { level });
   };
 }
 
 /** 将当前块设为正文段落 */
 export function setParagraph(): Command {
-  return (state, dispatch, view) => {
+  return (state, dispatch) => {
     const paragraph = findNodeType(state.schema, NODE_TYPES.PARAGRAPH);
     if (paragraph === undefined) {
       return false;
     }
-    return setBlockType(paragraph)(state, dispatch, view);
+    return setBlockTypeKeepingId(state, dispatch, paragraph);
   };
 }
 
@@ -468,11 +516,25 @@ export function insertInlineNodeWrapping(typeName: string, attrs?: Attrs): Comma
       dispatch?.(tr.scrollIntoView());
       return true;
     }
-    const node = type.createChecked(attrs ?? null, state.selection.content().content);
+    const $from = state.selection.$from;
+    const $to = state.selection.$to;
+    // 跨块选区无法用单一行内 Fragment 表达（其根会是块级祖先），显式放弃，
+    // 避免 `type.createChecked(...)` 吞入块级切片而抛 `Invalid content` 异常
+    // （选中文字点击夹注 / 异体载体 / 避讳载体「完全无反应」的根因，R1）。
+    if ($from.parent !== $to.parent) {
+      return false;
+    }
+    const start = $from.start();
+    const inner = $from.parent.content.cut(from - start, to - start);
+    const node = type.createChecked(attrs ?? null, inner);
     if (node === null) {
       return false;
     }
-    dispatch?.(state.tr.replaceRangeWith(from, to, node).scrollIntoView());
+    const tr = state.tr.replaceRangeWith(from, to, node);
+    // 把光标移入新包裹节点内部（与空选区分支一致），否则光标落在夹注之后
+    const inside = tr.doc.resolve(from + 1);
+    tr.setSelection(TextSelection.between(inside, inside));
+    dispatch?.(tr.scrollIntoView());
     return true;
   };
 }

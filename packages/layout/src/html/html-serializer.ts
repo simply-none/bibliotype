@@ -101,7 +101,9 @@ function resolveTag(node: BookNode, options: SerializeNodeOptions): string {
 
   if (node.type === NODE_TYPES.HEADING) {
     const raw = node.attrs?.level;
-    const level = typeof raw === 'number' ? Math.round(raw) : 2;
+    // 缺省回退为 1：与 heading spec 的 `level.default = 1` 对齐。
+    // IR 对「等于默认值」的 level 省略输出，若此处回退 2 会导致 H1 经 IR 往返退化成 h2（R3）。
+    const level = typeof raw === 'number' ? Math.round(raw) : 1;
     return `h${Math.min(6, Math.max(1, level))}`;
   }
   if (node.type === NODE_TYPES.LIST) {

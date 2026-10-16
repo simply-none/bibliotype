@@ -86,6 +86,21 @@ describe('buildBookCss', () => {
     expect(css).toContain('ruby > rt');
   });
 
+  it('古籍装饰 / 载体节点基样式（R4 修复：此前缺规则导致插入不可见 / 无区别）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    // 行内载体 / 装饰
+    expect(css).toContain('.bt-inline-note');
+    expect(css).toContain('.bt-variant-char');
+    expect(css).toContain('.bt-seal');
+    expect(css).toContain('.bt-seal::after');
+    expect(css).toContain('content: attr(data-text);');
+    expect(css).toContain('.bt-fish-tail');
+    expect(css).toContain('.bt-fish-tail::after');
+    // 块级容器
+    expect(css).toContain('.bt-border-frame');
+    expect(css).toContain('.bt-tail-note');
+  });
+
   it('书籍要素类样式：结构页角色/双行小注/眉批/脚注/校勘/页码', () => {
     const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
     expect(css).toContain("[data-role='cover-title']");

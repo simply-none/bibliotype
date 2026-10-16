@@ -348,6 +348,57 @@ ${scoped('.bt-mark-variant')} {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
 }
+
+/* 行内载体与装饰节点基样式：序列化产物已有 bt-* class，
+ * 此前缺基样式导致「插入了但看不见 / 看不出区别」（R4）。
+ * 其中 .bt-variant-char 与标记 .bt-mark-variant 对称，统一点状下划线。 */
+${scoped('.bt-inline-note')} {
+  font-size: 0.85em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+${scoped('.bt-variant-char')} {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+${scoped('.bt-seal')} {
+  display: inline-block;
+  padding: 0.1em 0.3em;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  line-height: 1;
+}
+${scoped('.bt-seal::after')} {
+  content: attr(data-text);
+}
+${scoped('.bt-fish-tail')} {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.6em;
+  border-top: 1px solid var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  border-bottom: 1px solid var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  position: relative;
+  vertical-align: middle;
+}
+${scoped('.bt-fish-tail::after')} {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+${scoped('.bt-border-frame')} {
+  border: 3px double var(--bt-${COLOR_TOKENS.TEXT});
+  padding: 0.5em 0.75em;
+  margin: 0.5em 0;
+}
+${scoped('.bt-tail-note')} {
+  display: block;
+  margin: 0.8em 0;
+  padding-inline-start: 1.2em;
+  font-size: 0.85em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
 ${scoped('.bt-mark-book-title')} {
   text-decoration: underline wavy;
   text-decoration-thickness: 1px;

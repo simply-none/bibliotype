@@ -6,8 +6,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { MeasurableBlock } from '@bibliotype/layout';
+import { serializeNode } from '@bibliotype/layout/html';
 import type { BookNode } from '@bibliotype/core';
-import { NODE_TYPES } from '@bibliotype/core';
+import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
 import { buildPagedIndex } from '../paged-editor/selection-bridge.js';
 import {
   blockFragments,
@@ -107,5 +108,57 @@ describe('input-router DOM 定位', () => {
     const pos = domPosInFrag(el, 999);
     expect(pos).not.toBeNull();
     expect(charOffsetInFrag(el, pos!.container, pos!.offset)).toBeLessThanOrEqual(7);
+  });
+});
+
+describe('input-router：注音（ruby）注文不进入字符轴', () => {
+  /**
+   * 含 ruby 注音的段落 IR，经真实序列化器产出片段 DOM。
+   *
+   * 模型文本轴 = 「学而时习之」（5 字）；若把 <rt>xu</rt> 的注文计入 DOM 轴
+   * 则成「学xu而时习之」（7 字）—— 两轴错位使选区换算整体右移（本组回归点）。
+   */
+  function rubyPara(): BookNode {
+    return {
+      type: NODE_TYPES.PARAGRAPH,
+      id: 'p-1',
+      children: [
+        { type: 'text', text: '学', marks: [{ type: MARK_TYPES.RUBY, attrs: { text: 'xu' } }] },
+        { type: 'text', text: '而时习之' },
+      ],
+    };
+  }
+
+  function rubyFrag(): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'bt-paged-frag';
+    el.dataset.blockId = 'p-1';
+    el.dataset.fromLine = '0';
+    el.innerHTML = serializeNode(rubyPara());
+    return el;
+  }
+
+  it('序列化契约：ruby mark 输出 <ruby>基字<rt>注文</rt></ruby>', () => {
+    expect(serializeNode(rubyPara())).toContain('<ruby>学<rt>xu</rt></ruby>');
+  });
+
+  it('fragPlainText 与模型文本轴一致（注文不计入）', () => {
+    expect(fragPlainText(rubyFrag())).toBe('学而时习之');
+  });
+
+  it('charOffsetInFrag：ruby 之后的选区不右移', () => {
+    const el = rubyFrag();
+    const tail = el.querySelector('p')!.lastChild as Text;
+    expect(tail.data).toBe('而时习之');
+    // 选中「而时」：片段 DOM 内 [0,2) 应对应模型轴 [1,3)
+    expect(charOffsetInFrag(el, tail, 0)).toBe(1);
+    expect(charOffsetInFrag(el, tail, 2)).toBe(3);
+  });
+
+  it('domPosInFrag ⇄ charOffsetInFrag 往返一致', () => {
+    const el = rubyFrag();
+    const pos = domPosInFrag(el, 1);
+    expect(pos).not.toBeNull();
+    expect(charOffsetInFrag(el, pos!.container, pos!.offset)).toBe(1);
   });
 });

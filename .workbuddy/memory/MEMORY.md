@@ -24,3 +24,19 @@
 
 - `extractBlocksIndexed` 的块序列与块 id 只由 IR 结构决定（`blockSizes` / `lineOffsets` / `lineSizes`
   仅影响尺寸字段），故同一文档的结构抽取结果可跨轮复用（`measurePagination` 的 `extracted` 入参）。
+
+## 字符坐标轴（模型轴 vs DOM 轴）
+
+- **模型轴**（权威口径）：`reader.collectNodeText` / `layout` 的 `nodeTextLength` —— 只拼文本子节点，
+  **不含** mark 的 `attrs.text`（如 ruby 注文），也不含任何元素载体的「文本长度 0」。
+- **DOM 轴**：`html-serializer` 把 ruby 渲染为 `<ruby>基字<rt>注文</rt></ruby>`，`<rt>` 是真实文本节点
+  → DOM 轴比模型轴多出注文长度。
+- **红线**：凡把 DOM 文本折算为模型字符偏移的地方，必须跳过注文子树（`<rt>` / `<rp>`），统一用
+  `packages/vue/src/ruby-annotation.ts` 的 `isRubyAnnotationElement` / `isRubyAnnotationText`。
+  已知使用点：`paged-editor/input-router.fragTextNodes`、`pagination-measure.collectTextOffsets`
+  （后者的 `lineOffsets` 同时喂 `sliceNodeByCharRange` 切片与选区映射，口径错了切片与选区一起错）。
+- CSS 伪元素（如 `.bt-collation-mark::after` 的 `content`）不是 DOM 文本节点，不污染字符轴；`<rt>` 会。
+- 症状速查：同段落选中内容之前有注音时，行内标记落点 / IME 插入 / 光标还原整体右移，偏移量
+  = 该位置之前的注文字数。
+- 验证限制：`lineOffsets` 依赖真实布局（`getClientRects`），happy-dom 无布局引擎 → 单测覆盖不到，
+  需在浏览器 / demo 手工确认。

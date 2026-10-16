@@ -29,6 +29,7 @@ import {
   type BlockMeasureContext,
   type ExtractedBlocks,
 } from '@bibliotype/reader';
+import { isRubyAnnotationText } from './ruby-annotation.js';
 
 /** 量尺输入 */
 export interface MeasureBlockSizesInput {
@@ -145,7 +146,14 @@ function lastBlockSize(el: HTMLElement): number {
   return el.offsetHeight + marginTop + marginBottom;
 }
 
-/** 收集元素内文本节点及其起始全局字符偏移（与 collectNodeText / 切片口径一致） */
+/**
+ * 收集元素内文本节点及其起始全局字符偏移（与 collectNodeText / 切片口径一致）。
+ *
+ * 跳过 ruby 注文（`<rt>` / `<rp>`，见 `ruby-annotation`）：注文是渲染期注释、
+ * 不属模型文本；计入会使行首字符偏移比模型轴多出注文长度，而该偏移同时用于
+ * 片段切片（`sliceNodeByCharRange`）与选区 / 光标换算，导致含注音段落的切片边界
+ * 与选区落点整体错位。
+ */
 function collectTextOffsets(el: HTMLElement): { node: Text; start: number; len: number }[] {
   const list: { node: Text; start: number; len: number }[] = [];
   if (typeof document === 'undefined' || typeof document.createTreeWalker !== 'function') {
@@ -155,9 +163,11 @@ function collectTextOffsets(el: HTMLElement): { node: Text; start: number; len: 
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   let n = walker.nextNode() as Text | null;
   while (n !== null) {
-    const len = n.data.length;
-    if (len > 0) list.push({ node: n, start: offset, len });
-    offset += len;
+    if (!isRubyAnnotationText(n, el)) {
+      const len = n.data.length;
+      if (len > 0) list.push({ node: n, start: offset, len });
+      offset += len;
+    }
     n = walker.nextNode() as Text | null;
   }
   return list;

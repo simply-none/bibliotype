@@ -94,6 +94,33 @@
 **参考实现**：`apps/demo/src/composables/use-draft-autosave.ts`（调度策略）、
 `apps/demo/src/App.vue`（接线与状态展示）。
 
+## 7. 段落含注音时，选中后加行内标记（异体等）样式偏移到右边
+
+**现象**：编辑态分页视图里，选中一段文字后点工具栏「异体」，标记落到选中内容**右侧**的
+字上（看起来像选错了）。前提：同一段落中，选中内容**之前**已有「注音」（ruby）。
+
+**根因**：字符坐标轴不一致。模型轴（IR / PM / 切片）**不含**注文字符——注文存在 ruby 标记的
+`attrs.text` 里，不是文本子节点（口径见 `reader.collectNodeText` / `layout` 的
+`nodeTextLength`）；而片段 DOM 轴**含**注文——`html-serializer` 把 ruby 渲染为
+`<ruby>基字<rt>注文</rt></ruby>`，`<rt>` 是真实文本节点。把 DOM 文本折算为模型偏移时若计入
+注文，偏移就比模型多出「选中位置之前的注文字数」，选区 / 光标 / 行首偏移随之整体右移。
+
+**处理与排查**：
+
+- DOM 文本采集处一律跳过 ruby 注文子树（`<rt>` / `<rp>`）：`vue` 包统一用 `ruby-annotation`
+  的 `isRubyAnnotationElement` / `isRubyAnnotationText`；
+- 受影响的是**所有**把 DOM 文本当模型偏移用的地方，已覆盖两处：`paged-editor/input-router`
+  的 `fragTextNodes`（片段 DOM ⇄ 片段内字符偏移：行内标记落点、IME 插入、光标还原、
+  跨片段导航）与 `pagination-measure` 的 `collectTextOffsets`（实测行首偏移 `lineOffsets`：
+  片段切片边界与选区映射）；
+- 排查口诀：凡「DOM 里占位、模型里不存在」的字符都可能污染字符轴。CSS 伪元素
+  （如 `.bt-collation-mark::after` 的 `content`）不是 DOM 文本节点，不受影响；`<rt>` 是
+  DOM 文本节点，必须显式排除；
+- 回归用例：`packages/vue/src/__tests__/paged-input.test.ts`（「注音（ruby）注文不进入字符轴」组）
+  与 `packages/vue/src/__tests__/ruby-annotation.test.ts`；
+- **验证限制**：`lineOffsets` 依赖真实布局（`getClientRects`），happy-dom 无布局引擎 →
+  单测只覆盖注文识别与片段级换算；含注音多行段落的切片边界需在浏览器 / demo 中手工确认。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

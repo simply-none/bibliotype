@@ -13,6 +13,7 @@
  * - IME 组合差分（diffTextReplace：组合首尾快照求公共前后缀 → 单次替换落模）；
  * - 模型块内字符 → 页/片段归属（resolveCaretTarget：caret 还原与跨页导航共用）。
  */
+import { isRubyAnnotationElement } from '../ruby-annotation.js';
 import { charOfLine, type PagedBlockLoc, type PagedIndex } from './selection-bridge.js';
 import type { PagedFragment, PagedPage } from './use-paged-layout.js';
 
@@ -89,7 +90,15 @@ export function resolveCaretTarget(
   };
 }
 
-/** 收集片段子树文本节点（手工文档序递归，不依赖 TreeWalker 实现差异） */
+/**
+ * 收集片段子树文本节点（手工文档序递归，不依赖 TreeWalker 实现差异）。
+ *
+ * 跳过 ruby 注文子树（`<rt>` / `<rp>`，见 `ruby-annotation`）：注文由
+ * html-serializer 从 mark 的 attrs.text 渲染而来，**不是模型文本**（模型轴口径
+ * 见 `node-slice` 的 `nodeTextLength`）。若计入，DOM 字符轴会比模型轴多出注文
+ * 长度，使 `charOffsetInFrag` / `domPosInFrag` / `fragPlainText` 全部错位——
+ * 典型症状是同段落中选中内容之前有注音时，mark 落点与 IME 插入位置整体右移。
+ */
 export function fragTextNodes(
   fragEl: HTMLElement,
 ): { node: Text; start: number; len: number }[] {
@@ -102,6 +111,10 @@ export function fragTextNodes(
       offset += data.length;
       return;
     }
+    // 元素：注文子树整体跳过（不递归），保证 DOM 文本轴与模型文本轴同口径
+    if (el.nodeType === 1 && isRubyAnnotationElement(el as Element)) {
+      return;
+    }
     const children = el.childNodes;
     for (let i = 0; i < children.length; i += 1) {
       const child = children.item(i);
@@ -112,7 +125,7 @@ export function fragTextNodes(
   return list;
 }
 
-/** 片段纯文本（与 collectNodeText / 切片口径一致：拼接文本节点） */
+/** 片段纯文本（与 collectNodeText / 切片口径一致：拼接文本节点，不含 ruby 注文） */
 export function fragPlainText(fragEl: HTMLElement): string {
   return fragTextNodes(fragEl)
     .map((e) => e.node.data)

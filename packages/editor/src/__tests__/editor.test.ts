@@ -168,6 +168,90 @@ describe('BookEditor getSharedDocument（增量 IR）', () => {
   });
 });
 
+describe('BookEditor onChange 快照（共享 IR 广播）', () => {
+  /** 两个并列卷的文档：编辑其一，另一卷的 IR 子树应跨快照复用引用 */
+  function twoVolumeDoc(): BookDocument {
+    const doc = createEmptyDocument({ title: '论语' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.VOLUME,
+        id: 'vol-a',
+        attrs: { title: '卷一' },
+        children: [
+          {
+            type: NODE_TYPES.PARAGRAPH,
+            id: 'p-a',
+            children: [{ type: 'text', text: '子曰：学而时习之。' }],
+          },
+        ],
+      },
+      {
+        type: NODE_TYPES.VOLUME,
+        id: 'vol-b',
+        attrs: { title: '卷二' },
+        children: [
+          {
+            type: NODE_TYPES.PARAGRAPH,
+            id: 'p-b',
+            children: [{ type: 'text', text: '为政以德。' }],
+          },
+        ],
+      },
+    ];
+    return doc;
+  }
+
+  it('订阅快照与全量导出深度同构', () => {
+    const editor = new BookEditor();
+    const received: BookDocument[] = [];
+    editor.onChange((doc) => received.push(doc));
+
+    editor.loadDocument(sampleDoc());
+
+    expect(received[0]).toEqual(editor.getDocument());
+    expect(received[0]).toEqual(sampleDoc());
+  });
+
+  it('相邻两次订阅快照复用未变子树引用（广播不做全量重建）', () => {
+    const editor = new BookEditor();
+    const received: BookDocument[] = [];
+    editor.onChange((doc) => received.push(doc));
+    editor.loadDocument(twoVolumeDoc());
+
+    // 文档末尾追加一段：只能使根与新增块重建，两个既有卷的 PM 子树保持不变
+    const tr = editor.createTransaction();
+    tr.insert(
+      tr.doc.content.size,
+      editor.bookSchema.node('paragraph', { id: 'p-new' }, editor.bookSchema.text('新增段落')),
+    );
+    editor.dispatch(tr);
+
+    expect(received).toHaveLength(2);
+    const before = received[0]?.root.children ?? [];
+    const after = received[1]?.root.children ?? [];
+    expect(after).toHaveLength(3);
+    // 全量导出仍与新快照同构；未变卷的 IR 节点是同一引用（O(变更子树) 广播的证据）
+    expect(received[1]).toEqual(editor.getDocument());
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+  });
+
+  it('同一同步帧内重复快照与最近一次广播同源（缓存有效）', () => {
+    const editor = new BookEditor();
+    const received: BookDocument[] = [];
+    editor.onChange((doc) => received.push(doc));
+    editor.loadDocument(sampleDoc());
+
+    const tr = editor.createTransaction();
+    tr.insertText('仁', 4);
+    editor.dispatch(tr);
+
+    const latest = received[received.length - 1];
+    expect(editor.getSharedDocument()).toEqual(latest);
+    expect(editor.getSharedDocument().root).toBe(latest?.root);
+  });
+});
+
 describe('BookEditor 元数据', () => {
   /** 载入含全量元数据的文档 */
   function metaEditor(): BookEditor {

@@ -66,7 +66,23 @@ useReader(docRef);
 | `BtPager` | `reader: Reader` | 翻页控件：上一页 / 页码 / 下一页 |
 | `BtToc` | `reader: Reader`；emit `select(item)` | 目录树；点击经 `goToNode` 跳页并抛出 `select` |
 | `BtTocItem` | `item: OutlineItem`；emit `select` | 单个目录项（层级递归） |
-| `BtEditor` | `editor: BookEditor`、`tokens?`、`options?`、`fontToken?`、`pagination?`、`pageMainSize?`、`measure?`、`blockSizes?`、`editable?`、`scale?` | 编辑画布；默认插槽作用域透传 `EditorBinding`。`pagination` 开启后渲染「分页纸张」（逐页等高纸面 + 页间缝隙 + 页码）；横排断页尺寸以编辑器 DOM 实时实测为准（`blockSizes` 仅直排 / 多栏回退），超高页随内容增高不溢出纸外 |
+| `BtEditor` | `editor: BookEditor`、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?`；emit `update:visiblePage` | 编辑画布；默认插槽作用域透传 `EditorBinding`。`pagination` 开启后走自定义可编辑分页内核（`PagedCanvas` 真实书页盒 + 行级跨页续排 + 虚拟化，直排 / 多栏自动回退连续画布），可编辑桥经 `selection-bridge` 把片段输入落成 `BookEditor` 事务；`loading` 在首轮分页就绪前以遮罩挡住未分页内容，`initialPage` 首轮分页后定位（阅读页 ↔ 编辑视口页位置记忆），`editable=false` 只读 |
+
+### 编辑保存链路
+
+编辑态本身不做持久化——落盘策略由使用方决定。要点（完整实现见
+[`apps/demo/src/composables/use-draft-autosave.ts`](../apps/demo/src/composables/use-draft-autosave.ts)）：
+
+| 环节 | 做法 | 原因 |
+| --- | --- | --- |
+| 变更感知 | `editor.onChange(...)` + `editor.isDirty` | 广播快照是共享 IR（只读），逐键事务零全量转换 |
+| 快照 | `editor.getSharedDocument()` | O(变更子树)；`getDocument()` 是 O(全文档)，只用于低频导出 |
+| 调度 | 节流合并 + 空闲时段 + 单飞去重 | 整本 `put` 是几十毫秒级主线程任务，不能落在输入帧上 |
+| 基准 | 快照与 `markSaved()` 同一同步帧 | 否则 await 期间的新编辑会被误标为「已保存」 |
+| 兜底 | 转后台 / `Ctrl`(`Cmd`)+`S` / 卸载前 `flush` | 长句连续输入与关页面场景不丢内容 |
+
+> 详情与实测口径：[02 编辑器与插件](02-editor-and-plugins.md) 快照口径、
+> [10 存储适配器](10-storage-adapters.md) 保存策略、[14 常见问题](14-faq.md) 第 6 条。
 
 ### 阅读器组合示例
 

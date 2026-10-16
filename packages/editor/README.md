@@ -30,7 +30,7 @@ const editor = new BookEditor({
   document: createEmptyDocument({ title: '论语集解' }),
 });
 
-/* 2. 订阅文档变更（每次事务后回调最新 BookDocument） */
+/* 2. 订阅文档变更（每次事务后回调最新快照：共享 IR，视为只读） */
 const off = editor.onChange((document) => {
   console.log('文档已变更：', document.metadata.title);
 });
@@ -42,6 +42,11 @@ undoCommand(editor.editorState, (tr) => editor.dispatch(tr));
 const document = editor.getDocument();
 off();
 ```
+
+> 保存链路性能：`onChange` 的快照与 `getSharedDocument()` 同源（PM→IR 结构共享），
+> 逐键事务下是 O(变更子树) 而非 O(全文档) 转换；确认落盘成功后调用 `markSaved()`
+> 刷新脏基准。整本序列化 / 写库请做节流或放到空闲时段（见
+> [docs/10 存储适配器](../../docs/10-storage-adapters.md)）。
 
 ## API 概览
 
@@ -56,7 +61,10 @@ off();
 | `getDocument()` | 导出 `BookDocument`（metadata 与 schemaVersion 随载入值保留） |
 | `createTransaction()` | 基于当前状态创建事务 |
 | `dispatch(transaction)` | 应用事务；文档变化时广播变更 |
-| `onChange(handler)` | 订阅变更，返回取消订阅函数 |
+| `onChange(handler)` | 订阅变更，返回取消订阅函数；回调参数是**共享 IR 快照（视为只读）** |
+| `getDocument()` | 全量导出（O(全文档)）；仅用于落盘 / 导出等低频路径 |
+| `getSharedDocument()` | 增量导出（未变子树复用同一引用，O(变更子树)）；高频快照管线用 |
+| `isDirty` / `markSaved()` | 脏标记：相对上次 `markSaved` 是否有未保存变更 |
 
 ### 规格与 schema（D8）
 

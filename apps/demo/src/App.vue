@@ -14,6 +14,8 @@
  * 字号 / 行距变更经双通道联动（tokens 视觉 + repaginate measure 估算），
  * 主题切换重建 Reader 并清空布局补丁（书写方向随主题），字号等个人设置保留；
  * 刷新启动恢复上次会话：内容取 IndexedDB 草稿回写预览，页码取 localStorage 回跳。
+ * 编辑自动保存走「节流合并 + 空闲落盘 + 单飞去重」（composables/use-draft-autosave）：
+ * 序列化与整本写入都不落在输入帧上；Ctrl/Cmd+S 立即保存，转入后台 / 关闭前兜底落盘。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import {
@@ -54,6 +56,7 @@ import ImportPanel from './components/ImportPanel.vue';
 import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
+import { useDraftAutosave } from './composables/use-draft-autosave.js';
 import { lunyuDocument } from './data/lunyu.js';
 
 /* ---------------- 主题定义 ---------------- */
@@ -331,7 +334,7 @@ function fitEditorWidth(): void {
   editorScale.value = Math.min(2, Math.max(0.2, ratio));
 }
 
-/* ---------- 脏标记 + 自动持久化（IndexedDB 草稿，复用 adapter-indexeddb） ---------- */
+/* ---------- 脏标记 + 自动保存（IndexedDB 草稿，复用 adapter-indexeddb） ---------- */
 
 /** 草稿存储适配器：本地 IndexedDB 持久化（库 / 仓名与正式文档库区分） */
 const draftStore = new IndexedDbAdapter({
@@ -340,59 +343,45 @@ const draftStore = new IndexedDbAdapter({
 });
 /** 草稿记录 id（Demo 单文档，固定键） */
 const DRAFT_ID = 'current';
-/** 自动保存去抖间隔（ms） */
-const AUTOSAVE_DELAY = 1500;
+
+/**
+ * 自动保存调度器（策略见 composables/use-draft-autosave）：
+ * 节流合并 + 空闲落盘 + 单飞去重——序列化与整本写入都不落在输入帧上。
+ */
+const autosave = useDraftAutosave({
+  editor: () => bookEditor.value,
+  store: draftStore,
+  id: DRAFT_ID,
+});
 
 /** 是否存在未保存变更（镜像 editor.isDirty，供工具栏展示） */
-const dirty = ref(false);
-/** 最近一次自动保存时刻（本地时间串；null 表示本次会话未保存过） */
-const savedAt = ref<string | null>(null);
+const dirty = autosave.dirty;
+/** 最近一次成功落盘时刻（本地时间串；null 表示本次会话未成功落盘过） */
+const savedAt = autosave.savedAt;
+/** 是否正在落盘（工具栏展示「保存中…」） */
+const saving = autosave.saving;
+/** 最近一次落盘是否失败（配额 / 环境不支持时保持未保存并重试） */
+const saveFailed = autosave.failed;
+
+/** 保存状态文案（失败 > 写入中 > 未保存 > 已保存时刻） */
+const saveStatusText = computed<string>(() => {
+  if (saveFailed.value) return '保存失败，重试中';
+  if (saving.value) return '保存中…';
+  if (dirty.value) return '● 未保存';
+  return savedAt.value === null ? '已保存' : `已保存 ${savedAt.value}`;
+});
 
 /** 编辑器变更取消订阅句柄（卸载时清理） */
 let unsubscribeEditor: (() => void) | null = null;
-/** 自动保存去抖计时器 */
-let autosaveTimer: number | undefined;
 
-/** 立即落盘当前文档并刷新脏基准（IndexedDB 异步写；updatedAt 由适配器内部注入） */
-async function persistDraft(): Promise<void> {
-  const editor = bookEditor.value;
-  if (editor === null) return;
-  try {
-    await draftStore.save(DRAFT_ID, editor.getDocument());
-    editor.markSaved();
-  } catch {
-    /* 写入失败（配额 / 环境不支持）：忽略，保留脏标记 */
-    return;
-  }
-  dirty.value = false;
-  savedAt.value = new Date().toLocaleTimeString();
-}
-
-/** 去抖调度自动保存（编辑停止 AUTOSAVE_DELAY 后落盘） */
-function scheduleAutosave(): void {
-  cancelAutosave();
-  autosaveTimer = window.setTimeout(() => {
-    autosaveTimer = undefined;
-    void persistDraft();
-  }, AUTOSAVE_DELAY);
-}
-
-/** 取消挂起的自动保存 */
-function cancelAutosave(): void {
-  if (autosaveTimer !== undefined) {
-    clearTimeout(autosaveTimer);
-    autosaveTimer = undefined;
-  }
-}
-
-/** 编辑器变更回调：同步脏标记并在有变更时调度自动保存 */
+/** 编辑器变更回调：同步脏标记并调度一轮合并落盘（决策与时限在 autosave 内） */
 function onEditorChange(): void {
-  const editor = bookEditor.value;
-  if (editor === null) return;
-  dirty.value = editor.isDirty;
-  if (editor.isDirty) {
-    scheduleAutosave();
-  }
+  autosave.schedule();
+}
+
+/** 立即落盘（Ctrl/Cmd+S）：跳过挂起调度，写一轮并刷新状态 */
+async function saveNow(): Promise<void> {
+  await autosave.flush();
 }
 
 /** 读取本地草稿（IndexedDB 异步；无 / 读取失败回 null） */
@@ -584,12 +573,12 @@ async function enterEdit(): Promise<void> {
 function saveAndPreview(): void {
   const editor = bookEditor.value;
   if (editor === null) return;
-  cancelAutosave();
   reader.value.loadDocument(editor.getDocument());
   // 位置记忆：回定位到编辑退出时的视口页（新文档页数可能变少，限幅后再跳）
   const target = Math.min(editorVisiblePage.value, reader.value.totalPages - 1);
   if (target >= 0) reader.value.goToPage(target);
-  void persistDraft();
+  // 取消挂起的合并落盘并立即写一轮（不等待：退出编辑的界面响应优先）
+  void autosave.flush();
   mode.value = 'read';
   // 文档变更 → 重测新文档块尺寸（旧 id 映射对新文档不适用）
   scheduleRemeasure();
@@ -597,21 +586,18 @@ function saveAndPreview(): void {
 
 /** 还原样册：编辑器内容重置为原始样例并清除草稿 */
 function resetSample(): void {
-  cancelAutosave();
+  autosave.reset();
   bookEditor.value?.loadDocument(lunyuDocument);
   void clearDraft();
-  dirty.value = false;
-  savedAt.value = null;
 }
 
 /** 导入文档：载入阅读预览，若编辑器已建则同步内容（loadDocument 重置脏基准），并落盘草稿 + 重排 */
 function onImported(doc: BookDocument): void {
-  cancelAutosave();
   reader.value.loadDocument(doc);
   bookEditor.value?.loadDocument(doc);
   dirty.value = bookEditor.value?.isDirty ?? false;
-  savedAt.value = null;
-  void persistDraft();
+  // 新内容立即落盘（导入即新基线；跳过「无待写」判定）
+  void autosave.flush({ force: true });
   scheduleRemeasure();
   importOpen.value = false;
 }
@@ -782,6 +768,17 @@ const asideVisible = computed(
 );
 
 function onKeydown(event: KeyboardEvent): void {
+  /* 编辑模式 Ctrl/Cmd+S：立即落盘（拦截浏览器「保存网页」默认行为） */
+  if (
+    mode.value === 'edit' &&
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    event.key.toLowerCase() === 's'
+  ) {
+    event.preventDefault();
+    void saveNow();
+    return;
+  }
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
   if (infoOpen.value) {
     if (event.key === 'Escape') infoOpen.value = false;
@@ -796,9 +793,15 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
-/** 存在未保存变更时离开页面提示（自动保存去抖窗口内的兜底） */
+/** 页面转入后台（切标签 / 最小化）：立即落盘，把握住真正能写完的时机 */
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'hidden') void autosave.flush();
+}
+
+/** 存在未保存变更时离开页面提示（并尽力落盘一轮） */
 function onBeforeUnload(event: BeforeUnloadEvent): void {
   if (!dirty.value) return;
+  void autosave.flush();
   event.preventDefault();
   event.returnValue = '';
 }
@@ -806,6 +809,7 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
 onMounted(() => {
   window.addEventListener('keydown', onKeydown);
   window.addEventListener('beforeunload', onBeforeUnload);
+  document.addEventListener('visibilitychange', onVisibilityChange);
   // 启动恢复上次会话（草稿内容 + 页码），就绪后视图才渲染
   void bootstrap();
   // 初次量尺（等挂载后布局完成）；字体就绪后再测一次（Web 字体影响行高）
@@ -817,14 +821,18 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   window.removeEventListener('beforeunload', onBeforeUnload);
+  document.removeEventListener('visibilitychange', onVisibilityChange);
   removeToolbarDragListeners();
   if (measureTimer !== undefined) clearTimeout(measureTimer);
-  cancelAutosave();
   unsubscribeEditor?.();
   unsubscribeEditor = null;
   unsubscribePage?.();
   unsubscribePage = null;
-  void draftStore.close();
+  // 先等在飞落盘结束再关连接（避免关库打断正在提交的事务）
+  void autosave
+    .dispose()
+    .then(() => draftStore.close())
+    .catch(() => undefined);
   disposeMeasureSheet();
 });
 </script>
@@ -837,16 +845,16 @@ onBeforeUnmount(() => {
         <span class="toolbar__hint">
           {{
             mode === 'edit'
-              ? '编辑模式 · 保存后回到阅读（页码重算）'
+              ? '编辑模式 · 自动保存 · Ctrl/Cmd+S 立即保存 · 保存并预览回阅读'
               : 'bibliotype 阅读 Demo · ←/→ 翻页'
           }}
         </span>
         <span
           v-if="mode === 'edit'"
           class="toolbar__dirty"
-          :class="{ 'toolbar__dirty--on': dirty }"
+          :class="{ 'toolbar__dirty--on': dirty || saveFailed }"
         >
-          {{ dirty ? '● 未保存' : savedAt ? `已自动保存 ${savedAt}` : '已保存' }}
+          {{ saveStatusText }}
         </span>
       </div>
       <div

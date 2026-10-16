@@ -68,13 +68,43 @@ await storage.close();                          // 释放连接（之后可再�
 
 ## 典型用法：编辑保存 + 书架列表
 
+> **保存策略（大文档必读）**：`save` 是整本 `put`（结构化克隆，成本与文档规模成正比，实测
+> 1.8 MB 文档约 27 ms），**不要**在每个变更回调里直接整本写——那会把一个几十毫秒的
+> 主线程任务压到输入帧上，表现为「打字一停手就卡一下」。正确做法：节流合并 + 放到空闲
+> 时段 + 单飞去重，快照走 `getSharedDocument()`（共享 IR，未变子树零转换）。
+
 ```ts
 import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 
 const storage = new IndexedDbAdapter();
-const off = editor.onChange(async (doc) => {
-  await storage.save('lunyu-jijie', doc);       // 每次变更整体覆盖
+const BOOK_ID = 'lunyu-jijie';
+
+let timer: ReturnType<typeof setTimeout> | undefined;
+
+/** 取快照并落盘：快照与保存基准在同一同步帧完成，await 期间的新编辑仍是「未保存」 */
+async function persist(): Promise<void> {
+  const snapshot = editor.getSharedDocument();   // 共享 IR：未变子树零转换
+  editor.markSaved();                            // 基准对齐（先对齐再 await）
+  await storage.save(BOOK_ID, snapshot);
+}
+
+/* 变更订阅只做排队；真正的写库放到空闲时段（无该 API 时回退下一个宏任务） */
+const off = editor.onChange(() => {
+  if (timer !== undefined) clearTimeout(timer);
+  timer = setTimeout(() => {
+    timer = undefined;
+    const run = (): void => void persist();
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2000 });
+    else run();
+  }, 1200);
 });
+
+/* 手动保存 / 卸载兜底：取消排队立即写一轮 */
+async function saveNow(): Promise<void> {
+  if (timer !== undefined) clearTimeout(timer);
+  timer = undefined;
+  await persist();
+}
 
 /* 书架页 */
 for (const { id, title, updatedAt } of await storage.list()) {
@@ -83,6 +113,10 @@ for (const { id, title, updatedAt } of await storage.list()) {
 
 off();
 ```
+
+> 完整实现（节流合并 / 空闲落盘 / 上限兜底 / 单飞去重 / 失败重试 / 状态机）见示例应用
+> [`apps/demo/src/composables/use-draft-autosave.ts`](../apps/demo/src/composables/use-draft-autosave.ts)，
+> 演示入口在 `apps/demo/src/App.vue`。
 
 ## 规划中的适配器
 

@@ -73,7 +73,7 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `BtPager` | `reader` | 上一页 / 下一页按钮 + 页码状态 |
 | `BtToc` | `reader`；emit `select(item)` | 目录树（点击节点跳页并上报） |
 | `BtTocItem` | `item`、`depth?` | 递归目录项（供自定义目录结构复用） |
-| `BtEditor` | `editor`（`BookEditor`）、`tokens?`、`options?`、`fontToken?`、`pagination?`、`pageMainSize?`、`measure?`、`blockSizes?`、`editable?`、`scale?` | 编辑画布：挂载 / 卸载 ProseMirror 视图；`pagination` 开启后渲染「分页纸张」（逐页等高纸面 + 页间缝隙 + 页码），横排断页尺寸以编辑器 DOM 实时实测为准（`blockSizes` 仅直排 / 多栏回退），超高页随内容增高不溢出纸外 |
+| `BtEditor` | `editor`（`BookEditor`）、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?` | 编辑画布：挂载 / 卸载 ProseMirror 视图；`pagination` 开启后走自定义可编辑分页内核（真实书页盒 + 行级跨页续排 + 虚拟化；直排 / 多栏自动回退连续画布），片段输入经 `selection-bridge` 落成 `BookEditor` 事务；`loading` 遮罩首轮分页、`initialPage` 定位视口页、`editable=false` 只读 |
 
 ## API 概览
 
@@ -82,7 +82,9 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `useReader(source?, options?)` | 创建或绑定 Reader 并转为响应式（`UseReaderReturn`） |
 | `useReaderBinding(reader)` | 绑定既有 Reader（`ReaderBinding`） |
 | `useEditorBinding(editor)` | 编辑器 DOM 视图绑定（`EditorBinding`，`attach` / `detach`） |
-| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` | 组件 |
+| `measurePagination(input)` / `measureBlockSizes(input)` | 离屏量尺：块推进尺寸 + 每行字符偏移 + 真实行高（单栏横排 DOM 实测，其余回退估算）；`input.extracted` 可复用调用方已抽好的块序列，省一次全树遍历 |
+| `buildPagedLayout(input)` / `usePagedLayout(opts)` | 编辑态分页内核：块抽取 → 量尺 → 分页 → 逐页片段（支持 `fromBlockId` 增量实测与 `targetBlockId` 定点实测） |
+| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` / `PagedCanvas` | 组件 |
 | `createBibliotype()` | Vue 插件（全局注册组件） |
 
 在组件 / `effectScope` 内调用组合式 API 时，scope 销毁会自动解绑事件与视图。

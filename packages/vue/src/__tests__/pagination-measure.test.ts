@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
+import { extractBlocksIndexed } from '@bibliotype/reader';
 import { measureBlockSizes, measurePagination, disposeMeasureSheet } from '../pagination-measure.js';
 
 function sampleDoc(): BookDocument {
@@ -116,6 +117,22 @@ describe('measurePagination', () => {
       targetBlockId: 'missing',
     });
     expect(result.sizes).toBeInstanceOf(Map);
+    disposeMeasureSheet();
+  });
+
+  it('传入 extracted 复用预抽块结果：结果同源且块仍渲染进工作表', () => {
+    const doc = sampleDoc();
+    // 块序列与块 id 只由 IR 结构决定，故同一 doc 的结构抽取可跨轮复用
+    const extracted = extractBlocksIndexed(doc, {});
+    const shared = measurePagination({ doc, options: DEFAULT_LAYOUT_OPTIONS, extracted });
+    const fresh = measurePagination({ doc, options: DEFAULT_LAYOUT_OPTIONS });
+
+    expect(shared.sizes).toEqual(fresh.sizes);
+    expect(shared.lineOffsets).toEqual(fresh.lineOffsets);
+    expect(shared.lineSizes).toEqual(fresh.lineSizes);
+    // 复用路径同样把块渲染进量尺工作表（否则实测会空转）
+    const sheet = document.getElementById('bt-measure-sheet');
+    expect(sheet?.querySelectorAll('.bt-measure-block').length).toBe(2);
     disposeMeasureSheet();
   });
 });

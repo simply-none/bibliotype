@@ -24,7 +24,11 @@ import {
   type StyleDeclaration,
 } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
-import { extractBlocksIndexed, type BlockMeasureContext } from '@bibliotype/reader';
+import {
+  extractBlocksIndexed,
+  type BlockMeasureContext,
+  type ExtractedBlocks,
+} from '@bibliotype/reader';
 
 /** 量尺输入 */
 export interface MeasureBlockSizesInput {
@@ -50,6 +54,15 @@ export interface MeasureBlockSizesInput {
    * 优先级高于 fromBlockId。
    */
   targetBlockId?: string;
+  /**
+   * 预抽块结果（可选）：调用方已用同一 doc 与同源 context 抽过块时传入，
+   * 量尺直接复用其块序列与节点索引，省掉一次全树遍历（大文档约 6 ms / 轮）。
+   *
+   * 块序列与块 id 只由 IR 结构决定（`blockSizes` 等尺寸映射仅影响尺寸字段），
+   * 故同一 doc 的结构抽取结果可安全跨轮复用；**必须与 `doc` / `measure` 同源**，
+   * 否则渲染块与分页块错位。
+   */
+  extracted?: ExtractedBlocks;
 }
 
 const SHEET_ID = 'bt-measure-sheet';
@@ -238,7 +251,8 @@ function renderMeasureSheet(
     box.width - resolvePageBorderWidth(tokens) * 2,
   );
 
-  const indexed = extractBlocksIndexed(input.doc, { context: input.measure });
+  // 块抽取：调用方已抽过（同源）则直接复用，避免同一文档重复全树遍历
+  const indexed = input.extracted ?? extractBlocksIndexed(input.doc, { context: input.measure });
   const allBlocks = indexed.blocks;
   // 渲染范围：定点 [target, target+1]（后一块仅为折叠口径参照）；尾测 [from, 末]；缺省全量
   let start = 0;

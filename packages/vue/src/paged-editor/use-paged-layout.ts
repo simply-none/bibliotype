@@ -161,19 +161,18 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   const prev = input.previous;
   const incremental = prev !== undefined && input.fromBlockId !== undefined;
 
+  // 单次结构抽取（块序列 + 节点索引）：块序列与块 id 只由 IR 结构决定（尺寸映射仅
+  // 影响尺寸字段），故探针判定、量尺渲染、最终建索引共用同一份结果 —— 每轮由三次
+  // 全树遍历降为两次（大文档省约 6 ms/轮）。
+  const structural = extractBlocksIndexed(doc, { context });
+
   // 定点判定探针：新块序列全部命中旧尺寸缓存 = 无结构性变化（纯文本编辑）
   let targetBlockId: string | undefined;
   if (incremental && input.targetBlockId !== undefined && input.targetBlockId !== '') {
     const candidate = input.targetBlockId;
-    const probe = extractBlocksIndexed(doc, {
-      context,
-      blockSizes: prev.sizes,
-      lineOffsets: prev.lineOffsets,
-      lineSizes: prev.lineSizes,
-    });
     if (
-      probe.blocks.some((block) => block.id === candidate) &&
-      probe.blocks.every((block) => prev.sizes.has(block.id))
+      structural.blocks.some((block) => block.id === candidate) &&
+      structural.blocks.every((block) => prev.sizes.has(block.id))
     ) {
       targetBlockId = candidate;
     }
@@ -187,6 +186,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     measure: input.measure,
     fromBlockId: incremental ? input.fromBlockId : undefined,
     targetBlockId,
+    extracted: structural,
   });
   // 增量：起点块之前合并旧缓存（本轮未实测）；非增量时基空表 = 全量结果
   const sizes = new Map<string, number>(incremental ? prev.sizes : []);

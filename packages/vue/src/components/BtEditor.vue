@@ -12,7 +12,8 @@
  * - props.editable（缺省 true）：为 false 时画布只读（拒绝输入 / 粘贴 / 拖拽）；
  * - props.loading（缺省 false）：分页开启时，首次分页完成前以加载占位覆盖画布，
  *   避免大文档在去抖 + 全量 DOM 实测期间先暴露未分页的连续内容；
- * - props.scale（缺省 1）：连续画布缩放（paged 模式由 PagedCanvas 自适应宽度）；
+ * - props.scale（缺省 1）：画布缩放，连续与 paged 两种模式均生效（paged 下覆盖
+ *   「按容器宽自适应且限 ≤1」，允许放大超过 100%）；
  * - props.initialPage：首轮分页就绪后定位到该页（自 0 起），配合
  *   `update:visiblePage` 事件实现「阅读当前页 ↔ 编辑视口页」位置记忆；
  * - 默认插槽作用域透传 EditorBinding（供工具条访问命令与激活态）；
@@ -85,7 +86,7 @@ const props = defineProps<{
    * 保留签名仅为兼容既有调用方。
    */
   blockSizes?: ReadonlyMap<string, number>;
-  /** 连续画布缩放比例（缺省 1；限幅 0.2~2；paged 模式忽略，按容器宽自适应） */
+  /** 画布缩放比例（缺省 1；限幅 0.2~2；paged 模式同样生效，覆盖容器宽自适应） */
   scale?: number;
   /** paged 首轮分页就绪后定位页（自 0 起；「阅读当前页 → 进编辑」位置定位） */
   initialPage?: number;
@@ -185,7 +186,7 @@ watch(pagedActive, (active) => {
   if (!active) binding.refresh();
 });
 
-/* ---------- 连续画布缩放（paged 不可用 / 未分页时；paged 模式由 PagedCanvas 自适应） ---------- */
+/* ---------- 画布缩放（连续 / paged 均生效；paged 下透传给 PagedCanvas 覆盖自适应） ---------- */
 
 /** 缩放比例（限幅 0.2~2，非法回退 1） */
 const resolvedScale = computed(() => {
@@ -368,6 +369,7 @@ watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure
         :tokens="resolvedTokens"
         :font-token="props.fontToken"
         :editable="isEditable"
+        :scale="props.scale === undefined ? undefined : resolvedScale"
         :editor="props.editor"
         :index="paged.pagedIndex.value"
         :chars-per-line="paged.charsPerLine.value"

@@ -87,6 +87,26 @@ describe('PagedCanvas', () => {
     wrapper.unmount();
   });
 
+  it('scale 用户倍率：覆盖容器宽自适应（允许 >1 放大）且变更即时生效', async () => {
+    const { pages } = buildPagedLayout({ doc: longDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    const wrapper = mount(PagedCanvas, {
+      // happy-dom 无布局（clientWidth=0）：自适应回退 1，用户倍率则直接生效
+      props: { pages, options: DEFAULT_LAYOUT_OPTIONS, tokens: DEFAULT_THEME, scale: 1.5 },
+    });
+    const frame = wrapper.find('.bt-paged-page');
+    expect(frame.attributes('style')).toContain('scale(1.5)');
+
+    // 限幅：超过 2 截断到 2
+    await wrapper.setProps({ scale: 3 });
+    expect(wrapper.find('.bt-paged-page').attributes('style')).toContain('scale(2)');
+
+    // 还原 undefined：回到自适应链路（无布局环境下为 1）
+    await wrapper.setProps({ scale: undefined });
+    expect(wrapper.find('.bt-paged-page').attributes('style')).toContain('scale(1)');
+    wrapper.unmount();
+    disposeMeasureSheet();
+  });
+
   it('initialPage：首轮分页就绪后定位到目标页并回写可见页（一次性）', async () => {
     const { pages } = buildPagedLayout({ doc: longDoc(), options: DEFAULT_LAYOUT_OPTIONS });
     expect(pages.length).toBeGreaterThan(3);

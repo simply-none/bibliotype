@@ -58,8 +58,15 @@ const props = withDefaults(
     fontToken?: string;
     /** 是否可编辑（片段格承载 contenteditable + 输入路由） */
     editable?: boolean;
-    /** 缩放（按容器宽等比适配，缺省开启） */
+    /** 缩放（按容器宽等比适配，缺省开启；传入 scale 时改为用户倍率覆盖自适应） */
     fit?: boolean;
+    /**
+     * 用户缩放倍率（缺省 undefined = 按容器宽自适应且限 ≤1）
+     *
+     * 传入有限数值时跳过自适应，直接按该倍率渲染（限幅 0.2~2，允许 >1 放大，
+     * 页宽超出容器由横向滚动承接）；非法值（NaN / Infinity）回退自适应。
+     */
+    scale?: number | null;
     /** 模型编辑器（可编辑态必填：事务真相源） */
     editor?: BookEditor | null;
     /** 块 ⇄ PM 位置索引（可编辑态必填：usePagedLayout.pagedIndex） */
@@ -191,7 +198,18 @@ const OVERSCAN = 2;
 const rootRef = ref<HTMLElement | null>(null);
 const scrollerRef = ref<HTMLElement | null>(null);
 const viewport = ref({ top: 0, height: 0 });
-const scrollScale = ref(1);
+/** 容器宽自适应缩放（DOM 实测产出；用户倍率优先时不参与） */
+const fitScale = ref(1);
+
+/** 用户缩放倍率（限幅 0.2~2；未传 / 非法 = null 回退容器宽自适应） */
+const userScale = computed<number | null>(() => {
+  const raw = props.scale;
+  if (raw === undefined || raw === null || !Number.isFinite(raw)) return null;
+  return Math.min(2, Math.max(0.2, raw));
+});
+
+/** 生效缩放：用户倍率优先，否则用容器宽自适应实测值（响应式，首帧即生效） */
+const scrollScale = computed(() => userScale.value ?? fitScale.value);
 
 const slotHeight = computed(() => pageSize.value.height * scrollScale.value);
 const stride = computed(() => slotHeight.value + SCROLL_GAP);
@@ -299,16 +317,24 @@ const renderedPages = computed<RenderedPage[]>(() => {
 });
 
 function updateScale(): void {
+  // 用户倍率已接管（scrollScale 计算属性自动切换），无需再量尺自适应
+  if (userScale.value !== null) {
+    syncViewport();
+    return;
+  }
   const el = scrollerRef.value;
   if (!props.fit || el === null || el.clientWidth <= 0) {
-    scrollScale.value = 1;
+    fitScale.value = 1;
     syncViewport();
     return;
   }
   const available = el.clientWidth - SCROLL_PADDING * 2;
-  scrollScale.value = Math.min(1, Math.max(0.1, available / pageSize.value.width));
+  fitScale.value = Math.min(1, Math.max(0.1, available / pageSize.value.width));
   syncViewport();
 }
+
+// 倍率变更即时重缩放（用户倍率走计算属性，fit 分支需重测）
+watch([() => props.scale, () => props.fit], updateScale);
 
 function syncViewport(): void {
   const el = scrollerRef.value;

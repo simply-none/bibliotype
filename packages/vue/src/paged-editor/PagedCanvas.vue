@@ -86,6 +86,8 @@ const emit = defineEmits<{
   edited: [blockId: string];
   /** 选区同步落模（父级 refresh 即可；纯选区不触发重排） */
   sync: [];
+  /** IME 组合态变化：true = 组合开始（父级须冻结重排至 false），false = 组合结束 */
+  composition: [active: boolean];
   /** 历史命令请求（模型历史在 PM 插件栈，父级经 binding.undo/redo 执行） */
   history: [dir: 'undo' | 'redo'];
 }>();
@@ -563,22 +565,34 @@ function onCompositionStart(e: Event): void {
   const blockId = fragEl.dataset.blockId ?? '';
   const fromLine = Number(fragEl.dataset.fromLine ?? '0');
   compositionSnap = { fragEl, blockId, fromLine: Number.isFinite(fromLine) ? fromLine : 0, oldText: fragPlainText(fragEl) };
+  // 通知父级冻结重排：组合期间若重排会重建当前片段 DOM（v-html）+ 抢光标，
+  // 使未落模的组合文本在页边界两处重复（中文输入尤甚）
+  emit('composition', true);
 }
 
 function onCompositionEnd(): void {
   const snap = compositionSnap;
   compositionSnap = null;
-  if (snap === null || !editableNow.value) return;
-  const editor = props.editor;
-  const index = props.index;
-  if (editor === null || index === null) return;
-  const newText = fragPlainText(snap.fragEl);
-  const d = diffTextReplace(snap.oldText, newText);
-  if (d.from === d.to && d.text === '') return;
-  if (applyFragmentEdit(editor, index, snap.blockId, snap.fromLine, d.from, d.to, d.text, props.charsPerLine)) {
-    restorePending = true;
-    emit('edited', snap.blockId);
+  if (snap === null) return;
+  if (editableNow.value) {
+    const editor = props.editor;
+    const index = props.index;
+    if (editor !== null && index !== null) {
+      const newText = fragPlainText(snap.fragEl);
+      const d = diffTextReplace(snap.oldText, newText);
+      if (!(d.from === d.to && d.text === '')) {
+        if (
+          applyFragmentEdit(editor, index, snap.blockId, snap.fromLine, d.from, d.to, d.text, props.charsPerLine)
+        ) {
+          restorePending = true;
+          emit('edited', snap.blockId);
+        }
+      }
+    }
   }
+  // 组合结束→解冻重排：必须放在落模之后，保证补排（sync flush）读到已提交的组合文本；
+  // 且无论是否命中落模都要发出，避免重排被永久冻结。
+  emit('composition', false);
 }
 
 function onPaste(e: Event): void {

@@ -8,7 +8,7 @@
  * - 片段节点文本为原文子串（切片正确，非整段重复）。
  */
 import { describe, expect, it } from 'vitest';
-import { effectScope, ref } from 'vue';
+import { effectScope, ref, type Ref } from 'vue';
 import { DEFAULT_THEME, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import {
   CLASSICAL_LAYOUT_OPTIONS,
@@ -254,6 +254,45 @@ describe('usePagedLayout 重排守卫（阶段五）', () => {
     editor.dispatch(docTr);
     api.relayout();
     expect(api.pages.value).not.toBe(pages1);
+    scope.stop();
+    disposeMeasureSheet();
+  });
+
+  it('IME 组合期间冻结重排，组合结束后补排（页边界重复回归）', async () => {
+    const scope = effectScope();
+    let api!: ReturnType<typeof usePagedLayout>;
+    let editor!: BookEditor;
+    let composing!: Ref<boolean>;
+    scope.run(() => {
+      editor = new BookEditor({
+        schema: buildEditorSchema(),
+        document: docWithParagraphs(['子曰学而时习之']),
+      });
+      composing = ref(false);
+      api = usePagedLayout({
+        editor,
+        options: ref<LayoutOptions>(DEFAULT_LAYOUT_OPTIONS),
+        tokens: ref<Readonly<Record<string, string | undefined>>>(DEFAULT_THEME),
+        fontToken: ref<string | undefined>(undefined),
+        composing,
+        version: ref(0),
+      });
+      api.relayout(undefined, true);
+    });
+    const pages0 = api.pages.value;
+
+    // 组合中：强制重排被冻结（v-html 不重建输入中的片段），pages 引用不变
+    composing.value = true;
+    const tr = editor.editorState.tr;
+    tr.insertText('X', 2);
+    editor.dispatch(tr);
+    api.relayout('p-0', true);
+    expect(api.pages.value).toBe(pages0);
+
+    // 组合结束：补排被冻结的那一轮（读当前模型）→ pages 更新
+    composing.value = false;
+    await new Promise((r) => setTimeout(r, 40));
+    expect(api.pages.value).not.toBe(pages0);
     scope.stop();
     disposeMeasureSheet();
   });

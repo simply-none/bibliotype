@@ -467,6 +467,15 @@ export interface UsePagedLayoutOptions {
    * 纯绘制参数不再触发全量重排。未给出时维持原行为（tokens 变化即重排）。
    */
   metricsSignature?: Ref<string>;
+  /**
+   * IME 组合态（可选）
+   *
+   * 为 true（中文等输入法组合进行中）时**冻结重排**：把这一轮重排请求暂存，
+   * 待组合结束（转 false）再统一补排。避免去抖重排在组合期间落地——v-html 会重建
+   * 正在输入的片段 DOM、`restoreCaretFromModel` 抢走光标，使未落模的组合文本在跨页
+   * 段落的页边界两处重复。未给出时维持原行为（组合期间照常重排）。
+   */
+  composing?: Ref<boolean>;
   /** 驱动重排的版本号（编辑事务自增） */
   version: Ref<number>;
 }
@@ -528,10 +537,19 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
   let hintPmDoc: PMNode | null = null;
   let lastPmDoc: PMNode | null = null;
   let delay = 120;
+  /** 组合期间被冻结的最新一次重排请求（组合结束时补排） */
+  let deferredWhileComposing: { hints: string[]; force: boolean; allowTargeted: boolean } | null = null;
 
   const runLayout = (hints: readonly string[], force: boolean, allowTargeted: boolean): void => {
     const pmDoc = opts.editor.editorState.doc;
     if (!force && lastResult.value !== null && pmDoc === lastPmDoc) return;
+    // IME 组合进行中：冻结本轮重排（只保留最新一次请求），待组合结束补排。
+    // 否则上一笔编辑的去抖重排会在下一次组合期间落地，v-html 重建输入中的片段 + 抢光标，
+    // 导致跨页段落在页边界重复渲染未落模的组合文本。
+    if (opts.composing?.value === true) {
+      deferredWhileComposing = { hints: [...hints], force, allowTargeted };
+      return;
+    }
     const started = Date.now();
     const perfStart = perfNow();
     const fromBlockId = hints.length > 0 ? hints[0] : undefined;
@@ -630,6 +648,21 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
   if (opts.measure !== undefined) watch(opts.measure, () => scheduleForced());
   if (opts.pageMainSize !== undefined) watch(opts.pageMainSize, () => scheduleForced());
   watch(opts.version, () => scheduleRelayout());
+  // 组合结束（true → false）：补排被冻结的那一轮（读当前模型 = 已含刚落模的组合文本）。
+  // 若同时有 compositionend 的 edited 提示另起了去抖重排，二者均读同一当前模型，
+  // 后到的一轮会被「文档未变」守卫自动跳过，不会重复重建。
+  if (opts.composing !== undefined) {
+    watch(
+      opts.composing,
+      (active) => {
+        if (active || deferredWhileComposing === null) return;
+        const req = deferredWhileComposing;
+        deferredWhileComposing = null;
+        runLayout(req.hints, req.force, req.allowTargeted);
+      },
+      { flush: 'sync' },
+    );
+  }
 
   /** 布局参数变化：跳过分页不变守卫（尺寸可能影响量尺/归属） */
   function scheduleForced(): void {

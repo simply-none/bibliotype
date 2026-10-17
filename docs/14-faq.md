@@ -148,6 +148,27 @@
 - **验证限制**：收缩块清理依赖真实多行实测，happy-dom 无布局（`measureLineOffsets` 恒返回 `[0]`）
   → `buildPagedLayout` 层需在浏览器 / demo 复现，纯函数 `charOfLine` 外推可脱离 DOM 单测。
 
+## 9. 中文输入时“自动排版”→ 光标移位 + 页尾重复
+
+**现象**：与第 8 条同样表现为跨页重复，但触发不同——**连续中文输入**时“感觉会自动排版”，
+光标跳位；若光标在页尾（段落正好跨页），未完成的组合文本在页底片段与页顶续排片段两处重复。
+
+**根因**（去抖重排与 IME 组合的竞态）：重排是去抖的（连续键入 `TYPING_DELAY = 400ms`）。上一笔
+`compositionend` 提交后 `scheduleRelayout` 挂起 400ms 定时器；若用户在定时器到期前**开始了下一次
+组合**，重排就会在**组合进行中**落地：`buildPagedLayout` 重新切片→`v-html` 重建了 IME 正在输入的片段
+ DOM，`restoreCaretFromModel` 又抢回光标（模型里还没这笔组合文本）→ 浏览器把孤儿组合落到位移后的
+光标处 → 页底 / 页顶两处重复。
+
+**处理**（组合期间冻结重排）：
+
+- `PagedCanvas` 新增 `composition` 事件：`compositionstart` 上抛 `true`、`compositionend` 在**落模之后**
+  上抛 `false`（顺序关键：补排需读到已提交的组合文本；且无论是否命中落模都要发出，避免永久冻结）；
+- `BtEditor` 用 `pagedComposing` ref 承接，传入 `usePagedLayout({ composing })`；
+- `use-paged-layout.ts`：`runLayout` 开头若 `composing.value === true` 则**只暂存最新一次请求**
+  （`deferredWhileComposing`）并返回，不重建 pages；`watch(composing, …, { flush: 'sync' })` 在转
+  false 时补排那一轮。因 pages 组合期间不变，`PagedCanvas` 的 `watch(props.pages)` 也不会抢光标。
+- 回归用例：`packages/vue/src/__tests__/paged-layout.test.ts`（“IME 组合期间冻结重排，组合结束后补排”）。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

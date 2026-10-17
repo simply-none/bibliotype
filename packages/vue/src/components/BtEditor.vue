@@ -116,6 +116,15 @@ const measureRef = computed(() => props.measure);
 const pageMainSizeRef = computed(() => props.pageMainSize);
 
 /**
+ * paged 编辑桥的 IME 组合态（由 PagedCanvas 上抛）。
+ *
+ * 组合进行中冻结重排：否则上一笔编辑的去抖重排会在下一次中文组合期间落地，
+ * v-html 重建正在输入的片段 DOM + `restoreCaretFromModel` 抢光标，导致未落模的
+ * 组合文本在跨页段落的页边界两处重复。组合结束后统一补排一次。
+ */
+const pagedComposing = ref(false);
+
+/**
  * 排版度量签名：决定「是否需要重新分页」
  *
  * 只含度量类配置（字号 / 行距 / 缩进 / 页边距 / 分栏 / 版框 / 功能样式里的度量声明）。
@@ -137,6 +146,7 @@ const paged = usePagedLayout({
   measure: measureRef,
   pageMainSize: pageMainSizeRef,
   metricsSignature: metricsSignatureRef,
+  composing: pagedComposing,
   version: binding.version,
 });
 
@@ -377,6 +387,7 @@ watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure
         @update:visible-page="emit('update:visiblePage', $event)"
         @edited="onPagedEdited"
         @sync="onPagedSync"
+        @composition="pagedComposing = $event"
         @history="onPagedHistory"
       />
       <div v-show="!pagedActive" class="bt-editor__stage" :style="stageStyle">

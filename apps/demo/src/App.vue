@@ -8,6 +8,9 @@
  * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；编辑态为 BtEditor
  *   （工具条 + 属性检视器，后者跟随选区展示节点 / 标记可编辑属性）；
  * - 键盘：← / → 翻页；Esc 关闭书籍信息 / 设置弹窗。
+ * - 反馈分层：**事前**「这个按钮怎么用」→ 按钮悬浮卡片（ToolbarUsageTip）；
+ *   **事后**「刚才发生了什么」→ 右下角消息条（composables/use-toast）。
+ *   顶栏只留书名与保存状态，不再追加会长期滞留、挤占排版的操作提示。
  *
  * 版式参数 = 补丁双层：主题预设（基准）+ layoutPatch / tokenPatch（设置面板覆写），
  * 阅读 / 编辑 / 导出共用同一份 effectiveLayout 与 tokens，改一处三端联动；
@@ -55,6 +58,7 @@ import {
   renderPrintHtml,
   type PdfAdapterOptions,
 } from '@bibliotype/exporter-pdf';
+import AppToast from './components/AppToast.vue';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
 import BookmarkPanel from './components/BookmarkPanel.vue';
@@ -63,8 +67,11 @@ import ImportPanel from './components/ImportPanel.vue';
 import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
+import ToolbarUsageTip from './components/ToolbarUsageTip.vue';
+import type { ToolbarUsage } from './components/toolbar-usage.js';
 import { useDraftAutosave } from './composables/use-draft-autosave.js';
 import { useStyleSettings } from './composables/use-style-settings.js';
+import { useToast } from './composables/use-toast.js';
 import { installPerfProbe, type PerfProbe } from './composables/use-perf-probe.js';
 import { lunyuDocument } from './data/lunyu.js';
 
@@ -666,21 +673,28 @@ function onExportEpub(): void {
   reportExportProblems(problems);
 }
 
-/** 导出校验结果 → 工具栏状态行（error 红色；warning 黄色；全清重置） */
+/**
+ * 导出校验结果 → 消息条
+ *
+ * 无问题：一条「已导出 EPUB」成功提示；有问题：按 error / warning 给不同语气，
+ * 并把前 3 条明细带进文案（完整清单仍逐条打印到 console）。
+ * 不再写顶栏状态行：那条文案会一直挂着，把顶栏挤成两行。
+ */
 function reportExportProblems(problems: readonly ValidationProblem[]): void {
   if (problems.length === 0) {
-    exportStatus.value = '';
-    exportHasError.value = false;
+    pushToast('已导出 EPUB（校验通过）', 'success');
     return;
   }
   const errors = problems.filter((p) => p.severity === 'error');
-  exportHasError.value = errors.length > 0;
   const head = errors.length > 0 ? `导出校验 ${errors.length} 个错误` : '导出校验通过（有警告）';
   const detail = problems
     .slice(0, 3)
     .map((p) => `${p.severity === 'error' ? '✕' : '!'} ${p.message}`)
     .join('；');
-  exportStatus.value = `${head}：${detail}${problems.length > 3 ? ` 等 ${problems.length} 项` : ''}`;
+  pushToast(
+    `${head}：${detail}${problems.length > 3 ? ` 等 ${problems.length} 项` : ''}`,
+    errors.length > 0 ? 'error' : 'info',
+  );
   for (const p of problems) {
     const line = `[epub-export] ${p.severity} ${p.code}: ${p.message}${p.path !== undefined ? ` (${p.path})` : ''}`;
     if (p.severity === 'error') console.error(line);
@@ -745,7 +759,6 @@ async function onExportPdf(): Promise<void> {
       : {};
 
   pdfExporting.value = true;
-  pdfStatus.value = '';
   try {
     const bridge = getElectronPdfBridge();
     if (bridge !== undefined) {
@@ -756,7 +769,7 @@ async function onExportPdf(): Promise<void> {
         adapter: { toPdf: (html, opts) => bridge.exportPdf(html, opts) },
       });
       downloadPdf(bytes, `${book.metadata.title || '书籍'}.pdf`);
-      pdfStatus.value = '已导出 PDF（Electron 打印引擎）。';
+      pushToast('已导出 PDF（Electron 打印引擎）', 'success');
       return;
     }
 
@@ -765,13 +778,17 @@ async function onExportPdf(): Promise<void> {
     try {
       const html = renderPrintHtml(book, { ...base, ...measured, rewriteSrc: rewriter.rewrite });
       printHtml(html, { onAfterPrint: () => rewriter.revokeAll() });
-      pdfStatus.value = `浏览器降级模式：已打开打印对话框（选择「另存为 PDF」；唯一图片 ${rewriter.uniqueCount} 张已去重；大书需数十秒，Electron 宿主中为秒级直出）。`;
+      pushToast(
+        `已打开打印对话框，请选择「另存为 PDF」；${rewriter.uniqueCount} 张唯一图片已去重，大书需数十秒`,
+        'info',
+        8000,
+      );
     } catch (error) {
       rewriter.revokeAll();
       throw error;
     }
   } catch (error) {
-    pdfStatus.value = `导出 PDF 失败：${error instanceof Error ? error.message : String(error)}`;
+    pushToast(`导出 PDF 失败：${error instanceof Error ? error.message : String(error)}`, 'error');
   } finally {
     pdfExporting.value = false;
   }
@@ -870,13 +887,31 @@ const importOpen = ref(false);
 /** 编辑画布分页参考线（设置面板开关） */
 const showGuides = ref(true);
 
-/** 导出 EPUB 校验状态行（error / warning 汇总；空串不显示） */
-const exportStatus = ref('');
-/** 导出校验是否存在 error 级问题（控制状态行配色） */
-const exportHasError = ref(false);
+/* 导出 / 导入等**操作后**的一次性反馈走右下角消息条（composables/use-toast）：
+   顶栏只承担书名与常驻状态，不再追加会长期滞留、挤占排版的状态行。 */
+const { items: toasts, push: pushToast, dismiss: dismissToast } = useToast();
 
-/** PDF 导出状态行（路径说明 / 失败原因；空串不显示） */
-const pdfStatus = ref('');
+/*
+ * 原先写在顶栏标题旁的用法说明，改挂到对应按钮的悬浮卡片上
+ * （顶栏是放书名的，不该长期占着两行操作提示）。
+ */
+
+/** 「编辑 / 保存并预览」按钮的悬浮说明（原：编辑模式 · 自动保存 · Ctrl/Cmd+S…） */
+const MODE_USAGE: ToolbarUsage = {
+  use: '进入编辑模式（分页画布编辑）；再点「保存并预览」回阅读态',
+  where: '编辑内容自动存入本地草稿；保存并预览会先落盘再刷新阅读视图',
+  key: 'Ctrl/Cmd+S 立即保存',
+  limit: '编辑态 ← / → 交给编辑器移动光标，不翻页',
+};
+
+/** 「单页翻页 / 滚动翻页」按钮的悬浮说明（原：←/→ 翻页） */
+const VIEW_MODE_USAGE: ToolbarUsage = {
+  use: '在「单页翻页」与「连续滚动多页」之间切换',
+  where: '阅读态用 ← / → 翻页；连续模式也可用滚轮上下浏览',
+  key: '← / →',
+  limit: '编辑态不生效（方向键归编辑器）',
+};
+
 /** PDF 导出是否进行中（按钮置灰 + 文案切换） */
 const pdfExporting = ref(false);
 /** PDF 分页模式：true = 逐页（paged，与屏幕预览同源）/ false = 连续（auto，更快） */
@@ -1005,13 +1040,6 @@ onBeforeUnmount(() => {
     <header class="toolbar">
       <div class="toolbar__title">
         <strong>{{ bookTitle }}</strong>
-        <span class="toolbar__hint">
-          {{
-            mode === 'edit'
-              ? '编辑模式 · 自动保存 · Ctrl/Cmd+S 立即保存 · 保存并预览回阅读'
-              : 'bibliotype 阅读 Demo · ←/→ 翻页'
-          }}
-        </span>
         <span
           v-if="mode === 'edit'"
           class="toolbar__dirty"
@@ -1040,14 +1068,16 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div class="toolbar__group">
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': mode === 'edit' }"
-            @click="toggleEditMode"
-          >
-            {{ mode === 'edit' ? '保存并预览' : '编辑' }}
-          </button>
+          <ToolbarUsageTip :usage="MODE_USAGE">
+            <button
+              type="button"
+              class="toolbar__button"
+              :class="{ 'toolbar__button--active': mode === 'edit' }"
+              @click="toggleEditMode"
+            >
+              {{ mode === 'edit' ? '保存并预览' : '编辑' }}
+            </button>
+          </ToolbarUsageTip>
         </div>
         <div v-if="mode === 'edit'" class="toolbar__group">
           <button type="button" class="toolbar__button" title="缩小" @click="zoomStep(-0.1)">
@@ -1128,10 +1158,6 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <p v-if="exportStatus" class="toolbar__export-status" :class="{ 'toolbar__export-status--error': exportHasError }">
-        {{ exportStatus }}
-      </p>
-      <p v-if="pdfStatus" class="toolbar__export-status">{{ pdfStatus }}</p>
     </header>
 
     <div class="app__body">
@@ -1202,14 +1228,15 @@ onBeforeUnmount(() => {
         <footer v-if="booted && mode === 'read'" class="app__footer">
           <ProgressBar :key="themeKey" :reader="reader" />
           <BtPager :key="themeKey" :reader="reader" />
-          <button
-            type="button"
-            class="app__view-toggle"
-            :title="viewMode === 'page' ? '切换为连续滚动翻页' : '切换为单页翻页'"
-            @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
-          >
-            {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
-          </button>
+          <ToolbarUsageTip class="app__view-toggle-slot" :usage="VIEW_MODE_USAGE">
+            <button
+              type="button"
+              class="app__view-toggle"
+              @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
+            >
+              {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
+            </button>
+          </ToolbarUsageTip>
         </footer>
       </main>
     </div>
@@ -1231,6 +1258,8 @@ onBeforeUnmount(() => {
       @save="onMetadataSave"
       @close="infoOpen = false"
     />
+
+    <AppToast :items="toasts" @dismiss="dismissToast" />
   </div>
 </template>
 
@@ -1294,11 +1323,6 @@ onBeforeUnmount(() => {
   letter-spacing: 0.1em;
 }
 
-.toolbar__hint {
-  font-size: 12px;
-  color: var(--demo-muted);
-}
-
 .toolbar__dirty {
   font-size: 12px;
   color: var(--demo-muted);
@@ -1356,18 +1380,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-}
-
-/* 导出 EPUB 校验状态行（error 红 / warning 黄；细节同步打印到 console） */
-.toolbar__export-status {
-  margin: 4px 0 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--demo-muted, #8a8578);
-}
-
-.toolbar__export-status--error {
-  color: #b3261e;
 }
 
 .toolbar__readout {
@@ -1461,8 +1473,12 @@ onBeforeUnmount(() => {
   color: var(--demo-text);
 }
 
-.app__view-toggle {
+/* 悬浮说明的包裹层占住 flex 位，靠自动外边距把它推到右端（原在按钮上） */
+.app__view-toggle-slot {
   margin-inline-start: auto;
+}
+
+.app__view-toggle {
   padding: 4px 14px;
   border: 1px solid currentColor;
   border-radius: 4px;

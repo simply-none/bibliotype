@@ -154,3 +154,13 @@
   `git log --oneline`（只读）。工作区常混有上一轮未提交的改动，提交文本只覆盖当次主题，其余单列提示。
 - 环境：Bash 需先 `export PATH=<PortableGit>/cmd:<PortableGit>/mingw64/bin:<PortableGit>/usr/bin:/usr/bin:/bin`，
   否则 `git` / `grep` / `head` 全部 not found。
+
+## Demo 反馈分层（顶栏不要堆提示）
+
+- **顶栏只留书名 + 保存状态**（`toolbar__dirty`）。一键一行的操作提示、导出状态行**不要**放顶栏：
+  文案会长期滞留、挤成两行、挤占版式（用户明确否决）。已删 `toolbar__hint`、
+  `exportStatus` / `exportHasError` / `pdfStatus` 与 `.toolbar__export-status` 样式。
+- **事前**「这个按钮怎么用」→ `ToolbarUsageTip` 悬浮卡片，挂在对应按钮上（顶栏「编辑」「翻页模式」也用）；
+- **事后**「刚才发生了什么」→ `composables/use-toast.ts` + `components/AppToast.vue`：
+  右下角 fixed 堆叠、各自计时（info 4200 / success 3000 / error 6500 ms）、可手动关闭、`Teleport` 到 body。
+- 新增操作类功能时按此分层选反馈通道，别往顶栏塞文字。

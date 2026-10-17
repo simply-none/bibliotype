@@ -57,14 +57,27 @@ export function buildPagedIndex(
   return { byId, ordered };
 }
 
-/** 行号 → 块内字符偏移（实测优先，回退 charsPerLine） */
+/**
+ * 行号 → 块内字符偏移（实测优先，越界按平均行宽外推，缺省回退 charsPerLine）。
+ *
+ * 越界（line ≥ lineOffsets.length）时**绝不**回退到 offsets[0] / 末项：行号虚高
+ * 往往源于陈旧多行 lineOffsets 与真实收缩文本不一致，回退末项会把续排切片起点
+ * 塌回块首 → 整段内容在多处重复渲染、光标映射同步错位。改为按实测平均行宽向前
+ * 外推（`last + (line - lastIdx) * avg`），使起点落在块尾之后，续排片段自然为空。
+ */
 export function charOfLine(
   line: number,
   lineOffsets: readonly number[] | undefined,
   charsPerLine: number,
 ): number {
   if (lineOffsets !== undefined && lineOffsets.length > 0) {
-    return lineOffsets[line] ?? lineOffsets[lineOffsets.length - 1] ?? 0;
+    const exact = lineOffsets[line];
+    if (exact !== undefined) return exact;
+    const lastIdx = lineOffsets.length - 1;
+    const last = lineOffsets[lastIdx] ?? 0;
+    // 仅有单点（无行距可推）时退化用 charsPerLine 外推
+    const avg = lastIdx > 0 ? last / lastIdx : Math.max(1, charsPerLine);
+    return Math.round(last + (line - lastIdx) * avg);
   }
   return line * Math.max(1, charsPerLine);
 }

@@ -37,7 +37,7 @@ import type { Node as PMNode } from 'prosemirror-model';
 import type { BookEditor } from '@bibliotype/editor';
 import { measurePagination } from '../pagination-measure.js';
 import { PERF_LAYOUT, perfNow, perfRecord } from '../perf.js';
-import { buildPagedIndex, type PagedIndex } from './selection-bridge.js';
+import { buildPagedIndex, charOfLine, type PagedIndex } from './selection-bridge.js';
 
 /** 页内一个片段：整块（lineCount=0）或跨页块的某段连续行 */
 export interface PagedFragment {
@@ -120,7 +120,9 @@ function charRangeFromLines(
 ): { from: number; to: number } {
   const offsets = lineOffsets.get(id);
   if (offsets !== undefined && offsets.length > 0) {
-    const from = offsets[fromLine] ?? offsets[offsets.length - 1] ?? 0;
+    // from 经 charOfLine 外推：行号超出实测行数时按平均行宽外推，绝不回退到
+    // offsets[0] / 末项（会把续排切片起点塌回块首 → 整段内容在多处重复渲染）
+    const from = charOfLine(fromLine, offsets, charsPerLine);
     const to = offsets[fromLine + lineCount] ?? Number.MAX_SAFE_INTEGER;
     return { from, to };
   }
@@ -306,6 +308,18 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   for (const [id, v] of fresh.lineOffsets) lineOffsets.set(id, v);
   const lineSizes = new Map<string, number>(incremental ? prev.lineSizes : []);
   for (const [id, v] of fresh.lineSizes) lineSizes.set(id, v);
+  // 陈旧行偏移清理：本轮实测过的块若未产出多行 lineOffsets（文本收缩到单行 / 量不到），
+  // 必须删除其上一轮的旧 lineOffsets / lineSizes 项。否则 extractBlocks 会以陈旧多行
+  // offsets 给定 lineCount（≠ 真实行数），paginate 造出幽灵续排片段，且片段切片与光标映射
+  // 的「行→字符」换算同时错位 → 续页片段从块首重切，整段内容在多处重复渲染。
+  if (incremental) {
+    for (const id of fresh.sizes.keys()) {
+      if (!fresh.lineOffsets.has(id)) {
+        lineOffsets.delete(id);
+        lineSizes.delete(id);
+      }
+    }
+  }
   const indexed = extractBlocksIndexed(doc, {
     context,
     blockSizes: sizes,

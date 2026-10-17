@@ -42,10 +42,14 @@ describe('selection-bridge 纯映射', () => {
     expect(index.byId.get('p-1')?.lineOffsets).toEqual([0, 26, 52]);
   });
 
-  it('charOfLine：实测优先、回退 charsPerLine', () => {
+  it('charOfLine：实测优先、缺省回退 charsPerLine、越界按平均行宽外推', () => {
     expect(charOfLine(1, [0, 26, 52], 26)).toBe(26);
     expect(charOfLine(2, undefined, 26)).toBe(52);
-    expect(charOfLine(9, [0, 26, 52], 26)).toBe(52); // 越界钳到末行行首
+    // 越界不再钳到末行行首（会使续排切片起点塌回块首 → 内容重复），改按平均行宽外推
+    expect(charOfLine(3, [0, 26, 52], 26)).toBe(78); // 52 + (3-2)*26
+    expect(charOfLine(9, [0, 26, 52], 26)).toBe(234); // 52 + (9-2)*26
+    // 仅单点（无行距可推）时退化用 charsPerLine 外推
+    expect(charOfLine(5, [0], 26)).toBe(130); // 0 + 5*26
   });
 
   it('片段字符 → 块内字符 → PM 位置', () => {

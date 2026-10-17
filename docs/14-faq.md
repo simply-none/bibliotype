@@ -121,6 +121,33 @@
 - **验证限制**：`lineOffsets` 依赖真实布局（`getClientRects`），happy-dom 无布局引擎 →
   单测只覆盖注文识别与片段级换算；含注音多行段落的切片边界需在浏览器 / demo 中手工确认。
 
+## 8. 编辑时输入，同一段落在多处（跨页）重复出现
+
+**现象**：编辑态分页视图里打字（尤其中文 IME）后，同一段完整文本在**两页同时出现**——
+续页开头把上一页已完整呈现的段落又整段重复了一遍。
+
+**根因**（两处叠加，都源于增量重排的陈旧实测缓存）：
+
+1. **陈旧 `lineOffsets` 未清理**：`measurePagination` 只在块测得多行时才写 `lineOffsets`
+   （`offsets.length > 1` 守卫，见 `pagination-measure.ts`），而 `buildPagedLayout` 合并实测结果时
+   从上一轮 `prev.lineOffsets` 起步、**只覆盖不删除**。当编辑使某块**收缩为单行**时，其上一轮的
+   多行 `lineOffsets` / `lineSizes` 残留 → `extractBlocks` 以陈旧多行 offsets 给出 `lineCount`（虚增，
+   ≠ 真实行数）→ `paginate` 造出**幽灵续排片段**；
+2. **行→字符换算越界回退塌回块首**：`charOfLine`（切片 `charRangeFromLines` 与光标映射
+   `fragmentCharToBlockChar` 共用）对越界行号用 `offsets[line] ?? offsets[offsets.length-1] ?? 0`，
+   起点被钳回块首 → `sliceNodeByCharRange` 命中「全覆盖返回原节点」→ 续页片段从块首整段重切。
+
+**处理与排查**：
+
+- **清理陈旧项**（`use-paged-layout.ts` 增量合并后）：本轮实测过（在 `fresh.sizes`）但未产出
+  多行 `lineOffsets` 的块，删除其旧 `lineOffsets` / `lineSizes`——收缩到单行的块不再被虚报行数；
+- **越界外推而非回退块首**（`selection-bridge.ts` 的 `charOfLine`）：行号超出实测行数时按平均
+  行宽向前外推（`last + (line - lastIdx) * avg`），使起点落在块尾之后 → 幽灵续排片段自然为空；
+- 已有「三表裁剪」只删**已消失块**的陈旧项，本条补上**仍存在但已收缩块**的清理，两者互补；
+- 回归用例：`packages/vue/src/__tests__/paged-bridge.test.ts`（`charOfLine` 越界外推）；
+- **验证限制**：收缩块清理依赖真实多行实测，happy-dom 无布局（`measureLineOffsets` 恒返回 `[0]`）
+  → `buildPagedLayout` 层需在浏览器 / demo 复现，纯函数 `charOfLine` 外推可脱离 DOM 单测。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

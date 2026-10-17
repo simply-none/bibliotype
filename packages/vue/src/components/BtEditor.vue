@@ -34,7 +34,8 @@ import {
 import { buildBookCss, declarationToCss } from '@bibliotype/layout/html';
 import type { BlockMeasureContext } from '@bibliotype/reader';
 import type { BookEditor } from '@bibliotype/editor';
-import { useEditorBinding } from '../use-editor.js';
+import type { Command } from 'prosemirror-state';
+import { useEditorBinding, type EditorBinding } from '../use-editor.js';
 import PagedCanvas from '../paged-editor/PagedCanvas.vue';
 import { usePagedLayout } from '../paged-editor/use-paged-layout.js';
 import 'prosemirror-view/style/prosemirror.css';
@@ -101,7 +102,11 @@ const canvasRef = ref<HTMLElement | null>(null);
 const scrollRef = ref<HTMLElement | null>(null);
 // 只读开关：以 ref 承载、经闭包透传给绑定，切换时无需重建视图（refresh 重求值）
 const isEditable = ref(props.editable !== false);
-const binding = useEditorBinding(props.editor, { isEditable: () => isEditable.value });
+// paged 态跳过隐藏 PM 视图同步（命令 .scrollIntoView 不再乱滚外层，页面跳动消除）
+const binding = useEditorBinding(props.editor, {
+  isEditable: () => isEditable.value,
+  syncView: () => !pagedActive.value,
+});
 
 const resolvedTokens = computed<Readonly<Record<string, string | undefined>>>(
   () => props.tokens ?? DEFAULT_THEME,
@@ -190,6 +195,38 @@ function onPagedHistory(dir: 'undo' | 'redo'): void {
   if (dir === 'undo') binding.undo();
   else binding.redo();
 }
+
+/* ---------- 工具栏命令的 paged 感知包装 ---------- */
+
+/** PagedCanvas 暴露的编辑桥方法（重排后光标还原 / 选区同步） */
+const pagedCanvasRef = ref<InstanceType<typeof PagedCanvas> | null>(null);
+
+/**
+ * 在 paged 态下包裹一次命令执行：先同步刷选区到模型，执行成功后请求重排后还原光标。
+ *
+ * 工具栏命令直接改模型并把 PM 选区移入新容器，但不经过片段编辑那套 restorePending 流程，
+ * 导致重排后 v-html 重建片段、焦点/光标丢失：引用 / 列表 / 表格 / 边注「点了没反应」，
+ * 双行注 / 校勘记「要点很多次才能输入」。经此包装后光标随模型选区落回正确片段。
+ * 连续画布态（非 paged）原样执行，行为不变。
+ */
+function runPagedAware(action: () => boolean): boolean {
+  if (!pagedActive.value || isEditable.value === false) return action();
+  pagedCanvasRef.value?.flushSelectionSync();
+  const ok = action();
+  if (ok) pagedCanvasRef.value?.requestCaretRestore();
+  return ok;
+}
+
+/**
+ * 透传给默认插槽的 binding：在原始 binding 之上覆写 execute / undo / redo 为 paged 感知版。
+ * 其余成员（editor / view / version / isMarkActive / refresh…）按引用共享，激活态与视图链路不变。
+ */
+const slotBinding: EditorBinding = {
+  ...binding,
+  execute: (command: Command) => runPagedAware(() => binding.execute(command)),
+  undo: () => runPagedAware(() => binding.undo()),
+  redo: () => runPagedAware(() => binding.redo()),
+};
 
 // 切回连续画布时补全量视图同步：paged 态期间 PM DOM 停在旧状态（skipViewSync 积累的偏差）
 watch(pagedActive, (active) => {
@@ -368,11 +405,12 @@ watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure
 <template>
   <div class="bt-editor">
     <div v-if="$slots.default" class="bt-editor__toolbar">
-      <slot v-bind="binding" />
+      <slot v-bind="slotBinding" />
     </div>
     <div ref="scrollRef" class="bt-editor__scroll">
       <PagedCanvas
         v-if="pagedActive"
+        ref="pagedCanvasRef"
         class="bt-editor__paged"
         :pages="paged.pages.value"
         :options="resolvedOptions"

@@ -370,7 +370,34 @@ function scrollToPage(index: number): void {
   syncViewport();
 }
 
-defineExpose({ scrollToPage, syncViewport });
+/**
+ * 同步刷新选区到模型（取消挂起的 rAF 合流，立即落模）。
+ *
+ * 工具栏命令读 `state.selection` 定位作用点；而片段选区→模型的同步经 selectionchange
+ * 的 rAF 去抖，「移动光标后立即点按钮」时模型选区可能落后 DOM 光标几个字符，表现为
+ * 「出校符号插在光标前后几个字符」等随机错位。命令执行前同步刷一次即可对齐。
+ */
+function flushSelectionSync(): void {
+  if (selRaf !== 0) {
+    cancelAnimationFrame(selRaf);
+    selRaf = 0;
+  }
+  syncSelectionToModel();
+}
+
+/**
+ * 请求「下一次重排后按模型选区还原光标」。
+ *
+ * 片段编辑（打字 / 组合 / 粘贴）内部已置位 restorePending；但工具栏命令经 binding.execute
+ * 落模、不改这段流程 → 重排后 v-html 重建片段、焦点丢失、无法进入新容器输入（表现为
+ * 「插入无反应 / 点很多次才勉强能打字」）。外部命令生效后调用本方法补上还原请求。
+ */
+function requestCaretRestore(): void {
+  if (!editableNow.value) return;
+  restorePending = true;
+}
+
+defineExpose({ scrollToPage, syncViewport, flushSelectionSync, requestCaretRestore });
 
 /* ---------- 首轮分页就绪后定位（「记住位置」：进编辑对齐阅读模式当前页） ---------- */
 

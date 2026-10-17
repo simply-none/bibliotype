@@ -60,6 +60,16 @@ export interface EditorBindingOptions {
    * 切换后需调用 refresh() 让视图重新求值该闭包。
    */
   isEditable?: () => boolean;
+  /**
+   * 事务派发时是否同步隐藏 / 可见的 PM 视图（缺省恒为 true）
+   *
+   * paged 态下传入 `() => false`：PM 整文档视图被 v-show 隐藏、真相在模型，命令事务
+   * 携带的 `.scrollIntoView()` 会在 `view.updateState` 时滚动这个隐藏视图的外层容器，
+   * 表现为「点命令后页面莫名跳到前后几页」。跳过视图同步既省全量 PM DOM 重建，
+   * 又杜绝隐藏视图的乱滚；光标还原交由 PagedCanvas 按模型选区确定性承接。
+   * 切回连续画布时由调用方补一次全量 refresh。
+   */
+  syncView?: () => boolean;
 }
 
 /** 节点属性浅比较（expected 中声明的键全部相等即匹配） */
@@ -110,10 +120,13 @@ export function useEditorBinding(
   const version = ref(0);
   const isEditable = options.isEditable ?? (() => true);
 
-  /** 事务统一入口：状态机应用 → 视图同步 → 版本自增 */
+  /** 事务统一入口：状态机应用 → 视图同步（paged 态可跳过）→ 版本自增 */
   const applyTransaction = (transaction: Transaction): void => {
     editor.dispatch(transaction);
-    view.value?.updateState(editor.editorState);
+    // syncView 返回 false（paged 态）时不触碰隐藏 PM 视图：避免其 scrollIntoView 乱滚外层
+    if (options.syncView?.() !== false) {
+      view.value?.updateState(editor.editorState);
+    }
     version.value += 1;
   };
 

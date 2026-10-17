@@ -117,6 +117,39 @@ describe('useEditorBinding', () => {
     expect(binding.view.value).toBeNull();
   });
 
+  it('syncView 返回 false：命令更新模型与版本但跳过视图同步（paged 防隐藏视图乱滚）', () => {
+    const editor = createEditor();
+    let paged = true;
+    const binding = useEditorBinding(editor, { syncView: () => !paged });
+    const container = createContainer();
+    binding.attach(container);
+    const view = binding.view.value;
+    expect(view).toBeInstanceOf(EditorView);
+
+    const { from, to } = firstTextRange(editor);
+    setSelection(editor, from, to - from);
+    const strong = editor.bookSchema.marks[MARK_TYPES.STRONG];
+    expect(strong).toBeDefined();
+
+    // paged（syncView=false）：模型已加粗，但隐藏视图不重建（无 updateState → 无 scrollIntoView 乱滚）
+    paged = true;
+    expect(binding.execute(toggleMarkOfType(strong!))).toBe(true);
+    expect(editor.editorState.doc.rangeHasMark(from, to, strong!)).toBe(true);
+    expect(view!.state.doc.rangeHasMark(from, to, strong!)).toBe(false);
+
+    // 非 paged（syncView=true）：命令走完整视图同步 → 视图与模型一致
+    paged = false;
+    const range = firstTextRange(editor);
+    setSelection(editor, range.from, 0);
+    binding.execute((state, dispatch) => {
+      dispatch?.(state.tr.insertText('X'));
+      return true;
+    });
+    expect(view!.state.doc.textContent).toContain('X');
+
+    binding.detach();
+  });
+
   it('undo / redo：历史可用性与文档回退', () => {
     const editor = createEditor(true);
     const binding = useEditorBinding(editor);

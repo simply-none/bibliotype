@@ -169,6 +169,43 @@
   false 时补排那一轮。因 pages 组合期间不变，`PagedCanvas` 的 `watch(props.pages)` 也不会抢光标。
 - 回归用例：`packages/vue/src/__tests__/paged-layout.test.ts`（“IME 组合期间冻结重排，组合结束后补排”）。
 
+## 10. 分页编辑态下工具栏命令“无效果 / 错位 / 跳页”
+
+**现象**（paged 编辑态，PM 整文档视图被 `v-show` 隐藏、编辑经片段桥落模）：
+
+- 「引用 / 无序 / 有序 / 版框 / 表格 / 边注」点了像没反应；「双行注 / 校勘记」要连点很多次才能输入；
+- 「出校符号」并非总落在光标处，常在光标前后几个字符，带随机性；
+- 「鱼尾」插入后接着打的字有时竖排有时横排；
+- 一些命令点了会把视口挪到当前页前后几页（说明里没有，疑似 bug）。
+
+**根因**（三条，都在“命令走 `binding.execute` 而片段编辑走 PagedCanvas 内部”这条分界上）：
+
+1. **命令后不还原光标**：片段打字 / 组合 / 粘贴会在 `PagedCanvas` 内置位 `restorePending`，重排后按
+   模型选区还原 caret 与焦点；但工具栏命令只改模型 + 移动 PM 选区，不经过这套流程 → 重排 `v-html`
+   重建了含光标的片段、焦点丢失 → 无法进入新容器打字。引用 / 列表是**切换**命令，用户以为没反应
+   再点一次又切回去，净零；容器插入（双行注 / 校勘记 / 表格 / 版框 / 边注）则表现为“点很多次才勉强能输入”。
+2. **选区同步 rAF 滞后**：片段选区 → 模型经 `selectionchange` 的 rAF 去抖落模。移动光标后**立即**点按钮，
+   模型 `state.selection` 可能落后 DOM 光标几个字符 → 命令（如出校符号在 `selection.from` 处替换）落点随机偏移。
+3. **隐藏视图 `scrollIntoView` 乱滚**：多数命令事务带 `.scrollIntoView()`。连续画布下它滚动可见视图正常；
+   paged 下 `binding.execute → applyTransaction` 仍对**隐藏的 PM 视图** `updateState`，隐藏视图的 scrollIntoView
+   把外层滚动容器滚到（尺寸全 0 的）坐标 → 视口莫名跳到前后几页。
+
+**处理**：
+
+- `use-editor.ts` 新增 `syncView?: () => boolean` 门控：`applyTransaction` 仅在其为 `true` 时 `view.updateState`。
+  `BtEditor` 传 `syncView: () => !pagedActive.value` —— paged 态根本不触碰隐藏视图，乱滚消除（与片段编辑
+  既有的 `refresh({ skipViewSync })` 口径统一）；切回连续画布时 `watch(pagedActive)` 补一次全量 refresh。
+- `PagedCanvas` 暴露 `flushSelectionSync()`（取消挂起 rAF、立即把 DOM 选区落模）与 `requestCaretRestore()`
+  （置位 `restorePending`）。
+- `BtEditor` 用 `runPagedAware` 包装透传给插槽的 `execute / undo / redo`：paged 态下**先 flush 选区 → 执行命令
+  → 成功后 requestCaretRestore**。重排后光标随模型选区确定性落回正确片段（命令把选区移入新容器 → 光标进容器可打字；
+  命令不移动选区（如鱼尾 `embedParagraph=false`）→ 光标留在原块 → 输入方向随目标块样式，不再随机）。
+- **落点语义不变**：眉批 / 跋文等仍插在“当前叶块之后”（命令契约如此，连续 / 导出一致）；其在**版心外**
+  （页眉 / 书末）的视觉落位是分页渲染的后续特性，paged 编辑态当前按块顺序成行显示，非回归。
+- 回归用例：`packages/vue/src/__tests__/editor.test.ts`（“syncView 返回 false：跳过视图同步”）。
+- **验证限制**：光标还原 / 片段焦点 / scrollIntoView 均依赖真实布局与真实焦点链，happy-dom 无布局引擎，
+  `buildPagedLayout` 与浏览器层需在 demo 手工确认；纯函数 `syncView` 门控可脱 DOM 单测。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

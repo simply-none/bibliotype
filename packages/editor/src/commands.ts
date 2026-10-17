@@ -49,7 +49,17 @@ function selectionInsideNode(state: EditorState, type: NodeType): boolean {
 
 /* ---------- 行内标记 ---------- */
 
-/** 切换行内标记（attrs 缺省取标记规格默认值） */
+/**
+ * 切换行内标记（attrs 缺省取标记规格默认值）
+ *
+ * - 选区非空：对区间整体加 / 去该标记；
+ * - 空光标：只写 `storedMarks`（不改动已有文字），下一次输入才继承 ——
+ *   因此「B / I / U / 高亮 / 注音 / 古籍标记」这类按钮在空光标下也可点；
+ * - 需要「必须先选中文字」语义时用 {@link toggleMarkByName} 的 `requireSelection`。
+ *
+ * @param markType 目标标记类型（由调用方从 schema 取得）
+ * @param attrs 标记属性（如 link.href / ruby.text），缺省取 spec 默认值
+ */
 export function toggleMarkOfType(markType: MarkType, attrs?: Attrs): Command {
   return toggleMark(markType, attrs);
 }
@@ -489,7 +499,14 @@ export function insertBlockAfterSelection(
   };
 }
 
-/** 在当前叶块之后插入块容器（取当前状态 schema，免调用方传参） */
+/**
+ * 在当前叶块之后插入块容器（取当前状态 schema，免调用方传参）
+ *
+ * 是 {@link insertBlockAfterSelection} 的 `Command` 形态封装，行为完全一致：
+ * - `embedParagraph` 保持默认 true 时给容器内嵌空段落，光标随即进入其内；
+ * - **无内容原子块**（如鱼尾 `fish-tail`）必须传 false，否则 `createChecked`
+ *   会因「多出段落子节点」而不满足 content 表达式 —— 表现为点了没反应。
+ */
 export function insertBlockOfType(typeName: string, attrs?: Attrs, embedParagraph = true): Command {
   return (state, dispatch, view) =>
     insertBlockAfterSelection(state.schema, typeName, attrs, embedParagraph)(
@@ -602,7 +619,15 @@ export function insertInlineNodeWrapping(typeName: string, attrs?: Attrs): Comma
   };
 }
 
-/** 在光标 / 选区处插入原子节点（图片 / 公式 / 印章 / 鱼尾等，内容由 attrs 承载） */
+/**
+ * 在光标 / 选区处插入原子节点（图片 / 印章等，内容全部由 attrs 承载）
+ *
+ * - 与 {@link insertBlockAfterSelection} 的区别：本函数**就地替换选区**，
+ *   不把光标移入新块，适合行内或零尺寸的原位原子；
+ * - 节点无子节点（印章的印文在 `seal.text`、图片地址在 `image.src`），
+ *   因此「看得见」完全依赖样式表（如 `book-css.ts` 的 `.bt-seal::after`）；
+ * - schema 未注册该节点、或 `createChecked` 校验失败（属性非法）时返回 false。
+ */
 export function insertAtomicNode(typeName: string, attrs?: Attrs): Command {
   return (state, dispatch) => {
     const type = findNodeType(state.schema, typeName);
@@ -620,7 +645,13 @@ export function insertAtomicNode(typeName: string, attrs?: Attrs): Command {
 
 /* ---------- 常用内容插入（在通用插入工厂上预置属性与光标行为） ---------- */
 
-/** 在光标 / 选区处插入图片（src 缺省用占位图；alt 为替代文） */
+/**
+ * 在光标 / 选区处插入图片
+ *
+ * - `src` 缺省为 1×1 透明 GIF 的 data URI 占位，避免空 src 在导出时产出死链；
+ * - `alt` 缺省空串（无障碍 / 导出 alt），插入后由属性栏补；
+ * - 不打包媒体：外链地址在 EPUB 导出中原样输出，本地文件需由导入侧内联。
+ */
 export function insertImage(attrs: { src?: string; alt?: string } = {}): Command {
   return insertAtomicNode(NODE_TYPES.IMAGE, {
     src: attrs.src ?? 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
@@ -700,7 +731,13 @@ function emptyCellFactory(schema: Schema): (() => PmNode) | null {
   return () => cell.create(null, paragraph.create());
 }
 
-/** 在当前叶块之后插入表格（默认 3×3，无跨格简化模型） */
+/**
+ * 在当前叶块之后插入表格（默认 3×3）
+ *
+ * - 简化模型：无跨行 / 跨列 / 表头属性，每个单元格内嵌一个空段落；
+ * - 行 / 列数经 `Math.max(1, Math.round(n))` 兜底，非法值不会产出空表；
+ * - 光标位于文档根层（`$to.depth === 0`）时无处安放，返回 false。
+ */
 export function insertTable(rows = 3, columns = 3): Command {
   return (state, dispatch) => {
     const schema = state.schema;
@@ -731,7 +768,12 @@ export function insertTable(rows = 3, columns = 3): Command {
   };
 }
 
-/** 在当前行之后追加同列数的新行 */
+/**
+ * 在当前行之后追加同列数的新行
+ *
+ * 前提：光标必须位于表格单元格内（`tableContext` 逐层校验 cell → row → table），
+ * 否则返回 false —— 表格外的按钮点击不会有任何反应。
+ */
 export function tableAddRow(): Command {
   return (state, dispatch) => {
     const ctx = tableContext(state);
@@ -752,7 +794,12 @@ export function tableAddRow(): Command {
   };
 }
 
-/** 在当前列之后追加同位的新列（逐行插入，经事务映射保持位置正确） */
+/**
+ * 在当前列之后追加同位的新列（逐行插入，经事务映射保持位置正确）
+ *
+ * 前提同 {@link tableAddRow}：光标须位于单元格内，否则返回 false。
+ * 逐行插入时每行位置按 `tr.mapping` 前推，故列数不一致的畸形表格也不会错位。
+ */
 export function tableAddColumn(): Command {
   return (state, dispatch) => {
     const ctx = tableContext(state);
@@ -778,7 +825,12 @@ export function tableAddColumn(): Command {
   };
 }
 
-/** 删除当前行（末行时删除整个表格） */
+/**
+ * 删除当前行（末行时删除整个表格）
+ *
+ * 前提：光标位于单元格内，否则返回 false。删到只剩一行时删除整表，
+ * 避免留下 content 不合法的空表格。
+ */
 export function tableDeleteRow(): Command {
   return (state, dispatch) => {
     const ctx = tableContext(state);
@@ -796,7 +848,12 @@ export function tableDeleteRow(): Command {
   };
 }
 
-/** 删除当前列（末列时删除整个表格；自下而上删除保持前方位置有效） */
+/**
+ * 删除当前列（末列时删除整个表格；自下而上删除保持前方位置有效）
+ *
+ * 前提：光标位于单元格内，否则返回 false。
+ * 若某些行的列数少于当前列索引，该行直接跳过（畸形表格容错）。
+ */
 export function tableDeleteColumn(): Command {
   return (state, dispatch) => {
     const ctx = tableContext(state);

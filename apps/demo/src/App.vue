@@ -4,10 +4,10 @@
  *
  * - 工具栏：主题切换（现代横排 ↔ 古籍直排）/ 编辑 / 书籍信息 / 搜索 / 书签 / 目录 /
  *   设置 / 导出 EPUB / 导出 PDF（逐页·连续切换；Electron 宿主秒级直出，浏览器降级打印）；
- * - 左栏：设置面板、搜索面板、书签面板、目录（可分别开关）；
+ * - 左栏：搜索面板、书签面板、目录（可分别开关）；设置改为模态弹窗；
  * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；编辑态为 BtEditor
  *   （工具条 + 属性检视器，后者跟随选区展示节点 / 标记可编辑属性）；
- * - 键盘：← / → 翻页；Esc 关闭书籍信息弹窗。
+ * - 键盘：← / → 翻页；Esc 关闭书籍信息 / 设置弹窗。
  *
  * 版式参数 = 补丁双层：主题预设（基准）+ layoutPatch / tokenPatch（设置面板覆写），
  * 阅读 / 编辑 / 导出共用同一份 effectiveLayout 与 tokens，改一处三端联动；
@@ -267,6 +267,15 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
 }
 
 const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
+
+/**
+ * 书籍版本号（文档 / 元数据变更计数）
+ *
+ * `Reader` 与 `BookEditor` 都是普通类实例（非响应式），同一实例内的
+ * `loadDocument` / `updateMetadata` 不会让 computed 失效。凡这类落点手动自增，
+ * 供 `currentMetadata` / `bookTitle` 重新取值（顶部书名、书籍信息弹窗都依赖它）。
+ */
+const bookVersion = ref(0);
 
 /**
  * 阅读预览的排版度量签名
@@ -582,6 +591,8 @@ function saveAndPreview(): void {
   const editor = bookEditor.value;
   if (editor === null) return;
   reader.value.loadDocument(editor.getDocument());
+  // 文档（含元数据）变更 → 顶部书名等派生值重新取值
+  bookVersion.value += 1;
   // 位置记忆：回定位到编辑退出时的视口页（新文档页数可能变少，限幅后再跳）
   const target = Math.min(editorVisiblePage.value, reader.value.totalPages - 1);
   if (target >= 0) reader.value.goToPage(target);
@@ -603,6 +614,8 @@ function resetSample(): void {
 function onImported(doc: BookDocument): void {
   reader.value.loadDocument(doc);
   bookEditor.value?.loadDocument(doc);
+  // 新文档（含元数据）载入 → 顶部书名等派生值重新取值
+  bookVersion.value += 1;
   dirty.value = bookEditor.value?.isDirty ?? false;
   // 新内容立即落盘（导入即新基线；跳过「无待写」判定）
   void autosave.flush({ force: true });
@@ -873,26 +886,35 @@ const pdfPagedMode = ref(true);
 const infoEditable = computed(() => mode.value === 'edit' && bookEditor.value !== null);
 
 /** 当前元数据：编辑态取编辑器实时快照，阅读态取 Reader 文档（缺省样章） */
-const currentMetadata = computed<BookMetadata>(
-  () =>
+const currentMetadata = computed<BookMetadata>(() => {
+  /* 显式依赖：实例内部变更不走响应式，靠版本号自增让它失效（见 bookVersion） */
+  void bookVersion.value;
+  return (
     (mode.value === 'edit' && bookEditor.value !== null
       ? bookEditor.value.getMetadata()
-      : reader.value.document?.metadata) ?? lunyuDocument.metadata,
-);
+      : reader.value.document?.metadata) ?? lunyuDocument.metadata
+  );
+});
+
+/** 顶部书名的兜底值（元数据缺失标题时使用） */
+const DEFAULT_BOOK_TITLE = '论语集解';
+
+/** 顶部书名：优先书籍元数据标题（编辑态随编辑器实时刷新），缺失 / 空白回退默认 */
+const bookTitle = computed<string>(() => {
+  const title = currentMetadata.value.title?.trim() ?? '';
+  return title === '' ? DEFAULT_BOOK_TITLE : title;
+});
 
 /** 元数据保存：写回编辑器（合并补丁 + 自动刷新 updatedAt）；阅读态不可达 */
 function onMetadataSave(patch: Partial<BookMetadata>): void {
   bookEditor.value?.updateMetadata(patch);
+  // 元数据变更 → 顶部书名 / 书籍信息弹窗重新取值
+  bookVersion.value += 1;
 }
 
-/** 左栏是否有任一区块可见 */
+/** 左栏是否有任一区块可见（设置已改为弹窗，不占左栏） */
 const asideVisible = computed(
-  () =>
-    settingsOpen.value ||
-    searchOpen.value ||
-    bookmarksOpen.value ||
-    importOpen.value ||
-    tocOpen.value,
+  () => searchOpen.value || bookmarksOpen.value || importOpen.value || tocOpen.value,
 );
 
 function onKeydown(event: KeyboardEvent): void {
@@ -910,6 +932,11 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
   if (infoOpen.value) {
     if (event.key === 'Escape') infoOpen.value = false;
+    return;
+  }
+  /* 设置弹窗为模态：Esc 关闭，其余按键不外泄（避免背景页被翻页） */
+  if (settingsOpen.value) {
+    if (event.key === 'Escape') settingsOpen.value = false;
     return;
   }
   /* 编辑模式：← / → 交由编辑器移动光标，不翻页 */
@@ -977,7 +1004,7 @@ onBeforeUnmount(() => {
   <div class="app" :class="{ 'app--night': night }">
     <header class="toolbar">
       <div class="toolbar__title">
-        <strong>论语集解</strong>
+        <strong>{{ bookTitle }}</strong>
         <span class="toolbar__hint">
           {{
             mode === 'edit'
@@ -1109,15 +1136,6 @@ onBeforeUnmount(() => {
 
     <div class="app__body">
       <aside v-show="asideVisible" class="app__aside">
-        <SettingsPanel
-          v-if="settingsOpen"
-          :api="styleApi"
-          :layout="effectiveLayout"
-          :tokens="tokens"
-          :night="night"
-          @update:night="night = $event; persistSettingsSnapshot()"
-          @close="settingsOpen = false"
-        />
         <SearchPanel
           v-if="searchOpen"
           :key="`search-${themeKey}`"
@@ -1195,6 +1213,16 @@ onBeforeUnmount(() => {
         </footer>
       </main>
     </div>
+
+    <SettingsPanel
+      v-if="settingsOpen"
+      :api="styleApi"
+      :layout="effectiveLayout"
+      :tokens="tokens"
+      :night="night"
+      @update:night="night = $event; persistSettingsSnapshot()"
+      @close="settingsOpen = false"
+    />
 
     <BookInfoDialog
       v-if="infoOpen"

@@ -126,3 +126,31 @@
 - **禁用状态约定**：`reader.getPageChromeTexts()` 在「未配置 / 封面页 / 越界」时返回 `undefined`，渲染层据此回退
   「页脚仅页码」老路径 —— 这是老文档逐像素不变的前提，别改成返回空对象。
 - **`book-css.ts` 整块 CSS 在模板字符串内**：注释里写反引号（如包裹属性名）会提前闭合模板，`tsc` 报 TS1005。
+
+## 工具条使用说明的分层口径
+
+- **三层分工，别混**：插件包命令 JSDoc（`editor/commands.ts`、`classical/editor-commands.ts`）= **命令契约**
+  （前置 / 落点 / 返回 false 原因 / attrs，跨 UI 复用的权威口径）；`EditorToolbar.vue` 的
+  `ToolbarAction.usage` = **交互说明**（要不要选中、快捷键、属性去哪补、为什么没反应）；
+  `docs/19-editor-toolbar-usage.md` = 44 项速查表 + 排查表。
+- **usage 是可插拔字段**（`apps/demo/src/components/toolbar-usage.ts`，`use/require/where/attrs/key/limit`）：
+  传了才有悬浮说明、没传则整块跳过 —— 工具条抽成公共组件后由使用方决定是否带说明。新增按钮必须同时补
+  `usage` 与 docs 表格。
+- **呈现必须是鼠标悬浮的详细卡片，不是面板**（用户明确否决「右端功能说明按钮 + 内联面板」）。实现
+  `ToolbarUsageTip.vue`：默认插槽包按钮、`Teleport to=body` + `position:fixed`（工具条 `overflow-x:auto`
+  会裁掉非 fixed 内容）、展开 120ms 延迟 / 收起 200ms 宽限、`visible&&placed` 防闪、scroll/resize 收起。
+  有 usage 的按钮不要再设原生 `title`（延迟 1s + 截断，正是替换对象）。
+- 两个高频语义差异（写按钮说明时别搞错）：`toggleMarkOfType` 空光标写 `storedMarks`（可点）；
+  `toggleMarkByName(..., requireSelection=true)`（删除线 / 行内代码）空光标**不执行**。
+  行内容器（夹注 / 异体载体 / 避讳载体）**跨段落选区静默返回 false**。
+
+## 提交文本约定（每次改动收尾必做）
+
+- **格式**：`type(scope,scope): 中文摘要`（type 取 feat / fix / perf / docs / refactor；scope 用包名简称
+  `editor` / `classical` / `layout` / `vue` / `demo` / `docs`，动作跨几个包就写几个）。
+- **正文**：先一段「做的事 + 为什么」，再用 `- 主题（层）：细节` 的 bullet 列改动，末尾一行写校验结论
+  （typecheck / test / build 的实际数字与 EXIT）。参考历史 `91c4c9c`、`0a909b9`。
+- **只输出文本、不执行 commit**（用户最高红线）；写之前先 `git status --short` / `git diff --stat` /
+  `git log --oneline`（只读）。工作区常混有上一轮未提交的改动，提交文本只覆盖当次主题，其余单列提示。
+- 环境：Bash 需先 `export PATH=<PortableGit>/cmd:<PortableGit>/mingw64/bin:<PortableGit>/usr/bin:/usr/bin:/bin`，
+  否则 `git` / `grep` / `head` 全部 not found。

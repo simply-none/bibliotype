@@ -267,423 +267,446 @@ async function onResetAll(): Promise<void> {
 </script>
 
 <template>
-  <section class="panel">
-    <header class="panel__header">
-      <h2 class="panel__title">编辑设置</h2>
-      <div class="panel__meta">
-        <span class="panel__store">{{ api.storeName.value }}</span>
-        <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">×</button>
-      </div>
-    </header>
+  <!-- 模态弹窗：遮罩点击 / 关闭按钮 / Esc（父级统一处理）关闭 -->
+  <div class="dialog" role="dialog" aria-modal="true" @click.self="emit('close')">
+    <section class="panel">
+      <header class="panel__header">
+        <h2 class="panel__title">编辑设置</h2>
+        <div class="panel__meta">
+          <span class="panel__store">{{ api.storeName.value }}</span>
+          <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">×</button>
+        </div>
+      </header>
 
-    <div class="panel__body">
-      <!-- 左导航 -->
-      <nav class="panel__nav">
-        <button
-          v-for="item in NAV"
-          :key="item.id"
-          type="button"
-          class="panel__nav-item"
-          :class="{ 'panel__nav-item--active': section === item.id }"
-          @click="section = item.id"
-        >
-          {{ item.label }}
-          <span v-if="item.id === 'features' && overriddenFeatures > 0" class="panel__nav-count">
-            {{ overriddenFeatures }}
-          </span>
-        </button>
-      </nav>
+      <div class="panel__body">
+        <!-- 左导航 -->
+        <nav class="panel__nav">
+          <button
+            v-for="item in NAV"
+            :key="item.id"
+            type="button"
+            class="panel__nav-item"
+            :class="{ 'panel__nav-item--active': section === item.id }"
+            @click="section = item.id"
+          >
+            {{ item.label }}
+            <span v-if="item.id === 'features' && overriddenFeatures > 0" class="panel__nav-count">
+              {{ overriddenFeatures }}
+            </span>
+          </button>
+        </nav>
 
-      <!-- 右内容 -->
-      <div class="panel__content">
-        <!-- ========== 功能样式 ========== -->
-        <template v-if="section === 'features'">
-          <div class="panel__chips panel__chips--groups">
-            <button
-              v-for="item in FEATURE_STYLE_GROUPS"
-              :key="item.id"
-              type="button"
-              class="panel__chip"
-              :class="{ 'panel__chip--active': group === item.id }"
-              @click="group = item.id"
-            >
-              {{ item.label }}
-            </button>
-          </div>
-
-          <div class="panel__chips panel__chips--features">
-            <button
-              v-for="id in groupFeatures"
-              :key="id"
-              type="button"
-              class="panel__chip"
-              :class="{
-                'panel__chip--active': activeFeature === id,
-                'panel__chip--dirty': api.features.value[id] !== undefined,
-              }"
-              @click="openFeature(id)"
-            >
-              {{ FEATURE_STYLE_META[id].label }}
-            </button>
-          </div>
-
-          <FeatureStyleEditor
-            :id="activeFeature"
-            :label="featureLabel"
-            :declarations="featureDeclarations"
-            @declaration="(property: string, value: string | null) => api.setFeatureDeclaration(activeFeature, property, value)"
-            @replace="(declarations) => api.setFeatureDeclarations(activeFeature, declarations)"
-            @reset="api.resetFeature(activeFeature)"
-          />
-        </template>
-
-        <!-- ========== 版面与页面 ========== -->
-        <template v-else-if="section === 'layout'">
-          <div class="panel__field">
-            <span class="panel__label">书写方向</span>
-            <div class="panel__chips">
+        <!-- 右内容 -->
+        <div class="panel__content">
+          <!-- ========== 功能样式 ========== -->
+          <template v-if="section === 'features'">
+            <div class="panel__chips panel__chips--groups">
               <button
-                v-for="mode in [WRITING_MODES.HORIZONTAL_TB, WRITING_MODES.VERTICAL_RL, WRITING_MODES.VERTICAL_LR]"
-                :key="mode"
+                v-for="item in FEATURE_STYLE_GROUPS"
+                :key="item.id"
                 type="button"
                 class="panel__chip"
-                :class="{ 'panel__chip--active': layout.writingMode === mode }"
-                @click="api.patchLayout({ writingMode: mode })"
+                :class="{ 'panel__chip--active': group === item.id }"
+                @click="group = item.id"
               >
-                {{ mode === WRITING_MODES.HORIZONTAL_TB ? '横排' : mode === WRITING_MODES.VERTICAL_RL ? '竖排右起' : '竖排左起' }}
+                {{ item.label }}
               </button>
             </div>
-          </div>
 
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">开本</span>
-              <select class="panel__input" :value="pageSizeKey" @change="onPageSize(($event.target as HTMLSelectElement).value)">
-                <option v-for="[key, size] in PAGE_SIZE_ENTRIES" :key="key" :value="key">{{ size.name }}</option>
-                <option value="custom">自定义</option>
-              </select>
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">分栏</span>
-              <select class="panel__input" :value="layout.columns" @change="api.patchLayout({ columns: Number(($event.target as HTMLSelectElement).value) })">
-                <option v-for="count in 3" :key="count" :value="count">{{ count }} 栏</option>
-              </select>
-            </label>
-          </div>
-
-          <div v-if="pageSizeKey === 'custom'" class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">宽 px</span>
-              <input
-                type="number"
-                class="panel__input"
-                :value="layout.pageSize.width"
-                min="1"
-                @change="api.patchLayout({ pageSize: createPageSize('自定义', Number(($event.target as HTMLInputElement).value), layout.pageSize.height) })"
-              />
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">高 px</span>
-              <input
-                type="number"
-                class="panel__input"
-                :value="layout.pageSize.height"
-                min="1"
-                @change="api.patchLayout({ pageSize: createPageSize('自定义', layout.pageSize.width, Number(($event.target as HTMLInputElement).value)) })"
-              />
-            </label>
-          </div>
-
-          <div class="panel__field">
-            <span class="panel__label">页边距（上右下左 px）</span>
-            <div class="panel__grid4">
-              <input
-                v-for="side in (['top', 'right', 'bottom', 'left'] as const)"
-                :key="side"
-                type="number"
-                class="panel__input"
-                :value="marginBox[side]"
-                min="0"
-                @change="setMargin(side, ($event.target as HTMLInputElement).value)"
-              />
+            <div class="panel__chips panel__chips--features">
+              <button
+                v-for="id in groupFeatures"
+                :key="id"
+                type="button"
+                class="panel__chip"
+                :class="{
+                  'panel__chip--active': activeFeature === id,
+                  'panel__chip--dirty': api.features.value[id] !== undefined,
+                }"
+                @click="openFeature(id)"
+              >
+                {{ FEATURE_STYLE_META[id].label }}
+              </button>
             </div>
-          </div>
 
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">页码样式</span>
-              <select class="panel__input" :value="layout.pageNumberStyle" @change="api.patchLayout({ pageNumberStyle: ($event.target as HTMLSelectElement).value })">
-                <option :value="PAGE_NUMBER_STYLES.DECIMAL">阿拉伯数字</option>
-                <option :value="PAGE_NUMBER_STYLES.CHINESE">中文数字</option>
-                <option :value="PAGE_NUMBER_STYLES.ROMAN">罗马数字</option>
-              </select>
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">正文字号 px</span>
-              <input
-                type="number"
-                class="panel__input"
-                :value="numOf(FONT_SIZE_TOKENS.BODY)"
-                min="8"
-                max="48"
-                @change="numToken(FONT_SIZE_TOKENS.BODY, `${($event.target as HTMLInputElement).value}px`)"
-              />
-            </label>
-          </div>
+            <FeatureStyleEditor
+              :id="activeFeature"
+              :label="featureLabel"
+              :declarations="featureDeclarations"
+              @declaration="(property: string, value: string | null) => api.setFeatureDeclaration(activeFeature, property, value)"
+              @replace="(declarations) => api.setFeatureDeclarations(activeFeature, declarations)"
+              @reset="api.resetFeature(activeFeature)"
+            />
+          </template>
 
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">行距</span>
-              <input type="number" class="panel__input" :value="numOf(LAYOUT_TOKENS.LINE_HEIGHT)" min="1" max="3" step="0.05"
-                @change="numToken(LAYOUT_TOKENS.LINE_HEIGHT, ($event.target as HTMLInputElement).value)" />
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">字距</span>
-              <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.LETTER_SPACING] ?? ''" placeholder="0.02em"
-                @change="numToken(LAYOUT_TOKENS.LETTER_SPACING, ($event.target as HTMLInputElement).value)" />
-            </label>
-          </div>
+          <!-- ========== 版面与页面 ========== -->
+          <template v-else-if="section === 'layout'">
+            <div class="panel__field">
+              <span class="panel__label">书写方向</span>
+              <div class="panel__chips">
+                <button
+                  v-for="mode in [WRITING_MODES.HORIZONTAL_TB, WRITING_MODES.VERTICAL_RL, WRITING_MODES.VERTICAL_LR]"
+                  :key="mode"
+                  type="button"
+                  class="panel__chip"
+                  :class="{ 'panel__chip--active': layout.writingMode === mode }"
+                  @click="api.patchLayout({ writingMode: mode })"
+                >
+                  {{ mode === WRITING_MODES.HORIZONTAL_TB ? '横排' : mode === WRITING_MODES.VERTICAL_RL ? '竖排右起' : '竖排左起' }}
+                </button>
+              </div>
+            </div>
 
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">首行缩进</span>
-              <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.TEXT_INDENT] ?? ''" placeholder="2em"
-                @change="numToken(LAYOUT_TOKENS.TEXT_INDENT, ($event.target as HTMLInputElement).value)" />
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">栏间距</span>
-              <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.COLUMN_GAP] ?? ''" placeholder="2.5em"
-                @change="numToken(LAYOUT_TOKENS.COLUMN_GAP, ($event.target as HTMLInputElement).value)" />
-            </label>
-          </div>
-
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">标题字号</span>
-              <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.HEADING] ?? ''" placeholder="1.75em"
-                @change="numToken(FONT_SIZE_TOKENS.HEADING, ($event.target as HTMLInputElement).value)" />
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">注文字号</span>
-              <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.NOTE] ?? ''" placeholder="0.75em"
-                @change="numToken(FONT_SIZE_TOKENS.NOTE, ($event.target as HTMLInputElement).value)" />
-            </label>
-          </div>
-
-          <div v-if="vertical" class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">数字合并上限</span>
-              <input type="number" class="panel__input" min="1" max="10"
-                :value="layout.combineUpright.maxDigits"
-                @change="api.patchLayout({ combineUpright: { ...layout.combineUpright, maxDigits: Math.min(10, Math.max(1, Number(($event.target as HTMLInputElement).value) || 4)) } })" />
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">拉丁词</span>
-              <select class="panel__input" :value="layout.combineUpright.latinStrategy"
-                @change="api.patchLayout({ combineUpright: { ...layout.combineUpright, latinStrategy: ($event.target as HTMLSelectElement).value as 'rotate' | 'combine' } })">
-                <option value="rotate">侧转</option>
-                <option value="combine">并入字格</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="panel__field">
-            <span class="panel__label">字体族</span>
-            <label v-for="[key, label] in FONT_FAMILY_FIELDS" :key="key" class="panel__stack">
-              <span class="panel__sub-label">{{ label }}</span>
-              <input type="text" class="panel__input" :value="tokens[key] ?? ''"
-                @change="numToken(key, ($event.target as HTMLInputElement).value)" />
-            </label>
-          </div>
-
-          <div class="panel__field">
-            <span class="panel__label">配色</span>
-            <div class="panel__colors">
-              <label v-for="[key, label] in COLOR_FIELDS" :key="key" class="panel__color">
-                <input type="color" :value="colorValue(key)" @input="api.setToken(key, ($event.target as HTMLInputElement).value)" />
-                <span>{{ label }}</span>
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">开本</span>
+                <select class="panel__input" :value="pageSizeKey" @change="onPageSize(($event.target as HTMLSelectElement).value)">
+                  <option v-for="[key, size] in PAGE_SIZE_ENTRIES" :key="key" :value="key">{{ size.name }}</option>
+                  <option value="custom">自定义</option>
+                </select>
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">分栏</span>
+                <select class="panel__input" :value="layout.columns" @change="api.patchLayout({ columns: Number(($event.target as HTMLSelectElement).value) })">
+                  <option v-for="count in 3" :key="count" :value="count">{{ count }} 栏</option>
+                </select>
               </label>
             </div>
-          </div>
 
-          <label class="panel__switch">
-            <input type="checkbox" :checked="night" @change="emit('update:night', ($event.target as HTMLInputElement).checked)" />
-            夜间配色（临时预览，不写入样式）
-          </label>
-        </template>
+            <div v-if="pageSizeKey === 'custom'" class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">宽 px</span>
+                <input
+                  type="number"
+                  class="panel__input"
+                  :value="layout.pageSize.width"
+                  min="1"
+                  @change="api.patchLayout({ pageSize: createPageSize('自定义', Number(($event.target as HTMLInputElement).value), layout.pageSize.height) })"
+                />
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">高 px</span>
+                <input
+                  type="number"
+                  class="panel__input"
+                  :value="layout.pageSize.height"
+                  min="1"
+                  @change="api.patchLayout({ pageSize: createPageSize('自定义', layout.pageSize.width, Number(($event.target as HTMLInputElement).value)) })"
+                />
+              </label>
+            </div>
 
-        <!-- ========== 页眉页脚 ========== -->
-        <template v-else-if="section === 'chrome'">
-          <label class="panel__switch">
-            <input type="checkbox" :checked="chromeEnabled" @change="toggleChrome(($event.target as HTMLInputElement).checked)" />
-            启用页眉 / 页脚（占用版心，开启后重新分页）
-          </label>
+            <div class="panel__field">
+              <span class="panel__label">页边距（上右下左 px）</span>
+              <div class="panel__grid4">
+                <input
+                  v-for="side in (['top', 'right', 'bottom', 'left'] as const)"
+                  :key="side"
+                  type="number"
+                  class="panel__input"
+                  :value="marginBox[side]"
+                  min="0"
+                  @change="setMargin(side, ($event.target as HTMLInputElement).value)"
+                />
+              </div>
+            </div>
 
-          <div class="panel__row">
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">页码样式</span>
+                <select class="panel__input" :value="layout.pageNumberStyle" @change="api.patchLayout({ pageNumberStyle: ($event.target as HTMLSelectElement).value })">
+                  <option :value="PAGE_NUMBER_STYLES.DECIMAL">阿拉伯数字</option>
+                  <option :value="PAGE_NUMBER_STYLES.CHINESE">中文数字</option>
+                  <option :value="PAGE_NUMBER_STYLES.ROMAN">罗马数字</option>
+                </select>
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">正文字号 px</span>
+                <input
+                  type="number"
+                  class="panel__input"
+                  :value="numOf(FONT_SIZE_TOKENS.BODY)"
+                  min="8"
+                  max="48"
+                  @change="numToken(FONT_SIZE_TOKENS.BODY, `${($event.target as HTMLInputElement).value}px`)"
+                />
+              </label>
+            </div>
+
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">行距</span>
+                <input type="number" class="panel__input" :value="numOf(LAYOUT_TOKENS.LINE_HEIGHT)" min="1" max="3" step="0.05"
+                  @change="numToken(LAYOUT_TOKENS.LINE_HEIGHT, ($event.target as HTMLInputElement).value)" />
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">字距</span>
+                <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.LETTER_SPACING] ?? ''" placeholder="0.02em"
+                  @change="numToken(LAYOUT_TOKENS.LETTER_SPACING, ($event.target as HTMLInputElement).value)" />
+              </label>
+            </div>
+
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">首行缩进</span>
+                <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.TEXT_INDENT] ?? ''" placeholder="2em"
+                  @change="numToken(LAYOUT_TOKENS.TEXT_INDENT, ($event.target as HTMLInputElement).value)" />
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">栏间距</span>
+                <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.COLUMN_GAP] ?? ''" placeholder="2.5em"
+                  @change="numToken(LAYOUT_TOKENS.COLUMN_GAP, ($event.target as HTMLInputElement).value)" />
+              </label>
+            </div>
+
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">标题字号</span>
+                <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.HEADING] ?? ''" placeholder="1.75em"
+                  @change="numToken(FONT_SIZE_TOKENS.HEADING, ($event.target as HTMLInputElement).value)" />
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">注文字号</span>
+                <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.NOTE] ?? ''" placeholder="0.75em"
+                  @change="numToken(FONT_SIZE_TOKENS.NOTE, ($event.target as HTMLInputElement).value)" />
+              </label>
+            </div>
+
+            <div v-if="vertical" class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">数字合并上限</span>
+                <input type="number" class="panel__input" min="1" max="10"
+                  :value="layout.combineUpright.maxDigits"
+                  @change="api.patchLayout({ combineUpright: { ...layout.combineUpright, maxDigits: Math.min(10, Math.max(1, Number(($event.target as HTMLInputElement).value) || 4)) } })" />
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">拉丁词</span>
+                <select class="panel__input" :value="layout.combineUpright.latinStrategy"
+                  @change="api.patchLayout({ combineUpright: { ...layout.combineUpright, latinStrategy: ($event.target as HTMLSelectElement).value as 'rotate' | 'combine' } })">
+                  <option value="rotate">侧转</option>
+                  <option value="combine">并入字格</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="panel__field">
+              <span class="panel__label">字体族</span>
+              <label v-for="[key, label] in FONT_FAMILY_FIELDS" :key="key" class="panel__stack">
+                <span class="panel__sub-label">{{ label }}</span>
+                <input type="text" class="panel__input" :value="tokens[key] ?? ''"
+                  @change="numToken(key, ($event.target as HTMLInputElement).value)" />
+              </label>
+            </div>
+
+            <div class="panel__field">
+              <span class="panel__label">配色</span>
+              <div class="panel__colors">
+                <label v-for="[key, label] in COLOR_FIELDS" :key="key" class="panel__color">
+                  <input type="color" :value="colorValue(key)" @input="api.setToken(key, ($event.target as HTMLInputElement).value)" />
+                  <span>{{ label }}</span>
+                </label>
+              </div>
+            </div>
+
+            <label class="panel__switch">
+              <input type="checkbox" :checked="night" @change="emit('update:night', ($event.target as HTMLInputElement).checked)" />
+              夜间配色（临时预览，不写入样式）
+            </label>
+          </template>
+
+          <!-- ========== 页眉页脚 ========== -->
+          <template v-else-if="section === 'chrome'">
+            <label class="panel__switch">
+              <input type="checkbox" :checked="chromeEnabled" @change="toggleChrome(($event.target as HTMLInputElement).checked)" />
+              启用页眉 / 页脚（占用版心，开启后重新分页）
+            </label>
+
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">页眉内容</span>
+                <select class="panel__input" :value="chrome?.header ?? 'none'"
+                  @change="patchChrome({ header: ($event.target as HTMLSelectElement).value as PageChromeField })">
+                  <option v-for="field in CHROME_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
+                </select>
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">页眉占位 px</span>
+                <input type="number" class="panel__input" min="0" max="120"
+                  :value="chrome?.headerSize ?? 0"
+                  @change="patchChrome({ headerSize: Number(($event.target as HTMLInputElement).value) })" />
+              </label>
+            </div>
+
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">页脚内容</span>
+                <select class="panel__input" :value="chrome?.footer ?? 'none'"
+                  @change="patchChrome({ footer: ($event.target as HTMLSelectElement).value as PageChromeField })">
+                  <option v-for="field in CHROME_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
+                </select>
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">页脚占位 px</span>
+                <input type="number" class="panel__input" min="0" max="120"
+                  :value="chrome?.footerSize ?? 0"
+                  @change="patchChrome({ footerSize: Number(($event.target as HTMLInputElement).value) })" />
+              </label>
+            </div>
+
+            <p class="panel__hint">
+              页眉页脚的字体 / 字号 / 对齐 / 分隔线在「功能样式 → 页面与结构页 → 页眉 / 页脚」里调。
+              页脚选「不显示」时页码一并不显示（页码属页脚内容之一）；封面页按书籍惯例不标页眉页脚。
+              横排下页眉页脚占用版心高度，直排下占用每列行长（列数不变）。
+            </p>
+          </template>
+
+          <!-- ========== 编辑行为 ========== -->
+          <template v-else-if="section === 'behavior'">
+            <label class="panel__switch">
+              <input type="checkbox" :checked="api.editing.value.readonly"
+                @change="api.patchEditing({ readonly: ($event.target as HTMLInputElement).checked })" />
+              只读模式（禁止输入 / 粘贴 / 拖拽）
+            </label>
+            <label class="panel__switch">
+              <input type="checkbox" :checked="api.editing.value.pagination"
+                @change="api.patchEditing({ pagination: ($event.target as HTMLInputElement).checked })" />
+              书页分页（关闭 = 连续画布）
+            </label>
+            <label class="panel__switch">
+              <input type="checkbox" :checked="api.editing.value.paginationGuides"
+                @change="api.patchEditing({ paginationGuides: ($event.target as HTMLInputElement).checked })" />
+              显示分页参考线
+            </label>
+            <label class="panel__switch">
+              <input type="checkbox" :checked="api.editing.value.inheritBlockType"
+                @change="api.patchEditing({ inheritBlockType: ($event.target as HTMLInputElement).checked })" />
+              回车后继承当前块类型
+            </label>
+
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">自动保存间隔 ms</span>
+                <input type="number" class="panel__input" min="500" max="10000" step="100"
+                  :value="api.editing.value.autosaveDelay"
+                  @change="api.patchEditing({ autosaveDelay: Number(($event.target as HTMLInputElement).value) })" />
+              </label>
+              <label class="panel__field">
+                <span class="panel__label">撤销合并 ms</span>
+                <input type="number" class="panel__input" min="100" max="2000" step="50"
+                  :value="api.editing.value.historyGroupDelay"
+                  @change="api.patchEditing({ historyGroupDelay: Number(($event.target as HTMLInputElement).value) })" />
+              </label>
+            </div>
+
             <label class="panel__field">
-              <span class="panel__label">页眉内容</span>
-              <select class="panel__input" :value="chrome?.header ?? 'none'"
-                @change="patchChrome({ header: ($event.target as HTMLSelectElement).value as PageChromeField })">
-                <option v-for="field in CHROME_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
+              <span class="panel__label">粘贴策略</span>
+              <select class="panel__input" :value="api.editing.value.pasteMode"
+                @change="api.patchEditing({ pasteMode: ($event.target as HTMLSelectElement).value as 'rich' | 'plain' | 'structure' })">
+                <option value="rich">保留样式</option>
+                <option value="structure">仅结构（丢内联样式）</option>
+                <option value="plain">纯文本</option>
               </select>
             </label>
-            <label class="panel__field">
-              <span class="panel__label">页眉占位 px</span>
-              <input type="number" class="panel__input" min="0" max="120"
-                :value="chrome?.headerSize ?? 0"
-                @change="patchChrome({ headerSize: Number(($event.target as HTMLInputElement).value) })" />
-            </label>
-          </div>
+          </template>
 
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">页脚内容</span>
-              <select class="panel__input" :value="chrome?.footer ?? 'none'"
-                @change="patchChrome({ footer: ($event.target as HTMLSelectElement).value as PageChromeField })">
-                <option v-for="field in CHROME_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
-              </select>
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">页脚占位 px</span>
-              <input type="number" class="panel__input" min="0" max="120"
-                :value="chrome?.footerSize ?? 0"
-                @change="patchChrome({ footerSize: Number(($event.target as HTMLInputElement).value) })" />
-            </label>
-          </div>
+          <!-- ========== 预设管理 ========== -->
+          <template v-else>
+            <h5 class="panel__group-title">命名样式（挂到个别段落）</h5>
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">样式名（基于「{{ featureLabel }}」的当前设置）</span>
+                <input v-model="styleName" type="text" class="panel__input" placeholder="如：引文-楷体" />
+              </label>
+              <button type="button" class="panel__primary" :disabled="styleName.trim() === ''" @click="onCreateNamedStyle">
+                创建
+              </button>
+            </div>
+            <ul class="panel__presets">
+              <li v-for="style in api.namedStyles.value.styles" :key="style.id" class="panel__preset">
+                <input
+                  class="panel__input panel__preset-name"
+                  :value="style.name"
+                  @change="api.renameNamedStyle(style.id, ($event.target as HTMLInputElement).value)"
+                />
+                <span class="panel__preset-meta">{{ FEATURE_STYLE_META[style.featureId].label }}</span>
+                <button type="button" class="panel__mini" @click="api.deleteNamedStyle(style.id)">删除</button>
+              </li>
+              <li v-if="api.namedStyles.value.styles.length === 0" class="panel__empty">还没有命名样式</li>
+            </ul>
 
-          <p class="panel__hint">
-            页眉页脚的字体 / 字号 / 对齐 / 分隔线在「功能样式 → 页面与结构页 → 页眉 / 页脚」里调。
-            页脚选「不显示」时页码一并不显示（页码属页脚内容之一）；封面页按书籍惯例不标页眉页脚。
-            横排下页眉页脚占用版心高度，直排下占用每列行长（列数不变）。
-          </p>
-        </template>
+            <h5 class="panel__group-title">样式预设</h5>
+            <div class="panel__row">
+              <label class="panel__field">
+                <span class="panel__label">预设名称</span>
+                <input v-model="presetName" type="text" class="panel__input" placeholder="如：中华书局风" />
+              </label>
+              <button type="button" class="panel__primary" :disabled="presetName.trim() === ''" @click="onSavePreset">
+                保存为预设
+              </button>
+            </div>
 
-        <!-- ========== 编辑行为 ========== -->
-        <template v-else-if="section === 'behavior'">
-          <label class="panel__switch">
-            <input type="checkbox" :checked="api.editing.value.readonly"
-              @change="api.patchEditing({ readonly: ($event.target as HTMLInputElement).checked })" />
-            只读模式（禁止输入 / 粘贴 / 拖拽）
-          </label>
-          <label class="panel__switch">
-            <input type="checkbox" :checked="api.editing.value.pagination"
-              @change="api.patchEditing({ pagination: ($event.target as HTMLInputElement).checked })" />
-            书页分页（关闭 = 连续画布）
-          </label>
-          <label class="panel__switch">
-            <input type="checkbox" :checked="api.editing.value.paginationGuides"
-              @change="api.patchEditing({ paginationGuides: ($event.target as HTMLInputElement).checked })" />
-            显示分页参考线
-          </label>
-          <label class="panel__switch">
-            <input type="checkbox" :checked="api.editing.value.inheritBlockType"
-              @change="api.patchEditing({ inheritBlockType: ($event.target as HTMLInputElement).checked })" />
-            回车后继承当前块类型
-          </label>
+            <ul class="panel__presets">
+              <li v-for="preset in api.presets.value" :key="preset.id" class="panel__preset">
+                <span class="panel__preset-name">{{ preset.name }}</span>
+                <span class="panel__preset-meta">{{ preset.basedOn === 'classical' ? '古籍' : '现代' }}</span>
+                <button type="button" class="panel__mini" @click="api.applyPreset(preset)">套用</button>
+                <button type="button" class="panel__mini" @click="onExportPreset(preset.id)">复制 JSON</button>
+                <button type="button" class="panel__mini" @click="api.deletePreset(preset.id)">删除</button>
+              </li>
+              <li v-if="api.presets.value.length === 0" class="panel__empty">还没有预设</li>
+            </ul>
 
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">自动保存间隔 ms</span>
-              <input type="number" class="panel__input" min="500" max="10000" step="100"
-                :value="api.editing.value.autosaveDelay"
-                @change="api.patchEditing({ autosaveDelay: Number(($event.target as HTMLInputElement).value) })" />
-            </label>
-            <label class="panel__field">
-              <span class="panel__label">撤销合并 ms</span>
-              <input type="number" class="panel__input" min="100" max="2000" step="50"
-                :value="api.editing.value.historyGroupDelay"
-                @change="api.patchEditing({ historyGroupDelay: Number(($event.target as HTMLInputElement).value) })" />
-            </label>
-          </div>
+            <div class="panel__row">
+              <button type="button" class="panel__secondary" @click="onImportPreset">从剪贴板导入</button>
+              <button type="button" class="panel__secondary" @click="onGlobal">设为全局默认</button>
+            </div>
 
-          <label class="panel__field">
-            <span class="panel__label">粘贴策略</span>
-            <select class="panel__input" :value="api.editing.value.pasteMode"
-              @change="api.patchEditing({ pasteMode: ($event.target as HTMLSelectElement).value as 'rich' | 'plain' | 'structure' })">
-              <option value="rich">保留样式</option>
-              <option value="structure">仅结构（丢内联样式）</option>
-              <option value="plain">纯文本</option>
-            </select>
-          </label>
-        </template>
+            <p v-if="presetMessage !== ''" class="panel__hint panel__hint--ok">{{ presetMessage }}</p>
 
-        <!-- ========== 预设管理 ========== -->
-        <template v-else>
-          <h5 class="panel__group-title">命名样式（挂到个别段落）</h5>
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">样式名（基于「{{ featureLabel }}」的当前设置）</span>
-              <input v-model="styleName" type="text" class="panel__input" placeholder="如：引文-楷体" />
-            </label>
-            <button type="button" class="panel__primary" :disabled="styleName.trim() === ''" @click="onCreateNamedStyle">
-              创建
-            </button>
-          </div>
-          <ul class="panel__presets">
-            <li v-for="style in api.namedStyles.value.styles" :key="style.id" class="panel__preset">
-              <input
-                class="panel__input panel__preset-name"
-                :value="style.name"
-                @change="api.renameNamedStyle(style.id, ($event.target as HTMLInputElement).value)"
-              />
-              <span class="panel__preset-meta">{{ FEATURE_STYLE_META[style.featureId].label }}</span>
-              <button type="button" class="panel__mini" @click="api.deleteNamedStyle(style.id)">删除</button>
-            </li>
-            <li v-if="api.namedStyles.value.styles.length === 0" class="panel__empty">还没有命名样式</li>
-          </ul>
-
-          <h5 class="panel__group-title">样式预设</h5>
-          <div class="panel__row">
-            <label class="panel__field">
-              <span class="panel__label">预设名称</span>
-              <input v-model="presetName" type="text" class="panel__input" placeholder="如：中华书局风" />
-            </label>
-            <button type="button" class="panel__primary" :disabled="presetName.trim() === ''" @click="onSavePreset">
-              保存为预设
-            </button>
-          </div>
-
-          <ul class="panel__presets">
-            <li v-for="preset in api.presets.value" :key="preset.id" class="panel__preset">
-              <span class="panel__preset-name">{{ preset.name }}</span>
-              <span class="panel__preset-meta">{{ preset.basedOn === 'classical' ? '古籍' : '现代' }}</span>
-              <button type="button" class="panel__mini" @click="api.applyPreset(preset)">套用</button>
-              <button type="button" class="panel__mini" @click="onExportPreset(preset.id)">复制 JSON</button>
-              <button type="button" class="panel__mini" @click="api.deletePreset(preset.id)">删除</button>
-            </li>
-            <li v-if="api.presets.value.length === 0" class="panel__empty">还没有预设</li>
-          </ul>
-
-          <div class="panel__row">
-            <button type="button" class="panel__secondary" @click="onImportPreset">从剪贴板导入</button>
-            <button type="button" class="panel__secondary" @click="onGlobal">设为全局默认</button>
-          </div>
-
-          <p v-if="presetMessage !== ''" class="panel__hint panel__hint--ok">{{ presetMessage }}</p>
-
-          <div class="panel__footer">
-            <button type="button" class="panel__danger" @click="onResetAll">恢复全部默认并清除已存样式</button>
-          </div>
-        </template>
+            <div class="panel__footer">
+              <button type="button" class="panel__danger" @click="onResetAll">恢复全部默认并清除已存样式</button>
+            </div>
+          </template>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
+  </div>
 </template>
 
 <style scoped>
+/* 遮罩层：固定居中，点击遮罩关闭（面板自身吞掉点击） */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(24, 21, 16, 0.45);
+}
+
+/* 弹窗卡片：定宽 + 限高，内容区独立滚动 */
 .panel {
-  color: var(--demo-text);
-  font-size: 12px;
-  height: 100%;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 880px;
+  height: min(82vh, 720px);
+  overflow: hidden;
+  color: var(--demo-text);
+  font-size: 12px;
+  background: var(--demo-panel, #f4f0e8);
+  border: 1px solid var(--demo-border, #e2ddd2);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
 }
 
 .panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px 6px;
+  padding: 12px 18px 10px;
   border-block-end: 1px solid var(--demo-border);
 }
 
@@ -724,9 +747,9 @@ async function onResetAll(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 6px;
-  width: 104px;
-  flex: 0 0 104px;
+  padding: 10px 8px;
+  width: 132px;
+  flex: 0 0 132px;
   border-inline-end: 1px solid var(--demo-border);
 }
 
@@ -759,7 +782,7 @@ async function onResetAll(): Promise<void> {
 .panel__content {
   flex: 1;
   min-width: 0;
-  padding: 8px 12px 14px;
+  padding: 12px 18px 18px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

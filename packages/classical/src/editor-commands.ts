@@ -8,6 +8,14 @@
  * - 块插入：双行小注、眉批、校勘记、跋文、牌记、题记、版框；
  * - 原子 / 符号插入：鱼尾、印章、出校符号。
  * 命令执行期按 IR 类型名从 schema 取节点 / 标记，未注册时返回 false。
+ *
+ * 使用口径（供 UI 层写按钮说明时对齐）：
+ * - 行内标记（专名号 / 书名号 / 圈点 / 异体 / 注Ref / 避讳）走 `toggleMarkOfType`，
+ *   空光标只写 `storedMarks`，下一次输入才继承；
+ * - 行内容器（夹注 / 异体载体 / 避讳载体）**仅支持同段选区**，跨段落返回 false；
+ * - 块插入（双行注 / 眉批 / 校勘记 / 跋文 / 牌记 / 题记 / 版框）以「当前叶块之后」为落点；
+ * - 本包只打语义，**外观一律由 `packages/layout/src/html/book-css.ts` 的 `.bt-*` 类决定**，
+ *   新增节点若没有对应样式，插入后虽然存在但看不见。
  */
 import {
   insertAtomicNode,
@@ -23,7 +31,12 @@ import { CLASSICAL_NODE_TYPES } from './node-types.js';
 
 /* ---------- 行内标记 ---------- */
 
-/** 按古籍标记类型生成切换命令（schema 未注册该标记时不可用） */
+/**
+ * 按古籍标记类型生成切换命令（schema 未注册该标记时不可用）
+ *
+ * 语义同 `toggleMarkOfType`：选区非空即对选区切换；空光标写 `storedMarks`，
+ * 下一次输入才继承 —— UI 侧因此可以把空光标点击视为「设置待输入标记」。
+ */
 function toggleClassicalMark(type: ClassicalMarkType, attrs?: Attrs): Command {
   return (state, dispatch, view) => {
     const markType = state.schema.marks[type];
@@ -44,7 +57,13 @@ export function toggleBookTitle(): Command {
   return toggleClassicalMark(CLASSICAL_MARK_TYPES.BOOK_TITLE);
 }
 
-/** 切换圈点（着重点；style 可选圈 / 点等表现） */
+/**
+ * 切换圈点（着重点）
+ *
+ * @param style 强调样式，写入 `circle-emphasis.style` 并经序列化器输出为 `data-style`。
+ *   可行值（与 book-css 对齐）：circle（缺省）/ open-circle / dot / open-dot /
+ *   double-circle / triangle / sesame；传 undefined 则用 spec 默认（null → 渲染为实心圈）。
+ */
 export function toggleCircleEmphasis(style?: string): Command {
   return toggleClassicalMark(
     CLASSICAL_MARK_TYPES.CIRCLE_EMPHASIS,
@@ -57,7 +76,12 @@ export function toggleVariant(): Command {
   return toggleClassicalMark(CLASSICAL_MARK_TYPES.VARIANT);
 }
 
-/** 切换注Ref标记（noteId 由属性检视器录入） */
+/**
+ * 切换注Ref标记
+ *
+ * @param noteId 指向注文节点的标识；不传时标记的 `noteId` 为 spec 默认（null），
+ *   结果是「只有引点、没有锚点」—— 导出时不会生成跳转，需在属性检视器补录。
+ */
 export function toggleNoteRef(noteId?: string): Command {
   return toggleClassicalMark(
     CLASSICAL_MARK_TYPES.NOTE_REF,
@@ -118,7 +142,14 @@ export function insertBorderFrame(): Command {
   return insertBlockOfType(CLASSICAL_NODE_TYPES.BORDER_FRAME);
 }
 
-/* ---------- 行内容器包裹（夹注 / 异体字 / 避讳字载体） ---------- */
+/* ---------- 行内容器包裹（夹注 / 异体字 / 避讳字载体） ----------
+ *
+ * 三者共用 `insertInlineNodeWrapping`，行为一致：
+ * - 选区非空 → 把选区内容包进容器（内容用 `Fragment.cut` 取，不能拿 Selection.content()，
+ *   那是块级根，会直接抛 `Invalid content`）；
+ * - 空光标 → 插入空容器，光标进入容器内部（不是留在容器之后）；
+ * - **跨段落选区返回 false**（静默不执行）：单个行内片段无法表达跨块内容。
+ */
 
 /** 将选区（或光标处新容器）包裹为夹注 */
 export function toggleInlineNote(): Command {
@@ -137,19 +168,34 @@ export function toggleTabooChar(): Command {
 
 /* ---------- 原子节点插入（鱼尾 / 印章） ---------- */
 
-/** 在当前叶块之后插入鱼尾（无内容原子块） */
+/**
+ * 在当前叶块之后插入鱼尾（无内容原子块）
+ *
+ * 第三个参数 `embedParagraph = false` 是必需的：鱼尾的 content 为空，
+ * 若按默认值内嵌段落，`createChecked` 会校验失败导致点击无反应。
+ */
 export function insertFishTail(): Command {
   return insertBlockOfType(CLASSICAL_NODE_TYPES.FISH_TAIL, undefined, false);
 }
 
-/** 在光标处插入印章（text 为印文，缺省「印章」占位） */
+/**
+ * 在光标处插入印章
+ *
+ * @param text 印文，写入 `seal.text`；缺省「印章」占位。元素本身没有子节点，
+ *   可见性完全依赖样式表的 `.bt-seal::after { content: attr(data-text) }` 一类规则。
+ */
 export function insertSeal(text = '印章'): Command {
   return insertAtomicNode(CLASSICAL_NODE_TYPES.SEAL, { text });
 }
 
 /* ---------- 符号插入 ---------- */
 
-/** 在光标处插入出校符号（默认 ○，可传 □ / △ 等） */
+/**
+ * 在光标处插入出校符号
+ *
+ * @param symbol 符号字形，写入 `collation-mark.symbol`，序列化为 `data-symbol`；
+ *   缺省 ○，其余常用 □ / △ 等按需传入。样式由 `.bt-collation-mark::after` 渲染。
+ */
 export function insertCollationSymbol(symbol = '○'): Command {
   return (state, dispatch) => {
     const type = state.schema.nodes[CLASSICAL_NODE_TYPES.COLLATION_MARK];

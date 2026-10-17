@@ -6,6 +6,17 @@ dist/
 *.tsbuildinfo
 .turbo/
 
+# 其他程序文件
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 书籍文件
+*.epub
+*.mobi
+*.pdf
+
 # 日志
 *.log
 npm-debug.log*

@@ -36,6 +36,13 @@ import {
 import { findNodeById } from './find-node.js';
 import { countOutlineItems, extractOutline, type OutlineItem } from './outline.js';
 import { formatPageNumber, type PageNumberStyle } from './page-numbering.js';
+import {
+  isNodeInCover,
+  isPageChromeEnabled,
+  resolveChapterTitleForNode,
+  resolvePageChromeTexts,
+  type PageChromeTexts,
+} from './page-chrome.js';
 
 /** 重排参数 */
 export interface RepaginateOptions {
@@ -358,6 +365,54 @@ export class Reader {
   formatCurrentPageNumber(): string {
     const style = this.options.pageNumberStyle as PageNumberStyle;
     return formatPageNumber(this.pageIndex + 1, style);
+  }
+
+  /* ---------------- 页眉 / 页脚 ---------------- */
+
+  /** 是否启用页眉 / 页脚（false 时渲染层走「仅页码」老路径） */
+  get pageChromeEnabled(): boolean {
+    return isPageChromeEnabled(this.options.pageChrome);
+  }
+
+  /** 该页是否属于封面（书籍惯例：封面不标页码与页眉页脚） */
+  isCoverPage(pageIndex: number = this.pageIndex): boolean {
+    if (this.doc === undefined) return false;
+    const first = this.pages[pageIndex]?.blocks[0];
+    if (first === undefined) return false;
+    return isNodeInCover(this.doc.root, first.id);
+  }
+
+  /** 页首块所属章名（页眉 `chapterTitle` 字段；无结构标题时为空串） */
+  getPageChapterTitle(pageIndex: number = this.pageIndex): string {
+    if (this.doc === undefined) return '';
+    const first = this.pages[pageIndex]?.blocks[0];
+    if (first === undefined) return '';
+    return resolveChapterTitleForNode(this.doc.root, first.id);
+  }
+
+  /**
+   * 页眉 / 页脚文本（按 `layout.pageChrome` 解析）
+   *
+   * 返回 `undefined` 表示**不启用**（配置缺失或该页是封面）——渲染层据此
+   * 回退到「页脚仅页码」的老行为，保证未配置页眉页脚的旧文档逐像素不变。
+   */
+  getPageChromeTexts(pageIndex: number = this.pageIndex): PageChromeTexts | undefined {
+    const chrome = this.options.pageChrome;
+    if (this.doc === undefined || chrome === undefined || !isPageChromeEnabled(chrome)) {
+      return undefined;
+    }
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= this.pages.length) {
+      return undefined;
+    }
+    if (this.isCoverPage(pageIndex)) return undefined;
+    const style = this.options.pageNumberStyle as PageNumberStyle;
+    return resolvePageChromeTexts({
+      chrome,
+      pageIndex,
+      bookTitle: this.doc.metadata.title,
+      chapterTitle: this.getPageChapterTitle(pageIndex),
+      pageNumberText: formatPageNumber(pageIndex + 1, style),
+    });
   }
 
   /**

@@ -22,8 +22,10 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, LAYOUT_TOKENS } from '@bibliotype/core';
+import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import {
   buildRootStyle,
+  computeMetricsSignature,
   DEFAULT_LAYOUT_OPTIONS,
   isVerticalMode,
   type LayoutOptions,
@@ -44,6 +46,16 @@ const props = defineProps<{
   options?: LayoutOptions;
   /** 正文字体族令牌键（古籍可传 FONT_TOKENS.CLASSICAL_BODY） */
   fontToken?: string;
+  /**
+   * 功能样式表（按功能粒度覆盖节点 / 标记 / 角色样式）
+   *
+   * 与 BtBookView / 导出共用同一份：编辑画布、阅读预览、EPUB、PDF 四端同源。
+   * 只含纯视觉声明时只重写样式表（不重排）；含度量类声明时经
+   * `computeMetricsSignature` 变化触发一次重排。
+   */
+  features?: FeatureStyleSheet;
+  /** 命名样式集合（挂到具体段落的具名样式，输出 `[data-style-id]` 规则） */
+  namedStyles?: NamedStyleSet;
   /** 是否分页（缺省 false：连续编辑，不分页） */
   pagination?: boolean;
   /**
@@ -102,6 +114,20 @@ const fontTokenRef = computed(() => props.fontToken);
 const measureRef = computed(() => props.measure);
 const pageMainSizeRef = computed(() => props.pageMainSize);
 
+/**
+ * 排版度量签名：决定「是否需要重新分页」
+ *
+ * 只含度量类配置（字号 / 行距 / 缩进 / 页边距 / 分栏 / 版框 / 功能样式里的度量声明）。
+ * 用户拖动颜色、线型、底色等纯视觉参数时签名不变 → 只换样式表，不重排。
+ */
+const metricsSignatureRef = computed(() =>
+  computeMetricsSignature({
+    tokens: resolvedTokens.value,
+    options: resolvedOptions.value,
+    features: props.features,
+  }),
+);
+
 const paged = usePagedLayout({
   editor: props.editor,
   options: resolvedOptions,
@@ -109,6 +135,7 @@ const paged = usePagedLayout({
   fontToken: fontTokenRef,
   measure: measureRef,
   pageMainSize: pageMainSizeRef,
+  metricsSignature: metricsSignatureRef,
   version: binding.version,
 });
 
@@ -239,6 +266,8 @@ function syncBookStyle(): void {
       options,
       fontToken: props.fontToken,
       containerSelector: CONTAINER_SELECTOR,
+      features: props.features,
+      namedStyles: props.namedStyles,
     }) + `\n${rootRule}\n`;
   let element = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   if (element === null) {
@@ -294,7 +323,10 @@ onBeforeUnmount(() => {
   pageObserver?.disconnect();
 });
 
-watch([resolvedTokens, resolvedOptions, () => props.fontToken], syncBookStyle);
+watch(
+  [resolvedTokens, resolvedOptions, () => props.fontToken, () => props.features, () => props.namedStyles],
+  syncBookStyle,
+);
 
 // 可编辑性切换：同步 ref 并刷新视图（让 EditorView 重新求值 editable 闭包）
 watch(

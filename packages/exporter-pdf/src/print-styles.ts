@@ -56,6 +56,24 @@ export function buildPrintCss(input: PrintCssOptions): string {
   size: ${page.width}px ${page.height}px;
   margin: 0;
 }`);
+    /*
+     * 页眉 / 页脚占位高度：与 buildRootStyle 下发的同名变量同源，
+     * 供 .bt-page-header / .bt-page-footer 取用（打印路径不套 inline 根样式，
+     * 故在此显式补上；未启用时不出声明，回退 book-css 的默认值）。
+     */
+    const chrome = options.pageChrome;
+    const chromeVars =
+      chrome === undefined
+        ? ''
+        : `${
+            chrome.header === 'none'
+              ? ''
+              : `  --bt-page-header-size: ${Math.max(0, chrome.headerSize)}px;\n`
+          }${
+            chrome.footer === 'none'
+              ? ''
+              : `  --bt-page-footer-size: ${Math.max(0, chrome.footerSize)}px;\n`
+          }`;
     rules.push(`.bt-page {
   box-sizing: border-box;
   width: ${page.width}px;
@@ -63,7 +81,7 @@ export function buildPrintCss(input: PrintCssOptions): string {
   padding: ${margin};
   overflow: hidden;
   position: relative;
-  break-after: page;
+${chromeVars}  break-after: page;
 }
 .bt-page:last-child {
   break-after: auto;

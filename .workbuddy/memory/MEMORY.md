@@ -103,3 +103,26 @@
 - **分页落模丢标记继承**：`packages/vue/src/paged-editor/edit-applier.ts` 的 `applyFragmentEdit` 用
   `state.schema.text(text)`（无 marks）→ 点标记后打字 / 在已标记文本中间打字都不继承（PM 原生
   `insertText` 会继承 `storedMarks || $from.marks()`）。
+
+## 古籍编辑器 Ardot 排版重设计约定
+- **设计目标**：以「编辑便捷性」为核心重设计，而非照搬旧 demo 截图。
+- **布局原则**：顶栏（书名 + 横排/直排切换 / 目录·搜索·导出·设置·保存·返回）；格式工具栏固定顶部、按分类分组（样式/字体/段落/标记）；目录改按需抽屉（不固定侧栏）；属性面板编辑时常驻（右侧）；书页居中、留白最大化、柔和投影。
+- **视觉**：Apple 极简（模板 00002），单一强调色 `#0066cc`；图标统一 Lucide 官方 SVG，主图标 `#1C1C1E`、次级指示(chevron) `#7A7A7A`。
+- **Ardot 工程**：flex 父节点子节点 x/y 会被忽略；绝对定位叠加层挂到非 flex 的 Page 节点下，用 `layout:"none"` + 显式 x/y；`batch_edit` 单次 ≤25 操作、binding 名不跨批次；组件用 `reusable:true` frame + `svg`，实例化用 `type:"ref"` + `ref:"<id>"`；当前模型无法读图，视觉核验靠 schema 与 potentialIssues。
+- **batch_edit 易错点（实测）**：① `operations` 必须是**单条字符串**（多条 JS 语句用换行分隔），传 JSON 数组会被整体字符串化、所有语句报 "Skipped unparseable line" 全跳过；② `ref` 必须填**真实组件 id**（如 "3:516"），同批次 binding 名（如 fieldCmp）进 `ref` 会 "Failed to parse node data"；③ 实例子节点改写路径 = `实例id;组件子id`（如 "3:531;3:517"），不是 `实例名;子节点name`——**`U()` 路径里用 binding 名指代实例会双写分号（"3:576;;3:517"）而找不到节点**，必须等 `batch_edit` 返回真实实例 id 后再 `U()`；④ 先 `batch_read` 该实例 `resolveInstances:true` 拿到子节点真实 id。
+
+## 样式体系（功能样式表 / 页眉页脚）
+
+- **三层**：令牌（全局基准）→ `FeatureStyleSheet`（每功能一组 CSS 声明，空=继承）→ 预设（命名快照）。
+  编译唯一出口 `buildBookCss`，编辑画布 / 阅读 / EPUB / PDF 四端共用；**样式不进 IR attrs**（导入器不认、EPUB 需转内联）。
+- **性能红线**：`computeMetricsSignature` 只纳入度量类（`METRIC_PROPERTIES` + 度量令牌）。纯视觉参数（颜色/线型/底色/圆角）
+  改动 → 签名不变 → 只换 CSS **禁止重排**；度量类改动才失效 `prev.sizes/lineOffsets/lineSizes`。
+- **页眉页脚占版心**：横排扣主轴（`resolvePageMainSize`），直排扣行长（`resolvePageCrossSize`）；渲染层高度取
+  `buildRootStyle` 下发的 `--bt-page-header-size` / `--bt-page-footer-size`，与分页扣减**必须同源**。
+  三者任一改动都要同步进 `metrics-signature`，否则「改了版心却不重排」→ 错页。
+- **页眉页脚节点必须排在正文之后**（绝对定位，DOM 顺序不影响视觉）：否则
+  `.bt-page > :first-child` / `.bt-paged-page__flow > .bt-paged-frag:first-child` 的「页首块吞 margin」
+  会命中页眉，正文首块 margin 反而保留 → 页首多空隙 + 末行被裁。
+- **禁用状态约定**：`reader.getPageChromeTexts()` 在「未配置 / 封面页 / 越界」时返回 `undefined`，渲染层据此回退
+  「页脚仅页码」老路径 —— 这是老文档逐像素不变的前提，别改成返回空对象。
+- **`book-css.ts` 整块 CSS 在模板字符串内**：注释里写反引号（如包裹属性名）会提前闭合模板，`tsc` 报 TS1005。

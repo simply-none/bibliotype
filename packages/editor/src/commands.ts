@@ -380,6 +380,69 @@ export function setMarkAttrs(markName: string, patch: Attrs): Command {
   };
 }
 
+/* ---------- 命名样式（Word 式 styleId） ---------- */
+
+/**
+ * 可挂命名样式的块类型
+ *
+ * 只对「承载文本的块」有意义：容器（卷 / 章）与原子块（图片 / 分页符）挂样式
+ * 没有实际排版效果，反而让 attrs 变脏。
+ */
+const STYLEABLE_BLOCK_TYPES: ReadonlySet<string> = new Set([
+  'paragraph',
+  'heading',
+  'quote',
+  'list-item',
+  'caption',
+  'math-block',
+  'double-note',
+  'head-note',
+  'tail-note',
+  'collation-note',
+  'imprint',
+  'colophon',
+  'border-frame',
+]);
+
+/**
+ * 给光标所在块挂 / 清命名样式
+ *
+ * `styleId` 写入 `rawAttrs` 兜底容器（不是 schema 正式属性）：
+ * - 导入器（docx / epub / markdown）不认识它，写成正式属性会破坏 IR 无损往返；
+ * - 序列化器把非白名单属性输出为 `data-style-id`，命名样式的 CSS 规则据此命中。
+ *
+ * @param styleId 样式 id；传 null 表示移除
+ */
+export function setBlockStyleId(styleId: string | null): Command {
+  return (state, dispatch) => {
+    const { $from } = state.selection;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth);
+      if (!STYLEABLE_BLOCK_TYPES.has(node.type.name)) continue;
+      const attrs = mergeAttrsPatch(node.attrs, node.type.spec.attrs, { styleId });
+      dispatch?.(state.tr.setNodeMarkup($from.before(depth), undefined, attrs));
+      return true;
+    }
+    return false;
+  };
+}
+
+/** 读光标所在块的命名样式 id（无则 null） */
+export function getBlockStyleId(state: EditorState): string | null {
+  const { $from } = state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (!STYLEABLE_BLOCK_TYPES.has(node.type.name)) continue;
+    const raw = node.attrs[RAW_ATTRS_ATTR];
+    if (typeof raw === 'object' && raw !== null) {
+      const value = (raw as Record<string, unknown>).styleId;
+      return typeof value === 'string' ? value : null;
+    }
+    return null;
+  }
+  return null;
+}
+
 /* ---------- 块插入（注疏 / 眉批 / 校勘记等复用） ---------- */
 
 /**

@@ -16,6 +16,7 @@
  * 两路均附带 toc.ncx（EPUB 3 向后兼容推荐做法），差异仅在 OPF 特性与文档壳。
  */
 import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookDocument, type BookNode } from '@bibliotype/core';
+import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { DEFAULT_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import { resolveNodeTitle } from '@bibliotype/reader';
@@ -56,6 +57,15 @@ export interface EpubExportOptions {
   validate?: boolean;
   /** 校验结果回调（error / warning 列表，error 在前） */
   onValidation?: (problems: readonly ValidationProblem[]) => void;
+  /**
+   * 功能样式表（按功能粒度的样式覆盖）
+   *
+   * 与阅读 / 编辑画布共用同一份 —— 用户调过的下划线线型、双行注字号等
+   * 必须原样写进导出的 style.css，否则「编辑即所见」在导出后失效。
+   */
+  features?: FeatureStyleSheet;
+  /** 命名样式集合（`[data-style-id]` 规则） */
+  namedStyles?: NamedStyleSet;
 }
 
 /** 导出 EPUB（返回完整 epub 文件字节，含 zip 容器） */
@@ -145,6 +155,8 @@ export function exportEpub(
     tokens: options.tokens ?? DEFAULT_THEME,
     options: layout,
     fontToken: options.fontToken,
+    features: options.features,
+    namedStyles: options.namedStyles,
     /* 导出路径扁平化 CSS 变量：不支持 var() 的老引擎（RMSDK / 微信读书）
        会丢弃含变量的整条声明，扁平化后 computed value 直写，两端一致。 */
     flatten: true,

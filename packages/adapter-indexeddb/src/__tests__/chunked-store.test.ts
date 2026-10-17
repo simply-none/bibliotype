@@ -136,7 +136,9 @@ describe('buildChunkedSnapshot', () => {
 
     expect(second.writes.length).toBeLessThanOrEqual(3);
     // 文档末尾的片（远离插入点）必须原样复用
-    const lastChunk = [...first.chunkIds].at(-1) as string;
+    // 注意：本包 tsconfig 的 lib 为 ES2020，Array.prototype.at 在类型层面不存在
+    const lastChunkIdList = [...first.chunkIds];
+    const lastChunk = lastChunkIdList[lastChunkIdList.length - 1] as string;
     expect(second.chunkIds.has(lastChunk)).toBe(true);
 
     // 还原：合并「上一轮片」与「本轮新写片」后应得到 201 段

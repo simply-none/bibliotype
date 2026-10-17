@@ -15,12 +15,30 @@ import { computed } from 'vue';
 import {
   RAW_ATTRS_ATTR,
   declaredAttrNames,
+  getBlockStyleId,
+  setBlockStyleId,
   setMarkAttrs,
   setNodeAttrs,
 } from '@bibliotype/editor';
+import type { NamedStyle } from '@bibliotype/core';
 import type { EditorBinding } from '@bibliotype/vue';
 
-const props = defineProps<{ binding: EditorBinding }>();
+const props = defineProps<{
+  binding: EditorBinding;
+  /** 命名样式列表（Word 式具名样式；空数组则不显示选择器） */
+  namedStyles?: NamedStyle[];
+}>();
+
+/** 光标所在块当前挂的命名样式 id（版本驱动重算） */
+const currentStyleId = computed(() => {
+  void props.binding.version.value;
+  return getBlockStyleId(props.binding.editor.editorState);
+});
+
+/** 挂 / 清命名样式 */
+function applyStyleId(raw: string): void {
+  props.binding.execute(setBlockStyleId(raw === '' ? null : raw));
+}
 
 /** 单个可编辑属性字段 */
 interface AttrField {
@@ -267,6 +285,19 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
 <template>
   <section class="inspector">
     <span class="inspector__title">属性</span>
+    <label v-if="namedStyles !== undefined && namedStyles.length > 0" class="inspector__field">
+      <span class="inspector__label">命名样式</span>
+      <select
+        class="inspector__input"
+        :value="currentStyleId ?? ''"
+        @change="applyStyleId(($event.target as HTMLSelectElement).value)"
+      >
+        <option value="">（无）</option>
+        <option v-for="style in namedStyles" :key="style.id" :value="style.id">
+          {{ style.name }}
+        </option>
+      </select>
+    </label>
     <template v-if="groups.length > 0">
       <div v-for="group in groups" :key="`${group.kind}-${group.typeName}`" class="inspector__group">
         <span class="inspector__tag">{{ group.title }}</span>

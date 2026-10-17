@@ -20,7 +20,14 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { isTextNode, type BookNode } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
-import { formatPageNumber, type PageNumberStyle } from '@bibliotype/reader';
+import {
+  buildPageChromeIndex,
+  formatPageNumber,
+  isPageChromeEnabled,
+  resolvePageChromeTexts,
+  type PageChromeIndex,
+  type PageNumberStyle,
+} from '@bibliotype/reader';
 import type { BookEditor } from '@bibliotype/editor';
 import {
   fragmentCharToBlockChar,
@@ -123,6 +130,49 @@ onBeforeUnmount(removeStyle);
 const pageSize = computed(() => props.options.pageSize);
 const pageNumberStyle = computed(() => props.options.pageNumberStyle as PageNumberStyle);
 
+/*
+ * 页眉 / 页脚（与阅读视图、打印稿同源）：
+ * 配置来自 layout.pageChrome，文本由 reader 的纯函数解析。未启用时（默认）
+ * 一律返回 undefined → 保留老的「页脚仅页码」渲染，成本为零。
+ */
+const chromeConfig = computed(() => {
+  const chrome = props.options.pageChrome;
+  return chrome !== undefined && isPageChromeEnabled(chrome) ? chrome : undefined;
+});
+
+/** 是否需要章名（决定要不要建索引；只配书名 / 页码时不付出 O(N) 代价） */
+const needsChapterTitle = computed(() => {
+  const chrome = chromeConfig.value;
+  if (chrome === undefined) return false;
+  return (
+    chrome.header === 'chapterTitle' ||
+    chrome.footer === 'chapterTitle' ||
+    chrome.headerEven === 'chapterTitle' ||
+    chrome.footerEven === 'chapterTitle'
+  );
+});
+
+/**
+ * 页眉页脚索引（章名 + 封面块），随分页结果重算
+ *
+ * 逐页各自回溯文档树是 O(页数 × N)，故一次 DFS 建好索引；未启用或不需要
+ * 章名时返回 null，逐页取文本时为空表兜底（只有页码 / 书名，无需索引）。
+ */
+const chromeIndex = computed<PageChromeIndex | null>(() => {
+  void props.pages;
+  if (chromeConfig.value === undefined) return null;
+  if (!needsChapterTitle.value) return null;
+  const doc = props.editor?.getSharedDocument();
+  if (doc === undefined) return null;
+  return buildPageChromeIndex(doc.root);
+});
+
+/** 书名（页眉 bookTitle 字段） */
+const bookTitle = computed(() => {
+  void props.pages;
+  return props.editor?.getSharedDocument().metadata.title ?? '';
+});
+
 const pageFrameStyle = computed(() => ({
   ...buildPageStyle(pageSize.value, props.tokens),
   ...buildRootStyle({
@@ -178,6 +228,12 @@ interface RenderedPage {
   top: number;
   frags: RenderedFrag[];
   numberText: string;
+  /** 页眉文本（空串 = 不渲染） */
+  header: string;
+  /** 页脚文本（空串 = 不渲染） */
+  footer: string;
+  /** 是否启用页眉页脚（true 时不再渲染老的四角页码） */
+  chromeOn: boolean;
 }
 
 /** 序列化缓存（node 引用级）：增量重排复用同一片段节点 → 免重复 serializeNode */
@@ -197,9 +253,32 @@ function fragHtml(frag: PagedFragment): string {
 const renderedPages = computed<RenderedPage[]>(() => {
   const { start, end } = range.value;
   const list: RenderedPage[] = [];
+  const chrome = chromeConfig.value;
+  const index = chromeIndex.value;
   for (let i = start; i <= end; i += 1) {
     const page = props.pages[i];
     if (page === undefined) continue;
+    const numberText = formatPageNumber(i + 1, pageNumberStyle.value);
+    let header = '';
+    let footer = '';
+    let chromeOn = false;
+    if (chrome !== undefined) {
+      const firstId = page.fragments[0]?.blockId;
+      // 封面不标页眉页脚（书籍惯例）；索引缺失时按非封面处理（仅有页码 / 书名）
+      const isCover = firstId !== undefined && index !== null && index.coverBlocks.has(firstId);
+      if (firstId !== undefined && !isCover) {
+        const texts = resolvePageChromeTexts({
+          chrome,
+          pageIndex: i,
+          bookTitle: bookTitle.value,
+          chapterTitle: index?.chapterTitles.get(firstId) ?? '',
+          pageNumberText: numberText,
+        });
+        header = texts.header;
+        footer = texts.footer;
+        chromeOn = true;
+      }
+    }
     list.push({
       index: i,
       top: SCROLL_PADDING + i * stride.value,
@@ -210,7 +289,10 @@ const renderedPages = computed<RenderedPage[]>(() => {
         lineCount: frag.lineCount,
         html: fragHtml(frag),
       })),
-      numberText: formatPageNumber(i + 1, pageNumberStyle.value),
+      numberText,
+      header,
+      footer,
+      chromeOn,
     });
   }
   return list;
@@ -775,7 +857,11 @@ watch(
               v-html="frag.html"
             ></div>
           </div>
-          <footer class="bt-paged-page__no">{{ page.numberText }}</footer>
+          <!-- 页眉页脚放在 flow 之后：绝对定位，DOM 顺序不影响视觉层级，
+               但能保证 .bt-paged-page__flow 的首片段仍是「页首块吞 margin」的命中目标 -->
+          <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
+          <div v-if="page.footer" class="bt-page-footer">{{ page.footer }}</div>
+          <footer v-else-if="!page.chromeOn" class="bt-paged-page__no">{{ page.numberText }}</footer>
         </div>
       </div>
     </div>

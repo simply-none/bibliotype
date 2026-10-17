@@ -11,6 +11,7 @@
  * 不依赖 DOM，可在 Node（无头浏览器）与浏览器中同构生成。
  */
 import { DEFAULT_THEME, type BookDocument } from '@bibliotype/core';
+import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
   resolvePageMainSize,
@@ -71,6 +72,10 @@ export interface PrintDocumentOptions {
    * 的 `createImageBlobRewriter`）；adapter 路径不传（离屏窗口需 inline）。
    */
   rewriteSrc?: (src: string) => string | undefined;
+  /** 功能样式表（按功能粒度的样式覆盖，与阅读 / 编辑画布同源） */
+  features?: FeatureStyleSheet;
+  /** 命名样式集合（`[data-style-id]` 规则） */
+  namedStyles?: NamedStyleSet;
 }
 
 /** 生成打印文档（完整 HTML 字符串） */
@@ -87,6 +92,8 @@ export function renderPrintHtml(
     tokens,
     options: layout,
     fontToken: options.fontToken,
+    features: options.features,
+    namedStyles: options.namedStyles,
   })}\n${buildPrintCss({ options: layout, tokens, mode })}`;
 
   const body =
@@ -153,11 +160,28 @@ function renderPagedBody(
           }),
         )
         .join('\n');
-      const number = escapeHtml(formatPageNumber(page.index + 1, layout.pageNumberStyle));
+      /*
+       * 页眉 / 页脚放在正文之后：`.bt-page > :first-child` 的「页首块吞 margin」
+       * 规则必须继续命中正文首块（页眉是绝对定位，DOM 顺序不影响视觉层级）。
+       * `chrome === undefined` 表示未启用（或封面页）→ 回退老的「页脚仅页码」。
+       */
+      const chrome = reader.getPageChromeTexts(page.index);
+      const header =
+        chrome !== undefined && chrome.header !== ''
+          ? `<div class="bt-page-header">${escapeHtml(chrome.header)}</div>\n`
+          : '';
+      const footer =
+        chrome !== undefined && chrome.footer !== ''
+          ? `<div class="bt-page-footer">${escapeHtml(chrome.footer)}</div>\n`
+          : chrome === undefined
+            ? `<div class="bt-page-number">${escapeHtml(
+                formatPageNumber(page.index + 1, layout.pageNumberStyle),
+              )}</div>\n`
+            : '';
       return (
         `<section class="bt-page" data-page="${page.index + 1}">\n` +
         `${content}\n` +
-        `<div class="bt-page-number">${number}</div>\n</section>`
+        `${header}${footer}</section>`
       );
     })
     .join('\n');

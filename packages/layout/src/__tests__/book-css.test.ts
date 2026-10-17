@@ -185,6 +185,69 @@ describe('buildBookCss', () => {
     });
     expect(css).toContain('-webkit-writing-mode: vertical-rl;');
   });
+
+  it('标题分级：h1~h6 各自一条规则（只用 .bt-heading 无法分级）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    for (const level of [1, 2, 3, 4, 5, 6]) {
+      expect(css).toContain(`h${level}.bt-heading {`);
+    }
+    // H1 以令牌值为兜底、calc 倍率为 1；H6 最小（0.54 倍）
+    expect(css).toContain(
+      'h1.bt-heading {\n  font-size: 1.75em;\n  font-size: calc(var(--bt-font-size-heading) * 1);',
+    );
+    expect(css).toContain('calc(var(--bt-font-size-heading) * 0.54)');
+  });
+
+  it('圈点样式变体：data-style 属性驱动 text-emphasis（此前写死 filled circle）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toContain(".bt-mark-circle-emphasis[data-style='open-circle'] {");
+    expect(css).toContain('text-emphasis: open circle;');
+    expect(css).toContain(".bt-mark-circle-emphasis[data-style='double-circle'] {");
+    expect(css).toContain(".bt-mark-circle-emphasis[data-style='sesame'] {");
+  });
+
+  it('分隔变体：data-variant 输出虚线 / 点线 / 双线 / 分页', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toContain(".bt-break[data-variant='dashed'] {");
+    expect(css).toContain(".bt-break[data-variant='page'] {");
+  });
+
+  it('页眉 / 页脚规则存在，且占位高度取 CSS 变量（与分页扣减同源）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toContain('.bt-page-header {');
+    expect(css).toContain('.bt-page-footer {');
+    expect(css).toContain('height: var(--bt-page-header-size, 24px);');
+    expect(css).toContain('height: var(--bt-page-footer-size, 24px);');
+  });
+
+  it('功能样式与命名样式追加在末尾（同优先级靠层叠顺序覆盖）', () => {
+    const css = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      features: { 'block.paragraph': { color: '#123456' } },
+      namedStyles: {
+        version: 1,
+        styles: [
+          {
+            id: 'bt-style-1',
+            name: '题解',
+            featureId: 'block.paragraph',
+            declarations: { 'font-weight': '600' },
+          },
+        ],
+      },
+    });
+    expect(css).toContain('body .bt-paragraph {\n  color: #123456;\n}');
+    expect(css).toContain('body [data-style-id="bt-style-1"]');
+    // 尾部覆盖段在专名号规则之后
+    expect(css.indexOf('用户样式覆盖')).toBeGreaterThan(css.indexOf('.bt-mark-proper-name {'));
+  });
+
+  it('color-mix 声明带物理色兜底（老引擎整条丢弃的规避）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    const block = /\.bt-footnote \{[\s\S]*?\}/.exec(css)?.[0] ?? '';
+    expect(block).toMatch(/border-block-start: 1px solid #\w{3,8};\n\s*border-block-start: 1px solid color-mix/);
+  });
 });
 
 describe('declarationToCss', () => {

@@ -1,439 +1,709 @@
 <script setup lang="ts">
 /**
- * 编辑设置面板（Demo 组件）
+ * 编辑设置面板（功能细节版）
  *
- * 收拢「版式参数」的可视化入口，全部经 App 的补丁状态生效，
- * 阅读（BtBookView / Reader）、编辑画布（BtEditor）、导出（EPUB / PDF）
- * 共用同一份 layout 与 tokens，改一处三端联动。
+ * 结构（参考 Word 的「选项 / 样式」组织方式）：
+ * - 左导航：功能样式 / 版面与页面 / 页眉页脚 / 编辑行为 / 预设管理；
+ * - 右侧：所选分组的表单；功能分组内先选分组、再选功能（胶囊），然后逐项改细节；
+ * - 所有改动经 `use-style-settings` 自动落盘（本书作用域），关窗重开仍在。
  *
- * 分组：
- * - 版面与页面（LayoutOptions）：书写方向 / 页面尺寸 / 分栏 / 页码样式 / 直排数字合并；
- * - 文字与版式（主题令牌）：字号 / 行高 / 注文与标题字号 / 字距 / 缩进 / 页边距 / 栏间距 / 字体族；
- * - 颜色：正文 / 背景 / 注文 / 强调 + 夜间预设；
- * - 编辑画布：书页分页开关。
- * 「恢复主题预设」清空全部补丁回到当前主题基准值；
- * 「保存设置」持久化当前版式覆写并按新设置刷新书本（刷新后沿用）。
+ * 参数表来自 `use-style-schema.ts`，表单由 `FeatureStyleEditor` 通用渲染，
+ * 因此新增参数不需要动本文件。
  */
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, ref } from 'vue';
 import {
   COLOR_TOKENS,
+  FEATURE_STYLE_GROUPS,
+  FEATURE_STYLE_IDS,
+  FEATURE_STYLE_META,
   FONT_SIZE_TOKENS,
   FONT_TOKENS,
   LAYOUT_TOKENS,
+  type FeatureStyleId,
 } from '@bibliotype/core';
 import {
-  createPageSize,
+  PAGE_CHROME_FIELDS,
   PAGE_NUMBER_STYLES,
   PAGE_SIZES,
   WRITING_MODES,
+  createPageSize,
   isVerticalMode,
   type LayoutOptions,
-  type PageNumberStyle,
-  type PageSize,
-  type WritingMode,
+  type PageChromeField,
 } from '@bibliotype/layout';
+import type { StyleSettingsApi } from '../composables/use-style-settings.js';
+import FeatureStyleEditor from './FeatureStyleEditor.vue';
 
 const props = defineProps<{
+  /** 样式设置 API（状态 + 持久化 + 预设） */
+  api: StyleSettingsApi;
   /** 当前生效布局（主题基准 + 补丁合并后） */
   layout: LayoutOptions;
-  /** 当前生效令牌表（含夜间后的最终值，控件读其展示） */
+  /** 当前生效令牌（含夜间覆盖） */
   tokens: Readonly<Record<string, string | undefined>>;
-  /** 书页分页是否开启（编辑画布，paged 引擎；关闭即连续画布） */
-  pagination: boolean;
-  /** 夜间预设是否开启 */
+  /** 夜间预设开关（演示态快捷预设，不写入样式快照） */
   night: boolean;
-  /** 是否存在任何补丁（控制「恢复主题预设」可用性） */
-  customized: boolean;
 }>();
 
 const emit = defineEmits<{
-  /** 布局补丁（浅合并进 layoutPatch） */
-  'update:layout': [patch: Partial<LayoutOptions>];
-  /** 单令牌写入 */
-  'update:token': [key: string, value: string];
-  /** 书页分页开关 */
-  'update:pagination': [value: boolean];
-  /** 夜间预设开关 */
   'update:night': [value: boolean];
-  /** 清空全部补丁 */
-  reset: [];
-  /** 保存当前设置（持久化快照 + 按新设置刷新书本） */
-  save: [];
-  /** 关闭面板 */
   close: [];
 }>();
 
-/* ---------- 数值解析工具 ---------- */
+/* ---------- 导航 ---------- */
 
-/** 「已保存」瞬时反馈态 */
-const saveFeedback = ref(false);
-let saveFeedbackTimer: number | undefined;
-function onSaveClick(): void {
-  emit('save');
-  saveFeedback.value = true;
-  if (saveFeedbackTimer !== undefined) clearTimeout(saveFeedbackTimer);
-  saveFeedbackTimer = window.setTimeout(() => {
-    saveFeedback.value = false;
-  }, 1500);
-}
-onBeforeUnmount(() => {
-  if (saveFeedbackTimer !== undefined) clearTimeout(saveFeedbackTimer);
-});
+type PanelSection = 'features' | 'layout' | 'chrome' | 'behavior' | 'presets';
 
-/** 解析 px / em / 纯数值串的前导数字（失败回退 fallback） */
-function parseNum(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseFloat(value ?? '');
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+const section = ref<PanelSection>('features');
+/** 功能分组（features 面板内再分） */
+const group = ref<string>('text');
+/** 当前编辑的功能 */
+const activeFeature = ref<FeatureStyleId>('mark.underline');
 
-/** 解析颜色令牌（input type=color 需 #rrggbb，非法回退黑色） */
-function parseColor(value: string | undefined): string {
-  return /^#[0-9a-fA-F]{6}$/.test(value ?? '') ? (value as string) : '#000000';
+const NAV: ReadonlyArray<{ id: PanelSection; label: string }> = [
+  { id: 'features', label: '功能样式' },
+  { id: 'layout', label: '版面与页面' },
+  { id: 'chrome', label: '页眉页脚' },
+  { id: 'behavior', label: '编辑行为' },
+  { id: 'presets', label: '预设管理' },
+];
+
+/** 当前分组的功能列表 */
+const groupFeatures = computed(() =>
+  FEATURE_STYLE_IDS.filter((id) => FEATURE_STYLE_META[id].group === group.value),
+);
+
+const featureLabel = computed(() => FEATURE_STYLE_META[activeFeature.value].label);
+const featureDeclarations = computed(() => props.api.features.value[activeFeature.value] ?? {});
+
+/** 已覆盖的功能数量（导航角标） */
+const overriddenFeatures = computed(() => Object.keys(props.api.features.value).length);
+
+function openFeature(id: FeatureStyleId): void {
+  activeFeature.value = id;
+  section.value = 'features';
 }
 
 /* ---------- 版面与页面 ---------- */
 
-const WRITING_ENTRIES: ReadonlyArray<[WritingMode, string]> = [
-  [WRITING_MODES.HORIZONTAL_TB, '横排'],
-  [WRITING_MODES.VERTICAL_RL, '竖排右起'],
-  [WRITING_MODES.VERTICAL_LR, '竖排左起'],
-];
+const PAGE_SIZE_ENTRIES = Object.entries(PAGE_SIZES) as Array<
+  [string, (typeof PAGE_SIZES)[keyof typeof PAGE_SIZES]]
+>;
 
-const PAGE_NUMBER_ENTRIES: ReadonlyArray<[PageNumberStyle, string]> = [
-  [PAGE_NUMBER_STYLES.DECIMAL, '阿拉伯数字'],
-  [PAGE_NUMBER_STYLES.CHINESE, '中文数字'],
-  [PAGE_NUMBER_STYLES.ROMAN, '罗马数字'],
-];
-
-const PAGE_SIZE_ENTRIES: ReadonlyArray<[string, PageSize]> = Object.entries(
-  PAGE_SIZES,
-) as ReadonlyArray<[string, PageSize]>;
-
-/** 当前尺寸匹配的预设键（无匹配视为自定义） */
 const pageSizeKey = computed(() => {
   const entry = PAGE_SIZE_ENTRIES.find(
-    ([, size]) => size.width === props.layout.pageSize.width && size.height === props.layout.pageSize.height,
+    ([, size]) =>
+      size.width === props.layout.pageSize.width && size.height === props.layout.pageSize.height,
   );
   return entry?.[0] ?? 'custom';
 });
 
-/** 开本切换（自定义时保持当前宽高，由数值框调整） */
-function onPageSizeChange(key: string): void {
+function onPageSize(key: string): void {
   if (key === 'custom') return;
   const size = PAGE_SIZES[key as keyof typeof PAGE_SIZES];
-  if (size !== undefined) emit('update:layout', { pageSize: size });
+  if (size !== undefined) props.api.patchLayout({ pageSize: size });
 }
 
-/** 自定义页面宽高（px） */
-function onCustomSize(part: 'width' | 'height', value: number): void {
-  const current = props.layout.pageSize;
-  const next = part === 'width' ? value : current.width;
-  const other = part === 'width' ? current.height : value;
-  if (next <= 0 || other <= 0) return;
-  emit('update:layout', { pageSize: createPageSize('自定义', next, other) });
-}
+const vertical = computed(() => isVerticalMode(props.layout.writingMode));
 
-/* ---------- 文字与版式 ---------- */
-
-const FONT_SIZE_MIN = 12;
-const FONT_SIZE_MAX = 24;
-
-const fontSize = computed(() => parseNum(props.tokens[FONT_SIZE_TOKENS.BODY], 16));
-const lineHeight = computed(() => parseNum(props.tokens[LAYOUT_TOKENS.LINE_HEIGHT], 1.9));
-
-function stepFontSize(delta: number): void {
-  const next = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, fontSize.value + delta));
-  emit('update:token', FONT_SIZE_TOKENS.BODY, `${next}px`);
-}
-
-/** 页边距简写 → 四边数值（"48px 56px" → 上下 48 / 左右 56） */
 const marginBox = computed(() => {
   const parts = (props.tokens[LAYOUT_TOKENS.PAGE_MARGIN] ?? '48px 56px')
     .split(/\s+/)
-    .map((part) => parseNum(part, 0));
+    .map((part) => Number.parseFloat(part));
   const [top = 48, right = 56, bottom = top, left = right] = parts;
   return { top, right, bottom, left };
 });
 
-function onMarginPart(part: 'top' | 'right' | 'bottom' | 'left', value: number): void {
+function setMargin(side: 'top' | 'right' | 'bottom' | 'left', raw: string): void {
+  const value = Number.parseFloat(raw);
   if (!Number.isFinite(value) || value < 0) return;
-  const box = { ...marginBox.value, [part]: Math.round(value) };
-  emit(
-    'update:token',
+  const box = { ...marginBox.value, [side]: Math.round(value) };
+  props.api.setToken(
     LAYOUT_TOKENS.PAGE_MARGIN,
     `${box.top}px ${box.right}px ${box.bottom}px ${box.left}px`,
   );
 }
 
-/** 文本令牌输入（非法空值忽略） */
-function onTokenInput(key: string, value: string): void {
-  const trimmed = value.trim();
-  if (trimmed !== '') emit('update:token', key, trimmed);
+/** 令牌输入（空值 = 清除覆写，回落主题基准） */
+function numToken(key: string, raw: string): void {
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    props.api.clearToken(key);
+    return;
+  }
+  props.api.setToken(key, trimmed);
 }
 
-/* ---------- 颜色 ---------- */
+/** 取令牌数值部分（用于 number 输入回显） */
+function numOf(key: string): string {
+  return /^-?\d+(?:\.\d+)?/.exec(props.tokens[key] ?? '')?.[0] ?? '';
+}
 
-const COLOR_ENTRIES: ReadonlyArray<[string, string]> = [
-  [COLOR_TOKENS.TEXT, '正文'],
-  [COLOR_TOKENS.BACKGROUND, '背景'],
-  [COLOR_TOKENS.NOTE_TEXT, '注文'],
-  [COLOR_TOKENS.ACCENT, '强调'],
-];
-
-/* ---------- 字体族 ---------- */
-
-const FONT_FAMILY_ENTRIES: ReadonlyArray<[string, string]> = [
+const FONT_FAMILY_FIELDS: ReadonlyArray<[string, string]> = [
   [FONT_TOKENS.BODY, '正文'],
   [FONT_TOKENS.HEADING, '标题'],
   [FONT_TOKENS.CLASSICAL_BODY, '古籍正文'],
   [FONT_TOKENS.MONO, '等宽'],
 ];
 
-const vertical = computed(() => isVerticalMode(props.layout.writingMode));
+const COLOR_FIELDS: ReadonlyArray<[string, string]> = [
+  [COLOR_TOKENS.TEXT, '正文'],
+  [COLOR_TOKENS.BACKGROUND, '背景'],
+  [COLOR_TOKENS.NOTE_TEXT, '注文'],
+  [COLOR_TOKENS.ACCENT, '强调'],
+];
+
+/** 颜色令牌 → 取色器值（非法回退黑） */
+function colorValue(key: string): string {
+  const value = props.tokens[key] ?? '';
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000';
+}
+
+/* ---------- 页眉页脚 ---------- */
+
+const CHROME_FIELDS: ReadonlyArray<{ value: PageChromeField; label: string }> = [
+  { value: PAGE_CHROME_FIELDS.NONE, label: '不显示' },
+  { value: PAGE_CHROME_FIELDS.BOOK_TITLE, label: '书名' },
+  { value: PAGE_CHROME_FIELDS.CHAPTER_TITLE, label: '章名' },
+  { value: PAGE_CHROME_FIELDS.PAGE_NUMBER, label: '页码' },
+];
+
+const chrome = computed(() => props.layout.pageChrome);
+
+const chromeEnabled = computed(
+  () =>
+    chrome.value !== undefined &&
+    (chrome.value.header !== 'none' || chrome.value.footer !== 'none'),
+);
+
+function patchChrome(patch: Partial<NonNullable<LayoutOptions['pageChrome']>>): void {
+  const base = props.layout.pageChrome ?? {
+    header: PAGE_CHROME_FIELDS.NONE,
+    footer: PAGE_CHROME_FIELDS.NONE,
+    headerSize: 0,
+    footerSize: 0,
+  };
+  props.api.patchLayout({ pageChrome: { ...base, ...patch } });
+}
+
+function toggleChrome(enabled: boolean): void {
+  if (enabled) {
+    patchChrome({
+      header: PAGE_CHROME_FIELDS.BOOK_TITLE,
+      headerSize: 26,
+      footer: PAGE_CHROME_FIELDS.PAGE_NUMBER,
+      footerSize: 26,
+    });
+  } else {
+    patchChrome({
+      header: PAGE_CHROME_FIELDS.NONE,
+      footer: PAGE_CHROME_FIELDS.NONE,
+      headerSize: 0,
+      footerSize: 0,
+    });
+  }
+}
+
+/* ---------- 预设 ---------- */
+
+const presetName = ref('');
+const presetMessage = ref('');
+
+/* ---------- 命名样式 ---------- */
+
+const styleName = ref('');
+
+/** 以当前功能（含其覆盖声明）为模板创建命名样式 */
+function onCreateNamedStyle(): void {
+  const name = styleName.value.trim();
+  if (name === '') return;
+  props.api.createNamedStyle(name, activeFeature.value);
+  styleName.value = '';
+  presetMessage.value = `已创建命名样式「${name}」（可在编辑画布的属性栏挂到段落）`;
+}
+
+async function onSavePreset(): Promise<void> {
+  const name = presetName.value.trim();
+  if (name === '') return;
+  await props.api.saveAsPreset(name);
+  presetName.value = '';
+  presetMessage.value = `已保存预设「${name}」`;
+}
+
+async function onExportPreset(id: string): Promise<void> {
+  const preset = props.api.presets.value.find((item) => item.id === id);
+  if (preset === undefined) return;
+  const json = props.api.exportPreset(preset);
+  try {
+    await navigator.clipboard.writeText(json);
+    presetMessage.value = `预设「${preset.name}」的 JSON 已复制到剪贴板`;
+  } catch {
+    presetMessage.value = '复制失败：浏览器拒绝了剪贴板权限';
+  }
+}
+
+async function onImportPreset(): Promise<void> {
+  try {
+    const json = await navigator.clipboard.readText();
+    const preset = await props.api.importPreset(json);
+    presetMessage.value =
+      preset === undefined
+        ? '导入失败：剪贴板内容不是有效的预设 JSON'
+        : `已导入预设「${preset.name}」`;
+  } catch {
+    presetMessage.value = '导入失败：无法读取剪贴板';
+  }
+}
+
+async function onGlobal(): Promise<void> {
+  await props.api.saveAsGlobal();
+  presetMessage.value = '已把当前配置设为全局默认（新书沿用）';
+}
+
+async function onResetAll(): Promise<void> {
+  await props.api.resetAll();
+  presetMessage.value = '已恢复全部默认并清除已保存的样式';
+}
 </script>
 
 <template>
   <section class="panel">
     <header class="panel__header">
-      <h2 class="panel__title">设置</h2>
-      <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">×</button>
+      <h2 class="panel__title">编辑设置</h2>
+      <div class="panel__meta">
+        <span class="panel__store">{{ api.storeName.value }}</span>
+        <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">×</button>
+      </div>
     </header>
 
-    <!-- 版面与页面 -->
-    <h3 class="panel__group-title">版面与页面</h3>
-    <div class="panel__field">
-      <span class="panel__label">书写方向</span>
-      <div class="panel__chips">
+    <div class="panel__body">
+      <!-- 左导航 -->
+      <nav class="panel__nav">
         <button
-          v-for="[mode, label] in WRITING_ENTRIES"
-          :key="mode"
+          v-for="item in NAV"
+          :key="item.id"
           type="button"
-          class="panel__chip"
-          :class="{ 'panel__chip--active': layout.writingMode === mode }"
-          @click="emit('update:layout', { writingMode: mode })"
+          class="panel__nav-item"
+          :class="{ 'panel__nav-item--active': section === item.id }"
+          @click="section = item.id"
         >
-          {{ label }}
+          {{ item.label }}
+          <span v-if="item.id === 'features' && overriddenFeatures > 0" class="panel__nav-count">
+            {{ overriddenFeatures }}
+          </span>
         </button>
+      </nav>
+
+      <!-- 右内容 -->
+      <div class="panel__content">
+        <!-- ========== 功能样式 ========== -->
+        <template v-if="section === 'features'">
+          <div class="panel__chips panel__chips--groups">
+            <button
+              v-for="item in FEATURE_STYLE_GROUPS"
+              :key="item.id"
+              type="button"
+              class="panel__chip"
+              :class="{ 'panel__chip--active': group === item.id }"
+              @click="group = item.id"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+
+          <div class="panel__chips panel__chips--features">
+            <button
+              v-for="id in groupFeatures"
+              :key="id"
+              type="button"
+              class="panel__chip"
+              :class="{
+                'panel__chip--active': activeFeature === id,
+                'panel__chip--dirty': api.features.value[id] !== undefined,
+              }"
+              @click="openFeature(id)"
+            >
+              {{ FEATURE_STYLE_META[id].label }}
+            </button>
+          </div>
+
+          <FeatureStyleEditor
+            :id="activeFeature"
+            :label="featureLabel"
+            :declarations="featureDeclarations"
+            @declaration="(property: string, value: string | null) => api.setFeatureDeclaration(activeFeature, property, value)"
+            @replace="(declarations) => api.setFeatureDeclarations(activeFeature, declarations)"
+            @reset="api.resetFeature(activeFeature)"
+          />
+        </template>
+
+        <!-- ========== 版面与页面 ========== -->
+        <template v-else-if="section === 'layout'">
+          <div class="panel__field">
+            <span class="panel__label">书写方向</span>
+            <div class="panel__chips">
+              <button
+                v-for="mode in [WRITING_MODES.HORIZONTAL_TB, WRITING_MODES.VERTICAL_RL, WRITING_MODES.VERTICAL_LR]"
+                :key="mode"
+                type="button"
+                class="panel__chip"
+                :class="{ 'panel__chip--active': layout.writingMode === mode }"
+                @click="api.patchLayout({ writingMode: mode })"
+              >
+                {{ mode === WRITING_MODES.HORIZONTAL_TB ? '横排' : mode === WRITING_MODES.VERTICAL_RL ? '竖排右起' : '竖排左起' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">开本</span>
+              <select class="panel__input" :value="pageSizeKey" @change="onPageSize(($event.target as HTMLSelectElement).value)">
+                <option v-for="[key, size] in PAGE_SIZE_ENTRIES" :key="key" :value="key">{{ size.name }}</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">分栏</span>
+              <select class="panel__input" :value="layout.columns" @change="api.patchLayout({ columns: Number(($event.target as HTMLSelectElement).value) })">
+                <option v-for="count in 3" :key="count" :value="count">{{ count }} 栏</option>
+              </select>
+            </label>
+          </div>
+
+          <div v-if="pageSizeKey === 'custom'" class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">宽 px</span>
+              <input
+                type="number"
+                class="panel__input"
+                :value="layout.pageSize.width"
+                min="1"
+                @change="api.patchLayout({ pageSize: createPageSize('自定义', Number(($event.target as HTMLInputElement).value), layout.pageSize.height) })"
+              />
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">高 px</span>
+              <input
+                type="number"
+                class="panel__input"
+                :value="layout.pageSize.height"
+                min="1"
+                @change="api.patchLayout({ pageSize: createPageSize('自定义', layout.pageSize.width, Number(($event.target as HTMLInputElement).value)) })"
+              />
+            </label>
+          </div>
+
+          <div class="panel__field">
+            <span class="panel__label">页边距（上右下左 px）</span>
+            <div class="panel__grid4">
+              <input
+                v-for="side in (['top', 'right', 'bottom', 'left'] as const)"
+                :key="side"
+                type="number"
+                class="panel__input"
+                :value="marginBox[side]"
+                min="0"
+                @change="setMargin(side, ($event.target as HTMLInputElement).value)"
+              />
+            </div>
+          </div>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">页码样式</span>
+              <select class="panel__input" :value="layout.pageNumberStyle" @change="api.patchLayout({ pageNumberStyle: ($event.target as HTMLSelectElement).value })">
+                <option :value="PAGE_NUMBER_STYLES.DECIMAL">阿拉伯数字</option>
+                <option :value="PAGE_NUMBER_STYLES.CHINESE">中文数字</option>
+                <option :value="PAGE_NUMBER_STYLES.ROMAN">罗马数字</option>
+              </select>
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">正文字号 px</span>
+              <input
+                type="number"
+                class="panel__input"
+                :value="numOf(FONT_SIZE_TOKENS.BODY)"
+                min="8"
+                max="48"
+                @change="numToken(FONT_SIZE_TOKENS.BODY, `${($event.target as HTMLInputElement).value}px`)"
+              />
+            </label>
+          </div>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">行距</span>
+              <input type="number" class="panel__input" :value="numOf(LAYOUT_TOKENS.LINE_HEIGHT)" min="1" max="3" step="0.05"
+                @change="numToken(LAYOUT_TOKENS.LINE_HEIGHT, ($event.target as HTMLInputElement).value)" />
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">字距</span>
+              <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.LETTER_SPACING] ?? ''" placeholder="0.02em"
+                @change="numToken(LAYOUT_TOKENS.LETTER_SPACING, ($event.target as HTMLInputElement).value)" />
+            </label>
+          </div>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">首行缩进</span>
+              <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.TEXT_INDENT] ?? ''" placeholder="2em"
+                @change="numToken(LAYOUT_TOKENS.TEXT_INDENT, ($event.target as HTMLInputElement).value)" />
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">栏间距</span>
+              <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.COLUMN_GAP] ?? ''" placeholder="2.5em"
+                @change="numToken(LAYOUT_TOKENS.COLUMN_GAP, ($event.target as HTMLInputElement).value)" />
+            </label>
+          </div>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">标题字号</span>
+              <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.HEADING] ?? ''" placeholder="1.75em"
+                @change="numToken(FONT_SIZE_TOKENS.HEADING, ($event.target as HTMLInputElement).value)" />
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">注文字号</span>
+              <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.NOTE] ?? ''" placeholder="0.75em"
+                @change="numToken(FONT_SIZE_TOKENS.NOTE, ($event.target as HTMLInputElement).value)" />
+            </label>
+          </div>
+
+          <div v-if="vertical" class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">数字合并上限</span>
+              <input type="number" class="panel__input" min="1" max="10"
+                :value="layout.combineUpright.maxDigits"
+                @change="api.patchLayout({ combineUpright: { ...layout.combineUpright, maxDigits: Math.min(10, Math.max(1, Number(($event.target as HTMLInputElement).value) || 4)) } })" />
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">拉丁词</span>
+              <select class="panel__input" :value="layout.combineUpright.latinStrategy"
+                @change="api.patchLayout({ combineUpright: { ...layout.combineUpright, latinStrategy: ($event.target as HTMLSelectElement).value as 'rotate' | 'combine' } })">
+                <option value="rotate">侧转</option>
+                <option value="combine">并入字格</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="panel__field">
+            <span class="panel__label">字体族</span>
+            <label v-for="[key, label] in FONT_FAMILY_FIELDS" :key="key" class="panel__stack">
+              <span class="panel__sub-label">{{ label }}</span>
+              <input type="text" class="panel__input" :value="tokens[key] ?? ''"
+                @change="numToken(key, ($event.target as HTMLInputElement).value)" />
+            </label>
+          </div>
+
+          <div class="panel__field">
+            <span class="panel__label">配色</span>
+            <div class="panel__colors">
+              <label v-for="[key, label] in COLOR_FIELDS" :key="key" class="panel__color">
+                <input type="color" :value="colorValue(key)" @input="api.setToken(key, ($event.target as HTMLInputElement).value)" />
+                <span>{{ label }}</span>
+              </label>
+            </div>
+          </div>
+
+          <label class="panel__switch">
+            <input type="checkbox" :checked="night" @change="emit('update:night', ($event.target as HTMLInputElement).checked)" />
+            夜间配色（临时预览，不写入样式）
+          </label>
+        </template>
+
+        <!-- ========== 页眉页脚 ========== -->
+        <template v-else-if="section === 'chrome'">
+          <label class="panel__switch">
+            <input type="checkbox" :checked="chromeEnabled" @change="toggleChrome(($event.target as HTMLInputElement).checked)" />
+            启用页眉 / 页脚（占用版心，开启后重新分页）
+          </label>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">页眉内容</span>
+              <select class="panel__input" :value="chrome?.header ?? 'none'"
+                @change="patchChrome({ header: ($event.target as HTMLSelectElement).value as PageChromeField })">
+                <option v-for="field in CHROME_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
+              </select>
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">页眉占位 px</span>
+              <input type="number" class="panel__input" min="0" max="120"
+                :value="chrome?.headerSize ?? 0"
+                @change="patchChrome({ headerSize: Number(($event.target as HTMLInputElement).value) })" />
+            </label>
+          </div>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">页脚内容</span>
+              <select class="panel__input" :value="chrome?.footer ?? 'none'"
+                @change="patchChrome({ footer: ($event.target as HTMLSelectElement).value as PageChromeField })">
+                <option v-for="field in CHROME_FIELDS" :key="field.value" :value="field.value">{{ field.label }}</option>
+              </select>
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">页脚占位 px</span>
+              <input type="number" class="panel__input" min="0" max="120"
+                :value="chrome?.footerSize ?? 0"
+                @change="patchChrome({ footerSize: Number(($event.target as HTMLInputElement).value) })" />
+            </label>
+          </div>
+
+          <p class="panel__hint">
+            页眉页脚的字体 / 字号 / 对齐 / 分隔线在「功能样式 → 页面与结构页 → 页眉 / 页脚」里调。
+            页脚选「不显示」时页码一并不显示（页码属页脚内容之一）；封面页按书籍惯例不标页眉页脚。
+            横排下页眉页脚占用版心高度，直排下占用每列行长（列数不变）。
+          </p>
+        </template>
+
+        <!-- ========== 编辑行为 ========== -->
+        <template v-else-if="section === 'behavior'">
+          <label class="panel__switch">
+            <input type="checkbox" :checked="api.editing.value.readonly"
+              @change="api.patchEditing({ readonly: ($event.target as HTMLInputElement).checked })" />
+            只读模式（禁止输入 / 粘贴 / 拖拽）
+          </label>
+          <label class="panel__switch">
+            <input type="checkbox" :checked="api.editing.value.pagination"
+              @change="api.patchEditing({ pagination: ($event.target as HTMLInputElement).checked })" />
+            书页分页（关闭 = 连续画布）
+          </label>
+          <label class="panel__switch">
+            <input type="checkbox" :checked="api.editing.value.paginationGuides"
+              @change="api.patchEditing({ paginationGuides: ($event.target as HTMLInputElement).checked })" />
+            显示分页参考线
+          </label>
+          <label class="panel__switch">
+            <input type="checkbox" :checked="api.editing.value.inheritBlockType"
+              @change="api.patchEditing({ inheritBlockType: ($event.target as HTMLInputElement).checked })" />
+            回车后继承当前块类型
+          </label>
+
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">自动保存间隔 ms</span>
+              <input type="number" class="panel__input" min="500" max="10000" step="100"
+                :value="api.editing.value.autosaveDelay"
+                @change="api.patchEditing({ autosaveDelay: Number(($event.target as HTMLInputElement).value) })" />
+            </label>
+            <label class="panel__field">
+              <span class="panel__label">撤销合并 ms</span>
+              <input type="number" class="panel__input" min="100" max="2000" step="50"
+                :value="api.editing.value.historyGroupDelay"
+                @change="api.patchEditing({ historyGroupDelay: Number(($event.target as HTMLInputElement).value) })" />
+            </label>
+          </div>
+
+          <label class="panel__field">
+            <span class="panel__label">粘贴策略</span>
+            <select class="panel__input" :value="api.editing.value.pasteMode"
+              @change="api.patchEditing({ pasteMode: ($event.target as HTMLSelectElement).value as 'rich' | 'plain' | 'structure' })">
+              <option value="rich">保留样式</option>
+              <option value="structure">仅结构（丢内联样式）</option>
+              <option value="plain">纯文本</option>
+            </select>
+          </label>
+        </template>
+
+        <!-- ========== 预设管理 ========== -->
+        <template v-else>
+          <h5 class="panel__group-title">命名样式（挂到个别段落）</h5>
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">样式名（基于「{{ featureLabel }}」的当前设置）</span>
+              <input v-model="styleName" type="text" class="panel__input" placeholder="如：引文-楷体" />
+            </label>
+            <button type="button" class="panel__primary" :disabled="styleName.trim() === ''" @click="onCreateNamedStyle">
+              创建
+            </button>
+          </div>
+          <ul class="panel__presets">
+            <li v-for="style in api.namedStyles.value.styles" :key="style.id" class="panel__preset">
+              <input
+                class="panel__input panel__preset-name"
+                :value="style.name"
+                @change="api.renameNamedStyle(style.id, ($event.target as HTMLInputElement).value)"
+              />
+              <span class="panel__preset-meta">{{ FEATURE_STYLE_META[style.featureId].label }}</span>
+              <button type="button" class="panel__mini" @click="api.deleteNamedStyle(style.id)">删除</button>
+            </li>
+            <li v-if="api.namedStyles.value.styles.length === 0" class="panel__empty">还没有命名样式</li>
+          </ul>
+
+          <h5 class="panel__group-title">样式预设</h5>
+          <div class="panel__row">
+            <label class="panel__field">
+              <span class="panel__label">预设名称</span>
+              <input v-model="presetName" type="text" class="panel__input" placeholder="如：中华书局风" />
+            </label>
+            <button type="button" class="panel__primary" :disabled="presetName.trim() === ''" @click="onSavePreset">
+              保存为预设
+            </button>
+          </div>
+
+          <ul class="panel__presets">
+            <li v-for="preset in api.presets.value" :key="preset.id" class="panel__preset">
+              <span class="panel__preset-name">{{ preset.name }}</span>
+              <span class="panel__preset-meta">{{ preset.basedOn === 'classical' ? '古籍' : '现代' }}</span>
+              <button type="button" class="panel__mini" @click="api.applyPreset(preset)">套用</button>
+              <button type="button" class="panel__mini" @click="onExportPreset(preset.id)">复制 JSON</button>
+              <button type="button" class="panel__mini" @click="api.deletePreset(preset.id)">删除</button>
+            </li>
+            <li v-if="api.presets.value.length === 0" class="panel__empty">还没有预设</li>
+          </ul>
+
+          <div class="panel__row">
+            <button type="button" class="panel__secondary" @click="onImportPreset">从剪贴板导入</button>
+            <button type="button" class="panel__secondary" @click="onGlobal">设为全局默认</button>
+          </div>
+
+          <p v-if="presetMessage !== ''" class="panel__hint panel__hint--ok">{{ presetMessage }}</p>
+
+          <div class="panel__footer">
+            <button type="button" class="panel__danger" @click="onResetAll">恢复全部默认并清除已存样式</button>
+          </div>
+        </template>
       </div>
     </div>
-    <div class="panel__field">
-      <span class="panel__label">页面尺寸</span>
-      <select class="panel__input" :value="pageSizeKey" @change="onPageSizeChange(($event.target as HTMLSelectElement).value)">
-        <option v-for="[key, size] in PAGE_SIZE_ENTRIES" :key="key" :value="key">{{ size.name }}</option>
-        <option value="custom">自定义</option>
-      </select>
-    </div>
-    <div v-if="pageSizeKey === 'custom'" class="panel__field panel__field--inline">
-      <label class="panel__sub">
-        <span class="panel__label">宽</span>
-        <input
-          type="number"
-          class="panel__input panel__input--num"
-          :value="layout.pageSize.width"
-          min="1"
-          @change="onCustomSize('width', Number(($event.target as HTMLInputElement).value))"
-        />
-      </label>
-      <label class="panel__sub">
-        <span class="panel__label">高</span>
-        <input
-          type="number"
-          class="panel__input panel__input--num"
-          :value="layout.pageSize.height"
-          min="1"
-          @change="onCustomSize('height', Number(($event.target as HTMLInputElement).value))"
-        />
-      </label>
-    </div>
-    <div class="panel__field">
-      <span class="panel__label">分栏</span>
-      <div class="panel__chips">
-        <button
-          v-for="count in 3"
-          :key="count"
-          type="button"
-          class="panel__chip"
-          :class="{ 'panel__chip--active': layout.columns === count }"
-          @click="emit('update:layout', { columns: count })"
-        >
-          {{ count }} 栏
-        </button>
-      </div>
-    </div>
-    <div class="panel__field">
-      <span class="panel__label">页码样式</span>
-      <select
-        class="panel__input"
-        :value="layout.pageNumberStyle"
-        @change="emit('update:layout', { pageNumberStyle: ($event.target as HTMLSelectElement).value as PageNumberStyle })"
-      >
-        <option v-for="[style, label] in PAGE_NUMBER_ENTRIES" :key="style" :value="style">{{ label }}</option>
-      </select>
-    </div>
-    <div v-if="vertical" class="panel__field">
-      <label class="panel__sub">
-        <span class="panel__label">数字合并上限</span>
-        <input
-          type="number"
-          class="panel__input panel__input--num"
-          :value="layout.combineUpright.maxDigits"
-          min="1"
-          max="10"
-          @change="
-            emit('update:layout', {
-              combineUpright: { ...layout.combineUpright, maxDigits: Math.min(10, Math.max(1, Number(($event.target as HTMLInputElement).value) || 4)) },
-            })
-          "
-        />
-      </label>
-      <label class="panel__sub">
-        <span class="panel__label">拉丁词</span>
-        <select
-          class="panel__input"
-          :value="layout.combineUpright.latinStrategy"
-          @change="
-            emit('update:layout', {
-              combineUpright: { ...layout.combineUpright, latinStrategy: ($event.target as HTMLSelectElement).value as 'rotate' | 'combine' },
-            })
-          "
-        >
-          <option value="rotate">侧转</option>
-          <option value="combine">并入字格</option>
-        </select>
-      </label>
-    </div>
-
-    <!-- 文字与版式 -->
-    <h3 class="panel__group-title">文字与版式</h3>
-    <div class="panel__field panel__field--stepper">
-      <span class="panel__label">正文字号</span>
-      <button type="button" class="panel__chip" :disabled="fontSize <= FONT_SIZE_MIN" @click="stepFontSize(-2)">A−</button>
-      <span class="panel__value">{{ fontSize }}px</span>
-      <button type="button" class="panel__chip" :disabled="fontSize >= FONT_SIZE_MAX" @click="stepFontSize(2)">A＋</button>
-    </div>
-    <div class="panel__field">
-      <label class="panel__slider-label">
-        <span class="panel__label">行距</span>
-        <span class="panel__value">{{ lineHeight.toFixed(2) }}</span>
-      </label>
-      <input
-        type="range"
-        class="panel__range"
-        min="1.4"
-        max="2.5"
-        step="0.05"
-        :value="lineHeight"
-        @input="emit('update:token', LAYOUT_TOKENS.LINE_HEIGHT, String(Number(($event.target as HTMLInputElement).value)))"
-      />
-    </div>
-    <div class="panel__field">
-      <label class="panel__sub">
-        <span class="panel__label">注文字号</span>
-        <input class="panel__input" :value="tokens[FONT_SIZE_TOKENS.NOTE]" @change="onTokenInput(FONT_SIZE_TOKENS.NOTE, ($event.target as HTMLInputElement).value)" />
-      </label>
-      <label class="panel__sub">
-        <span class="panel__label">标题字号</span>
-        <input class="panel__input" :value="tokens[FONT_SIZE_TOKENS.HEADING]" @change="onTokenInput(FONT_SIZE_TOKENS.HEADING, ($event.target as HTMLInputElement).value)" />
-      </label>
-    </div>
-    <div class="panel__field">
-      <label class="panel__sub">
-        <span class="panel__label">字距</span>
-        <input class="panel__input" :value="tokens[LAYOUT_TOKENS.LETTER_SPACING]" @change="onTokenInput(LAYOUT_TOKENS.LETTER_SPACING, ($event.target as HTMLInputElement).value)" />
-      </label>
-      <label class="panel__sub">
-        <span class="panel__label">缩进</span>
-        <input class="panel__input" :value="tokens[LAYOUT_TOKENS.TEXT_INDENT]" @change="onTokenInput(LAYOUT_TOKENS.TEXT_INDENT, ($event.target as HTMLInputElement).value)" />
-      </label>
-    </div>
-    <div class="panel__field">
-      <span class="panel__label">页边距（上右下左 px）</span>
-      <div class="panel__margin">
-        <input
-          v-for="side in (['top', 'right', 'bottom', 'left'] as const)"
-          :key="side"
-          type="number"
-          class="panel__input panel__input--num"
-          :value="marginBox[side]"
-          min="0"
-          @change="onMarginPart(side, Number(($event.target as HTMLInputElement).value))"
-        />
-      </div>
-    </div>
-    <div class="panel__field">
-      <label class="panel__sub">
-        <span class="panel__label">栏间距</span>
-        <input class="panel__input" :value="tokens[LAYOUT_TOKENS.COLUMN_GAP]" @change="onTokenInput(LAYOUT_TOKENS.COLUMN_GAP, ($event.target as HTMLInputElement).value)" />
-      </label>
-      <label class="panel__sub">
-        <span class="panel__label">版框</span>
-        <input class="panel__input" :value="tokens['page-border']" placeholder="如 3px double #b09a76" @change="onTokenInput('page-border', ($event.target as HTMLInputElement).value)" />
-      </label>
-    </div>
-    <div class="panel__field panel__field--stack">
-      <label v-for="[key, label] in FONT_FAMILY_ENTRIES" :key="key" class="panel__sub panel__sub--full">
-        <span class="panel__label">字体族 · {{ label }}</span>
-        <input class="panel__input panel__input--family" :value="tokens[key]" @change="onTokenInput(key, ($event.target as HTMLInputElement).value)" />
-      </label>
-    </div>
-
-    <!-- 颜色 -->
-    <h3 class="panel__group-title">颜色</h3>
-    <div class="panel__field panel__field--colors">
-      <label v-for="[key, label] in COLOR_ENTRIES" :key="key" class="panel__color">
-        <input
-          type="color"
-          :value="parseColor(tokens[key])"
-          @input="emit('update:token', key, ($event.target as HTMLInputElement).value)"
-        />
-        <span>{{ label }}</span>
-      </label>
-    </div>
-    <div class="panel__field">
-      <label class="panel__switch">
-        <input type="checkbox" :checked="night" @change="emit('update:night', ($event.target as HTMLInputElement).checked)" />
-        夜间预设（覆盖配色）
-      </label>
-    </div>
-
-    <!-- 编辑画布 -->
-    <h3 class="panel__group-title">编辑画布</h3>
-    <div class="panel__field">
-      <label class="panel__switch">
-        <input type="checkbox" :checked="pagination" @change="emit('update:pagination', ($event.target as HTMLInputElement).checked)" />
-        书页分页
-      </label>
-    </div>
-
-    <footer class="panel__footer">
-      <button type="button" class="panel__reset" :disabled="!customized" @click="emit('reset')">
-        恢复主题预设
-      </button>
-      <button type="button" class="panel__save" @click="onSaveClick">
-        {{ saveFeedback ? '已保存' : '保存设置' }}
-      </button>
-    </footer>
   </section>
 </template>
 
 <style scoped>
 .panel {
-  padding: 10px 12px 14px;
-  border-block-end: 1px solid var(--demo-border);
   color: var(--demo-text);
   font-size: 12px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  padding: 10px 12px 6px;
+  border-block-end: 1px solid var(--demo-border);
 }
 
 .panel__title {
-  font-size: 14px;
   margin: 0;
+  font-size: 14px;
+}
+
+.panel__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel__store {
+  font-size: 10px;
+  color: var(--demo-muted);
+  border: 1px solid var(--demo-control-border);
+  border-radius: 8px;
+  padding: 0 6px;
 }
 
 .panel__close {
@@ -444,86 +714,67 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
   cursor: pointer;
 }
 
-.panel__group-title {
-  font-size: 12px;
-  color: var(--demo-muted);
-  margin: 14px 0 8px;
-  padding-block-start: 8px;
-  border-block-start: 1px dashed var(--demo-border);
+.panel__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
 }
 
-.panel__group-title:first-of-type {
-  border-block-start: none;
-  padding-block-start: 0;
-}
-
-.panel__field {
+.panel__nav {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  padding: 8px 6px;
+  width: 104px;
+  flex: 0 0 104px;
+  border-inline-end: 1px solid var(--demo-border);
+}
+
+.panel__nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 4px;
-  margin-bottom: 8px;
+  padding: 5px 8px;
+  font-size: 12px;
+  text-align: start;
+  color: var(--demo-text);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
 
-.panel__field--inline {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
+.panel__nav-item--active {
+  background: var(--demo-control);
+  color: var(--demo-accent);
+  font-weight: 600;
 }
 
-.panel__field--stepper {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
+.panel__nav-count {
+  font-size: 10px;
+  color: var(--demo-accent);
 }
 
-.panel__field--stack {
-  gap: 8px;
-}
-
-.panel__label {
-  color: var(--demo-muted);
-}
-
-.panel__value {
-  min-width: 42px;
-  text-align: center;
-}
-
-.panel__sub {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.panel__sub--full {
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.panel__input {
+.panel__content {
   flex: 1;
   min-width: 0;
-  padding: 4px 6px;
-  font-size: 12px;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
-}
-
-.panel__input--num {
-  flex: 0 0 64px;
-}
-
-.panel__input--family {
-  font-size: 11px;
+  padding: 8px 12px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .panel__chips {
   display: flex;
-  gap: 4px;
   flex-wrap: wrap;
+  gap: 4px;
+}
+
+.panel__chips--groups {
+  padding-block-end: 6px;
+  border-block-end: 1px dashed var(--demo-border);
 }
 
 .panel__chip {
@@ -542,30 +793,72 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
   border-color: var(--demo-accent);
 }
 
-.panel__chip:disabled {
-  opacity: 0.45;
-  cursor: default;
+.panel__chip--dirty:not(.panel__chip--active) {
+  border-color: var(--demo-accent);
+  color: var(--demo-accent);
 }
 
-.panel__range {
-  width: 100%;
-  accent-color: var(--demo-accent);
-}
-
-.panel__slider-label {
+.panel__field {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
-.panel__margin {
+.panel__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.panel__row > .panel__field {
+  flex: 1;
+}
+
+.panel__label {
+  font-size: 11px;
+  color: var(--demo-muted);
+}
+
+.panel__group-title {
+  margin: 6px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--demo-muted);
+  padding-block-start: 6px;
+  border-block-start: 1px dashed var(--demo-border);
+}
+
+.panel__sub-label {
+  font-size: 10px;
+  color: var(--demo-muted);
+}
+
+.panel__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel__input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--demo-text);
+  background: var(--demo-control);
+  border: 1px solid var(--demo-control-border);
+  border-radius: 4px;
+}
+
+.panel__grid4 {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
 }
 
-.panel__field--colors {
-  flex-direction: row;
+.panel__colors {
+  display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -574,6 +867,8 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
   display: flex;
   align-items: center;
   gap: 4px;
+  font-size: 11px;
+  color: var(--demo-muted);
 }
 
 .panel__color input {
@@ -590,39 +885,94 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
   display: flex;
   align-items: center;
   gap: 6px;
-  cursor: pointer;
-}
-
-.panel__footer {
-  margin-block-start: 12px;
-  display: flex;
-  gap: 8px;
-}
-
-.panel__reset,
-.panel__save {
-  flex: 1;
-  padding: 6px;
   font-size: 12px;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
   cursor: pointer;
 }
 
-.panel__reset:hover:not(:disabled),
-.panel__save:hover {
-  border-color: var(--demo-accent);
+.panel__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--demo-muted);
+}
+
+.panel__hint--ok {
   color: var(--demo-accent);
 }
 
-.panel__reset:disabled {
+.panel__primary,
+.panel__secondary,
+.panel__danger,
+.panel__mini {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--demo-control);
+  border: 1px solid var(--demo-control-border);
+  color: var(--demo-text);
+}
+
+.panel__primary {
+  color: #fff;
+  background: var(--demo-accent);
+  border-color: var(--demo-accent);
+  flex: 0 0 auto;
+}
+
+.panel__primary:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.panel__save {
-  color: var(--demo-accent);
+.panel__mini {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.panel__danger {
+  width: 100%;
+  color: #c0392b;
+  border-color: #c0392b;
+}
+
+.panel__presets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panel__preset {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-block-end: 1px dashed var(--demo-border);
+}
+
+.panel__preset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel__preset-meta {
+  font-size: 10px;
+  color: var(--demo-muted);
+}
+
+.panel__empty {
+  font-size: 11px;
+  color: var(--demo-muted);
+}
+
+.panel__footer {
+  margin-block-start: auto;
+  padding-block-start: 10px;
 }
 </style>

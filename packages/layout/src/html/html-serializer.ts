@@ -162,6 +162,17 @@ function resolveTag(node: BookNode, options: SerializeNodeOptions): string {
   return elementChildren(node).length > 0 ? 'div' : 'span';
 }
 
+/**
+ * 属性名 → data-* 名称的特例
+ *
+ * camelCase 属性直接拼成 `data-styleId` 在 HTML 里大小写不敏感、看不出问题，
+ * 但 EPUB 是 XHTML（XML）——属性选择器**大小写敏感**，`[data-style-id]` 不会命中
+ * `data-styleId`，命名样式因此在阅读器里静默失效。故显式转 kebab-case。
+ */
+const DATA_ATTR_NAME_OVERRIDES: Readonly<Record<string, string>> = {
+  styleId: 'style-id',
+};
+
 /** 非白名单属性 → data-* 属性串（值统一字符串化并转义） */
 function dataAttrs(
   attrs: Readonly<Record<string, unknown>> | undefined,
@@ -171,7 +182,8 @@ function dataAttrs(
   let result = '';
   for (const [key, value] of Object.entries(attrs)) {
     if (exclude.includes(key) || value === undefined || value === null) continue;
-    result += ` data-${key}="${escapeHtml(String(value))}"`;
+    const name = DATA_ATTR_NAME_OVERRIDES[key] ?? key;
+    result += ` data-${name}="${escapeHtml(String(value))}"`;
   }
   return result;
 }

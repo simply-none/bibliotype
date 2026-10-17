@@ -27,11 +27,22 @@ export type {
 /* ---------- 布局配置 ---------- */
 export {
   PAGE_NUMBER_STYLES,
+  PAGE_CHROME_FIELDS,
+  DEFAULT_PAGE_CHROME,
   DEFAULT_LAYOUT_OPTIONS,
   CLASSICAL_LAYOUT_OPTIONS,
   mergeLayoutOptions,
 } from './layout-options.js';
-export type { PageNumberStyle, LayoutOptions } from './layout-options.js';
+export type {
+  PageNumberStyle,
+  PageChromeField,
+  PageChromeOptions,
+  LayoutOptions,
+} from './layout-options.js';
+
+/* ---------- 排版度量签名（决定是否需要重新分页） ---------- */
+export { computeMetricsSignature } from './metrics-signature.js';
+export type { MetricsSignatureInput } from './metrics-signature.js';
 
 /* ---------- 样式构建 ---------- */
 export {
@@ -39,6 +50,7 @@ export {
   buildPageStyle,
   buildCssVariables,
   resolvePageMainSize,
+  resolvePageCrossSize,
   resolvePageMargins,
   resolvePageBorderWidth,
 } from './style-builder.js';

@@ -17,6 +17,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
+import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import { formatPageNumber, type PageNumberStyle, type Reader } from '@bibliotype/reader';
@@ -30,6 +31,10 @@ const props = withDefaults(
     tokens?: Readonly<Record<string, string | undefined>>;
     /** 正文字体族令牌键（古籍可传 FONT_TOKENS.CLASSICAL_BODY） */
     fontToken?: string;
+    /** 功能样式表（按功能粒度覆盖节点 / 标记 / 角色样式，与编辑画布 / 导出同源） */
+    features?: FeatureStyleSheet;
+    /** 命名样式集合（`[data-style-id]` 规则） */
+    namedStyles?: NamedStyleSet;
     /** 缩放策略（仅 page 模式）：width 按容器宽 / contain 按容器宽高 / none 原尺寸 */
     fit?: 'width' | 'contain' | 'none';
     /** 阅读模式：page 单页翻页（默认） / scroll 连续滚动多页 */
@@ -98,6 +103,19 @@ const showPageNumber = computed(() => {
   return !coverNodes.value.has(firstBlock);
 });
 
+/**
+ * 当前页页眉 / 页脚文本
+ *
+ * `undefined` = 未配置页眉页脚（或该页是封面）→ 渲染层回退「页脚仅页码」的
+ * 老行为，保证未启用该功能的文档逐像素不变；否则页眉页脚严格按配置渲染，
+ * 页脚配成「不显示」时页码也一并不显示（由设置面板显式控制）。
+ */
+const currentChrome = computed(() => {
+  void pagination.value;
+  void layout.value;
+  return props.reader.getPageChromeTexts(currentPage.value);
+});
+
 /** 页框样式（固定尺寸 + 页边距 + 排版规则） */
 const pageStyle = computed(() => ({
   ...buildPageStyle(pageSize.value, tokens.value),
@@ -123,6 +141,8 @@ function syncBookStyle(): void {
     options: layout.value,
     fontToken: props.fontToken,
     containerSelector: '.bt-reader-page',
+    features: props.features,
+    namedStyles: props.namedStyles,
   });
   const next = css + PAGE_START_RULE;
   let element = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
@@ -137,7 +157,7 @@ function syncBookStyle(): void {
 }
 
 onMounted(syncBookStyle);
-watch([tokens, () => layout.value], syncBookStyle);
+watch([tokens, () => layout.value, () => props.features, () => props.namedStyles], syncBookStyle);
 
 /** 页码样式（当前布局） */
 const pageNumberStyle = computed(() => layout.value.pageNumberStyle as PageNumberStyle);
@@ -249,6 +269,10 @@ interface RenderedPage {
   html: string;
   showPageNumber: boolean;
   numberText: string;
+  /** 页眉文本（空串 = 不渲染） */
+  header: string;
+  /** 页脚文本（空串 = 不渲染；启用页眉页脚时不再单独显示页码） */
+  footer: string;
 }
 
 /**
@@ -266,12 +290,17 @@ const renderedPages = computed<RenderedPage[]>(() => {
     const nodes = props.reader.getPageFragments(i);
     const blockNodes = nodes.filter((node) => !isTextNode(node));
     const firstBlock = blockNodes[0];
+    const chrome = props.reader.getPageChromeTexts(i);
     list.push({
       index: i,
       top: SCROLL_PADDING + i * step,
       html: blockNodes.map((node) => serializeNode(node)).join('\n'),
-      showPageNumber: firstBlock !== undefined && !coverNodes.value.has(firstBlock),
+      // 启用页眉页脚后，页码归属页脚字段；未启用才走老的「页脚仅页码」
+      showPageNumber:
+        chrome === undefined && firstBlock !== undefined && !coverNodes.value.has(firstBlock),
       numberText: formatPageNumber(i + 1, style),
+      header: chrome?.header ?? '',
+      footer: chrome?.footer ?? '',
     });
   }
   return list;
@@ -405,8 +434,13 @@ watch([() => props.fit, pageSize], () => {
   <div v-if="mode === 'page'" ref="rootRef" class="bt-book-view">
     <div class="bt-book-view__stage" :style="stageStyle">
       <div class="bt-reader-page" :style="scaledPageStyle">
+        <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>
         <div class="bt-reader-page__flow" v-html="pageHtml"></div>
-        <footer v-if="showPageNumber" class="bt-page-number">{{ pageNumberText }}</footer>
+        <footer v-if="currentChrome?.footer" class="bt-page-footer">{{ currentChrome.footer }}</footer>
+        <footer
+          v-else-if="currentChrome === undefined && showPageNumber"
+          class="bt-page-number"
+        >{{ pageNumberText }}</footer>
       </div>
     </div>
   </div>
@@ -422,8 +456,10 @@ watch([() => props.fit, pageSize], () => {
         :style="{ top: `${page.top}px`, width: slotWidth, height: `${slotHeight}px` }"
       >
         <div class="bt-reader-page" :style="scaledPageStyle">
+          <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
           <div class="bt-reader-page__flow" v-html="page.html"></div>
-          <footer v-if="page.showPageNumber" class="bt-page-number">{{ page.numberText }}</footer>
+          <footer v-if="page.footer" class="bt-page-footer">{{ page.footer }}</footer>
+          <footer v-else-if="page.showPageNumber" class="bt-page-number">{{ page.numberText }}</footer>
         </div>
       </div>
     </div>

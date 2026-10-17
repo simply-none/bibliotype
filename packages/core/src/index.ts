@@ -55,6 +55,50 @@ export type { ThemeToken } from './theme/tokens.js';
 export { DEFAULT_THEME } from './theme/default-theme.js';
 export { createThemeAccessor } from './theme/theme-accessor.js';
 
+/* ---------- 功能样式表（按功能粒度的样式覆盖） ---------- */
+export {
+  FEATURE_STYLE_IDS,
+  FEATURE_STYLE_GROUPS,
+  FEATURE_STYLE_META,
+  METRIC_PROPERTIES,
+  mergeFeatureStyleSheets,
+  declarationsImpactMetrics,
+  featureSheetImpactsMetrics,
+  computeFeatureMetricsSignature,
+  createEmptyNamedStyleSet,
+  findNamedStyle,
+  createNamedStyleId,
+} from './theme/feature-style.js';
+export type {
+  FeatureStyleId,
+  FeatureStyleGroupId,
+  FeatureStyleMeta,
+  FeatureDeclarations,
+  FeatureStyleSheet,
+  NamedStyle,
+  NamedStyleSet,
+} from './theme/feature-style.js';
+
+/* ---------- 样式设置快照与存储契约 ---------- */
+export {
+  PAGE_CHROME_FIELDS,
+  DEFAULT_EDITING_SETTINGS,
+  STYLE_SCOPE,
+  bookStyleScope,
+  createEmptyStyleSettingsBody,
+  createDefaultStyleSnapshot,
+  normalizeStyleSnapshot,
+  migrateLegacyStyleSnapshot,
+} from './settings/style-settings.js';
+export type {
+  PageChromeField,
+  EditingSettings,
+  StyleSettingsBody,
+  StyleSettingsSnapshot,
+  StylePreset,
+  StyleSettingsStore,
+} from './settings/style-settings.js';
+
 /* ---------- 核心实例 ---------- */
 export type { BibliotypeInstance, CoreInstanceOptions } from './instance.js';
 export { createBibliotype } from './instance.js';

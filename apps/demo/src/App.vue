@@ -17,7 +17,7 @@
  * 编辑自动保存走「节流合并 + 空闲落盘 + 单飞去重」（composables/use-draft-autosave）：
  * 序列化与整本写入都不落在输入帧上；Ctrl/Cmd+S 立即保存，转入后台 / 关闭前兜底落盘。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch, type Ref } from 'vue';
 import {
   COLOR_TOKENS,
   DEFAULT_THEME,
@@ -34,9 +34,9 @@ import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 import {
   CLASSICAL_LAYOUT_OPTIONS,
   DEFAULT_LAYOUT_OPTIONS,
-  isVerticalMode,
+  computeMetricsSignature,
   mergeLayoutOptions,
-  resolveContentBox,
+  resolvePageCrossSize,
   resolvePageMainSize,
   type LayoutOptions,
 } from '@bibliotype/layout';
@@ -64,6 +64,7 @@ import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { useDraftAutosave } from './composables/use-draft-autosave.js';
+import { useStyleSettings } from './composables/use-style-settings.js';
 import { installPerfProbe, type PerfProbe } from './composables/use-perf-probe.js';
 import { lunyuDocument } from './data/lunyu.js';
 
@@ -118,10 +119,23 @@ const theme = computed<ThemeConfig>(() => THEMES[themeKey.value]);
 
 /* ---------------- 版式补丁（设置面板覆写主题基准） ---------------- */
 
+/**
+ * 样式设置（三级作用域 + 自动持久化）
+ *
+ * 布局补丁 / 令牌补丁 / 功能样式 / 命名样式 / 编辑行为统一由它管理：
+ * 改动自动落盘到本书作用域（IndexedDB 优先），下次打开沿用同一套样式。
+ */
+const styleApi = useStyleSettings({ bookId: 'demo' });
 /** 布局补丁（含页面尺寸；主题切换时清空） */
-const layoutPatch = ref<Partial<LayoutOptions>>({});
-/** 令牌补丁（字号 / 行距 / 字体族 / 版式 / 颜色等；跨主题保留） */
-const tokenPatch = ref<Record<string, string>>({});
+const layoutPatch = styleApi.layoutPatch as Ref<Partial<LayoutOptions>>;
+/** 令牌补丁（字号 / 行距 / 字体族 / 版式 / 颜色等） */
+const tokenPatch = styleApi.tokenPatch;
+/** 功能样式表（按功能粒度的样式覆盖） */
+const features = styleApi.features;
+/** 命名样式集合 */
+const namedStyles = styleApi.namedStyles;
+/** 编辑行为设置 */
+const editing = styleApi.editing;
 
 /** 生效布局：主题基准 + 补丁覆写 */
 const effectiveLayout = computed<LayoutOptions>(() =>
@@ -171,12 +185,12 @@ const lineHeightNum = computed(() =>
  * 每行字数按页面交叉轴（横排取内容宽 / 直排取内容高）与字号折算，
  * 0.95 为 CJK 字宽近似因子（A5 @16px ≈ 26 字/行，与原默认一致）；
  * 行尺寸（主轴每行）= 字号 × 行距。预览 Reader 与编辑画布共用同一结果。
+ *
+ * 交叉轴走 `resolvePageCrossSize`：它会解析 page-margin 令牌、扣掉版框边框，
+ * 并在**直排**下扣掉页眉 / 页脚占位（直排时它们吃的是每列行长，不是列数）。
  */
 function typographyMeasure(): Partial<BlockMeasureContext> {
-  const box = resolveContentBox(effectiveLayout.value.pageSize, 48, 56);
-  const cross = isVerticalMode(effectiveLayout.value.writingMode)
-    ? box.height
-    : box.width;
+  const cross = resolvePageCrossSize(effectiveLayout.value, tokens.value);
   return {
     charsPerLine: Math.max(1, Math.round((cross / fontSizeNum.value) * 0.95)),
     lineSize: Math.round(fontSizeNum.value * lineHeightNum.value),
@@ -254,36 +268,36 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
 
 const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
 
-/** 字号 / 行距 / 布局补丁变更：重测块尺寸并原地重排（视觉由 tokens 联动） */
-watch([fontSizeNum, lineHeightNum, effectiveLayout], scheduleRemeasure);
+/**
+ * 阅读预览的排版度量签名
+ *
+ * 只有「会影响分页结果」的配置变化才重测量尺并重排（字号 / 行距 / 页边距 /
+ * 分栏 / 版框 / 功能样式里的度量类声明）；改颜色、线型等纯视觉参数不重排。
+ */
+const readerMetricsSignature = computed(() =>
+  computeMetricsSignature({
+    tokens: tokens.value,
+    options: effectiveLayout.value,
+    features: features.value,
+  }),
+);
 
-/** 设置面板补丁写入（浅合并） */
-function onLayoutPatch(patch: Partial<LayoutOptions>): void {
-  layoutPatch.value = { ...layoutPatch.value, ...patch };
-}
+/** 度量签名变化：重测块尺寸并原地重排（视觉由 tokens / 样式表联动） */
+watch(readerMetricsSignature, scheduleRemeasure);
 
-function onTokenPatch(key: string, value: string): void {
-  tokenPatch.value = { ...tokenPatch.value, [key]: value };
-}
-
-/** 是否存在任何覆写（控制面板「恢复主题预设」可用性） */
+/** 是否存在任何覆写（夜间预设 / 布局补丁 / 令牌补丁 / 功能样式） */
 const customized = computed(
   () =>
     night.value ||
-    Object.keys(layoutPatch.value).length > 0 ||
-    Object.keys(tokenPatch.value).length > 0,
+    styleApi.customized.value ||
+    Object.keys(layoutPatch.value).length > 0,
 );
 
-/** 恢复主题预设：清空全部布局 / 令牌补丁与夜间开关，并清除已保存的设置快照（刷新不再回灌覆写） */
-function resetSettings(): void {
-  layoutPatch.value = {};
-  tokenPatch.value = {};
+/** 恢复全部默认：清空补丁 / 功能样式 / 命名样式 / 夜间，并删除已存样式快照 */
+async function resetSettings(): Promise<void> {
   night.value = false;
-  try {
-    window.localStorage.removeItem(SETTINGS_KEY);
-  } catch {
-    /* 忽略 */
-  }
+  await styleApi.resetAll();
+  persistSettingsSnapshot();
 }
 
 function switchTheme(key: ThemeKey): void {
@@ -420,17 +434,15 @@ const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
 /** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
 const SETTINGS_KEY = 'bibliotype-demo:settings';
 
-/** 设置快照：主题键 + 双层补丁 + 夜间 / 视图模式 / 分页开关 */
+/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 分页开关 */
 interface SettingsSnapshot {
   themeKey: ThemeKey;
-  layoutPatch: Partial<LayoutOptions>;
-  tokenPatch: Record<string, string>;
   night: boolean;
   viewMode: 'page' | 'scroll';
   showGuides: boolean;
 }
 
-/** 读取设置快照（非法 / 缺失 → null，逐字段容错回退默认） */
+/** 读取界面偏好快照（非法 / 缺失 → null，逐字段容错回退默认） */
 function readSettingsSnapshot(): SettingsSnapshot | null {
   try {
     const raw = window.localStorage.getItem(SETTINGS_KEY);
@@ -439,14 +451,6 @@ function readSettingsSnapshot(): SettingsSnapshot | null {
     if (parsed.themeKey !== 'modern' && parsed.themeKey !== 'classical') return null;
     return {
       themeKey: parsed.themeKey,
-      layoutPatch:
-        typeof parsed.layoutPatch === 'object' && parsed.layoutPatch !== null
-          ? parsed.layoutPatch
-          : {},
-      tokenPatch:
-        typeof parsed.tokenPatch === 'object' && parsed.tokenPatch !== null
-          ? parsed.tokenPatch
-          : {},
       night: parsed.night === true,
       viewMode: parsed.viewMode === 'scroll' ? 'scroll' : 'page',
       showGuides: parsed.showGuides !== false,
@@ -456,22 +460,23 @@ function readSettingsSnapshot(): SettingsSnapshot | null {
   }
 }
 
-/** 应用设置快照（逐 ref 赋值；effectiveLayout / tokens 响应式派生，Reader 由调用方重建） */
+/**
+ * 应用界面偏好快照
+ *
+ * 注意：**不含**布局 / 令牌补丁 —— 那部分由 `use-style-settings` 管理的
+ * 样式快照负责（IndexedDB 本书作用域）。两边各存各的，避免互相覆盖。
+ */
 function applySettingsSnapshot(snapshot: SettingsSnapshot): void {
   themeKey.value = snapshot.themeKey;
-  layoutPatch.value = snapshot.layoutPatch;
-  tokenPatch.value = snapshot.tokenPatch;
   night.value = snapshot.night;
   viewMode.value = snapshot.viewMode;
   showGuides.value = snapshot.showGuides;
 }
 
-/** 收集当前设置快照并落盘 */
+/** 收集当前界面偏好并落盘 */
 function persistSettingsSnapshot(): void {
   const snapshot: SettingsSnapshot = {
     themeKey: themeKey.value,
-    layoutPatch: layoutPatch.value,
-    tokenPatch: tokenPatch.value,
     night: night.value,
     viewMode: viewMode.value,
     showGuides: showGuides.value,
@@ -484,19 +489,11 @@ function persistSettingsSnapshot(): void {
 }
 
 /**
- * 保存设置（设置面板「保存设置」）：持久化快照并按当前版式刷新书本——
- * 重建 Reader 重走全链路分页（保留已载入文档与当前页，页数变少时限幅）。
+ * 应用界面偏好（主题 / 夜间 / 视图模式 / 参考线）
+ *
+ * 改造后版式与功能样式**自动落盘**（`use-style-settings`），不再需要「保存设置」按钮；
+ * 分页重算由度量签名变化驱动（见 `readerMetricsSignature`）。
  */
-function saveSettings(): void {
-  persistSettingsSnapshot();
-  const page = reader.value.currentPage;
-  const current = reader.value.document ?? lunyuDocument;
-  reader.value = createReader(effectiveLayout.value, current);
-  remeasure();
-  const target = Math.min(page, Math.max(0, reader.value.totalPages - 1));
-  if (target > 0) reader.value.goToPage(target);
-  writeLastPage(target);
-}
 
 /** 读取上次保存的页码（非法 / 不可用 → 0） */
 function readLastPage(): number {
@@ -646,6 +643,8 @@ function onExportEpub(): void {
     layout,
     tokens: tokens.value,
     fontToken,
+    features: features.value,
+    namedStyles: namedStyles.value,
     onValidation: (list) => {
       problems.push(...list);
     },
@@ -716,6 +715,8 @@ async function onExportPdf(): Promise<void> {
     layout: effectiveLayout.value,
     tokens: tokens.value,
     fontToken,
+    features: features.value,
+    namedStyles: namedStyles.value,
     mode: (pdfPagedMode.value ? 'paged' : 'auto') as 'paged' | 'auto',
   };
   /* 逐页模式附带屏幕实测数据（与预览同源）；连续模式由打印引擎分页 */
@@ -939,6 +940,10 @@ onMounted(() => {
   document.addEventListener('visibilitychange', onVisibilityChange);
   // 开发期性能探针：控制台用 __btPerf.report() 看「重排 vs 落盘」耗时分布
   if (import.meta.env.DEV) perfProbe = installPerfProbe();
+  // 载入已保存的样式设置（本书作用域 → 全局 → 旧版迁移），加载完成后才允许落盘
+  void styleApi.load().then(() => {
+    scheduleRemeasure();
+  });
   // 启动恢复上次会话（草稿内容 + 页码），就绪后视图才渲染
   void bootstrap();
   // 初次量尺（等挂载后布局完成）；字体就绪后再测一次（Web 字体影响行高）
@@ -1106,17 +1111,11 @@ onBeforeUnmount(() => {
       <aside v-show="asideVisible" class="app__aside">
         <SettingsPanel
           v-if="settingsOpen"
+          :api="styleApi"
           :layout="effectiveLayout"
           :tokens="tokens"
-          :pagination="showGuides"
           :night="night"
-          :customized="customized"
-          @update:layout="onLayoutPatch"
-          @update:token="onTokenPatch"
-          @update:pagination="showGuides = $event"
-          @update:night="night = $event"
-          @save="saveSettings"
-          @reset="resetSettings"
+          @update:night="night = $event; persistSettingsSnapshot()"
           @close="settingsOpen = false"
         />
         <SearchPanel
@@ -1149,6 +1148,8 @@ onBeforeUnmount(() => {
             :reader="reader"
             :tokens="tokens"
             :font-token="theme.fontToken"
+            :features="features"
+            :named-styles="namedStyles"
             :mode="viewMode"
           />
           <BtEditor
@@ -1158,7 +1159,9 @@ onBeforeUnmount(() => {
             :tokens="tokens"
             :options="effectiveLayout"
             :font-token="theme.fontToken"
-            :pagination="showGuides"
+            :features="features"
+            :named-styles="namedStyles"
+            :pagination="editing.pagination"
             :loading="true"
             :page-main-size="pageMainSize"
             :measure="measureContext"
@@ -1174,7 +1177,7 @@ onBeforeUnmount(() => {
                 @toggle-readonly="editorReadonly = !editorReadonly"
                 @reset="resetSample"
               />
-              <AttrInspector :binding="slotProps" />
+              <AttrInspector :binding="slotProps" :named-styles="namedStyles.styles" />
             </template>
           </BtEditor>
         </div>

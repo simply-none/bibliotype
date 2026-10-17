@@ -445,6 +445,14 @@ export interface UsePagedLayoutOptions {
   measure?: Ref<BlockMeasureContext | undefined>;
   /** 每页主轴尺寸覆盖 */
   pageMainSize?: Ref<number | undefined>;
+  /**
+   * 排版度量签名（可选）
+   *
+   * 给出时，**代替** `tokens` 作为重排触发源：只有签名变化（字号 / 行距 / 缩进 /
+   * 页边距 / 分栏 / 版框 / 功能样式里的度量类声明）才重排；改颜色、线型等
+   * 纯绘制参数不再触发全量重排。未给出时维持原行为（tokens 变化即重排）。
+   */
+  metricsSignature?: Ref<string>;
   /** 驱动重排的版本号（编辑事务自增） */
   version: Ref<number>;
 }
@@ -594,7 +602,17 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
     }, nextDelay());
   };
 
-  watch([opts.options, opts.tokens, opts.fontToken], () => scheduleForced());
+  watch(opts.options, () => scheduleForced());
+  /*
+   * 重排触发源：
+   * - 给了 metricsSignature → 只按签名变化重排（改颜色 / 线型等纯视觉参数不重排）；
+   * - 否则维持原行为（tokens / fontToken 变化即重排，兼容既有调用方）。
+   */
+  if (opts.metricsSignature !== undefined) {
+    watch(opts.metricsSignature, () => scheduleForced());
+  } else {
+    watch([opts.tokens, opts.fontToken], () => scheduleForced());
+  }
   if (opts.measure !== undefined) watch(opts.measure, () => scheduleForced());
   if (opts.pageMainSize !== undefined) watch(opts.pageMainSize, () => scheduleForced());
   watch(opts.version, () => scheduleRelayout());

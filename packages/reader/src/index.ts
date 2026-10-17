@@ -30,7 +30,23 @@ export type {
 } from './document-blocks.js';
 
 /* ---------- 块解析 ---------- */
-export { findNodeById } from './find-node.js';
+export { findNodeById, findNodeTrail } from './find-node.js';
+
+/* ---------- 页眉 / 页脚 ---------- */
+export {
+  isPageChromeEnabled,
+  resolvePageChromeFields,
+  resolvePageChromeTexts,
+  resolveChapterTitleForNode,
+  buildPageChromeIndex,
+  isNodeInCover,
+} from './page-chrome.js';
+export type {
+  PageChromeTexts,
+  PageChromeIndex,
+  ResolvedPageChromeFields,
+  ResolvePageChromeInput,
+} from './page-chrome.js';
 
 /* ---------- 页码 ---------- */
 export {

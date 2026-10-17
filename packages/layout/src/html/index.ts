@@ -14,3 +14,11 @@ export {
 export type { SerializeNodeOptions } from './html-serializer.js';
 export { buildBookCss, declarationToCss, flattenCssVariables } from './book-css.js';
 export type { BuildBookCssOptions } from './book-css.js';
+export {
+  resolveFeatureSelector,
+  listFeatureSelectors,
+  collectFeatureRules,
+  buildFeatureCss,
+  translateSideDeclarations,
+} from './feature-selectors.js';
+export type { BuildFeatureCssOptions, FeatureCssRule } from './feature-selectors.js';

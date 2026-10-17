@@ -68,6 +68,8 @@ export {
   tableDeleteColumn,
   setNodeAttrs,
   setMarkAttrs,
+  setBlockStyleId,
+  getBlockStyleId,
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
 

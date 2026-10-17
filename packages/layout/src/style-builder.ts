@@ -83,6 +83,22 @@ export function buildRootStyle(input: BuildRootStyleInput): StyleDeclaration {
     setIfPresent(style, 'column-gap', tokens[LAYOUT_TOKENS.COLUMN_GAP]);
   }
 
+  /*
+   * 页眉 / 页脚占位高度（CSS 变量，供 book-css 的 .bt-page-header / -footer
+   * 取用）。渲染层据此把页眉页脚压到页面上下沿并垂直居中；分页侧则由
+   * resolvePageMainSize 从版心扣掉同样的尺寸——两处必须同源，否则文本会
+   * 压在页眉上或被裁切。
+   */
+  const chrome = options.pageChrome;
+  if (chrome !== undefined) {
+    if (chrome.header !== 'none') {
+      style['--bt-page-header-size'] = `${Math.max(0, chrome.headerSize)}px`;
+    }
+    if (chrome.footer !== 'none') {
+      style['--bt-page-footer-size'] = `${Math.max(0, chrome.footerSize)}px`;
+    }
+  }
+
   return style;
 }
 
@@ -164,8 +180,49 @@ export function resolvePageMainSize(
   const box = resolveContentBox(options.pageSize, marginY, marginX);
   // 版框边框侵占 border-box 内容区（两侧各一份）
   const border = resolvePageBorderWidth(tokens) * 2;
-  const main = isVerticalMode(options.writingMode) ? box.width : box.height;
-  return Math.max(1, main - border);
+  const vertical = isVerticalMode(options.writingMode);
+  const main = vertical ? box.width : box.height;
+  /*
+   * 页眉 / 页脚占位：横排下页眉页脚位于页面上下沿，直接侵占主轴（页高）；
+   * 直排下主轴是页宽（列数），页眉页脚侵占的是**交叉轴**（每列字数），
+   * 由量尺上下文（charsPerLine）负责，这里不能扣，否则会算错列数。
+   */
+  const chrome = options.pageChrome;
+  const chromeMain =
+    chrome === undefined || vertical
+      ? 0
+      : (chrome.header === 'none' ? 0 : Math.max(0, chrome.headerSize)) +
+        (chrome.footer === 'none' ? 0 : Math.max(0, chrome.footerSize));
+  return Math.max(1, main - border - chromeMain);
+}
+
+/**
+ * 解析每页可用交叉轴尺寸（px）
+ *
+ * 横排取内容区宽（每行可容纳的字数由它决定）、直排取内容区高（每列的
+ * 行长）。页眉 / 页脚在**直排**下侵占的是交叉轴（页面上下沿的横条吃掉了
+ * 列的行长），故此处扣减；横排下它们侵占主轴，由 `resolvePageMainSize`
+ * 扣减，这里不能重复扣。
+ *
+ * 调用方据此折算 `charsPerLine`（`交叉轴 / 字号 × 字宽系数`），保证
+ * 「页眉开着但正文按满版行长排」的重叠裁切不会发生。
+ */
+export function resolvePageCrossSize(
+  options: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+): number {
+  const [marginY, marginX] = resolvePageMargins(tokens);
+  const box = resolveContentBox(options.pageSize, marginY, marginX);
+  const border = resolvePageBorderWidth(tokens) * 2;
+  const vertical = isVerticalMode(options.writingMode);
+  const cross = vertical ? box.height : box.width;
+  const chrome = options.pageChrome;
+  const chromeCross =
+    chrome === undefined || !vertical
+      ? 0
+      : (chrome.header === 'none' ? 0 : Math.max(0, chrome.headerSize)) +
+        (chrome.footer === 'none' ? 0 : Math.max(0, chrome.footerSize));
+  return Math.max(1, cross - border - chromeCross);
 }
 
 /**

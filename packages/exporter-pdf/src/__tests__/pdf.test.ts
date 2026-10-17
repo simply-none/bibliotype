@@ -384,3 +384,102 @@ function createFakeDocument(overrides: { contentDocument?: null } = {}) {
     fireAfterPrint: () => listeners.get('afterprint')?.(),
   };
 }
+
+describe('renderPrintHtml：页眉 / 页脚', () => {
+  /** 只取 <body> 片段：CSS 里恒有 .bt-page-header / .bt-page-number 规则，不能整篇断言 */
+  const bodyOf = (html: string): string => html.slice(html.indexOf('<body>'));
+
+  const CHROME_LAYOUT = {
+    ...DEFAULT_LAYOUT_OPTIONS,
+    pageChrome: {
+      header: 'bookTitle',
+      footer: 'pageNumber',
+      headerSize: 26,
+      footerSize: 26,
+    },
+  } as typeof DEFAULT_LAYOUT_OPTIONS;
+
+  it('未启用：保持老的「页脚仅页码」，不输出页眉页脚节点', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    const body = bodyOf(html);
+    expect(body).not.toContain('bt-page-header');
+    expect(body).not.toContain('bt-page-footer');
+    expect(body).toContain('<div class="bt-page-number">1</div>');
+  });
+
+  it('启用：逐页注入书名页眉 + 页码页脚，且不再输出 .bt-page-number', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout: CHROME_LAYOUT,
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    const body = bodyOf(html);
+    expect(body).toContain('<div class="bt-page-header">论语</div>');
+    expect(body).toContain('<div class="bt-page-footer">1</div>');
+    expect(body).toContain('<div class="bt-page-footer">3</div>');
+    expect(body).not.toContain('bt-page-number');
+  });
+
+  it('章名页眉取该页首块的最近结构祖先（页首即标题时用标题自身）', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout: {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        pageChrome: {
+          header: 'chapterTitle',
+          footer: 'none',
+          headerSize: 26,
+          footerSize: 0,
+        },
+      },
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    // 第 1 页页首是标题本身 → 用标题文本；第 2 页页首是章内段落 → 用章名
+    const body = bodyOf(html);
+    expect(body).toContain('<div class="bt-page-header">学而第一</div>');
+    expect(body).toContain('<div class="bt-page-header">为政</div>');
+    // 页脚字段为 none → 页码一并不显示（页码属页脚内容）
+    expect(body).not.toContain('bt-page-footer');
+    expect(body).not.toContain('bt-page-number');
+  });
+
+  it('封面页不标页眉页脚', () => {
+    const doc = sampleDoc();
+    doc.root.children = [
+      {
+        type: NODE_TYPES.COVER,
+        id: 'cover',
+        children: [{ type: NODE_TYPES.PARAGRAPH, id: 'cover-p', children: [{ type: 'text', text: '封面' }] }],
+      },
+      ...(doc.root.children ?? []),
+    ];
+    const html = renderPrintHtml(doc, {
+      mode: 'paged',
+      layout: CHROME_LAYOUT,
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator({ ...SIZES, 'cover-p': 200 }),
+    });
+    const body = bodyOf(html);
+    const first = body.slice(body.indexOf('data-page="1"'), body.indexOf('data-page="2"'));
+    expect(first).toContain('封面');
+    expect(first).not.toContain('bt-page-header');
+    expect(first).not.toContain('bt-page-footer');
+    // 第 2 页起恢复正常
+    expect(body).toContain('<div class="bt-page-header">论语</div>');
+  });
+
+  it('构建版式变量：启用时 .bt-page 下发页眉 / 页脚占位高度', () => {
+    const css = buildPrintCss({ options: CHROME_LAYOUT, tokens: {}, mode: 'paged' });
+    expect(css).toContain('--bt-page-header-size: 26px;');
+    expect(css).toContain('--bt-page-footer-size: 26px;');
+
+    const none = buildPrintCss({ options: DEFAULT_LAYOUT_OPTIONS, tokens: {}, mode: 'paged' });
+    expect(none).not.toContain('--bt-page-header-size');
+  });
+});

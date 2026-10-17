@@ -15,11 +15,14 @@ import {
   FONT_SIZE_TOKENS,
   FONT_TOKENS,
   LAYOUT_TOKENS,
+  type FeatureStyleSheet,
+  type NamedStyleSet,
 } from '@bibliotype/core';
 import { combineUprightCss } from '../combine-upright.js';
 import type { LayoutOptions } from '../layout-options.js';
 import { buildCssVariables, type StyleDeclaration } from '../style-builder.js';
 import { isVerticalMode } from '../writing-mode.js';
+import { buildFeatureCss } from './feature-selectors.js';
 
 /** CSS 声明对象 → CSS 文本（每条声明一行，缩进两格） */
 export function declarationToCss(declaration: StyleDeclaration): string {
@@ -47,7 +50,27 @@ export interface BuildBookCssOptions {
    * computed value 直写，现代与老引擎渲染一致。
    */
   flatten?: boolean;
+  /**
+   * 功能样式表（按功能粒度覆盖节点 / 标记 / 角色样式）
+   *
+   * 输出位置在默认规则之后（同优先级下靠层叠顺序胜出，不使用 `!important`：
+   * 老引擎对 `!important` 与 `var()` 的组合行为不可靠）。`flatten` 开启时
+   * 其中的 `var(--bt-*)` 引用一并被扁平化。
+   */
+  features?: FeatureStyleSheet;
+  /** 命名样式集合（输出 `[data-style-id="…"]` 规则，优先级高于功能样式） */
+  namedStyles?: NamedStyleSet;
 }
+
+/** 标题 1~6 相对 `--bt-font-size-heading` 的倍率（H1 为基准） */
+const HEADING_LEVEL_SCALES: Readonly<Record<number, number>> = {
+  1: 1,
+  2: 0.82,
+  3: 0.72,
+  4: 0.64,
+  5: 0.58,
+  6: 0.54,
+};
 
 /** 生成书册基础样式表（变量层 + 根容器规则 + 节点类样式） */
 export function buildBookCss(input: BuildBookCssOptions): string {
@@ -115,6 +138,19 @@ ${scoped('.bt-heading')} {
   font-size: var(--bt-${FONT_SIZE_TOKENS.HEADING});
   line-height: 1.4;
 }
+/*
+ * 标题分级（R5 修复）：序列化器对 heading 输出 h1~h6 标签、class 恒为 bt-heading，
+ * 此前只有一条 .bt-heading 规则 → 六级标题字号完全相同。此处按级别给倍率
+ * （以 --bt-font-size-heading 为基准），先写静态 em 兜底、再写 calc 引用变量：
+ * 老引擎忽略 calc 时用前者，现代引擎用后者，两者都跟随令牌缩放。
+ */
+${[1, 2, 3, 4, 5, 6]
+  .map((level) => {
+    const factor = HEADING_LEVEL_SCALES[level] ?? 1;
+    const fallback = (1.75 * factor).toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+    return `${scoped(`h${level}.bt-heading`)} {\n  font-size: ${fallback}em;\n  font-size: calc(var(--bt-${FONT_SIZE_TOKENS.HEADING}) * ${factor});\n}`;
+  })
+  .join('\n')}
 ${scoped('.bt-quote')} {
   margin: 1em 2em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
@@ -158,6 +194,20 @@ ${scoped('.bt-break')} {
   border: 0;
   border-block-start: 1px solid var(--bt-${COLOR_TOKENS.NOTE_TEXT});
   margin: 1em 0;
+}
+${scoped(".bt-break[data-variant='dashed']")} {
+  border-block-start-style: dashed;
+}
+${scoped(".bt-break[data-variant='dotted']")} {
+  border-block-start-style: dotted;
+}
+${scoped(".bt-break[data-variant='double']")} {
+  border-block-start-style: double;
+  border-block-start-width: 3px;
+}
+${scoped(".bt-break[data-variant='page']")} {
+  border: 0;
+  border-block-start: 1px dashed #999999;
 }
 ${scoped('.bt-mark-underline')} {
   text-decoration: underline;
@@ -301,6 +351,8 @@ ${scoped('.bt-head-note')} {
   padding: 0.25em 0.7em;
   font-size: 0.72em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  border: 1px solid #9a9488;
+  /* color-mix 不被 RMSDK 支持 → 上一条为老引擎兜底，现代引擎取本条 */
   border: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 40%, transparent);
   border-radius: 2px;
 }
@@ -310,6 +362,7 @@ ${scoped('.bt-collation-note')} {
   padding-inline-start: 0.75em;
   font-size: 0.7em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  border-inline-start: 2px solid #9a9488;
   border-inline-start: 2px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 55%, transparent);
 }
 ${scoped('.bt-imprint')} {
@@ -317,6 +370,7 @@ ${scoped('.bt-imprint')} {
   width: fit-content;
   margin: 1.2em auto;
   padding: 0.5em 1em;
+  border: 1px solid #9a9488;
   border: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 45%, transparent);
   font-size: 0.78em;
   text-align: center;
@@ -327,6 +381,7 @@ ${scoped('.bt-colophon')} {
   display: block;
   margin: 1.4em 0 0.6em;
   padding-block-start: 0.6em;
+  border-block-start: 1px solid #9a9488;
   border-block-start: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 35%, transparent);
   font-size: 0.78em;
   text-align: center;
@@ -419,6 +474,30 @@ ${scoped('.bt-mark-circle-emphasis')} {
   text-emphasis: filled circle;
   text-emphasis-position: under right;
 }
+/*
+ * 圈点样式变体（R6 修复）：circleEmphasis.attrs.style 一直在 schema / IR 里，
+ * 序列化器也输出 data-style，但此前 CSS 写死 filled circle → 属性改了样式不变。
+ * 值约定：circle（缺省）/ open-circle / dot / open-dot / double-circle / triangle / sesame。
+ * 注意：本段位于模板字符串内部，注释里不可出现反引号（会提前闭合模板）。
+ */
+${scoped(".bt-mark-circle-emphasis[data-style='open-circle']")} {
+  text-emphasis: open circle;
+}
+${scoped(".bt-mark-circle-emphasis[data-style='dot']")} {
+  text-emphasis: filled dot;
+}
+${scoped(".bt-mark-circle-emphasis[data-style='open-dot']")} {
+  text-emphasis: open dot;
+}
+${scoped(".bt-mark-circle-emphasis[data-style='double-circle']")} {
+  text-emphasis: double-circle;
+}
+${scoped(".bt-mark-circle-emphasis[data-style='triangle']")} {
+  text-emphasis: filled triangle;
+}
+${scoped(".bt-mark-circle-emphasis[data-style='sesame']")} {
+  text-emphasis: sesame;
+}
 ${scoped('.bt-mark-note-ref')} {
   font-size: 0.72em;
   vertical-align: super;
@@ -428,6 +507,7 @@ ${scoped('.bt-mark-note-ref')} {
 ${scoped('.bt-footnote')} {
   margin: 0.55em 0;
   padding-block-start: 0.4em;
+  border-block-start: 1px solid #9a9488;
   border-block-start: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 45%, transparent);
 }
 ${scoped('.bt-footnote + .bt-footnote')} {
@@ -446,7 +526,39 @@ ${scoped('.bt-page-number')} {
   font-size: 0.75em;
   letter-spacing: 0.15em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
-}`);
+}
+/*
+ * 页眉 / 页脚：由渲染层按页注入（编辑画布、打印稿、阅读预览同源），
+ * 绝对定位在页面上下沿、不参与正文流。占位高度取 buildRootStyle 下发的
+ * CSS 变量（与分页侧 resolvePageMainSize 的扣减同源），文本在条带内居中。
+ * 细节（字号 / 对齐 / 分隔线 / 位置）由功能样式 role.page-header / role.page-footer 覆盖。
+ */
+${scoped('.bt-page-header')},
+${scoped('.bt-page-footer')} {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  writing-mode: horizontal-tb;
+  font-family: var(--bt-${FONT_TOKENS.BODY});
+  font-size: 0.72em;
+  letter-spacing: 0.08em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+${scoped('.bt-page-header')} {
+  top: 0;
+  height: var(--bt-page-header-size, 24px);
+}
+${scoped('.bt-page-footer')} {
+  bottom: 0;
+  height: var(--bt-page-footer-size, 24px);
+}
+`);
 
   /* ---------- 8. 专名号：横排标于字下 / 直排标于字左（GB 古籍整理规范） ---------- */
   rules.push(
@@ -454,6 +566,22 @@ ${scoped('.bt-page-number')} {
       ? `${scoped('.bt-mark-proper-name')} {\n  border-left: 1px solid currentColor;\n  padding-left: 1px;\n}`
       : `${scoped('.bt-mark-proper-name')} {\n  border-bottom: 1px solid currentColor;\n}`,
   );
+
+  /*
+   * ---------- 9. 用户覆盖：功能样式 + 命名样式 ----------
+   *
+   * 追加在最后：同优先级靠层叠顺序胜出（不用 !important——老引擎对
+   * `!important` 与 `var()` 的组合行为不可靠）。命名样式排在其后，
+   * 因而「挂到具体段落上的样式」能覆盖「按功能统一的样式」。
+   */
+  const featureCss = buildFeatureCss(input.features, {
+    containerSelector,
+    namedStyles: input.namedStyles,
+    vertical,
+  });
+  if (featureCss !== '') {
+    rules.push(`/* ---------- 用户样式覆盖（功能样式 / 命名样式） ---------- */\n${featureCss}`);
+  }
 
   const css = `${rules.join('\n\n')}\n`;
   return input.flatten === true ? flattenCssVariables(css) : css;

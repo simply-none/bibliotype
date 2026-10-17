@@ -20,3 +20,12 @@ export type {
   ChunkedSnapshot,
   SkeletonNode,
 } from './chunked-store.js';
+
+/* ---------- 样式设置存储（IndexedDB / localStorage / 内存，端口见 core） ---------- */
+export {
+  IndexedDbStyleStore,
+  LocalStorageStyleStore,
+  MemoryStyleStore,
+  createStyleStore,
+} from './style-store.js';
+export type { KeyValueStorage } from './style-store.js';

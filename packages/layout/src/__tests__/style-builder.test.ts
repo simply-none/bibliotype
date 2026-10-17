@@ -13,6 +13,7 @@ import {
   buildPageStyle,
   buildRootStyle,
   resolvePageBorderWidth,
+  resolvePageCrossSize,
   resolvePageMainSize,
   resolvePageMargins,
 } from '../style-builder.js';
@@ -164,6 +165,119 @@ describe('resolvePageMainSize', () => {
     expect(resolvePageBorderWidth({ 'page-border': '1.5px solid black' })).toBe(1.5);
     expect(resolvePageBorderWidth({ 'page-border': '2em solid black' })).toBe(0);
     expect(resolvePageBorderWidth({})).toBe(0);
+  });
+
+  it('页眉页脚占用版心：横排直接从主轴扣掉 headerSize + footerSize', () => {
+    const none = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, DEFAULT_THEME);
+    const withChrome = resolvePageMainSize(
+      {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        pageChrome: { header: 'bookTitle', footer: 'pageNumber', headerSize: 26, footerSize: 24 },
+      },
+      DEFAULT_THEME,
+    );
+    expect(none - withChrome).toBe(50);
+  });
+
+  it('页眉页脚字段为 none 时不计其占位（改字段不改尺寸不产生空洞）', () => {
+    const none = resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, DEFAULT_THEME);
+    const headerOnly = resolvePageMainSize(
+      {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        pageChrome: { header: 'bookTitle', footer: 'none', headerSize: 26, footerSize: 24 },
+      },
+      DEFAULT_THEME,
+    );
+    expect(none - headerOnly).toBe(26);
+  });
+
+  it('直排不扣主轴（页眉页脚侵占的是交叉轴 / 行列长，由量尺上下文负责）', () => {
+    const none = resolvePageMainSize(CLASSICAL_LAYOUT_OPTIONS, DEFAULT_THEME);
+    const withChrome = resolvePageMainSize(
+      {
+        ...CLASSICAL_LAYOUT_OPTIONS,
+        pageChrome: { header: 'bookTitle', footer: 'pageNumber', headerSize: 26, footerSize: 24 },
+      },
+      DEFAULT_THEME,
+    );
+    expect(withChrome).toBe(none);
+  });
+});
+
+describe('resolvePageCrossSize', () => {
+  it('横排取内容宽，页眉页脚不参与（它们侵占主轴）', () => {
+    const plain = resolvePageCrossSize(DEFAULT_LAYOUT_OPTIONS, DEFAULT_THEME);
+    const withChrome = resolvePageCrossSize(
+      {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        pageChrome: { header: 'bookTitle', footer: 'pageNumber', headerSize: 26, footerSize: 24 },
+      },
+      DEFAULT_THEME,
+    );
+    expect(withChrome).toBe(plain);
+    expect(plain).toBe(PAGE_SIZES.A5.width - 56 * 2);
+  });
+
+  it('直排取内容高，并扣掉页眉页脚占位（每列行长变短）', () => {
+    const plain = resolvePageCrossSize(CLASSICAL_LAYOUT_OPTIONS, DEFAULT_THEME);
+    const withChrome = resolvePageCrossSize(
+      {
+        ...CLASSICAL_LAYOUT_OPTIONS,
+        pageChrome: { header: 'bookTitle', footer: 'pageNumber', headerSize: 26, footerSize: 24 },
+      },
+      DEFAULT_THEME,
+    );
+    expect(plain - withChrome).toBe(50);
+  });
+
+  it('版框边框在交叉轴同样扣减；极小值收敛为 1', () => {
+    const bordered = resolvePageCrossSize(DEFAULT_LAYOUT_OPTIONS, {
+      ...DEFAULT_THEME,
+      'page-border': '3px double #b09a76',
+    });
+    expect(resolvePageCrossSize(DEFAULT_LAYOUT_OPTIONS, DEFAULT_THEME) - bordered).toBe(6);
+
+    const tiny = resolvePageCrossSize(
+      {
+        ...CLASSICAL_LAYOUT_OPTIONS,
+        pageSize: { name: '微页', width: 60, height: 60 },
+        pageChrome: { header: 'bookTitle', footer: 'none', headerSize: 999, footerSize: 0 },
+      },
+      {},
+    );
+    expect(tiny).toBe(1);
+  });
+});
+
+describe('buildRootStyle 页眉页脚变量', () => {
+  it('未配置 pageChrome 时不下发占位变量', () => {
+    const style = buildRootStyle({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(style['--bt-page-header-size']).toBeUndefined();
+    expect(style['--bt-page-footer-size']).toBeUndefined();
+  });
+
+  it('启用后按字段下发占位高度（渲染层据此撑条带）', () => {
+    const style = buildRootStyle({
+      tokens: DEFAULT_THEME,
+      options: {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        pageChrome: { header: 'bookTitle', footer: 'pageNumber', headerSize: 26, footerSize: 24 },
+      },
+    });
+    expect(style['--bt-page-header-size']).toBe('26px');
+    expect(style['--bt-page-footer-size']).toBe('24px');
+  });
+
+  it('字段为 none 的一侧不下发变量，负值收敛为 0', () => {
+    const style = buildRootStyle({
+      tokens: DEFAULT_THEME,
+      options: {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        pageChrome: { header: 'none', footer: 'pageNumber', headerSize: 26, footerSize: -4 },
+      },
+    });
+    expect(style['--bt-page-header-size']).toBeUndefined();
+    expect(style['--bt-page-footer-size']).toBe('0px');
   });
 });
 

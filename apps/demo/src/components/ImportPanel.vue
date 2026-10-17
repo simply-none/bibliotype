@@ -12,7 +12,7 @@
 import { ref } from 'vue';
 import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
 import type { BookDocument } from '@bibliotype/core';
-import { detectImportFormat, importFromText } from '@bibliotype/import';
+import { detectImportFormat, importFromText, titleFromFilename } from '@bibliotype/import';
 
 const emit = defineEmits<{ close: []; imported: [doc: BookDocument] }>();
 
@@ -24,11 +24,8 @@ const status = ref('');
 /** 是否处理中（读文件 + 转换） */
 const busy = ref(false);
 
-/** 去扩展名，作为导入文档书名 */
-function titleFromName(name: string): string {
-  const dot = name.lastIndexOf('.');
-  return dot > 0 ? name.slice(0, dot) : name;
-}
+/** 文件名 → 书名（去扩展名 + 剥站点尾巴，避免 z-library 等噪声流入导出元数据） */
+const titleFromName = titleFromFilename;
 
 /** 选择文件：判定格式 → 文本类走 import、二进制类动态加载对应包，产出 BookDocument */
 async function onFileChange(event: Event): Promise<void> {

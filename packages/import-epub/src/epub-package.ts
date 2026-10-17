@@ -14,8 +14,44 @@ import { unzipSync } from 'fflate';
 /** epub 原始字节：浏览器 `File.arrayBuffer()` / Node `fs` 读得的 `Uint8Array` 统一入口 */
 export type EpubInput = ArrayBuffer | Uint8Array;
 
+/**
+ * 单张图片的内联上限（字节）
+ *
+ * 内联是把图片字节以 base64 写进 IR（`img.src`），换取「IR 自包含、导出侧无需媒体表即可复原」。
+ * 代价是 IR 体积放大约 4/3 倍；超过此上限的图退化处理（保留原相对 `src`），
+ * 避免单张扫描图 / 高清插画把整份文档撑爆（demo 的草稿自动保存会连带写入）。
+ */
+const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
+
+/** 扩展名 → 媒体类型兜底表（OPF manifest 未给出类型时按路径后缀推断） */
+const EXT_MEDIA_TYPES: Readonly<Record<string, string>> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+};
+
 /** 解包后的「zip 路径 → 字节」表 */
-type EpubFiles = Record<string, Uint8Array>;
+export type EpubFiles = Record<string, Uint8Array>;
+
+/** 正文抽取选项 */
+export interface ExtractBodiesOptions {
+  /**
+   * 是否把图片内联为 data URI（默认 false）
+   *
+   * 见 §D4 资源策略（与 `import-docx` 同源讨论，此处取值范围与默认值不同）：
+   * epub 的图片是**包内独立文件**，「导入 → 导出」往返若不把字节带出来，
+   * 导出产物里的 `<img>` 全是**指向不存在文件的死链**（书籍本身仍能打开，但插图全丢），
+   * 故 `epubToHtml` / `epubToBookDocument` 默认开启；仅需轻量 IR 时可显式关闭。
+   */
+  inlineImages?: boolean;
+  /** 「zip 路径 → 媒体类型」表（由 readMediaTypes 产出；缺省按扩展名推断） */
+  mediaTypes?: ReadonlyMap<string, string>;
+}
 
 /** 归一为字节视图并解 zip；空 / 非 zip / 损坏均抛中文 RangeError */
 export function unzipEpub(input: EpubInput): EpubFiles {
@@ -138,7 +174,13 @@ export function readContentPaths(files: EpubFiles, opfPath: string): string[] {
 }
 
 /** 逐个内容文档取 `<body>` 内层，序列化为 HTML 片段并按 spine 顺序拼接 */
-export function extractBodiesHtml(files: EpubFiles, contentPaths: readonly string[]): string {
+export function extractBodiesHtml(
+  files: EpubFiles,
+  contentPaths: readonly string[],
+  options: ExtractBodiesOptions = {},
+): string {
+  const inline = options.inlineImages ?? false;
+  const mediaTypes = options.mediaTypes ?? new Map<string, string>();
   const serializer = new XMLSerializer();
   const parts: string[] = [];
   for (const path of contentPaths) {
@@ -147,6 +189,7 @@ export function extractBodiesHtml(files: EpubFiles, contentPaths: readonly strin
     const doc = parseXml(decode(bytes), `内容文档 ${path}`);
     const body = doc.getElementsByTagName('body').item(0);
     if (body === null) continue;
+    if (inline) inlineBodyImages(doc, path, files, mediaTypes);
     let html = '';
     for (let i = 0; i < body.childNodes.length; i += 1) {
       const node = body.childNodes.item(i);
@@ -164,13 +207,103 @@ export function extractBodiesHtml(files: EpubFiles, contentPaths: readonly strin
 }
 
 /**
+ * 把单个内容文档内的 `<img src>` 改写为 data URI（内联图片字节）
+ *
+ * 只处理「相对路径 + 包内存在且未超限」的图：绝对 URL（http[s]:）、
+ * 已是 data URI、缺失文件、超限文件一律原样保留（不静默吞掉引用信息）。
+ * 路径解析复用 `resolvePath`（相对内容文档所在目录，支持 `../` 与 URL 转义）。
+ */
+function inlineBodyImages(
+  doc: Document,
+  contentPath: string,
+  files: EpubFiles,
+  mediaTypes: ReadonlyMap<string, string>,
+): void {
+  const baseDir = dirOf(contentPath);
+  const images = doc.getElementsByTagName('img');
+  for (let i = 0; i < images.length; i += 1) {
+    const el = images.item(i);
+    if (el === null) continue;
+    const src = el.getAttribute('src') ?? '';
+    if (src === '' || src.startsWith('data:')) continue;
+    /* 外链 / 协议相对地址不内联（属于原书意图，也避免把整本书拖成在线依赖除外） */
+    if (/^[a-z][a-z0-9+.-]*:/i.test(src)) continue;
+
+    const target = resolvePath(baseDir, src);
+    const bytes = files[target];
+    if (bytes === undefined || bytes.byteLength > MAX_INLINE_IMAGE_BYTES) continue;
+
+    const type = mediaTypes.get(target) ?? guessMediaType(target);
+    el.setAttribute('src', `data:${type};base64,${toBase64(bytes)}`);
+  }
+}
+
+/** 按路径后缀推断媒体类型（未知后缀退化为通用二进制类型） */
+function guessMediaType(path: string): string {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+  return EXT_MEDIA_TYPES[ext] ?? 'application/octet-stream';
+}
+
+/**
+ * Uint8Array → base64（不依赖 Node `Buffer`，浏览器与 Node 同构）
+ *
+ * `btoa` 只接受「每个字符 < U+0100」的二进制串；直接 `fromCharCode(...bytes)` 摊开会
+ * 在大图上爆栈，故按 8K 分片拼接。
+ */
+function toBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x2000;
+  let binary = '';
+  for (let offset = 0; offset < bytes.byteLength; offset += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * 依 OPF 的 manifest 解析「zip 路径 → 媒体类型」表（仅收图片类条目）
+ *
+ * 与 readContentPaths 一样以 OPF 所在目录为基准解析 href，得到 zip 内的实际路径。
+ */
+export function readMediaTypes(files: EpubFiles, opfPath: string): Map<string, string> {
+  const opf = files[opfPath];
+  if (opf === undefined) return new Map();
+
+  const doc = parseXml(decode(opf), 'content.opf');
+  const opfDir = dirOf(opfPath);
+  const mediaTypes = new Map<string, string>();
+  const items = doc.getElementsByTagName('item');
+  for (let i = 0; i < items.length; i += 1) {
+    const href = attrAt(items, i, 'href');
+    const type = attrAt(items, i, 'media-type');
+    if (href === '' || !type.startsWith('image/')) continue;
+    mediaTypes.set(resolvePath(opfDir, href), type);
+  }
+  return mediaTypes;
+}
+
+/**
  * 端到端（DOM 无关部分）：`.epub` 字节 → 合并后的正文 HTML 片段
  *
  * 纯同步、浏览器与 Node 同构，不触碰浏览器 DOM；产物可交给 `htmlToBookDocument` 或自行处理。
  */
-export function epubToHtml(input: EpubInput): string {
+export interface EpubToHtmlOptions {
+  /**
+   * 是否内联图片为 data URI（默认 **true**）
+   *
+   * epub 的图片是包内独立文件：不内联则往返导出时全部成为死链，
+   * 故此处默认开启（与 docx 通路的「默认空 src 占位」不同，由来见 ExtractBodiesOptions 注释）。
+   */
+  inlineImages?: boolean;
+}
+
+export function epubToHtml(input: EpubInput, options: EpubToHtmlOptions = {}): string {
+  const inlineImages = options.inlineImages ?? true;
   const files = unzipEpub(input);
   const opfPath = findOpfPath(files);
   const contentPaths = readContentPaths(files, opfPath);
-  return extractBodiesHtml(files, contentPaths);
+  const mediaTypes = inlineImages ? readMediaTypes(files, opfPath) : new Map<string, string>();
+  return extractBodiesHtml(files, contentPaths, {
+    inlineImages,
+    mediaTypes,
+  });
 }

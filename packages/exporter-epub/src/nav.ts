@@ -4,7 +4,7 @@
  * 由「章节计划 + 锚点」产出的 NavItem 树渲染为嵌套 <ol>；
  * EPUB 3 阅读系统以 nav 文档为目录权威来源（NCX 不再需要）。
  */
-import { escapeHtml } from '@bibliotype/layout/html';
+import { escapeXml } from '@bibliotype/layout/html';
 import type { NavItem } from './sections.js';
 import { renderXhtmlDocument } from './xhtml.js';
 
@@ -15,12 +15,14 @@ export interface NavXhtmlInput {
   /** 语言标记（BCP 47） */
   language: string;
   items: readonly NavItem[];
+  /** 文档壳风格（与内容文档一致：'xhtml5' EPUB 3 缺省 / 'xhtml11' EPUB 2） */
+  flavor?: 'xhtml5' | 'xhtml11';
 }
 
 /** 生成 nav.xhtml（EPUB 3 目录文档） */
 export function buildNavXhtml(input: NavXhtmlInput): string {
   const body = `<nav epub:type="toc" id="bt-toc">
-<h1>${escapeHtml(input.title)}</h1>
+<h1>${escapeXml(input.title)}</h1>
 ${renderList(input.items)}
 </nav>`;
   return renderXhtmlDocument({
@@ -28,6 +30,7 @@ ${renderList(input.items)}
     language: input.language,
     body,
     cssHref: 'style.css',
+    flavor: input.flavor,
   });
 }
 
@@ -40,5 +43,5 @@ function renderList(items: readonly NavItem[]): string {
 /** 渲染单条目（有子项时嵌套一层 <ol>） */
 function renderItem(item: NavItem): string {
   const children = item.children.length > 0 ? `\n${renderList(item.children)}` : '';
-  return `<li><a href="${escapeHtml(item.href)}">${escapeHtml(item.label)}</a>${children}</li>`;
+  return `<li><a href="${escapeXml(item.href)}">${escapeXml(item.label)}</a>${children}</li>`;
 }

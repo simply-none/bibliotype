@@ -152,6 +152,39 @@ describe('buildBookCss', () => {
     expect(css).not.toContain('--bt-color-accent: ');
     expect(css).toContain('var(--bt-color-accent)');
   });
+
+  it('flatten：变量层删除、var() 替换为字面值（导出 EPUB 老引擎兼容）', () => {
+    const css = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      flatten: true,
+    });
+    expect(css).not.toContain(':root {');
+    expect(css).not.toContain('var(--bt-');
+    /* 字面值直写：body 规则含 font-size / color 声明 */
+    expect(css).toMatch(/body \{\n  margin: 0;\n  font-family: [^v]/);
+    expect(css).toContain('font-size: ');
+    expect(css).toContain('color: ');
+  });
+
+  it('flatten：直排 + 分栏的老引擎前缀输出', () => {
+    const css = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: { ...CLASSICAL_LAYOUT_OPTIONS, columns: 2 },
+      flatten: true,
+    });
+    expect(css).toContain('-webkit-writing-mode: vertical-rl;');
+    expect(css).toContain('-webkit-column-count: 2;');
+    expect(css).not.toContain('var(--bt-');
+  });
+
+  it('直排默认输出 -webkit-writing-mode 前缀（P1-7 老 WebKit 兼容）', () => {
+    const css = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: CLASSICAL_LAYOUT_OPTIONS,
+    });
+    expect(css).toContain('-webkit-writing-mode: vertical-rl;');
+  });
 });
 
 describe('declarationToCss', () => {

@@ -8,7 +8,7 @@
 import type { BookDocument, BookMetadata } from '@bibliotype/core';
 import { htmlToBookDocument } from '@bibliotype/import';
 import type { Schema } from 'prosemirror-model';
-import { type EpubInput, epubToHtml } from './epub-package.js';
+import { type EpubInput, type EpubToHtmlOptions, epubToHtml } from './epub-package.js';
 
 /**
  * 将 `.epub` 字节导入为 BookDocument
@@ -16,10 +16,16 @@ import { type EpubInput, epubToHtml } from './epub-package.js';
  * @param input epub 原始字节（浏览器 `ArrayBuffer` / Node `Uint8Array`）
  * @param schema 编辑器 schema（topNode 应为 `book`；需与后续载入的编辑器同款）
  * @param metadata 书目元数据（由调用方注入，包内不读当前时间，红线 §四.6）
+ * @param options 可选的图片内联开关（默认内联为 data URI，见 EpubToHtmlOptions）
  * @throws epub 为空 / 损坏 / 无正文时抛中文 `RangeError`；HTML 回收失败时由 import 抛出
  */
-export function epubToBookDocument(input: EpubInput, schema: Schema, metadata: BookMetadata): BookDocument {
-  const html = epubToHtml(input);
+export function epubToBookDocument(
+  input: EpubInput,
+  schema: Schema,
+  metadata: BookMetadata,
+  options: EpubToHtmlOptions = {},
+): BookDocument {
+  const html = epubToHtml(input, options);
   return htmlToBookDocument(html, schema, metadata);
 }
 

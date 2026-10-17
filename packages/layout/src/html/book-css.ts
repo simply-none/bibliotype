@@ -38,6 +38,15 @@ export interface BuildBookCssOptions {
   fontToken?: string;
   /** 根容器选择器（默认 'body'；阅读器视图可传自身容器，如 '.bt-reader-page'） */
   containerSelector?: string;
+  /**
+   * 扁平化 CSS 变量（导出 EPUB 用，默认 false）
+   *
+   * true 时把 `:root { --bt-* }` 变量层的值替换进所有 `var(--bt-*)` 引用并
+   * 删除 `:root` 块：Adobe RMSDK / 微信读书的老引擎不支持 CSS Variables，
+   * 含 `var()` 的声明会被整条丢弃（表现为「整本书无排版」），扁平化后
+   * computed value 直写，现代与老引擎渲染一致。
+   */
+  flatten?: boolean;
 }
 
 /** 生成书册基础样式表（变量层 + 根容器规则 + 节点类样式） */
@@ -68,6 +77,7 @@ export function buildBookCss(input: BuildBookCssOptions): string {
     'writing-mode': options.writingMode,
   };
   if (vertical) {
+    body['-webkit-writing-mode'] = options.writingMode;
     body['text-orientation'] = tokens['text-orientation'] ?? 'mixed';
     const combine = combineUprightCss(options.combineUpright);
     if (combine !== undefined) {
@@ -76,6 +86,7 @@ export function buildBookCss(input: BuildBookCssOptions): string {
   }
   if (options.columns > 1) {
     body['column-count'] = String(options.columns);
+    body['-webkit-column-count'] = String(options.columns);
     body['column-gap'] = `var(--bt-${LAYOUT_TOKENS.COLUMN_GAP})`;
   }
   rules.push(`${containerSelector} {\n${declarationToCss(body)}\n}`);
@@ -444,5 +455,38 @@ ${scoped('.bt-page-number')} {
       : `${scoped('.bt-mark-proper-name')} {\n  border-bottom: 1px solid currentColor;\n}`,
   );
 
-  return `${rules.join('\n\n')}\n`;
+  const css = `${rules.join('\n\n')}\n`;
+  return input.flatten === true ? flattenCssVariables(css) : css;
+}
+
+/**
+ * 扁平化 CSS 自定义属性
+ *
+ * 从 `:root { --x: v; }` 收集变量表，把所有 `var(--x)` / `var(--x, fallback)`
+ * 引用替换为字面值（支持变量值互相引用，迭代至无 var 残留），删除 `:root` 块。
+ * 用于导出路径的老引擎兼容（见 BuildBookCssOptions.flatten）。
+ */
+export function flattenCssVariables(css: string): string {
+  const rootMatch = /:root\s*\{([^}]*)\}/.exec(css);
+  if (rootMatch === null) return css;
+  const vars = new Map<string, string>();
+  for (const line of (rootMatch[1] ?? '').split(';')) {
+    const m = /^\s*(--[\w-]+)\s*:\s*(.*?)\s*$/.exec(line);
+    if (m?.[1] !== undefined && m[2] !== undefined) vars.set(m[1], m[2]);
+  }
+  if (vars.size === 0) return css.replace(rootMatch[0], '').replace(/\n{3,}/g, '\n\n');
+
+  const withoutRoot = css.replace(rootMatch[0], '').replace(/\n{3,}/g, '\n\n');
+  /* 迭代替换：变量值可能引用其他变量（迭代上限防环） */
+  let result = withoutRoot;
+  for (let round = 0; round < 5; round += 1) {
+    if (!result.includes('var(')) break;
+    result = result.replace(/var\((--[\w-]+)(?:\s*,\s*([^()]*))?\)/g, (_full, name: string, fallback?: string) => {
+      const value = vars.get(name);
+      if (value !== undefined) return value;
+      /* fallback 可能是另一个 var(...)：保留形态交由下一轮解析 */
+      return fallback !== undefined ? fallback.trim() : '';
+    });
+  }
+  return result;
 }

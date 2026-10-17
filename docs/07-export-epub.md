@@ -5,6 +5,10 @@
 将 `BookDocument` 打包为 **EPUB 3**（返回完整文件字节，含 zip 容器）。浏览器与 Node
 同构：不依赖 DOM 与文件系统，产物由调用方保存 / 下载。
 
+设计基准是**外部阅读器兼容**（京东读书 / 微信读书 / Apple Books 等），而非仅自研
+阅读器可读：导出链路内置媒体打包、体积兜底拆分与 epubcheck 规则子集校验，
+三者都是「本地开着没问题、上传到平台打不开」类缺陷的对策。
+
 ## 基本用法
 
 ```ts
@@ -26,13 +30,17 @@ writeFileSync('book.epub', bytes);
 
 | 选项 | 说明 |
 | --- | --- |
-| `layout` | 布局选项（缺省 `DEFAULT_LAYOUT_OPTIONS`；古籍传 `CLASSICAL_LAYOUT_OPTIONS`） |
-| `tokens` | 主题令牌表（缺省 `DEFAULT_THEME`；古籍传古典主题合并后的令牌） |
+| `layout` | 布局选项（缺省 `DEFAULT_LAYOUT_OPTIONS`；古籍可传 `CLASSICAL_LAYOUT_OPTIONS`） |
+| `tokens` | 主题令牌表（缺省 `DEFAULT_THEME`；古籍传古典主题覆盖 + 扩展令牌） |
 | `fontToken` | 正文字体令牌键（缺省 `FONT_TOKENS.BODY`；古籍传 `FONT_TOKENS.CLASSICAL_BODY`） |
 | `language` | 语言标记（缺省 `metadata.language`，再缺省 `zh-Hans`） |
-| `identifier` | 唯一标识符（缺省 `metadata.identifiers` 首项，再缺省确定性 urn） |
-| `modified` | `dcterms:modified`（缺省 `metadata.updatedAt` / `createdAt`，再缺省当前时间） |
+| `identifier` | 唯一标识符（缺省 `metadata.identifiers` 首项，再缺省确定性 urn；**裸 ISBN 自动归一为 `urn:isbn:`**） |
+| `modified` | `dcterms:modified`（ISO 8601；缺省 `metadata.updatedAt` / `createdAt`，再缺省当前时间） |
 | `tagOverrides` | 节点类型 → 标签覆盖（透传序列化器，用于插件节点定制） |
+| `version` | OPF 版本（缺省 `'3.0'`；京东读书等 RMSDK 显式传 `'2.0'` 走兼容路径） |
+| `maxSectionBytes` | 单内容文档未压缩字节上限（缺省 256KiB） |
+| `validate` | 导出前校验开关（缺省 `true`；校验不中断导出） |
+| `onValidation` | 校验结果回调（`ValidationProblem[]`，error 在前） |
 
 ```ts
 import { exportEpub } from '@bibliotype/exporter-epub';
@@ -51,11 +59,15 @@ const bytes = exportEpub(document, {
 
 ```text
 BookDocument
-  └─ planDocument(root)          章节规划：结构节点 → sections + 锚点表（anchors）
-       └─ serializeNode(节点)     与阅读器 / PDF 同源的 HTML 序列化
-            └─ renderXhtmlDocument XHTML 文档（title / lang / 样式引用）
-                 └─ buildOpf / buildNavXhtml   包描述与导航
-                      └─ fflate zipSync         打包
+  └─ planDocument(root)          结构分组 + 锚点表（anchors）
+       ├─ MediaCollector         img src 收集：data URI → OEBPS/media/*（rewriteSrc 接入序列化器）
+       ├─ splitSections          体积兜底拆分（结构节点 / 顶层标题优先断点 + 256KiB 贪心装桶）
+       │    └─ serializeNode(节点)   与阅读器 / PDF 同源的 HTML 序列化
+       │         └─ renderXhtmlDocument XHTML 文档（EPUB3: XHTML5 壳 / EPUB2: XHTML1.1 壳）
+       └─ buildNavItems / buildNavXhtml / buildNcx ──▶ nav.xhtml + toc.ncx（两路均输出）
+            └─ buildOpf（EPUB 3 特性 / EPUB 2 兼容）
+                 └─ validateEpub ──▶ 导出前校验（问题经 onValidation 透出，不中断导出）
+                      └─ fflate zipSync ──▶ EPUB
 ```
 
 产物条目：
@@ -65,9 +77,54 @@ BookDocument
 | `mimetype` | `application/epub+zip`（OCF 要求：首条目、STORE 不压缩） |
 | `META-INF/container.xml` | 指向 OPF（`buildContainerXml`） |
 | `OEBPS/content.opf` | 包描述：identifier / metadata / manifest / spine |
-| `OEBPS/nav.xhtml` | EPUB 3 导航文档（目录） |
-| `OEBPS/style.css` | 书册样式（`buildBookCss` 产物） |
-| `OEBPS/sec-N.xhtml` | 每节一个 XHTML（结构节点分节） |
+| `OEBPS/toc.ncx` | EPUB 2 兼容目录（两路均输出；EPUB 2 为必需） |
+| `OEBPS/nav.xhtml` | EPUB 3 导航文档（3.0 挂 `properties="nav"`） |
+| `OEBPS/style.css` | 书册样式（`buildBookCss` 产物，**导出路径扁平化 CSS 变量**） |
+| `OEBPS/media/img-*.{ext}` | 图片独立文件（data URI 解码入库，内容散列命名 + 去重） |
+| `OEBPS/text/sec-N.xhtml` | 每节一个 XHTML |
+
+## 三项兼容机制（为什么导出不是「能跑就行」）
+
+### 1. 媒体打包（data URI → 独立文件）
+
+导入侧 `inlineImages` 默认把包内图片内联为 data URI 写进 IR（IR 自包含）。
+导出侧 `MediaCollector` 将其解码为 `OEBPS/media/` 独立文件、登记 manifest、
+把内容文档里的引用改写为相对路径：
+
+- **为什么**：base64 ≈ ×1.37 膨胀单文档体积；Adobe RMSDK 对 `data:` URI
+  支持不可靠；InDesign / Sigil / Calibre 一律「媒体独立文件 + manifest 登记」。
+- 外链（`http(s):`）零后端同构不下载，原样保留并告警；`blob:` / `file:`
+  会话本地地址必然失效，告警；相对路径死链由校验器报 error。
+- 媒体类型以**魔术字节嗅探**为准（data URI 声明可能缺失 / 错误，
+  manifest 与字节不一致时严格阅读器拒载）。
+
+### 2. 体积兜底拆分（splitSections）
+
+导入型扁平文档（外部 EPUB 回收后只剩标题 + 段落）若无结构节点，会整体聚合为
+**单 MB 级 XHTML**——京东读书（RMSDK）/ 微信读书解析超大单文档 + 中部锚点
+定位直接失败（实测：335 篇原书导出成 1 个 1.5MB 文档即打不开）。
+`splitSections` 在结构分组后按字节上限贪心拆桶：
+
+- **优先断点**：顶层标题（h1/h2）强制开新桶——导入书的「篇 / 节」边界，
+  切分结果与「一篇一文件」的正式 EPUB 同构（诗经实测 328 节，最大 31KB）；
+- 超限结构节点按子节点边界递归拆（首桶保留 id，锚点继续有效；后续桶剥 id）；
+- 只在元素之间断，不在元素内部断，保证每份产物格式良好。
+
+### 3. 导出前校验（validateEpub）
+
+epubcheck 规则子集（外部阅读器视角），产物经 `onValidation` 透出：
+
+| 码 | 级别 | 检查 |
+| --- | --- | --- |
+| OCF-01/02 | error | mimetype 首条目 / 内容 |
+| OCF-03..06 | error | container.xml 与 OPF 定位 |
+| PKG-01..05 | error | 版本合法 / unique-identifier / manifest 死链 / spine 一致非空 |
+| NAV-01..05 | error/warning | nav / ncx 存在性、dtb:uid 一致、跳转目标与锚点存在 |
+| MEDIA-01..04 | error/warning | 图片死链（error）/ data URI 残留 / blob / 外链 |
+| DOC-01/02 | error/warning | 单文档超 256KiB（error）/ 超半数（warning） |
+| XML-01/02 | error | 轻量格式良好检查（标签配对 / 属性引号 / DTD 扫描）/ BOM |
+| CSS-01/02 | warning | var() 残留（老引擎样式全丢）/ 直排无 `-webkit-` 前缀 |
+| SIZE-01 | warning | 包总体积超平台常见上限（约 20MB） |
 
 ## 章节规划与标题
 
@@ -75,18 +132,25 @@ BookDocument
 - 节标题优先取首节点标题（`resolveNodeTitle`），退化为 `metadata.title`；
 - 无 id 的节点由规划器生成锚点（`anchorIds`），使 nav 目录可跳转。
 
+## 版本策略
+
+| 特性 | EPUB 3（默认） | EPUB 2（`version: '2.0'`） |
+| --- | --- | --- |
+| 内容文档壳 | XHTML5（`<!DOCTYPE html>` + `meta charset`） | XHTML 1.1 + `http-equiv` |
+| nav | `properties="nav"` | 普通 manifest 条目 |
+| 修改时间 | `dcterms:modified` + `dc:date` | 仅 `dc:date` |
+| 副标题 | `meta refines` | 不输出 |
+| 封面 | manifest `properties="cover-image"` | `<meta name="cover">` |
+| creator | 带 `opf:role`（MARC relator） | 无 role |
+| toc.ncx | 仍输出（向后兼容推荐做法） | 必需 |
+
 ## 确定性
 
 - 标识符缺省为确定性派生（`resolveIdentifier` / `buildDefaultIdentifier`），
   同一文档多次导出结果稳定；
+- 媒体文件按内容散列命名，同图多处引用去重；
 - zip 条目时间取自 `modified`；无效值回退 `1980-01-01`（DOS 时间下限），
   不引入当前时间抖动。
-
-```ts
-import { EPUB_MIMETYPE, buildContainerXml } from '@bibliotype/exporter-epub';
-EPUB_MIMETYPE;      // 'application/epub+zip'
-buildContainerXml(); // OCF 容器描述 XML
-```
 
 ## 模块级 API
 
@@ -94,17 +158,23 @@ buildContainerXml(); // OCF 容器描述 XML
 
 | 导出 | 说明 |
 | --- | --- |
-| `planDocument(root)` | 章节规划：结构节点分节 + 散块聚合，产出 `sections` 与锚点表 `anchors` |
-| `buildNavItems(plan)` | 由规划结果生成导航项（`NavItem[]`：标题 + 跳转锚点 + 所属文件） |
-| `SECTION_TYPES` | 独立成节 / 参与导航的结构节点类型集合（卷 / 章 / 节 / 附录 / 序 / 跋 / 目录） |
-| `renderXhtmlDocument(input)` | 生成 XHTML 文档骨架（title / lang / 样式引用 / body） |
-| `buildOpf(input)` | 生成 `OEBPS/content.opf`（identifier / metadata / manifest / spine） |
-| `buildNavXhtml(input)` | 生成 `OEBPS/nav.xhtml`（EPUB 3 导航文档） |
-| `buildContainerXml()` | 生成 `META-INF/container.xml`（OCF 容器描述） |
-| `resolveIdentifier(metadata)` | 取元数据中首个非空标识符 |
-| `buildDefaultIdentifier(document)` | 生成确定性缺省标识符（`urn:bibliotype:<hash>`，不含随机值） |
-| `fnv1a(value)` | FNV-1a 32 位散列（8 位十六进制），确定性标识符的散列基础 |
-| `EPUB_MIMETYPE` | `'application/epub+zip'` |
+| `planDocument(root)` | 结构分组 + 锚点表 |
+| `splitSections(plan, { serialize, maxSectionBytes })` | 体积兜底拆分（含 `oversized` 告警列表） |
+| `buildNavItems(sections, anchors)` | 导航项（标题 + 跳转锚点 + 所属文件） |
+| `SECTION_TYPES` / `MAX_NAV_HEADING_LEVEL` / `DEFAULT_MAX_SECTION_BYTES` | 切分常量 |
+| `MediaCollector` / `parseDataImageUri` / `sniffImageMediaType` | 媒体收集 |
+| `validateEpub(entries, { version, maxSectionBytes })` / `checkWellFormedXml` | 导出前校验 |
+| `buildNavXhtml` / `buildOpf` / `buildNcx` / `renderXhtmlDocument` | 各文档生成 |
+| `contributorRoleCode` / `normalizeIdentifier` / `isIsbn` | 元数据工具 |
+| `buildContainerXml` / `EPUB_MIMETYPE` | OCF |
+
+## 已知边界
+
+- **SVG 封面不入 IR**：部分外部 EPUB 的封面走 `<svg><image xlink:href>`，
+  导入侧只内联 `<img>`，SVG 节点被 HTML 回收通路丢弃——此类书导出无封面声明
+  （阅读器自行取首图或默认封面）。属导入侧能力缺口，不在导出链路兜底。
+- **CSS 继承取舍**：导出样式由 `buildBookCss` 生成，不继承原书 CSS
+  （含其 `res:///` 设备字体路径等噪声）。
 
 ## 相关
 

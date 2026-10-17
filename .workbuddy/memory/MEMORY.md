@@ -19,6 +19,10 @@
   → 循环 `dispatch` 计时；对比「无订阅者」基线判断成本归属。
 - Node 22 可直接跑 TS 校验脚本：`node --experimental-strip-types <file>.ts`（脚本内相对导入需写
   `.ts` 后缀）。适用于 demo 层（无 vitest）的组合式函数行为验证。
+- 纯 Node 脚本里跑依赖 DOM 的包（import / import-epub 等）：旁路引 happy-dom
+  （`import('file:///<repo>/node_modules/.pnpm/happy-dom@<ver>/lib/index.js')`）→
+  `new Window()` → 把 `window/document/Node/Element/HTMLElement/Text/DOMParser/XMLSerializer` 等注入
+  `globalThis` → **再动态 `import()` 业务包**（静态 import 会被提升，注入来不及）。
 
 ## 量尺与分页
 
@@ -40,6 +44,24 @@
   = 该位置之前的注文字数。
 - 验证限制：`lineOffsets` 依赖真实布局（`getClientRects`），happy-dom 无布局引擎 → 单测覆盖不到，
   需在浏览器 / demo 手工确认。
+
+## EPUB 导出红线（兼容严格的 RMSDK 内核）
+
+- **XML 格式良好是硬约束**，且只能在**序列化出口**兜底：`happy-dom` / `@xmldom/xmldom` **不校验 XML 合法性**，
+  导入侧会把 U+000B / U+0007 / U+0001 原样写进 IR（只有 U+000C 因被 HTML 当空白折叠而消失）。
+  所以净化统一走 `packages/layout/src/html/html-serializer.ts` 的 `escapeXml`（先 `stripInvalidXmlChars`
+  再转义实体）；`escapeHtml` 已委派给它，序列化器内部调用点（text / data-attrs / img src / ruby `<rt>` 等）
+  自动受益。**新增 XML 模板一律用 `escapeXml`，不要再写裸 `escapeHtml` 语义的转义。**
+- **非法字符区间刻意不含代理对**（emoji 由高/低代理组成，若一并剥离会把 emoji 打成乱码）；`#x9/#xA/#xD`
+  也放行。
+- **EPUB 版本策略：保守 2.0 + `toc.ncx`**（`epub.ts` 的 `epubVersion` 硬编码 `'2.0'`），不写 `<meta property>`、
+  不给 nav 挂 `properties="nav"`、不用 HTML5 doctype —— 京东读书等 Adobe RMSDK 无法本地验证，勿擅自升级 3.0。
+- **导入型扁平书没有结构节点**（volume/chapter…），`buildNavItems` 因此补了第二个来源：顶层 heading
+  level ≤ 2（`MAX_NAV_HEADING_LEVEL`），无 id 者由 `planDocument` 预分配 `bt-a-N` 锚点注入 XHTML；
+  改动此处务必保证 demo 型（有 SECTION_TYPES）行为不变。
+- **图片：`import-epub` 的 `inlineImages` 默认 true**（包内图片按 OPF manifest 的 media-type 内联 data URI，
+  外链/缺失/>2 MB 跳过）——不同于 docx（`mammoth` 默认 false）：docx 插图多带外链，epub 插图是独立文件，
+  不内联导出后就是死链。**导出侧至今仍不打包媒体**（`OEBPS/media/*` 未做，见 `功能完善增改清单.md` §2.2）。
 
 ## 已知缺陷 / 第三方 API 陷阱（分析结论，修复前不得「想当然」）
 

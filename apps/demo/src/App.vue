@@ -46,7 +46,7 @@ import {
   type BlockMeasureContext,
 } from '@bibliotype/reader';
 import { BtBookView, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet } from '@bibliotype/vue';
-import { exportEpub } from '@bibliotype/exporter-epub';
+import { exportEpub, type ValidationProblem } from '@bibliotype/exporter-epub';
 import { printBook } from '@bibliotype/exporter-pdf';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
@@ -628,8 +628,41 @@ function onExportEpub(): void {
   const { fontToken } = theme.value;
   const layout = effectiveLayout.value;
   const book = reader.value.document ?? lunyuDocument;
-  const bytes = exportEpub(book, { layout, tokens: tokens.value, fontToken });
+  /* 导出前校验（epubcheck 规则子集）：error 级问题在此汇总提示，
+     避免「自研阅读器能开、京东读书 / 微信读书打不开」的兼容黑洞。 */
+  const problems: ValidationProblem[] = [];
+  const bytes = exportEpub(book, {
+    layout,
+    tokens: tokens.value,
+    fontToken,
+    onValidation: (list) => {
+      problems.push(...list);
+    },
+  });
   download('论语.epub', new Blob([new Uint8Array(bytes)], { type: 'application/epub+zip' }));
+  reportExportProblems(problems);
+}
+
+/** 导出校验结果 → 工具栏状态行（error 红色；warning 黄色；全清重置） */
+function reportExportProblems(problems: readonly ValidationProblem[]): void {
+  if (problems.length === 0) {
+    exportStatus.value = '';
+    exportHasError.value = false;
+    return;
+  }
+  const errors = problems.filter((p) => p.severity === 'error');
+  exportHasError.value = errors.length > 0;
+  const head = errors.length > 0 ? `导出校验 ${errors.length} 个错误` : '导出校验通过（有警告）';
+  const detail = problems
+    .slice(0, 3)
+    .map((p) => `${p.severity === 'error' ? '✕' : '!'} ${p.message}`)
+    .join('；');
+  exportStatus.value = `${head}：${detail}${problems.length > 3 ? ` 等 ${problems.length} 项` : ''}`;
+  for (const p of problems) {
+    const line = `[epub-export] ${p.severity} ${p.code}: ${p.message}${p.path !== undefined ? ` (${p.path})` : ''}`;
+    if (p.severity === 'error') console.error(line);
+    else console.warn(line);
+  }
 }
 
 /** 打印 / 另存 PDF（paged 预分页，复用与屏幕同一实测尺寸 / 行边界 / 页主轴，逐页一致；含已保存的编辑内容） */
@@ -740,6 +773,11 @@ const infoOpen = ref(false);
 const importOpen = ref(false);
 /** 编辑画布分页参考线（设置面板开关） */
 const showGuides = ref(true);
+
+/** 导出 EPUB 校验状态行（error / warning 汇总；空串不显示） */
+const exportStatus = ref('');
+/** 导出校验是否存在 error 级问题（控制状态行配色） */
+const exportHasError = ref(false);
 
 /** 信息弹窗可编辑：仅编辑模式下（元数据写入 BookEditor.updateMetadata） */
 const infoEditable = computed(() => mode.value === 'edit' && bookEditor.value !== null);
@@ -949,6 +987,9 @@ onBeforeUnmount(() => {
           <button type="button" class="toolbar__button" @click="onPrintPdf">打印 PDF</button>
         </div>
       </div>
+      <p v-if="exportStatus" class="toolbar__export-status" :class="{ 'toolbar__export-status--error': exportHasError }">
+        {{ exportStatus }}
+      </p>
     </header>
 
     <div class="app__body">
@@ -1174,6 +1215,18 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+}
+
+/* 导出 EPUB 校验状态行（error 红 / warning 黄；细节同步打印到 console） */
+.toolbar__export-status {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--demo-muted, #8a8578);
+}
+
+.toolbar__export-status--error {
+  color: #b3261e;
 }
 
 .toolbar__readout {

@@ -26,6 +26,13 @@ export interface SerializeNodeOptions {
   tagOverrides?: Readonly<Record<string, string>>;
   /** 节点 → 锚点 id 注入（仅对无 id 节点生效，如 EPUB 自动锚点） */
   anchorIds?: ReadonlyMap<BookNode, string>;
+  /**
+   * 图片 src 改写回调（EPUB 导出用：把 data URI / 本地路径改写为包内相对路径）
+   *
+   * 序列化器对 `src` 值原样透传（仅做 XML 转义）；调用方经本回调拦截，
+   * 可在转义前完成「收集媒体 + 改写引用」。返回非 string 时按原样透传。
+   */
+  rewriteSrc?: (src: string) => string | undefined;
 }
 
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
@@ -73,14 +80,54 @@ const ATTR_WHITELIST: Readonly<Record<string, readonly string[]>> = {
   [NODE_TYPES.IMAGE]: ['src', 'alt'],
 };
 
-/** HTML/XML 实体转义（文本与属性值共用） */
-export function escapeHtml(value: string): string {
-  return value
+/**
+ * XML 1.0 非法字符集（除进一步受限项外的全部非法码位）
+ *
+ * XML 1.0 合法字符为 #x9(TAB) / #xA(LF) / #xD(CR) / #x20-#xD7FF / #xE000-#xFFFD / #x10000-#x10FFFF，
+ * 故非法者为：除 TAB/LF/CR 外的全部 C0 控制符（#x0-#x8、#xB、#xC、#xE-#x1F）与 #xFFFE / #xFFFF。
+ * 代理项（emoji、扩展汉字群等以 JS 代理对承载的码位）**不在其中**：
+ * 简单按码元剔除会连合法代理对一起破坏（如 U+1F600 的两个码元落在 #xD800-#xDFFF）。
+ * 孤代理项理论上也非法，但导入侧口径（`TextDecoder` / `File.text()`）不会产生，故不在此处理。
+ */
+const INVALID_XML_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g;
+
+/**
+ * 剥离 XML 1.0 非法字符
+ *
+ * 现实出处：外部素材（PDF / TXT 转换的 EPUB、docx）常夹带竖向制表符 #xB、换页符 #xC 等控制符，
+ * 导入侧（xmldom 容错 + DOM 宽容解析）会原样收进 IR 文本。留到导出会带来严重后果：
+ * XHTML 内容文档必须是**格式良好**的 XML，携带非法字符会让严格 XML 解析的阅读器
+ * （多数 EPUB 2 / 3 引擎）判定 `not well-formed` 而**拒开整本书**。
+ */
+export function stripInvalidXmlChars(value: string): string {
+  return value.replace(INVALID_XML_CHARS, '');
+}
+
+/**
+ * XML 文本 / 属性值转义（实体转义 + 非法字符剥离）
+ *
+ * 在实体转义前先剥非法字符：先转义会把控制符原样保留在结果里，顺序不可颠倒。
+ * 导出链路（XHTML / OPF / NCX / nav 的文本与属性出口）统一使用本函数，
+ * 不再用 `escapeHtml`——后者只转义实体、不保格式良好。
+ */
+export function escapeXml(value: string): string {
+  return stripInvalidXmlChars(value)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/**
+ * HTML/XML 实体转义（文本与属性值共用）
+ *
+ * 行为已与 `escapeXml` 对齐（含非法字符剥离）：本文件的序列化产物最终进入 XHTML，
+ * 任何一处只做实体转义都会形成「打了补丁但仍非格式良好」的产物，故统一兜底。
+ * 新代码请用语义更明确的 `escapeXml`。
+ */
+export function escapeHtml(value: string): string {
+  return escapeXml(value);
 }
 
 /** 元素子节点（剔除文本叶子） */
@@ -141,7 +188,9 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
 
   /* 图片：src / alt 透传为原生属性（无值时输出空串占位） */
   if (node.type === NODE_TYPES.IMAGE) {
-    const src = typeof attrs?.src === 'string' ? attrs.src : '';
+    const rawSrc = typeof attrs?.src === 'string' ? attrs.src : '';
+    const rewritten = options.rewriteSrc?.(rawSrc);
+    const src = typeof rewritten === 'string' ? rewritten : rawSrc;
     const alt = typeof attrs?.alt === 'string' ? attrs.alt : '';
     const extras = dataAttrs(attrs, whitelist);
     const rest = serializeChildren(node, options);

@@ -15,3 +15,6 @@ export { htmlToBookDocument } from './from-html.js';
 /* ---------- 格式检测与分发 ---------- */
 export { detectImportFormat, importFromText } from './format.js';
 export type { ImportFormat } from './format.js';
+
+/* ---------- 元数据卫生 ---------- */
+export { sanitizeBookTitle, titleFromFilename } from './title.js';

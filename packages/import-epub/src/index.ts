@@ -6,7 +6,19 @@
  */
 
 /* ---------- epub → 正文 HTML（DOM 无关，同构） ---------- */
-export { epubToHtml } from './epub-package.js';
+export {
+  epubToHtml,
+  extractBodiesHtml,
+  findOpfPath,
+  readContentPaths,
+  readMediaTypes,
+  unzipEpub,
+} from './epub-package.js';
+export type {
+  EpubFiles,
+  EpubToHtmlOptions,
+  ExtractBodiesOptions,
+} from './epub-package.js';
 
 /* ---------- epub → BookDocument（组合层） ---------- */
 export { epubToBookDocument } from './from-epub.js';

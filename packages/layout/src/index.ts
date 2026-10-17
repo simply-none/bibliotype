@@ -54,6 +54,7 @@ export type {
   PageItem,
   PaginatedPage,
   PaginateOptions,
+  PaginateResume,
   PaginationResult,
   WidowControl,
 } from './paginator.js';

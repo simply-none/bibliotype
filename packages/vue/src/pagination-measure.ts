@@ -30,6 +30,7 @@ import {
   type ExtractedBlocks,
 } from '@bibliotype/reader';
 import { isRubyAnnotationText } from './ruby-annotation.js';
+import { PERF_MEASURE, perfNow, perfRecord } from './perf.js';
 
 /** 量尺输入 */
 export interface MeasureBlockSizesInput {
@@ -320,6 +321,14 @@ export interface MeasurePaginationResult {
  * @returns 非单栏横排或无 DOM 时为空映射（回退估算）。
  */
 export function measurePagination(input: MeasureBlockSizesInput): MeasurePaginationResult {
+  const perfStart = perfNow();
+  const result = measurePaginationInner(input);
+  perfRecord(PERF_MEASURE, perfStart);
+  return result;
+}
+
+/** 量尺主体（埋点在外层，便于把整段 DOM 实测算作一次测量） */
+function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginationResult {
   const sheet = renderMeasureSheet(input);
   if (sheet === null) return { sizes: new Map(), lineOffsets: new Map(), lineSizes: new Map() };
   const { blocks, rendered, targetedOnly } = sheet;

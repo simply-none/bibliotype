@@ -45,8 +45,8 @@ import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 
 const storage = new IndexedDbAdapter({
   databaseName: 'bibliotype',   // 默认 'bibliotype'
-  storeName: 'documents',       // 默认 'documents'
-  version: 1,                   // 结构升级时递增（升级自动建仓）
+  storeName: 'documents',       // 默认 'documents'（分片仓派生为 documents-meta / documents-chunks）
+  version: 2,                   // 结构升级时递增（升级自动建仓）
   factory,                      // 注入 IDB 工厂（测试用 fake-indexeddb）；默认取全局 indexedDB
 });
 
@@ -60,18 +60,28 @@ await storage.close();                          // 释放连接（之后可再�
 实现要点：
 
 - 延迟打开数据库（首次操作时 `open`）；
-- `save` 以 `put` 整体覆盖，记录含冗余 `metadata`（列表页免解析全文）；
+- **分片落盘**（`version >= 2`）：`save` 把文档切成「骨架 + 片」——骨架存在
+  `<storeName>-meta`（文档元信息 + 结构树，被切出的子树用 `{ $chunk }` 占位），片存在
+  `<storeName>-chunks`（一条记录 = 一组连续兄弟节点，估算体积 ≤ 32 KiB）；
+- **增量判定靠引用**：IR 快照走结构共享（`getSharedDocument`），未改子树与上一轮是同一
+  对象引用 → 该片 id 不变且跳过写入。纯文本编辑只写「改动所在的那一片」，
+  一轮落盘从「整本结构化克隆（1.8 MB ≈ 27 ms）」降到「几 KB」；
+- 旧格式（整本记录）仍可读，读到后**下次保存自动迁移**为分片格式；
+- 记录里含冗余 `metadata`（列表页免解析全文）；
 - 非浏览器环境抛错提示——请使用 `MemoryAdapter` 或注入 `factory`。
+
+> 分片切分器（`buildChunkedSnapshot` / `fromSkeleton`）也单独导出，供自定义适配器
+> （如 Electron 的 SQLite / 文件系统）复用同一套增量策略。
 
 底层工具 `openDatabase` / `requestToPromise` / `transactionDone` 亦从本包导出，
 供**自定义适配器**实现复用；属内部工具，常规使用无需直接调用。
 
 ## 典型用法：编辑保存 + 书架列表
 
-> **保存策略（大文档必读）**：`save` 是整本 `put`（结构化克隆，成本与文档规模成正比，实测
-> 1.8 MB 文档约 27 ms），**不要**在每个变更回调里直接整本写——那会把一个几十毫秒的
-> 主线程任务压到输入帧上，表现为「打字一停手就卡一下」。正确做法：节流合并 + 放到空闲
-> 时段 + 单飞去重，快照走 `getSharedDocument()`（共享 IR，未变子树零转换）。
+> **保存策略（大文档必读）**：`save` 一次的结构化克隆成本与「本次写入的体积」成正比。
+> 分片落盘后单次通常只有几 KB，但**仍不要在每次按键回调里同步触发**——排队、合流、
+> 放到后台 / 空闲时段，才能保证落盘永远不落在输入帧上。快照必须走
+> `getSharedDocument()`（共享 IR，未变子树零转换），否则增量判定失效、退回整本重写。
 
 ```ts
 import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
@@ -88,15 +98,15 @@ async function persist(): Promise<void> {
   await storage.save(BOOK_ID, snapshot);
 }
 
-/* 变更订阅只做排队；真正的写库放到空闲时段（无该 API 时回退下一个宏任务） */
+/* 变更订阅只做排队；真正的写库放到后台 / 空闲时段 */
 const off = editor.onChange(() => {
   if (timer !== undefined) clearTimeout(timer);
   timer = setTimeout(() => {
     timer = undefined;
     const run = (): void => void persist();
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2000 });
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 8000 });
     else run();
-  }, 1200);
+  }, 2500);
 });
 
 /* 手动保存 / 卸载兜底：取消排队立即写一轮 */

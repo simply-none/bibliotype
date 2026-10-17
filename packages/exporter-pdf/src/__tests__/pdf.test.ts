@@ -5,7 +5,7 @@
  * 打印文档（auto 单文档流 / paged 预分页 + 页码）、
  * 浏览器打印辅助（打印流程与清理），以及空书边界。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
 import { type BlockSizeEstimator } from '@bibliotype/reader';
@@ -201,6 +201,41 @@ describe('renderPrintHtml：paged 模式（预分页）', () => {
     expect(html).toContain('<section class="bt-page" data-page="1"></section>');
   });
 
+  it('rewriteSrc 透传：auto / paged 两路的 img src 均被改写（降级路径 blob 化）', () => {
+    const doc = createEmptyDocument({ title: '带图' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'c-1',
+        children: [
+          {
+            type: NODE_TYPES.PARAGRAPH,
+            id: 'p-1',
+            children: [
+              { type: NODE_TYPES.IMAGE, attrs: { src: 'data:image/png;base64,AAA' }, children: [] },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const auto = renderPrintHtml(doc, {
+      mode: 'auto',
+      rewriteSrc: (src) => (src.startsWith('data:') ? 'blob:mock' : undefined),
+    });
+    expect(auto).toContain('src="blob:mock"');
+    expect(auto).not.toContain('data:image/png;base64,AAA');
+
+    const paged = renderPrintHtml(doc, {
+      mode: 'paged',
+      pageMainSize: PAGE_MAIN,
+      estimator: () => 20,
+      rewriteSrc: (src) => (src.startsWith('data:') ? 'blob:mock' : undefined),
+    });
+    expect(paged).toContain('src="blob:mock"');
+    expect(paged).not.toContain('data:image/png;base64,AAA');
+  });
+
   it('默认 pageMainSize：按页面尺寸与 page-margin 推导（A5 横排）', () => {
     /* A5 高 794 - 2×48 = 698；默认估算器 4 块各约 42px，
        但两章章首 breakBefore → [h-1,p-1] / [p-2,p-3] 共 2 页 */
@@ -261,6 +296,17 @@ describe('printHtml（浏览器打印辅助）', () => {
   it('iframe 上下文不可用时抛错并清理', () => {
     const fake = createFakeDocument({ contentDocument: null });
     expect(() => printHtml('<html></html>', { document: fake.doc })).toThrow(/iframe/);
+    expect(fake.frame.removed).toBe(true);
+  });
+
+  it('onAfterPrint：打印结束后回调（释放 blob URL 等资源）', () => {
+    const fake = createFakeDocument();
+    const after = vi.fn();
+    printHtml('<html><body>x</body></html>', { document: fake.doc, onAfterPrint: after });
+
+    expect(after).not.toHaveBeenCalled();
+    fake.fireAfterPrint();
+    expect(after).toHaveBeenCalledTimes(1);
     expect(fake.frame.removed).toBe(true);
   });
 });

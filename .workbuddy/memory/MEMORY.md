@@ -6,9 +6,13 @@
   / 12623 块 ≈ 4.8 ms/次 + 等量对象分配）。高频路径一律用 `getSharedDocument()`（PM 结构共享，
   O(变更子树)，≈ 0.02 ms）。`BookEditor.emitChange()` 已按此口径广播，订阅方拿到的快照
   **视为只读**（未变子树与上次快照同引用），禁止原地修改。
-- **整本落盘不得落在输入帧上**：`StorageAdapter.save` 是整本 `put`（结构化克隆 ≈ 文档体积量级，
-  1.8 MB ≈ 27 ms）。策略统一用「节流合并 + 空闲时段（`requestIdleCallback`）+ 单飞去重 + 上限兜底」，
-  参考实现 `apps/demo/src/composables/use-draft-autosave.ts`。
+- **落盘永不落在输入帧上**：`IndexedDbAdapter.save` 自 v2 起是**分片增量写**（骨架 `*-meta` +
+  片 `*-chunks`，只写引用变化的那几片），不再整本 `put`；但**仍必须排队**——策略用
+  「节流合并 + 后台调度（`scheduler.postTask({priority:'background'})` 优先，回退
+  `requestIdleCallback` 且只在 `timeRemaining()>8` 时写）+ 单飞去重 + 上限兜底」
+  （delay 2500 / maxWait 30s / idleTimeout 8s），参考 `apps/demo/src/composables/use-draft-autosave.ts`。
+- **分片增量依赖 IR 引用共享**：`save` 必须收到 `getSharedDocument()` 的快照；用 `getDocument()`
+  会让所有 IR 节点变成新对象 → 增量判定失效、退化为整本重写。
 - **快照与保存基准必须同一同步帧**：取快照后立即 `markSaved()`，再 `await` 写库；否则 await 期间的
   新编辑会被误标「已保存」。写失败要保留脏标记并定时重试。
 - **改包源码后 demo 不生效**：demo 从各包 `dist` 消费，须先 `pnpm --filter <pkg> build`。
@@ -28,6 +32,13 @@
 
 - `extractBlocksIndexed` 的块序列与块 id 只由 IR 结构决定（`blockSizes` / `lineOffsets` / `lineSizes`
   仅影响尺寸字段），故同一文档的结构抽取结果可跨轮复用（`measurePagination` 的 `extracted` 入参）。
+- **增量分页**（`paginate(blocks,{resume:{prefix,startIndex}})`）只在 `targetBlockId` 定点路径启用：
+  流式贪心下「某页只由它之前的块决定」→ 前缀页原样复用，从目标块所在页的页首续排。
+  **坑**：页首必须是「本页第一个片段」，若该片段 `fromLine>0`（上一块的续排部分），必须退到
+  **该片段的块所在起始页**，否则会丢掉本页上半段（实测表现为后续全部分页错位）。
+  与全量重排结果必须逐片段一致（`paged-layout.test.ts` 有对照用例）。
+- 定点路径的首次结构抽取要喂上一轮实测尺寸表（`prev.sizes/lineOffsets/lineSizes`），否则每轮
+  都会对全文档跑 estimator（78 万字文本扫描），这是「定点只测一块」之外的另一半收益。
 
 ## 字符坐标轴（模型轴 vs DOM 轴）
 

@@ -2,8 +2,23 @@
 
 > 涉及包：`@bibliotype/exporter-pdf`　·　相关：[04 阅读器与分页](04-reader-and-pagination.md)、[07 EPUB 导出](07-export-epub.md)
 
-PDF 导出走**浏览器打印链路**：生成打印稿 HTML（内联样式），交给 `window.print()`
-或（Node 侧）无头浏览器出 PDF。无 DOM 依赖的生成函数可在两端同构调用。
+PDF 导出分两条路：**宿主适配器**（Electron `printToPDF` / Node 无头浏览器，秒级直出文件）
+与**浏览器打印降级**（`window.print()`，受 Chromium 打印管线限制）。无 DOM 依赖的
+生成函数（`renderPrintHtml`）可在两端同构调用。
+
+## 为什么不是「打印」而是「导出」
+
+浏览器内「打印为 PDF」必须走 Chromium 打印管线：大书（千页 / MB 级内联图片）实测
+**数分钟级**且阻塞主线程、必经打印对话框。实测耗时分布（诗经级大书，1185 页）：
+
+| 阶段 | 耗时 |
+| --- | --- |
+| `renderPrintHtml` auto 模式 | **84ms** |
+| `renderPrintHtml` paged 模式 | 4.2s（其中 `getPageFragments` ×1185 页占 2.5s） |
+| iframe 写入 5.4MB HTML + `window.print()` | **约 5–6 分钟** ← 主瓶颈 |
+
+HTML 里图片 base64 占 4MB（1162 处引用 / 17 张唯一图），打印引擎逐处解码是放大器。
+故：adapter 路径给「真导出」，降级路径做「图片 blob 化去重」瘦身。
 
 ## renderPrintHtml —— 生成打印文档
 
@@ -39,20 +54,102 @@ const html = renderPrintHtml(document, {
 | `pageMainSize` | 每页可用主轴尺寸 px（仅 `paged`；缺省按页面尺寸与页边距推导） |
 | `estimator` / `context` | 块尺寸估算器 / 估算上下文（仅 `paged`；缺省 `reader.defaultEstimator`） |
 | `tagOverrides` | 节点类型 → 标签覆盖（透传序列化器） |
+| `rewriteSrc` | 图片 src 改写回调（降级路径做 data URI → blob URL 去重，见下） |
 
-## printHtml / printBook —— 浏览器打印
+## 宿主适配器导出（推荐：Electron / 无头浏览器）
 
 ```ts
-import { printHtml, printBook } from '@bibliotype/exporter-pdf';
+import { exportPdfBytes, downloadPdf, type PdfExportAdapter } from '@bibliotype/exporter-pdf';
 
-printHtml(html);                                  // 打印一段完整 HTML 文档
-printBook(document, { mode: 'paged' });           // renderPrintHtml + printHtml 一步到位
-printHtml(html, { document: otherWindow.document }); // 注入宿主 document（多窗口 / 测试）
+/* 宿主（Electron preload / Node 无头浏览器 / 测试）注入适配器 */
+const adapter: PdfExportAdapter = {
+  async toPdf(html, options) {
+    /* Electron：IPC 到主进程，离屏窗口 printToPDF，见下节 */
+    return window.electronPdf.exportPdf(html, options);
+  },
+};
+
+const bytes = await exportPdfBytes(document, { adapter, mode: 'paged' });
+downloadPdf(bytes, '论语.pdf');
 ```
 
-机制：创建隐藏 iframe（0×0、`aria-hidden`）载入打印文档并调用 `window.print()`，
-打印样式随 iframe 文档生效、**不污染当前页面**；`afterprint` 后自动移除 iframe。
-非浏览器环境（未检测到 `document`）抛错。
+`PdfAdapterOptions`（透传宿主打印引擎）：`pageSize`（'A4' / 'A5' / {width,height}）、
+`margins`、`printBackground`（缺省 true，古籍框线 / 底纹依赖背景）、`preferCssPageSize`
+（缺省 true，沿用 `@page` 声明）。
+
+**契约：adapter 收到的 HTML 必须自包含**——离屏窗口 / 跨进程场景不共享 `blob:` URL，
+故 adapter 路径不要传 `rewriteSrc`（图片保持 inline data URI，`renderPrintHtml` 缺省行为）。
+
+### Electron 接入示例
+
+preload（`contextBridge.exposeInMainWorld('electronPdf', ...)`）：
+
+```ts
+// preload.ts
+import { contextBridge, ipcRenderer } from 'electron';
+contextBridge.exposeInMainWorld('electronPdf', {
+  exportPdf: (html: string, options?: unknown) =>
+    ipcRenderer.invoke('pdf:export', html, options),
+});
+```
+
+主进程（离屏窗口 + `webContents.printToPDF`，矢量文本、无对话框、秒级）：
+
+```ts
+// main.ts
+import { BrowserWindow, ipcMain } from 'electron';
+
+ipcMain.handle('pdf:export', async (event, html: string, options) => {
+  const owner = BrowserWindow.fromWebContents(event.sender)!;
+  const child = new BrowserWindow({ show: false, width: 800, height: 600 });
+  try {
+    await child.loadURL(
+      'data:text/html;charset=utf-8,' + encodeURIComponent(html),
+    );
+    const pdf = await child.webContents.printToPDF({
+      printBackground: options?.printBackground ?? true,
+      preferCSSPageSize: options?.preferCssPageSize ?? true,
+      pageSize: options?.pageSize,           // 口径见 Electron 文档
+      margins: options?.margins,
+    });
+    return new Uint8Array(pdf);
+  } finally {
+    child.destroy();
+    void owner;
+  }
+});
+```
+
+注意：data: URL 窗口里 **`blob:` 引用会失效**——这正是 adapter 路径必须用 inline 图片的原因。
+
+Node 无头浏览器（puppeteer）同理：`page.setContent(html)` → `page.pdf({ printBackground: true })`，
+包成同样的 `PdfExportAdapter` 即可。
+
+## 浏览器打印降级（printHtml / printBook）
+
+无 adapter 时（纯浏览器宿主）走既有打印链路，配图片 blob 化去重：
+
+```ts
+import { createImageBlobRewriter, printHtml, renderPrintHtml } from '@bibliotype/exporter-pdf';
+
+const rewriter = createImageBlobRewriter();
+try {
+  const html = renderPrintHtml(document, { rewriteSrc: rewriter.rewrite });
+  printHtml(html, { onAfterPrint: () => rewriter.revokeAll() });
+} catch (error) {
+  rewriter.revokeAll();
+  throw error;
+}
+```
+
+- `createImageBlobRewriter`：data URI → `blob:` URL 并按内容去重（1162 处引用 / 17 张唯一图
+  → HTML 体积与解码负担同步大降）；`onAfterPrint` / 异常时 `revokeAll()` 释放。
+- 机制：创建隐藏 iframe（0×0、`aria-hidden`）载入打印文档并调用 `window.print()`，
+  打印样式随 iframe 文档生效、**不污染当前页面**；`afterprint` 后自动移除 iframe。
+- 大书仍需数十秒（Chromium 打印管线限制），建议 UI 明示「降级模式」。
+
+`printBook(document, options)` = `renderPrintHtml` + `printHtml` 一步到位
+（`options` 同时含打印文档选项与 `document` / `onAfterPrint`）。
 
 ## 打印样式（buildPrintCss）
 
@@ -69,17 +166,6 @@ printHtml(html, { document: otherWindow.document }); // 注入宿主 document（
 import { buildPrintCss, type PrintMode, type PrintCssOptions } from '@bibliotype/exporter-pdf';
 
 const css = buildPrintCss({ options: layoutOptions, tokens: DEFAULT_THEME, mode: 'paged' });
-```
-
-## Node 侧出 PDF（无头浏览器思路）
-
-```ts
-import { renderPrintHtml } from '@bibliotype/exporter-pdf';
-import { writeFileSync } from 'node:fs';
-
-const html = renderPrintHtml(document, { mode: 'paged' });
-writeFileSync('book.html', html);
-// 然后：puppeteer / playwright 打开 book.html → page.pdf({ printBackground: true })
 ```
 
 ## 相关

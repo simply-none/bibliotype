@@ -3,7 +3,7 @@
  * Demo 主界面（App）
  *
  * - 工具栏：主题切换（现代横排 ↔ 古籍直排）/ 编辑 / 书籍信息 / 搜索 / 书签 / 目录 /
- *   设置 / 导出 EPUB / 打印 PDF；
+ *   设置 / 导出 EPUB / 导出 PDF（逐页·连续切换；Electron 宿主秒级直出，浏览器降级打印）；
  * - 左栏：设置面板、搜索面板、书签面板、目录（可分别开关）；
  * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；编辑态为 BtEditor
  *   （工具条 + 属性检视器，后者跟随选区展示节点 / 标记可编辑属性）；
@@ -47,7 +47,14 @@ import {
 } from '@bibliotype/reader';
 import { BtBookView, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet } from '@bibliotype/vue';
 import { exportEpub, type ValidationProblem } from '@bibliotype/exporter-epub';
-import { printBook } from '@bibliotype/exporter-pdf';
+import {
+  createImageBlobRewriter,
+  downloadPdf,
+  exportPdfBytes,
+  printHtml,
+  renderPrintHtml,
+  type PdfAdapterOptions,
+} from '@bibliotype/exporter-pdf';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
 import BookmarkPanel from './components/BookmarkPanel.vue';
@@ -57,6 +64,7 @@ import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import { useDraftAutosave } from './composables/use-draft-autosave.js';
+import { installPerfProbe, type PerfProbe } from './composables/use-perf-probe.js';
 import { lunyuDocument } from './data/lunyu.js';
 
 /* ---------------- 主题定义 ---------------- */
@@ -374,6 +382,9 @@ const saveStatusText = computed<string>(() => {
 /** 编辑器变更取消订阅句柄（卸载时清理） */
 let unsubscribeEditor: (() => void) | null = null;
 
+/** 开发期性能探针句柄（生产环境不安装，恒为 null） */
+let perfProbe: PerfProbe | null = null;
+
 /** 编辑器变更回调：同步脏标记并调度一轮合并落盘（决策与时限在 autosave 内） */
 function onEditorChange(): void {
   autosave.schedule();
@@ -665,20 +676,91 @@ function reportExportProblems(problems: readonly ValidationProblem[]): void {
   }
 }
 
-/** 打印 / 另存 PDF（paged 预分页，复用与屏幕同一实测尺寸 / 行边界 / 页主轴，逐页一致；含已保存的编辑内容） */
-function onPrintPdf(): void {
+/**
+ * 宿主注入的 PDF 导出桥（Electron preload 挂载到 window.electronPdf）
+ *
+ * 契约见 docs/08-export-pdf.md：主进程以离屏窗口加载自包含 HTML 后
+ * `webContents.printToPDF()`，经 IPC 回传 PDF 字节。浏览器无此桥。
+ */
+interface ElectronPdfBridge {
+  exportPdf(html: string, options?: PdfAdapterOptions): Promise<Uint8Array>;
+}
+
+declare global {
+  interface Window {
+    electronPdf?: ElectronPdfBridge;
+  }
+}
+
+/** 宿主 PDF 桥（Electron 注入；浏览器为 undefined → 走降级） */
+function getElectronPdfBridge(): ElectronPdfBridge | undefined {
+  return typeof window !== 'undefined' ? window.electronPdf : undefined;
+}
+
+/**
+ * 导出 PDF（替代原「打印 PDF」）
+ *
+ * 两条路径：
+ * - **Electron 宿主**（window.electronPdf）：自包含 HTML（inline 图片）→
+ *   宿主 printToPDF → PDF 字节直接下载。秒级、无对话框、矢量文本；
+ * - **浏览器降级**：blob 化去重（重复 data URI 归一为 blob URL，HTML 与
+ *   解码负担同步大降）→ 隐藏 iframe + window.print()。受 Chromium 打印
+ *   管线限制，大书仍需数十秒。
+ *
+ * 分页模式（pdfPagedMode）：逐页（paged，与屏幕预览逐页同源）/ 连续（auto，更快）。
+ */
+async function onExportPdf(): Promise<void> {
   const { fontToken } = theme.value;
-  printBook(reader.value.document ?? lunyuDocument, {
+  const book = reader.value.document ?? lunyuDocument;
+  const base = {
     layout: effectiveLayout.value,
     tokens: tokens.value,
     fontToken,
-    mode: 'paged',
-    pageMainSize: pageMainSize.value,
-    context: typographyMeasure(),
-    blockSizes: blockSizes.value,
-    lineOffsets: blockLineOffsets.value,
-    lineSizes: blockLineSizes.value,
-  });
+    mode: (pdfPagedMode.value ? 'paged' : 'auto') as 'paged' | 'auto',
+  };
+  /* 逐页模式附带屏幕实测数据（与预览同源）；连续模式由打印引擎分页 */
+  const measured =
+    base.mode === 'paged'
+      ? {
+          pageMainSize: pageMainSize.value,
+          context: typographyMeasure(),
+          blockSizes: blockSizes.value,
+          lineOffsets: blockLineOffsets.value,
+          lineSizes: blockLineSizes.value,
+        }
+      : {};
+
+  pdfExporting.value = true;
+  pdfStatus.value = '';
+  try {
+    const bridge = getElectronPdfBridge();
+    if (bridge !== undefined) {
+      /* adapter 路径：自包含 HTML（不传 rewriteSrc，离屏窗口拿不到 blob: URL） */
+      const bytes = await exportPdfBytes(book, {
+        ...base,
+        ...measured,
+        adapter: { toPdf: (html, opts) => bridge.exportPdf(html, opts) },
+      });
+      downloadPdf(bytes, `${book.metadata.title || '书籍'}.pdf`);
+      pdfStatus.value = '已导出 PDF（Electron 打印引擎）。';
+      return;
+    }
+
+    /* 降级路径：blob 化去重 + iframe 打印 */
+    const rewriter = createImageBlobRewriter();
+    try {
+      const html = renderPrintHtml(book, { ...base, ...measured, rewriteSrc: rewriter.rewrite });
+      printHtml(html, { onAfterPrint: () => rewriter.revokeAll() });
+      pdfStatus.value = `浏览器降级模式：已打开打印对话框（选择「另存为 PDF」；唯一图片 ${rewriter.uniqueCount} 张已去重；大书需数十秒，Electron 宿主中为秒级直出）。`;
+    } catch (error) {
+      rewriter.revokeAll();
+      throw error;
+    }
+  } catch (error) {
+    pdfStatus.value = `导出 PDF 失败：${error instanceof Error ? error.message : String(error)}`;
+  } finally {
+    pdfExporting.value = false;
+  }
 }
 
 /* ---------------- 工具栏鼠标交互（横向滚动） ---------------- */
@@ -779,6 +861,13 @@ const exportStatus = ref('');
 /** 导出校验是否存在 error 级问题（控制状态行配色） */
 const exportHasError = ref(false);
 
+/** PDF 导出状态行（路径说明 / 失败原因；空串不显示） */
+const pdfStatus = ref('');
+/** PDF 导出是否进行中（按钮置灰 + 文案切换） */
+const pdfExporting = ref(false);
+/** PDF 分页模式：true = 逐页（paged，与屏幕预览同源）/ false = 连续（auto，更快） */
+const pdfPagedMode = ref(true);
+
 /** 信息弹窗可编辑：仅编辑模式下（元数据写入 BookEditor.updateMetadata） */
 const infoEditable = computed(() => mode.value === 'edit' && bookEditor.value !== null);
 
@@ -848,6 +937,8 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown);
   window.addEventListener('beforeunload', onBeforeUnload);
   document.addEventListener('visibilitychange', onVisibilityChange);
+  // 开发期性能探针：控制台用 __btPerf.report() 看「重排 vs 落盘」耗时分布
+  if (import.meta.env.DEV) perfProbe = installPerfProbe();
   // 启动恢复上次会话（草稿内容 + 页码），就绪后视图才渲染
   void bootstrap();
   // 初次量尺（等挂载后布局完成）；字体就绪后再测一次（Web 字体影响行高）
@@ -862,6 +953,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange);
   removeToolbarDragListeners();
   if (measureTimer !== undefined) clearTimeout(measureTimer);
+  perfProbe?.stop();
+  perfProbe = null;
   unsubscribeEditor?.();
   unsubscribeEditor = null;
   unsubscribePage?.();
@@ -984,12 +1077,29 @@ onBeforeUnmount(() => {
         </div>
         <div class="toolbar__group">
           <button type="button" class="toolbar__button" @click="onExportEpub">导出 EPUB</button>
-          <button type="button" class="toolbar__button" @click="onPrintPdf">打印 PDF</button>
+          <button
+            type="button"
+            class="toolbar__button"
+            :disabled="pdfExporting"
+            @click="onExportPdf"
+          >
+            {{ pdfExporting ? '导出中…' : '导出 PDF' }}
+          </button>
+          <button
+            type="button"
+            class="toolbar__button"
+            :class="{ 'toolbar__button--active': pdfPagedMode }"
+            title="逐页：与屏幕预览逐页同源（较慢）；连续：打印引擎自动分页（较快）"
+            @click="pdfPagedMode = !pdfPagedMode"
+          >
+            {{ pdfPagedMode ? '逐页' : '连续' }}
+          </button>
         </div>
       </div>
       <p v-if="exportStatus" class="toolbar__export-status" :class="{ 'toolbar__export-status--error': exportHasError }">
         {{ exportStatus }}
       </p>
+      <p v-if="pdfStatus" class="toolbar__export-status">{{ pdfStatus }}</p>
     </header>
 
     <div class="app__body">

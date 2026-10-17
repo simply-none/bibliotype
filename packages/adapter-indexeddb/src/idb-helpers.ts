@@ -2,6 +2,16 @@
  * IndexedDB 原生 API 的 Promise 封装（零依赖）
  */
 
+/** 需要确保存在的对象仓库描述 */
+export interface StoreDefinition {
+  /** 仓库名 */
+  name: string;
+  /** 主键路径（缺省 'id'） */
+  keyPath?: string | string[];
+  /** 需要建立的索引 */
+  indexes?: readonly { name: string; keyPath: string }[];
+}
+
 /** IDBRequest → Promise */
 export function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -19,20 +29,37 @@ export function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
-/** 打开数据库（含升级建仓逻辑） */
+/** 按描述建仓（已存在则跳过，供升级与「版本未变但仓缺失」两路复用） */
+function ensureStores(db: IDBDatabase, stores: readonly StoreDefinition[]): void {
+  for (const store of stores) {
+    if (db.objectStoreNames.contains(store.name)) continue;
+    const created = db.createObjectStore(store.name, { keyPath: store.keyPath ?? 'id' });
+    for (const index of store.indexes ?? []) {
+      created.createIndex(index.name, index.keyPath);
+    }
+  }
+}
+
+/**
+ * 打开数据库（含升级建仓逻辑）
+ *
+ * @param factory IDB 工厂
+ * @param databaseName 库名
+ * @param version 目标版本（升级时触发 onupgradeneeded 建仓）
+ * @param stores 需要确保存在的仓库（可传单个名称，等价于默认 'id' 主键）
+ */
 export function openDatabase(
   factory: IDBFactory,
   databaseName: string,
   version: number,
-  storeName: string,
+  stores: readonly StoreDefinition[] | StoreDefinition | string,
 ): Promise<IDBDatabase> {
+  const definitions: readonly StoreDefinition[] =
+    typeof stores === 'string' ? [{ name: stores }] : Array.isArray(stores) ? stores : [stores];
   return new Promise((resolve, reject) => {
     const request = factory.open(databaseName, version);
     request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(storeName)) {
-        db.createObjectStore(storeName, { keyPath: 'id' });
-      }
+      ensureStores(request.result, definitions);
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error('IndexedDB 打开失败'));

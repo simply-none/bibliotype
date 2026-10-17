@@ -11,6 +11,16 @@ export { measureBlockSizes, measurePagination, disposeMeasureSheet } from './pag
 export type { MeasureBlockSizesInput, MeasurePaginationResult } from './pagination-measure.js';
 
 export {
+  PERF_LAYOUT,
+  PERF_MEASURE,
+  PERF_AUTOSAVE,
+  setPerfProbeEnabled,
+  isPerfProbeEnabled,
+  perfNow,
+  perfRecord,
+} from './perf.js';
+
+export {
   buildPagedLayout,
   usePagedLayout,
   collectPmLeafPositions,

@@ -137,6 +137,33 @@ describe('buildPagedLayout', () => {
     disposeMeasureSheet();
   });
 
+  it('定点增量分页：目标块之后的分页与全量构建同构（P3）', () => {
+    const texts = Array.from({ length: 12 }, (_, index) => `第${index + 1}段`.repeat(120));
+    const doc = docWithParagraphs(texts);
+    const full = buildPagedLayout({ doc, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(full.pages.length).toBeGreaterThan(3);
+    const target = full.blocks[6]!.id;
+    // 注入尺寸缓存，让探针「全部块 id ⊆ prev.sizes」成立 → 走定点 + 增量分页
+    const prev = {
+      ...full,
+      sizes: new Map(full.blocks.map((block) => [block.id, block.mainSize])),
+    };
+    const inc = buildPagedLayout({
+      doc,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      fromBlockId: target,
+      targetBlockId: target,
+      previous: prev,
+    });
+    // 前缀页 + 续排结果必须与整本重排完全一致（续排只是省成本，不改结果）
+    const signature = (pages: readonly { fragments: readonly { blockId: string; fromLine: number; lineCount: number }[] }[]) =>
+      pages.map((page) =>
+        page.fragments.map((frag) => `${frag.blockId}@${frag.fromLine}:${frag.lineCount}`),
+      );
+    expect(signature(inc.pages)).toEqual(signature(full.pages));
+    disposeMeasureSheet();
+  });
+
   it('增量重排删块后：三表裁剪陈旧项（回删并段不留幽灵缓存）', () => {
     const doc = docWithParagraphs(['子曰学而时习之不亦说乎'.repeat(200), '有朋自远方来不亦乐乎'.repeat(200)]);
     // 注入尺寸缓存（happy-dom 无实测产物），使裁剪逻辑可观察

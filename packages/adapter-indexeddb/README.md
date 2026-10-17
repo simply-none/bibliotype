@@ -18,7 +18,7 @@ import { IndexedDbAdapter, MemoryAdapter } from '@bibliotype/adapter-indexeddb';
 
 const adapter = new IndexedDbAdapter({ databaseName: 'my-ebooks' });
 
-await adapter.save('lunyu', document);      // 整体覆盖保存（IR 全量持久化）
+await adapter.save('lunyu', document);      // 分片增量保存（只写变更片）
 const doc = await adapter.load('lunyu');    // 未命中返回 undefined（不抛错）
 const list = await adapter.list();          // 文档摘要，按 updatedAt 降序
 await adapter.delete('lunyu');              // 存在并已删除返回 true
@@ -34,11 +34,29 @@ const memory = new MemoryAdapter();
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `databaseName` | `'bibliotype'` | 数据库名 |
-| `storeName` | `'documents'` | 对象仓库名 |
-| `version` | `1` | 数据库版本（结构升级时递增） |
+| `storeName` | `'documents'` | 对象仓库名（分片仓派生为 `<name>-meta` / `<name>-chunks`） |
+| `version` | `2` | 数据库版本（结构升级时递增；v1 旧库自动升级建仓） |
 | `factory` | 全局 `indexedDB` | 注入 IDB 工厂（测试用 `fake-indexeddb`） |
 
 另导出 IDB 原生封装（供自定义适配器复用）：`openDatabase`、`requestToPromise`、`transactionDone`。
+
+## 分片落盘（为什么 `save` 不是整本 `put`）
+
+整本 `put` 的结构化克隆在主线程同步执行，成本与文档体积成正比——大书每次保存都是一次
+几十毫秒的卡顿。本适配器把文档切成「骨架 + 片」：
+
+| 仓 | 内容 | 说明 |
+| --- | --- | --- |
+| `<storeName>-meta` | 骨架 | 文档元信息 + 结构树，被切出的子树为 `{ $chunk: id }` 占位 |
+| `<storeName>-chunks` | 片 | 一条记录 = 一组连续兄弟节点（估算体积 ≤ 32 KiB） |
+| `<storeName>` | 旧格式 | 仅在读取旧数据时命中，下次写入自动迁移并删除 |
+
+**增量判定靠对象引用**：IR 快照走结构共享（`getSharedDocument`），未改子树与上一轮是同一
+对象引用 → 复用片 id 且跳过写入；结构变化（增删块）时用「片首节点引用」对齐旧片，
+只重切变化的那棵子树。写库只发生在真正变化的片上（通常 1 片、几 KB）。
+
+分片切分器 `buildChunkedSnapshot` / `fromSkeleton`（及 `CHUNK_BUDGET_BYTES`）也单独导出，
+供 SQLite / 文件系统等自定义适配器复用同一套增量策略。
 
 ## 契约摘要（`StorageAdapter`）
 

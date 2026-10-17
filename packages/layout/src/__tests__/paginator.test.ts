@@ -247,3 +247,54 @@ describe('paginate（行级拆分 / 孤寡行控制）', () => {
     expect(result.pages[1]?.items[0]?.block.id).toBe('next');
   });
 });
+
+describe('paginate（增量续排 resume）', () => {
+  /** 造一组固定尺寸的块 */
+  function blocksOf(...ids: string[]): { id: string; mainSize: number }[] {
+    return ids.map((id) => ({ id, mainSize: 40 }));
+  }
+
+  it('前缀页原样复用，续排结果与整本重排一致', () => {
+    const blocks = blocksOf('a', 'b', 'c', 'd', 'e', 'f');
+    const full = paginate(blocks, { pageMainSize: 100 });
+    // 每页 2 块（40+40 ≤ 100，第 3 块 120 > 100）→ 3 页
+    expect(full.totalPages).toBe(3);
+
+    // 从第 5 块（e，索引 4）续排：前缀为前 2 页
+    const resumed = paginate(blocks, {
+      pageMainSize: 100,
+      resume: { prefix: full.pages.slice(0, 2), startIndex: 4 },
+    });
+    expect(resumed.totalPages).toBe(3);
+    expect(resumed.pages[0]).toEqual(full.pages[0]);
+    expect(resumed.pages[1]).toEqual(full.pages[1]);
+    expect(resumed.pages[2]?.items.map((item) => item.block.id)).toEqual(['e', 'f']);
+  });
+
+  it('续排起点块的尺寸变化只影响后续页', () => {
+    const blocks = blocksOf('a', 'b', 'c', 'd', 'e', 'f');
+    const full = paginate(blocks, { pageMainSize: 100 });
+    // 目标块 d 变高：从 d 所在页（第 2 页）首块起重排
+    const changed = blocks.map((block) => (block.id === 'd' ? { ...block, mainSize: 80 } : block));
+    const resumed = paginate(changed, {
+      pageMainSize: 100,
+      resume: { prefix: full.pages.slice(0, 1), startIndex: 2 },
+    });
+    // 第 1 页不受影响
+    expect(resumed.pages[0]).toEqual(full.pages[0]);
+    // d(80) 独占一页，c 被挤到单独一页，其后 e/f 一页
+    expect(resumed.pages[1]?.items.map((item) => item.block.id)).toEqual(['c']);
+    expect(resumed.totalPages).toBe(4);
+  });
+
+  it('startIndex 越界时退化为仅返回前缀页', () => {
+    const blocks = blocksOf('a', 'b');
+    const full = paginate(blocks, { pageMainSize: 100 });
+    const resumed = paginate(blocks, {
+      pageMainSize: 100,
+      resume: { prefix: full.pages, startIndex: blocks.length },
+    });
+    expect(resumed.totalPages).toBe(1);
+    expect(resumed.pages[0]).toEqual(full.pages[0]);
+  });
+});

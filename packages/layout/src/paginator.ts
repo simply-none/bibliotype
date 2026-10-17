@@ -86,6 +86,24 @@ export interface PaginateOptions {
   pageMainSize: number;
   /** 孤寡行控制（缺省 2 / 2） */
   widowControl?: WidowControl;
+  /**
+   * 续排起点（增量分页）：从 `startIndex` 块起继续分页，`prefix` 页原样保留
+   *
+   * 只用于「前面的块尺寸未变、仅第 startIndex 块及之后受影响」的场景：
+   * 流式贪心下，`prefix` 页的内容只由它们之前的块决定，与后续块无关，
+   * 因此可原样复用（页对象不重建、引用不变 → 下游片段缓存仍命中）。
+   * 调用方须保证 `startIndex` 是「受影响页的首块」——即该块在新旧两轮里
+   * 都从页首开始放置（不是跨页续排的后续片段），否则会多出一页。
+   */
+  resume?: PaginateResume;
+}
+
+/** 增量分页的续排起点 */
+export interface PaginateResume {
+  /** 已确定的页（页码自 0 连续，通常为旧结果的 pages[0..P-1]） */
+  prefix: readonly PaginatedPage[];
+  /** 从该块索引起继续分页（该块从新页页首起排） */
+  startIndex: number;
 }
 
 /** 分页统计 */
@@ -136,8 +154,17 @@ export function paginate(
     items: PageItem[];
     usedMainSize: number;
   }
-  const pages: MutablePage[] = [];
-  let cur: MutablePage = startPage();
+  // 增量续排：前缀页原样复用（只由前面的块决定，与后续块无关），从 startIndex 起从新页续排
+  const startIndex =
+    options.resume === undefined
+      ? 0
+      : Math.max(0, Math.min(options.resume.startIndex, blocks.length));
+  const pages: MutablePage[] = (options.resume?.prefix ?? []).map((page) => ({
+    items: [...page.items],
+    usedMainSize: page.usedMainSize,
+  }));
+  let cur: MutablePage = { items: [], usedMainSize: 0 };
+  if (startIndex < blocks.length) cur = startPage();
   let pendingBreak = false;
 
   function startPage(): MutablePage {
@@ -246,7 +273,7 @@ export function paginate(
     }
   }
 
-  for (let i = 0; i < blocks.length; i += 1) {
+  for (let i = startIndex; i < blocks.length; i += 1) {
     const block = blocks[i] as MeasurableBlock;
     const onFreshPage = cur.items.length === 0;
     if (!onFreshPage && (pendingBreak || block.breakBefore === true)) {

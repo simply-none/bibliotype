@@ -64,6 +64,13 @@ export interface PrintDocumentOptions {
   lineSizes?: ReadonlyMap<string, number>;
   /** 节点类型 → 标签覆盖（透传序列化器，用于插件节点定制） */
   tagOverrides?: Readonly<Record<string, string>>;
+  /**
+   * 图片 src 改写回调（透传序列化器）
+   *
+   * 浏览器降级路径用它做「data URI → blob URL」去重瘦身（见 pdf-export.ts
+   * 的 `createImageBlobRewriter`）；adapter 路径不传（离屏窗口需 inline）。
+   */
+  rewriteSrc?: (src: string) => string | undefined;
 }
 
 /** 生成打印文档（完整 HTML 字符串） */
@@ -103,7 +110,10 @@ ${body}
 
 /** auto 模式正文：整书单文档流（结构节点经 CSS break-before 另起页） */
 function renderFlowBody(book: BookDocument, options: PrintDocumentOptions): string {
-  const content = serializeNode(book.root, { tagOverrides: options.tagOverrides });
+  const content = serializeNode(book.root, {
+    tagOverrides: options.tagOverrides,
+    rewriteSrc: options.rewriteSrc,
+  });
   return `<main class="bt-book">\n${content}\n</main>`;
 }
 
@@ -136,7 +146,12 @@ function renderPagedBody(
     .map((page) => {
       const nodes = reader.getPageFragments(page.index);
       const content = nodes
-        .map((node) => serializeNode(node, { tagOverrides: options.tagOverrides }))
+        .map((node) =>
+          serializeNode(node, {
+            tagOverrides: options.tagOverrides,
+            rewriteSrc: options.rewriteSrc,
+          }),
+        )
         .join('\n');
       const number = escapeHtml(formatPageNumber(page.index + 1, layout.pageNumberStyle));
       return (

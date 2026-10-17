@@ -23,6 +23,9 @@ import {
   sliceNodeByCharRange,
   type LayoutOptions,
   type MeasurableBlock,
+  type PageItem,
+  type PaginatedPage,
+  type PaginateResume,
 } from '@bibliotype/layout';
 import {
   DEFAULT_MEASURE_CONTEXT,
@@ -33,6 +36,7 @@ import {
 import type { Node as PMNode } from 'prosemirror-model';
 import type { BookEditor } from '@bibliotype/editor';
 import { measurePagination } from '../pagination-measure.js';
+import { PERF_LAYOUT, perfNow, perfRecord } from '../perf.js';
 import { buildPagedIndex, type PagedIndex } from './selection-bridge.js';
 
 /** 页内一个片段：整块（lineCount=0）或跨页块的某段连续行 */
@@ -125,6 +129,101 @@ function charRangeFromLines(
 }
 
 /**
+ * 计算增量分页的续排起点（仅「定点实测」路径可用）
+ *
+ * 思路：流式贪心下「某页只由它之前的块决定」，所以目标块所在页之前的页可以
+ * 原样保留，从该页的页首块起重排即可。约束与回退：
+ * - 页首块必须是「本页第一个 fromLine=0 的片段」；整页都是跨页续排的后续片段时
+ *   继续向前找，直到找到真正的页首；
+ * - 若页首块的前一块带 `keepWithNext`（标题 + 首段），它的换页判断依赖页首块尺寸，
+ *   会随之变化 → 起点再向前退一页，避免标题孤悬页尾；
+ * - 任何一环对不上（目标块 / 页首块不在新块序列里、起点就是第 0 页）→ 返回
+ *   undefined，调用方退回整本重排（正确性优先）。
+ *
+ * @param previous 上一次构建结果
+ * @param blocks 本轮块序列（新）
+ * @param targetBlockId 定点编辑的块 id
+ */
+function resolvePaginateResume(
+  previous: BuildPagedResult,
+  blocks: readonly MeasurableBlock[],
+  targetBlockId: string,
+): PaginateResume | undefined {
+  const indexById = new Map<string, number>();
+  const blockById = new Map<string, MeasurableBlock>();
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i] as MeasurableBlock;
+    if (!indexById.has(block.id)) {
+      indexById.set(block.id, i);
+      blockById.set(block.id, block);
+    }
+  }
+  if (!indexById.has(targetBlockId)) return undefined;
+
+  /** 块 id → 首次出现的页号（按片段序列，跨页续排的块取首片所在页） */
+  const pageOf = new Map<string, number>();
+  previous.pages.forEach((page, pageIndex) => {
+    for (const frag of page.fragments) {
+      if (!pageOf.has(frag.blockId)) pageOf.set(frag.blockId, pageIndex);
+    }
+  });
+  const targetPage = pageOf.get(targetBlockId);
+  if (targetPage === undefined) return undefined;
+
+  /** 某页的首个片段（`fromLine>0` 表示该块从更早的页续排过来） */
+  const pageHeadFragment = (pageIndex: number) => previous.pages[pageIndex]?.fragments[0];
+
+  // 从目标块所在页起步；若该页首片段是续排片段，则必须退到「该块的起始页」，
+  // 否则会把本页上半段（上一块的续排部分）丢掉
+  let startPage = targetPage;
+  let startIndex: number | undefined;
+  for (let guard = 0; guard < 4; guard += 1) {
+    const head = pageHeadFragment(startPage);
+    if (head === undefined) return undefined;
+    const index = indexById.get(head.blockId);
+    if (index === undefined) return undefined;
+    if (head.fromLine > 0) {
+      const ownerPage = pageOf.get(head.blockId);
+      if (ownerPage === undefined || ownerPage >= startPage) return undefined;
+      startPage = ownerPage;
+      continue;
+    }
+    // 保守回退一页：前一页末块若 keepWithNext，它是否换页取决于本页首块尺寸
+    if (index > 0 && blocks[index - 1]?.keepWithNext === true && startPage > 0) {
+      startPage -= 1;
+      continue;
+    }
+    startIndex = index;
+    break;
+  }
+  if (startIndex === undefined) return undefined;
+
+  // 起点在第 0 页时前缀为空，与整本重排等价，不必走续排
+  if (startPage <= 0 || startIndex <= 0) return undefined;
+
+  // 把前缀页转成 paginate 认识的页结构（尺寸取本轮实测块，供下游片段缓存命中）
+  const prefix: PaginatedPage[] = [];
+  for (let p = 0; p < startPage; p += 1) {
+    const page = previous.pages[p];
+    if (page === undefined) return undefined;
+    const items: PageItem[] = [];
+    let used = 0;
+    for (const frag of page.fragments) {
+      const block = blockById.get(frag.blockId);
+      // 前缀页里出现本轮不存在的块（被删）→ 说明结构变了，放弃增量
+      if (block === undefined) return undefined;
+      const lineSize = block.lineSize ?? block.mainSize;
+      const size =
+        frag.lineCount > 0 ? Math.min(block.mainSize, frag.lineCount * lineSize) : block.mainSize;
+      items.push({ block, fromLine: frag.fromLine, lineCount: frag.lineCount, mainSize: size });
+      used += size;
+    }
+    prefix.push({ index: p, items, blocks: items.map((item) => item.block), usedMainSize: used });
+  }
+  return { prefix, startIndex };
+}
+
+/**
  * 纯函数：由文档快照构建分页片段（可单测，无副作用之外的响应式）。
  *
  * 增量（阶段五）：传 fromBlockId + previous 时，DOM 实测只覆盖该块及之后，
@@ -135,6 +234,9 @@ function charRangeFromLines(
  * 旧尺寸缓存）：单栏定宽流块高彼此独立，纯文本编辑只实测该块（另渲染其后
  * 一块保折叠口径），其余块沿用缓存；探针未过自动回退 fromBlockId 尾测。
  * 切片节点惰性产出（首次访问 `node` 才 sliceNodeByCharRange），成本摊到视口页。
+ *
+ * 增量分页（P3）：定点路径下再用 `resolvePaginateResume` 把「目标块之前的页」
+ * 原样接到 paginate 的 resume 上，分页成本从 O(全页) 降为 O(尾页)。
  */
 export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
@@ -164,7 +266,16 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   // 单次结构抽取（块序列 + 节点索引）：块序列与块 id 只由 IR 结构决定（尺寸映射仅
   // 影响尺寸字段），故探针判定、量尺渲染、最终建索引共用同一份结果 —— 每轮由三次
   // 全树遍历降为两次（大文档省约 6 ms/轮）。
-  const structural = extractBlocksIndexed(doc, { context });
+  //
+  // 增量轮把上一轮实测尺寸表喂进来：命中块跳过 estimator（大文档 78 万字全文档
+  // 字符估算是最贵的一段），只有新增块才回退估算；量尺会重新实测目标块并在
+  // 第二遍抽取时用新尺寸覆盖。
+  const structural = extractBlocksIndexed(doc, {
+    context,
+    blockSizes: incremental ? prev.sizes : undefined,
+    lineOffsets: incremental ? prev.lineOffsets : undefined,
+    lineSizes: incremental ? prev.lineSizes : undefined,
+  });
 
   // 定点判定探针：新块序列全部命中旧尺寸缓存 = 无结构性变化（纯文本编辑）
   let targetBlockId: string | undefined;
@@ -231,7 +342,13 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   }
 
   const nodeById = indexed.nodeById;
-  const result = paginate(blocks, { pageMainSize });
+  // 增量分页：定点实测（无增删块、只改一块）时，目标块之前的页原样复用，
+  // 只从目标块所在页的页首重排——大文档下把 paginate 的 O(页数) 降为 O(尾页数)
+  const resume =
+    targetBlockId !== undefined && prev !== undefined
+      ? resolvePaginateResume(prev, blocks, targetBlockId)
+      : undefined;
+  const result = paginate(blocks, { pageMainSize, resume });
   const pages: PagedPage[] = result.pages.map((page) => {
     const fragments: PagedFragment[] = [];
     for (const item of page.items) {
@@ -352,8 +469,13 @@ export interface UsePagedLayoutReturn {
 
 /** 输入活跃窗口：距最近一次编辑提示小于该值视为连续键入 */
 const TYPING_ACTIVE_MS = 800;
-/** 连续键入期的去抖间隔（合流快速键入，量尺成本摊薄） */
-const TYPING_DELAY = 250;
+/** 连续键入期的去抖间隔（合流快速键入，量尺成本摊薄）
+ *
+ * 400ms 而非 250ms：一轮定点重排在大文档上仍有 10~20ms 的固定开销（两次结构
+ * 遍历 + 增量分页 + 索引重建），把合流窗口拉长能把「打字期间的重排次数」再降
+ * 三分之一；停手 400ms 内必然出结果，视觉上仍等同即时。
+ */
+const TYPING_DELAY = 400;
 /** 分帧兜底间隔：rAF 不触发（后台标签 / fake timers）时保证量尺仍在去抖窗口内起跑 */
 const FRAME_FALLBACK_MS = 16;
 
@@ -389,6 +511,7 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
     const pmDoc = opts.editor.editorState.doc;
     if (!force && lastResult.value !== null && pmDoc === lastPmDoc) return;
     const started = Date.now();
+    const perfStart = perfNow();
     const fromBlockId = hints.length > 0 ? hints[0] : undefined;
     const result = buildPagedLayout({
       doc: opts.editor.getSharedDocument(),
@@ -412,6 +535,8 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
       : null;
     // 预算反馈：单次重排超 33ms → 去抖加大到 300ms（阶段五节流）
     delay = Date.now() - started > 33 ? 300 : 120;
+    // 埋点：一轮重排（结构抽取 + 量尺 + 分页 + 索引）的真实耗时
+    perfRecord(PERF_LAYOUT, perfStart);
   };
 
   const relayout = (fromBlockId?: string, force = false): void => {

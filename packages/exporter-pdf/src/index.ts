@@ -8,3 +8,14 @@ export { renderPrintHtml } from './print-document.js';
 export type { PrintDocumentOptions } from './print-document.js';
 export { printBook, printHtml } from './print.js';
 export type { PrintHtmlOptions } from './print.js';
+export {
+  createImageBlobRewriter,
+  downloadPdf,
+  exportPdfBytes,
+} from './pdf-export.js';
+export type {
+  ExportPdfOptions,
+  ImageBlobRewriter,
+  PdfAdapterOptions,
+  PdfExportAdapter,
+} from './pdf-export.js';

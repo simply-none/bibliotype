@@ -14,6 +14,8 @@ import { renderPrintHtml, type PrintDocumentOptions } from './print-document.js'
 export interface PrintHtmlOptions {
   /** 宿主 document（缺省取全局 document；无则抛错） */
   document?: Document;
+  /** 打印结束回调（afterprint 触发；取消打印同样触发——用于释放 blob URL 等资源） */
+  onAfterPrint?: () => void;
 }
 
 /** 打印一段完整 HTML 文档（浏览器环境） */
@@ -48,6 +50,7 @@ export function printHtml(html: string, options: PrintHtmlOptions = {}): void {
   const cleanup = (): void => {
     frameWin.removeEventListener('afterprint', cleanup);
     frame.remove();
+    options.onAfterPrint?.();
   };
   frameWin.addEventListener('afterprint', cleanup);
   frameWin.focus();

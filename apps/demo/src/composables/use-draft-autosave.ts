@@ -1,12 +1,15 @@
 /**
  * 编辑草稿自动保存（Demo 层持久化策略）
  *
- * 目标：**落盘永不占用输入帧**。三条约束共同保证编辑流畅：
+ * 目标：**落盘永不占用输入帧**。四条约束共同保证编辑流畅：
  * - 节流合并：距上次排队不足 `delay` 时不重复排队，且快照在**执行时**取得
  *   （排队期间的新输入天然并入本轮），不存在「一停手就整本写」的尖峰；
- * - 空闲落盘：序列化与 IndexedDB 写入排在浏览器空闲时段（`requestIdleCallback`，
- *   无该 API 的环境回退下一个宏任务），错开按键与绘制帧；
- * - 上限兜底：距上次成功落盘超过 `maxWait` 立即排队，长句连续输入也不会长期未落盘。
+ * - 后台调度（P1）：优先 `scheduler.postTask({priority:'background'})`，浏览器把它
+ *   排到输入与绘制之后；退化到 `requestIdleCallback` 时**只在真有剩余预算时写**
+ *   （`timeRemaining()` 不足则让出本轮），不再用短 timeout 强行插队；
+ * - 上限兜底：距上次成功落盘超过 `maxWait` 立即排队，长句连续输入也不会长期未落盘；
+ * - 预算让出上限：连续让出 `MAX_IDLE_SKIP` 次后强制执行，避免浏览器长期「不空闲」
+ *   导致永不落盘。
  *
  * 数据正确性：
  * - 单飞去重：写入进行中再有变更只置「待写」标记，完成后合并为下一轮，杜绝并发整本写；
@@ -15,6 +18,7 @@
  * - 失败保留脏标记：写入失败（配额 / 环境不支持）保持未保存并定时重试。
  */
 import { ref, type Ref } from 'vue';
+import { PERF_AUTOSAVE, perfNow, perfRecord } from '@bibliotype/vue';
 import type { BookDocument, StorageAdapter } from '@bibliotype/core';
 import type { BookEditor } from '@bibliotype/editor';
 
@@ -32,7 +36,21 @@ interface IdleHost {
     | ((callback: (deadline: IdleDeadlineLike) => void, options?: { timeout?: number }) => number)
     | undefined;
   cancelIdleCallback?: ((handle: number) => void) | undefined;
+  /** 后台优先级调度（Chrome 94+；存在性在运行时校验，缺失自动回退） */
+  scheduler?:
+    | {
+        postTask?: (
+          callback: () => void,
+          options?: { priority?: 'user-blocking' | 'user-visible' | 'background' },
+        ) => Promise<unknown>;
+      }
+    | undefined;
 }
+
+/** 一次空闲回调内允许落盘的最小剩余预算（ms）；低于它说明让出更划算 */
+const MIN_IDLE_BUDGET_MS = 8;
+/** 预算不足时连续让出的轮数上限（超过则强制执行，防「浏览器一直忙 → 永不落盘」） */
+const MAX_IDLE_SKIP = 2;
 
 /** 自动保存选项 */
 export interface DraftAutosaveOptions {
@@ -42,11 +60,11 @@ export interface DraftAutosaveOptions {
   store: StorageAdapter;
   /** 草稿记录 id */
   id: string;
-  /** 排队节流间隔（ms，缺省 1200）：连续编辑期间两轮落盘的最小间隔 */
+  /** 排队节流间隔（ms，缺省 2500）：连续编辑期间两轮落盘的最小间隔 */
   delay?: number;
-  /** 落盘间隔上限（ms，缺省 15000）：距上次成功落盘超过则立即排队 */
+  /** 落盘间隔上限（ms，缺省 30000）：距上次成功落盘超过则立即排队 */
   maxWait?: number;
-  /** 空闲回调超时（ms，缺省 2000）：浏览器长时间不空闲时的强制执行上限 */
+  /** 空闲回调超时（ms，缺省 8000）：浏览器长时间不空闲时的强制执行上限 */
   idleTimeout?: number;
   /** 写入失败后的重试间隔（ms，缺省 3000） */
   retryDelay?: number;
@@ -76,8 +94,9 @@ export interface DraftAutosave {
   dispose: () => Promise<void>;
 }
 
-/** 挂起任务槽（空闲回调或退化宏任务，二选一） */
+/** 挂起任务槽（后台调度 / 空闲回调 / 退化宏任务，三选一） */
 type PendingSlot =
+  | { via: 'task'; token: number }
   | { via: 'idle'; handle: number }
   | { via: 'timer'; handle: ReturnType<typeof setTimeout> };
 
@@ -87,9 +106,9 @@ type PendingSlot =
  * @param options 选项（编辑器取值器 / 存储适配器 / 记录 id / 各档时限）
  */
 export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
-  const delay = options.delay ?? 1200;
-  const maxWait = options.maxWait ?? 15000;
-  const idleTimeout = options.idleTimeout ?? 2000;
+  const delay = options.delay ?? 2500;
+  const maxWait = options.maxWait ?? 30000;
+  const idleTimeout = options.idleTimeout ?? 8000;
   const retryDelay = options.retryDelay ?? 3000;
   const now = options.now ?? Date.now;
 
@@ -108,6 +127,10 @@ export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
   let timer: ReturnType<typeof setTimeout> | undefined;
   /** 空闲任务槽 */
   let slot: PendingSlot | null = null;
+  /** 后台调度令牌（postTask 无法取消，靠令牌失效已排队的回调） */
+  let slotToken = 0;
+  /** 因预算不足连续让出的轮数 */
+  let idleSkips = 0;
   /** 失败重试定时器 */
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   /** 在飞写入 */
@@ -119,8 +142,10 @@ export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
   function clearSlot(): void {
     if (slot === null) return;
     if (slot.via === 'idle') (globalThis as IdleHost).cancelIdleCallback?.(slot.handle);
-    else clearTimeout(slot.handle);
+    else if (slot.via === 'timer') clearTimeout(slot.handle);
+    else slotToken += 1; // 后台调度：无取消句柄，令已排队回调失效
     slot = null;
+    idleSkips = 0;
   }
 
   /** 清空全部挂起调度（节流 / 空闲 / 重试） */
@@ -136,16 +161,54 @@ export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
     clearSlot();
   }
 
-  /** 排入空闲时段执行；无 `requestIdleCallback` 时退化为下一个宏任务 */
+  /**
+   * 排入「不影响输入帧」的时段执行
+   *
+   * 优先级：`scheduler.postTask(background)`（真后台优先级，浏览器自动让位于输入）
+   * → `requestIdleCallback`（只在有剩余预算时写，预算不足让出本轮）
+   * → 宏任务（无上述 API 的环境）。
+   *
+   * @param timeoutMs 空闲回调的强制上限（0 = 立即，不设预算门槛）
+   */
   function queueIdle(timeoutMs: number): void {
     clearSlot();
     const host = globalThis as IdleHost;
+
+    // ① 后台优先级调度：无预算概念，但浏览器排序保证不抢输入 / 绘制帧
+    const postTask = host.scheduler?.postTask;
+    if (typeof postTask === 'function') {
+      const token = slotToken + 1;
+      slotToken = token;
+      slot = { via: 'task', token };
+      void postTask(
+        () => {
+          if (token !== slotToken) return; // 已被新一轮调度作废
+          slot = null;
+          void runRound();
+        },
+        { priority: 'background' },
+      );
+      return;
+    }
+
+    // ② 空闲回调：预算门槛（8ms 是一次整本写的下限，不足就等下一轮空闲）
     if (host.requestIdleCallback !== undefined) {
       slot = {
         via: 'idle',
         handle: host.requestIdleCallback(
-          () => {
+          (deadline) => {
             slot = null;
+            const restrained = timeoutMs > 0 && !deadline.didTimeout;
+            if (
+              restrained &&
+              deadline.timeRemaining() < MIN_IDLE_BUDGET_MS &&
+              idleSkips < MAX_IDLE_SKIP
+            ) {
+              idleSkips += 1;
+              queueIdle(timeoutMs); // 让出本轮（clearSlot 时 slot 已为 null，计数保留）
+              return;
+            }
+            idleSkips = 0;
             void runRound();
           },
           { timeout: timeoutMs },
@@ -153,6 +216,8 @@ export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
       };
       return;
     }
+
+    // ③ 退化：下一个宏任务
     slot = {
       via: 'timer',
       handle: setTimeout(() => {
@@ -184,6 +249,8 @@ export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
       pending = true;
       return false;
     }
+    // 埋点从「取快照」起算：整本 put 的结构化克隆成本含在这段里
+    const perfStart = perfNow();
     // 快照与保存基准同一同步帧：await 期间的新编辑保持未保存状态
     const snapshot: BookDocument = editor.getSharedDocument();
     editor.markSaved();
@@ -207,6 +274,7 @@ export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
       } finally {
         saving.value = false;
         inflight = null;
+        perfRecord(PERF_AUTOSAVE, perfStart);
       }
     })();
     inflight = task;

@@ -2,6 +2,7 @@
  * 目录（Outline）提取
  *
  * 从 IR 树中识别结构节点（卷/章/节/标题）并生成层级目录。
+ * 默认只认卷/章/节；整本无结构节点时回退用标题建目（见 extractOutline）。
  * 仅依赖节点类型常量与 attrs，不依赖注册表，便于独立测试。
  */
 import { NODE_TYPES, isTextNode, type BookNode, type NodeId } from '@bibliotype/core';
@@ -18,7 +19,12 @@ export const OUTLINE_HEADING_TYPE = NODE_TYPES.HEADING;
 
 /** 目录项 */
 export interface OutlineItem {
-  /** 目标节点 id（无 id 时为 undefined，跳转按块定位） */
+  /**
+   * 目标节点 id
+   *
+   * 节点无 id 时回退为**树路径 id**（如 `/3/1`），口径与 `extractBlocks` /
+   * `indexNodeAnchors` 完全一致（导入的 Markdown / DOCX / EPUB 文档不带 id），
+   * 使这类书籍的目录项同样可点击跳页。 */
   nodeId: NodeId | undefined;
   /** 节点类型（volume/chapter/section/heading） */
   type: string;
@@ -77,27 +83,43 @@ export function extractOutline(
   const includeEmpty = options.includeEmpty ?? false;
   const includeHeadings = options.includeHeadings ?? false;
 
-  const walk = (node: BookNode, level: number): OutlineItem[] => {
+  const walk = (
+    node: BookNode,
+    level: number,
+    withHeadings: boolean,
+    path: string,
+  ): OutlineItem[] => {
     const items: OutlineItem[] = [];
-    for (const child of node.children ?? []) {
+    // 与 extractBlocks 同步：只对元素子节点计数（文本子节点不占路径位）
+    const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
+    for (const [index, child] of elementChildren.entries()) {
+      const childPath = `${path}/${index}`;
       const isStructure = OUTLINE_STRUCTURE_TYPES.has(child.type);
-      const isHeading = includeHeadings && child.type === OUTLINE_HEADING_TYPE;
+      const isHeading = withHeadings && child.type === OUTLINE_HEADING_TYPE;
       if (!isStructure && !isHeading) continue;
 
       const title = resolveNodeTitle(child);
       if (title.length === 0 && !includeEmpty) continue;
 
       items.push({
-        nodeId: child.id,
+        nodeId: child.id ?? childPath,
         type: child.type,
         title,
         level,
-        children: walk(child, level + 1),
+        children: walk(child, level + 1, withHeadings, childPath),
       });
     }
     return items;
   };
-  return walk(root, 0);
+
+  const items = walk(root, 0, includeHeadings, '');
+  /*
+   * 无结构容器时回退用标题建目：导入的 Markdown / DOCX / EPUB（以及只靠标题分节的
+   * 自著书）根下往往只有 heading + paragraph，按默认口径提取会**整本无目录**，
+   * 目录面板因此整块空白。结构节点存在时不混入标题（避免与卷 / 章 / 节标题重复）。
+   */
+  if (items.length === 0 && !includeHeadings) return walk(root, 0, true, '');
+  return items;
 }
 
 /**

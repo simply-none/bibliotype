@@ -160,6 +160,25 @@ describe('Reader 导航与进度', () => {
     expect(reader.currentPage).toBe(0);
   });
 
+  it('导入形态（节点全无 id）：标题建目 + 路径 id 可跳页', () => {
+    // @bibliotype/import 产出的 IR 不带 id，目录与跳转都依赖路径 id 口径
+    const doc = createEmptyDocument({ title: '诗经' });
+    doc.root.children = [
+      { type: NODE_TYPES.HEADING, attrs: { level: 1 }, children: [{ type: 'text', text: '周南' }] },
+      { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '关关雎鸠' }] },
+      { type: NODE_TYPES.HEADING, attrs: { level: 1 }, children: [{ type: 'text', text: '召南' }] },
+      { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '嘒嘒草虫' }] },
+    ];
+    const reader = new Reader({ pageMainSize: 100, estimator: () => 60 });
+    reader.loadDocument(doc);
+
+    expect(reader.outline.map((i) => i.nodeId)).toEqual(['/0', '/2']);
+    expect(reader.outline.map((i) => i.title)).toEqual(['周南', '召南']);
+    expect(reader.goToNode('/2')).toBe(true);
+    // 每块 60px、页主轴 100px → 四块各占一页，'/2' 落在第 3 页
+    expect(reader.currentPage).toBe(2);
+  });
+
   it('progress 按已读至页尾计算', () => {
     const reader = createReader();
     reader.loadDocument(sampleDoc());

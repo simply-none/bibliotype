@@ -17,6 +17,11 @@
  *   **事后**「刚才发生了什么」→ 右下角消息条（composables/use-toast）。
  *   顶栏只留书名与保存状态，不再追加会长期滞留、挤占排版的操作提示。
  *
+ * 书写方向决定 chrome 摆位：横排 = 顶栏 + 主区（画布上方工具条 + 右栏属性）+ 底栏；
+ * 直排（.app--rail）= 把横排的那五行（顶栏 / 工具条三行 / 状态栏）整体旋 90°，
+ * 变成五条通高竖列横向并排（列序自左向右 = 横排行序自上而下：顶栏 → 工具条三行 →
+ * 状态栏）：排列与文字都竖向，任何一块都不再上下堆叠；属性栏为附加列，紧随状态栏左侧。
+ *
  * 版式参数 = 补丁双层：主题预设（基准）+ layoutPatch / tokenPatch（设置面板覆写），
  * 阅读 / 编辑 / 导出共用同一份 effectiveLayout 与 tokens，改一处三端联动；
  * 字号 / 行距变更经双通道联动（tokens 视觉 + repaginate measure 估算），
@@ -43,6 +48,7 @@ import {
   CLASSICAL_LAYOUT_OPTIONS,
   DEFAULT_LAYOUT_OPTIONS,
   computeMetricsSignature,
+  isVerticalMode,
   mergeLayoutOptions,
   resolvePageCrossSize,
   resolvePageMainSize,
@@ -154,6 +160,18 @@ const editing = styleApi.editing;
 const effectiveLayout = computed<LayoutOptions>(() =>
   mergeLayoutOptions(theme.value.layout, layoutPatch.value),
 );
+
+/**
+ * 界面外壳是否转为「左侧竖向设置列」
+ *
+ * 直排（vertical-rl / vertical-lr）自右向左起读，右缘是首列所在、也是视线落点，
+ * 工具栏 / 属性栏放右侧会压住起始列；因此直排时顶栏、编辑工具条、属性栏、状态栏
+ * 全部移到书页左侧。转置口径是「行 → 列」：横排的每一行各自变成一条通高竖列，
+ * 列与列横向并排，列序自左向右还原横排的行序自上而下——顶栏 → 编辑工具条三行 →
+ * 状态栏共五条列带；属性栏（横排在主区右侧、不属五行）为附加列紧随状态栏左侧，
+ * 列内项目自上而下、文字竖写。横排保持原有「顶栏 + 画布 + 底栏 + 右栏」结构不变。
+ */
+const verticalRail = computed(() => isVerticalMode(effectiveLayout.value.writingMode));
 
 /* ---------------- 排版设置（夜间预设 + 面板补丁） ---------------- */
 
@@ -280,6 +298,17 @@ function scheduleRemeasure(): void {
   }, 120);
 }
 
+/**
+ * Reader 实例代际（每次重建自增）
+ *
+ * 目录 / 搜索 / 书签 / 翻页 / 进度这些面板在 setup 里一次性订阅 Reader 事件，
+ * 换实例不会自动重绑。若 `:key` 只跟主题，则「重建 Reader 但主题没变」（首次进入
+ * 按草稿恢复、还原样册等）时面板仍绑在被弃用的初始 Reader 上，显示的是样章数据；
+ * 之后任意一次主题切换重挂载，才会绑到真正在用的 Reader —— 目录于是从「正常」
+ * 突变为「空白」。所以 key 必须同时随主题与代际变化。
+ */
+const readerEpoch = ref(0);
+
 /** 创建已载入文档的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
 function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocument): Reader {
   const r = new Reader({
@@ -293,6 +322,7 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
     bodySizes: blockBodySizes.value,
   });
   r.loadDocument(document);
+  readerEpoch.value += 1;
   return r;
 }
 
@@ -1108,7 +1138,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app" :class="{ 'app--night': night }">
+  <div
+    class="app"
+    :class="{
+      'app--night': night,
+      'app--rail': verticalRail,
+    }"
+  >
     <header class="toolbar">
       <div class="toolbar__title">
         <button
@@ -1202,17 +1238,33 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
+    <!--
+      直排编辑态设置列组：编辑工具条的三行 → 第二 / 三 / 四列（属性栏已移出，
+      独立为状态栏左侧的附加列；横排时工具条在画布上方，故直排时从原位移入此处）。
+      列序自左向右对偶横排行序自上而下：顶栏 → 工具条三行 → 属性栏 → 状态栏。
+    -->
+    <div v-if="verticalRail && mode === 'edit' && inspectorBinding" class="app__rail">
+      <template v-if="mode === 'edit' && inspectorBinding">
+        <EditorToolbar
+          :binding="inspectorBinding"
+          :readonly="editorReadonly"
+          @toggle-readonly="styleApi.patchEditing({ readonly: !editing.readonly })"
+          @reset="resetSample"
+        />
+      </template>
+    </div>
+
     <div class="app__body">
       <aside v-show="asideVisible" class="app__aside">
         <SearchPanel
           v-if="activeTab === 'search'"
-          :key="`search-${themeKey}`"
+          :key="`search-${themeKey}-${readerEpoch}`"
           :reader="reader"
           @close="activeTab = null"
         />
         <BookmarkPanel
           v-if="activeTab === 'bookmarks'"
-          :key="`bookmark-${themeKey}`"
+          :key="`bookmark-${themeKey}-${readerEpoch}`"
           :reader="reader"
           @close="activeTab = null"
         />
@@ -1222,7 +1274,7 @@ onBeforeUnmount(() => {
           @imported="onImported"
         />
         <div v-show="activeTab === 'toc'" class="app__toc">
-          <BtToc :key="`toc-${themeKey}`" :reader="reader" />
+          <BtToc :key="`toc-${themeKey}-${readerEpoch}`" :reader="reader" />
         </div>
       </aside>
 
@@ -1230,7 +1282,7 @@ onBeforeUnmount(() => {
         <div ref="editorStageRef" class="app__stage">
           <BtBookView
             v-if="booted && mode === 'read'"
-            :key="themeKey"
+            :key="`${themeKey}-${readerEpoch}`"
             :reader="reader"
             :tokens="tokens"
             :font-token="theme.fontToken"
@@ -1259,18 +1311,29 @@ onBeforeUnmount(() => {
           >
             <template #default="slotProps">
               <EditorToolbar
+                v-if="!verticalRail"
                 :binding="captureSlotBinding(slotProps)"
                 :readonly="editorReadonly"
                 @toggle-readonly="styleApi.patchEditing({ readonly: !editing.readonly })"
                 @reset="resetSample"
               />
+              <!--
+                直排：工具条改在左侧设置列渲染（见 .app__rail），但 binding 只能经 BtEditor
+                默认插槽作用域回传 → 此处留一个零尺捕获锚点，属性求值时顺带完成捕获。
+              -->
+              <span
+                v-else
+                class="app__binding-anchor"
+                aria-hidden="true"
+                :data-captured="captureSlotBinding(slotProps).version.value"
+              />
             </template>
           </BtEditor>
         </div>
 
-        <!-- 编辑态右栏：属性检视器（纵向 inspector，跟随选区；可折叠为细条把手段） -->
+        <!-- 编辑态右栏：属性检视器（横排置右且可折叠为细条；直排时整块已移入左侧设置列） -->
         <aside
-          v-if="mode === 'edit' && inspectorBinding"
+          v-if="!verticalRail && mode === 'edit' && inspectorBinding"
           class="app__inspector"
           :class="{ 'app__inspector--collapsed': inspectorCollapsed }"
         >
@@ -1291,53 +1354,88 @@ onBeforeUnmount(() => {
       </main>
     </div>
 
+    <!--
+      直排列序（自左向右）：顶栏 → 工具条三行 → 属性栏 → 状态栏 → 主区；
+      状态栏为第五列、紧邻书页（grid 定位摆放，横排时源序即视觉序）。
+    -->
+    <aside
+      v-if="verticalRail && mode === 'edit' && inspectorBinding"
+      class="app__inspector app__inspector--rail"
+      :class="{ 'app__inspector--collapsed': inspectorCollapsed }"
+    >
+      <button
+        type="button"
+        class="app__inspector__toggle"
+        :title="inspectorCollapsed ? '展开属性栏' : '折叠属性栏'"
+        @click="toggleInspector"
+      >
+        {{ inspectorCollapsed ? '展开' : '折叠' }}
+      </button>
+      <AttrInspector
+        v-show="!inspectorCollapsed"
+        :binding="inspectorBinding"
+        :named-styles="namedStyles.styles"
+      />
+    </aside>
+
     <!-- 底部状态栏：阅读态 = 进度 + 翻页 + 视图切换；编辑态 = 页码读数 + 缩放 -->
     <footer v-if="booted" class="statusbar">
       <template v-if="mode === 'read'">
-        <ProgressBar :key="themeKey" class="statusbar__progress" :reader="reader" />
-        <BtPager :key="themeKey" class="statusbar__pager" :reader="reader" />
-        <ToolbarUsageTip :usage="VIEW_MODE_USAGE">
-          <button
-            type="button"
-            class="statusbar__button"
-            :class="{ 'statusbar__button--on': viewMode === 'scroll' }"
-            @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
-          >
-            {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
-          </button>
-        </ToolbarUsageTip>
+        <div class="statusbar__cluster">
+          <ProgressBar :key="`${themeKey}-${readerEpoch}`" class="statusbar__progress" :reader="reader" />
+          <BtPager :key="`${themeKey}-${readerEpoch}`" class="statusbar__pager" :reader="reader" />
+        </div>
+        <div class="statusbar__cluster">
+          <ToolbarUsageTip :usage="VIEW_MODE_USAGE">
+            <button
+              type="button"
+              class="statusbar__button"
+              :class="{ 'statusbar__button--on': viewMode === 'scroll' }"
+              @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
+            >
+              {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
+            </button>
+          </ToolbarUsageTip>
+        </div>
       </template>
       <template v-else>
         <span class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
         <span class="statusbar__spacer" />
-        <button
-          type="button"
-          class="statusbar__button"
-          title="缩小"
-          @click="zoomStep(-0.1)"
-        >
-          −
-        </button>
-        <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
-        <button
-          type="button"
-          class="statusbar__button"
-          title="放大"
-          @click="zoomStep(0.1)"
-        >
-          +
-        </button>
-        <button
-          type="button"
-          class="statusbar__button"
-          title="恢复 100%"
-          @click="editorScale = 1"
-        >
-          100%
-        </button>
-        <button type="button" class="statusbar__button" title="按宽度缩放整页" @click="fitEditorWidth">
-          适应宽度
-        </button>
+        <div class="statusbar__cluster">
+          <button
+            type="button"
+            class="statusbar__button"
+            title="缩小"
+            @click="zoomStep(-0.1)"
+          >
+            −
+          </button>
+          <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
+          <button
+            type="button"
+            class="statusbar__button"
+            title="放大"
+            @click="zoomStep(0.1)"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            class="statusbar__button"
+            title="恢复 100%"
+            @click="editorScale = 1"
+          >
+            100%
+          </button>
+          <button
+            type="button"
+            class="statusbar__button"
+            title="按宽度缩放整页"
+            @click="fitEditorWidth"
+          >
+            适应宽度
+          </button>
+        </div>
       </template>
     </footer>
 
@@ -1669,6 +1767,11 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 
+/* 缩放 / 视图控件分组：平时 contents 对父级 flex 完全透明，直排时才成换行子盒 */
+.statusbar__cluster {
+  display: contents;
+}
+
 .statusbar__button {
   flex: none;
   padding: 2px 10px;
@@ -1688,5 +1791,335 @@ onBeforeUnmount(() => {
 .statusbar__button--on {
   color: var(--demo-accent);
   border-color: var(--demo-accent);
+}
+
+/* ---------- 直排：横排的每一「行」转成一条通高竖「列」 ---------- *
+ * 横排外壳共五行：顶栏 / 编辑工具条三行 / 状态栏。直排（.app--rail）不改内容，只把这五行
+ * 整体旋 90°→ 五条通高竖列横向并排，任何一块都不再上下堆叠；列序自左向右还原横排的
+ * 自上而下：①顶栏 → ②③④工具条三行 → ⑤状态栏（属性栏为附加列插在状态栏左侧，
+ * 展开查找替换时再在其左侧多一列）。
+ * grid 列（物理左 → 右）：编辑态 = 顶栏 | 工具条列组 | 属性栏 | 状态栏 | 主区；
+ * 阅读态（无编辑列）= 顶栏 | 状态栏 | 主区。
+ *
+ * 实现口径：
+ * 1. 面板外壳（.toolbar / .app__rail / .editor-toolbar）自身仍是 horizontal-tb 的 flex row，
+ *    职责只是「把若干竖列横向并排」；真正的转置下沉到每一「行」级元素（.toolbar__title、
+ *    .toolbar__actions、.editor-toolbar__row、.statusbar、.app__inspector--rail），由它们
+ *    writing-mode: vertical-rl —— 转置后 flex 的 main axis 变垂直，row 即「自上而下」。
+ * 2. 每列固定宽度（对偶于横排每行固定行高），列内项目按内容排，装不下就沿列方向滚动
+ *    （对偶于横排行内横向滚动）→ flex-wrap 一律 nowrap，滚动轴是物理纵向 = overflow-y。
+ * 3. vertical-rl 下逻辑边映射：block-start = 物理右、block-end = 物理左、
+ *    inline-start = 物理上、inline-end = 物理下；组间分隔线（基线写的是逻辑属性）因此
+ *    自动从竖线变横线，无需逐处重给；padding 是物理值，需按竖条重给。
+ * 4. 例外：原生表单控件（input / select）无法竖写文字，局部回退 horizontal-tb。
+ */
+.app--rail {
+  display: grid;
+  /* 各设置列带（宽度 = 各自固定列宽之和）+ 主区吃掉剩余宽度 */
+  grid-template-columns: auto auto auto auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* 第五列：状态栏（横排最底一行）紧邻书页左侧 */
+.app--rail .statusbar {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+/* 附加列：属性栏（横排在主区右侧，不属五行），置于状态栏左侧 */
+.app--rail .app__inspector--rail {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+/* 第二 ~ 四列：编辑工具条三行 */
+.app--rail .app__rail {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+/* 第一列：顶栏（书名 + 全局动作） */
+.app--rail .toolbar {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* 主区（正文 + 目录面板）占满设置列右侧的全部宽高 */
+.app--rail .app__body {
+  grid-column: 5;
+  grid-row: 1;
+  min-width: 0;
+}
+
+/* 标签面板（目录 / 搜索 / 书签 / 导入）仍在主区内侧向展开：窄窗时收窄，不挤掉书页 */
+.app--rail .app__aside {
+  width: min(280px, 46%);
+}
+
+/* 顶栏外壳：自身不转置，只把「书名列」与「按钮列」横向并排成两条竖列 */
+.app--rail .toolbar {
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  min-height: 0;
+  padding: 8px 6px;
+  overflow: hidden;
+  /* 基线 border-block-end（横排底边）→ 与主区的分隔改挂物理右缘 */
+  border-block-end: 0;
+  border-inline-end: 1px solid var(--demo-border);
+}
+
+/* 书名 / 保存状态：一条竖列，自上而下，超长沿列滚动 */
+.app--rail .toolbar__title {
+  writing-mode: vertical-rl;
+  flex: none;
+  width: 38px;
+  gap: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 书名 chip 的 padding 同为物理值：竖列里左右 = 竖条宽度，需收窄到 38px 列宽内 */
+.app--rail .toolbar__book {
+  padding: 4px 6px;
+}
+
+.app--rail .toolbar__book strong {
+  line-height: 1.7;
+  letter-spacing: 0.1em;
+}
+
+/* 按钮 padding 是物理值：竖排下左右 = 竖条宽度、上下 = 字距方向留白 */
+.app--rail .toolbar__button {
+  padding: 8px 4px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+}
+
+/* 按钮区：一条竖列，四组自上而下相接（组间基线 border-inline-start 转置后即为横线） */
+.app--rail .toolbar__actions {
+  writing-mode: vertical-rl;
+  flex: none;
+  width: 46px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
+  /* block-end = 物理左 → 此处即与书名列的竖分隔线 */
+  padding-block-end: 6px;
+  border-block-end: 1px solid var(--demo-border);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 基线的首组外边距 auto（横排靠右）转置后会把按钮推向列底 → 归零 */
+.app--rail .toolbar__actions > .toolbar__group:first-child {
+  margin-inline-start: 0;
+}
+
+/* 滚动条从横向改到纵向（基线规则给的是 height） */
+.app--rail .toolbar__actions::-webkit-scrollbar {
+  width: 6px;
+  height: auto;
+}
+
+/* 编辑态设置列组外壳：工具条三列 + 查找替换列横向并排（自身不转置；属性栏已独立成 grid 项） */
+.app__rail {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+  border-inline-end: 1px solid var(--demo-border);
+  background: var(--demo-panel);
+  color: var(--demo-text);
+  font-size: 12px;
+}
+
+/* 工具条外壳：column（横排三行堆叠）→ row（三条竖列并排） */
+.app__rail :deep(.editor-toolbar) {
+  flex-direction: row;
+  align-items: stretch;
+  border-block-end: 0;
+}
+
+/* 每一行 = 一条通高竖列：固定宽度、向下排、溢出沿列滚动 */
+.app__rail :deep(.editor-toolbar__row) {
+  writing-mode: vertical-rl;
+  flex: none;
+  width: 38px;
+  padding: 8px 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 行与行的分隔：基线 border-block-start 转置后 = 物理右缘，正好是列间竖线 */
+.app__rail :deep(.editor-toolbar__row::-webkit-scrollbar) {
+  width: 6px;
+  height: auto;
+}
+
+.app__rail :deep(.editor-toolbar__button) {
+  padding: 8px 3px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+}
+
+/* 查找替换面板同样成一条竖列（横排它是画布上方的一条横带） */
+.app__rail :deep(.replace) {
+  writing-mode: vertical-rl;
+  flex: none;
+  flex-direction: row;
+  align-self: flex-start;
+  width: 44px;
+  margin-inline-start: 8px;
+}
+
+/* 属性栏：横排是主区右侧的一栏 → 直排独立成状态栏左侧的附加竖列 */
+.app__inspector--rail {
+  writing-mode: vertical-rl;
+  flex-direction: row;
+  flex: none;
+  width: 100px;
+  padding: 8px 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-inline-start: 0;
+  background: var(--demo-aside);
+  color: var(--demo-text);
+  font-size: 12px;
+}
+
+.app__inspector--rail.app__inspector--collapsed {
+  width: 34px;
+  padding: 8px 4px;
+}
+
+.app__inspector--rail .app__inspector__toggle {
+  width: auto;
+  height: auto;
+  margin: 0 0 6px;
+  padding: 6px 3px;
+  font-size: 12px;
+}
+
+/* 展开态不占额外位置：折叠只需点把手，直排下隐藏「折叠」按钮（收起态仍显示「展开」） */
+.app__inspector--rail:not(.app__inspector--collapsed) .app__inspector__toggle {
+  display: none;
+}
+
+/* 内部各层基线都是「纵向堆叠」的 column，而转置后 column = 水平→ 需改 row 才仍是向下堆叠 */
+.app__inspector--rail :deep(.inspector) {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+
+.app__inspector--rail :deep(.inspector__header) {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding-block-end: 0;
+  padding-inline-end: 6px;
+  border-block-end: 0;
+  border-inline-end: 1px solid var(--demo-border);
+}
+
+.app__inspector--rail :deep(.inspector__group) {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.app__inspector--rail :deep(.inspector__field) {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.app__inspector--rail :deep(.inspector__label),
+.app__inspector--rail :deep(.inspector__title),
+.app__inspector--rail :deep(.inspector__empty) {
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+}
+
+.app__inspector--rail :deep(.inspector__tag) {
+  align-self: center;
+  padding: 1px 4px;
+}
+
+/* 原生控件不能竖写文字 → 局部回退 horizontal-tb，宽度随列宽自适应 */
+.app__inspector--rail :deep(.inspector__input),
+.app__inspector--rail :deep(.inspector__field select),
+.app__inspector--rail :deep(.inspector__input--num) {
+  writing-mode: horizontal-tb;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 状态栏：横排最底一行 → 最左一条通高竖列（进度 / 翻页 / 视图切换自上而下） */
+.app--rail .statusbar {
+  writing-mode: vertical-rl;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  width: 46px;
+  padding: 8px 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 基线 border-block-start（横排顶边）转置后 = 物理右缘 → 正好是与右侧列带的分隔 */
+}
+
+.app--rail .statusbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.app--rail .statusbar__spacer {
+  display: none;
+}
+
+/* 进度条：长度沿列方向给（横排靠 flex: 1 吃掉行宽）；轨道与填充已改用逻辑尺寸→自动转竖 */
+.app--rail .statusbar__progress {
+  flex: none;
+  min-width: 0;
+  height: 15vh;
+  min-height: 90px;
+}
+
+.app--rail .statusbar__zoom {
+  min-width: 0;
+}
+
+.app--rail .statusbar__button,
+.app--rail .statusbar__readout,
+.app--rail :deep(.bt-pager__button) {
+  padding: 8px 4px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+}
+
+.app--rail :deep(.bt-pager) {
+  gap: 8px;
+}
+
+.app--rail :deep(.progress__text) {
+  line-height: 1.6;
+}
+
+/* 直排下的 binding 捕获锚点：不可见不占位，仅在属性求值时顺带完成捕获 */
+.app__binding-anchor {
+  display: none;
+}
+
+/* 画布上方原工具条插槽位整体收起（工具条已入左列，display:none 连带去掉 BtEditor 的行间距） */
+.app--rail :deep(.bt-editor__toolbar) {
+  display: none;
 }
 </style>

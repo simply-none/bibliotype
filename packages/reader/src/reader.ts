@@ -571,10 +571,13 @@ export class Reader {
         if (firstLeaf === undefined) firstLeaf = leaf;
       }
 
-      if (firstLeaf !== undefined && node.id !== undefined && !this.pageByBlockId.has(node.id)) {
+      // 无 id 的容器（导入文档常态）按树路径落锚，与 extractBlocks 的块 id 口径一致；
+      // 书根路径为空串，不作锚点。
+      const anchorId = node.id ?? path;
+      if (firstLeaf !== undefined && anchorId.length > 0 && !this.pageByBlockId.has(anchorId)) {
         const page = this.pageByBlockId.get(firstLeaf);
         if (page !== undefined) {
-          this.pageByBlockId.set(node.id, page);
+          this.pageByBlockId.set(anchorId, page);
         }
       }
       return firstLeaf;

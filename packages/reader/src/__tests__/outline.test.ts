@@ -116,6 +116,50 @@ describe('extractOutline', () => {
     expect(withHeadings[0]?.children[0]?.children.map((c) => c.nodeId)).toEqual(['h-1']);
   });
 
+  it('无结构容器（仅 heading + paragraph）时回退用标题建目', () => {
+    // 导入的 Markdown / DOCX / EPUB 常见形态：根下没有卷 / 章 / 节
+    const root: BookNode = {
+      type: NODE_TYPES.BOOK,
+      children: [
+        { type: NODE_TYPES.HEADING, id: 'h-1', children: [{ type: 'text', text: '学而' }] },
+        { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '子曰' }] },
+        { type: NODE_TYPES.HEADING, id: 'h-2', attrs: { title: '为政' } },
+        { type: NODE_TYPES.HEADING, id: 'h-empty', children: [] },
+      ],
+    };
+
+    const outline = extractOutline(root);
+    expect(outline.map((i) => i.nodeId)).toEqual(['h-1', 'h-2']);
+    expect(outline.map((i) => i.title)).toEqual(['学而', '为政']);
+    expect(outline.every((i) => i.level === 0)).toBe(true);
+
+    // 回退只在「整本无条目」时触发：有结构节点的文档不会混入标题（避免重复）
+    expect(extractOutline(sampleRoot()).every((i) => i.type !== NODE_TYPES.HEADING)).toBe(true);
+  });
+
+  it('节点无 id 时以树路径作 nodeId（与 extractBlocks 口径一致）', () => {
+    const root: BookNode = {
+      type: NODE_TYPES.BOOK,
+      children: [
+        {
+          type: NODE_TYPES.VOLUME,
+          children: [
+            // 文本子节点不成块、不占路径位（extractBlocks 先过滤再按序号取名）
+            { type: 'text', text: '卷首噪声' },
+            { type: NODE_TYPES.CHAPTER, attrs: { title: '学而第一' } },
+          ],
+        },
+        { type: NODE_TYPES.HEADING, attrs: { title: '篇末标题' } },
+      ],
+    };
+
+    const outline = extractOutline(root);
+    expect(outline.map((i) => i.nodeId)).toEqual(['/0']);
+    expect(outline[0]?.children.map((i) => i.nodeId)).toEqual(['/0/0']);
+    // 回退到标题建目时同样拿到路径 id
+    expect(extractOutline(root, { includeHeadings: true })[1]?.nodeId).toBe('/1');
+  });
+
   it('countOutlineItems 统计全部层级', () => {
     expect(countOutlineItems(extractOutline(sampleRoot()))).toBe(4); // 卷1 + 章2 + 节1
   });

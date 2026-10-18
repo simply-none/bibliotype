@@ -15,7 +15,7 @@
  * 页面 / 画布不会因单个字段重排；`applyDraft` 把草稿烘焙进源状态并持久化，
  * `discardDraft` 直接丢弃（关窗 = 撤销全部未保存改动）。
  */
-import { computed, onBeforeUnmount, ref, shallowRef, type Ref } from 'vue';
+import { computed, onBeforeUnmount, ref, shallowRef, toValue, type MaybeRefOrGetter, type Ref } from 'vue';
 import {
   DEFAULT_EDITING_SETTINGS,
   STYLE_SCOPE,
@@ -45,8 +45,11 @@ const LEGACY_SETTINGS_KEY = 'bt-demo:settings';
 export interface UseStyleSettingsOptions {
   /** 存储实现（缺省按环境自动选择 IndexedDB → localStorage → 内存） */
   store?: StyleSettingsStore;
-  /** 当前书籍 id（缺省 'demo'） */
-  bookId?: string;
+  /**
+   * 当前书籍 id（缺省 'demo'）。可传 ref / getter：切书时更新该值，
+   * 再调用 `load()` 即可载入并应用该书自己的设置（每本书独立存于 `book:<id>`）。
+   */
+  bookId?: MaybeRefOrGetter<string>;
   /** 迁移用的旧快照读取函数（缺省读 localStorage 的 bt-demo:settings） */
   readLegacy?: () => unknown;
   /** 草稿模式：改动先进草稿，显式 applyDraft 才生效并落盘（设置弹窗场景） */
@@ -62,8 +65,10 @@ export interface StylePresetExport {
 
 /** 样式设置组合式函数 */
 export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
-  const bookId = options.bookId ?? 'demo';
-  const bookScope = bookStyleScope(bookId);
+  /** 当前书籍 id（响应式：切书时变更，作用域与落盘点随之切换） */
+  const bookIdGetter = (): string => toValue(options.bookId) ?? 'demo';
+  /** 本书作用域键（book:<id>），随 bookId 变化 */
+  const bookScope = computed(() => bookStyleScope(bookIdGetter()));
 
   let store: StyleSettingsStore;
   try {
@@ -159,7 +164,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
   }
 
   /** 当前源快照（含作用域；仅非草稿状态有持久化意义） */
-  function currentSnapshot(scope = bookScope): StyleSettingsSnapshot {
+  function currentSnapshot(scope = bookScope.value): StyleSettingsSnapshot {
     return {
       version: 1,
       scope,
@@ -230,7 +235,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
       await saving.catch(() => undefined);
     }
     const snapshot = currentSnapshot();
-    saving = store.save(bookScope, snapshot).then(
+    saving = store.save(bookScope.value, snapshot).then(
       () => undefined,
       () => undefined,
     );
@@ -267,7 +272,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
    * 并写一份本书快照，避免下次再迁移。
    */
   async function load(): Promise<void> {
-    const fromBook = await store.load(bookScope).catch(() => undefined);
+    const fromBook = await store.load(bookScope.value).catch(() => undefined);
     if (fromBook !== undefined) {
       applySource(fromBook);
       loaded.value = true;
@@ -287,7 +292,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
 
     const legacy = (options.readLegacy ?? defaultReadLegacy)();
     if (legacy !== undefined) {
-      const migrated = normalizeStyleSnapshot(legacy, bookScope);
+      const migrated = normalizeStyleSnapshot(legacy, bookScope.value);
       /* 旧结构的键名不同：layoutPatch / tokenPatch / pagination */
       const record = legacy as Record<string, unknown>;
       if (record.layoutPatch !== undefined) {
@@ -302,7 +307,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
       applySource(migrated);
       loaded.value = true;
       beginDraft();
-      await store.save(bookScope, migrated).catch(() => undefined);
+      await store.save(bookScope.value, migrated).catch(() => undefined);
       await refreshPresets();
       return;
     }
@@ -394,7 +399,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
   async function resetAll(): Promise<void> {
     applySource(createEmptyBody());
     if (draftMode.value) beginDraft();
-    await store.delete(bookScope).catch(() => false);
+    await store.delete(bookScope.value).catch(() => false);
     await store.delete(STYLE_SCOPE.GLOBAL).catch(() => false);
   }
 

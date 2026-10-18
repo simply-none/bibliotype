@@ -144,8 +144,36 @@ const theme = computed<ThemeConfig>(() => THEMES[themeKey.value]);
  * 布局补丁 / 令牌补丁 / 功能样式 / 命名样式 / 编辑行为统一由它管理：
  * 草稿模式——设置弹窗内改动只写草稿（页面不重排），点「保存」才
  * 烘焙生效并落盘到本书作用域（IndexedDB 优先），下次打开沿用同一套样式。
+ *
+ * 每本书独立保存：bookId 取自已打开文档的书名（稳定哈希），设置落到
+ * `book:<id>`；切书 / 重开各自恢复自己的那份，不再互相覆盖。
  */
-const styleApi = useStyleSettings({ bookId: 'demo', draft: true });
+
+/** 字符串哈希（FNV-1a，转 36 进制）：把任意书名（含中文）映射成稳定的作用域键短串 */
+function hashString(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/** 由书名推导本书设置作用域 id（同名书复用同一份设置；标题缺失回落 'untitled'） */
+function bookIdFromTitle(title: string | undefined): string {
+  const normalized = (title ?? '').trim();
+  return normalized === '' ? 'untitled' : `t${hashString(normalized)}`;
+}
+
+/** 《论语》样本书的固定 id（启动默认书） */
+const LUNYU_BOOK_ID = bookIdFromTitle(lunyuDocument.metadata.title);
+/**
+ * 当前书籍 id（响应式）。切书时更新后，样式设置随之切到该书作用域并重新载入应用；
+ * 设置面板维持现有草稿模式（改完点「保存」才落盘）。
+ */
+const currentBookId = ref(LUNYU_BOOK_ID);
+
+const styleApi = useStyleSettings({ bookId: currentBookId, draft: true });
 /** 布局补丁（含页面尺寸；主题切换时清空） */
 const layoutPatch = styleApi.layoutPatch as Ref<Partial<LayoutOptions>>;
 /** 令牌补丁（字号 / 行距 / 字体族 / 版式 / 颜色等） */
@@ -684,14 +712,27 @@ function saveAndPreview(): void {
 }
 
 /** 还原样册：编辑器内容重置为原始样例并清除草稿 */
-function resetSample(): void {
+async function resetSample(): Promise<void> {
   autosave.reset();
   bookEditor.value?.loadDocument(lunyuDocument);
   void clearDraft();
+  // 还原样册 = 回到《论语》，切回其设置作用域并重新载入
+  await switchBook(LUNYU_BOOK_ID);
+}
+
+/**
+ * 切换书籍：先把当前书已提交的配置落盘（flush 用的是切换前的 bookScope），
+ * 再切到新书 id 并载入其设置、应用到画布（布局 / 令牌 / 功能样式随之更新）。
+ */
+async function switchBook(newId: string): Promise<void> {
+  await styleApi.flush();
+  currentBookId.value = newId;
+  await styleApi.load();
+  scheduleRemeasure();
 }
 
 /** 导入文档：载入阅读预览，若编辑器已建则同步内容（loadDocument 重置脏基准），并落盘草稿 + 重排 */
-function onImported(doc: BookDocument): void {
+async function onImported(doc: BookDocument): Promise<void> {
   reader.value.loadDocument(doc);
   bookEditor.value?.loadDocument(doc);
   // 新文档（含元数据）载入 → 顶部书名等派生值重新取值
@@ -699,6 +740,8 @@ function onImported(doc: BookDocument): void {
   dirty.value = bookEditor.value?.isDirty ?? false;
   // 新内容立即落盘（导入即新基线；跳过「无待写」判定）
   void autosave.flush({ force: true });
+  // 切到导入书的设置作用域（落盘旧书设置 + 载入新书设置并应用）
+  await switchBook(bookIdFromTitle(doc.metadata.title));
   scheduleRemeasure();
 }
 
@@ -1110,12 +1153,16 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
   event.returnValue = '';
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('keydown', onKeydown);
   window.addEventListener('beforeunload', onBeforeUnload);
   document.addEventListener('visibilitychange', onVisibilityChange);
   // 开发期性能探针：控制台用 __btPerf.report() 看「重排 vs 落盘」耗时分布
   if (import.meta.env.DEV) perfProbe = installPerfProbe();
+  // 恢复上次会话内容，据此确定本书 id（草稿若是导入的书，沿用其设置作用域，避免混用）
+  const draft = await readDraft();
+  const initialDoc = draft ?? reader.value.document ?? lunyuDocument;
+  currentBookId.value = bookIdFromTitle(initialDoc.metadata.title);
   // 载入已保存的样式设置（本书作用域 → 全局 → 旧版迁移），加载完成后才允许落盘
   void styleApi.load().then(() => {
     scheduleRemeasure();

@@ -176,14 +176,28 @@ export function charOffsetInFrag(
 /**
  * 片段内字符偏移 → DOM 选区点（caret 还原用）。
  *
- * @returns 命中文本节点返回点；越界钳到首/末文本节点；空片段回退元素内 0 位。
+ * @returns 命中文本节点返回点；越界钳到首/末文本节点；空片段下潜到最深层首子节点内
+ *   的 0 位（caret 落进空段落才能直接打字；若落在片段根 div 的子节点之前，浏览器
+ *   原生插入会把文字插到容器外产生游离文本节点）；无子节点回退元素内 0 位。
  */
 export function domPosInFrag(
   fragEl: HTMLElement,
   charIndex: number,
 ): { container: Node; offset: number } | null {
   const list = fragTextNodes(fragEl);
-  if (list.length === 0) return { container: fragEl, offset: 0 };
+  if (list.length === 0) {
+    let deepest: Node = fragEl;
+    for (;;) {
+      const first: ChildNode | null = deepest.firstChild;
+      if (first === null) break;
+      deepest = first;
+    }
+    // 下潜停在文本节点上 → 直接用 0 位；元素（空段落等）内取子节点序 0
+    if (deepest.nodeType === 3 && deepest.parentNode !== null) {
+      return { container: deepest.parentNode, offset: 0 };
+    }
+    return { container: deepest, offset: 0 };
+  }
   const g = Math.max(0, charIndex);
   for (const e of list) {
     if (g >= e.start && g <= e.start + e.len) {

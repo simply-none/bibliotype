@@ -127,13 +127,20 @@ function syncStyle(): void {
   // 会塌穿 frag / flow 外溢到页边距区，页首多空隙且页尾末行被 overflow 裁切
   const pageStartRule =
     `\n${CONTAINER_SELECTOR}__flow > ${FRAG_SELECTOR}:first-child > :first-child {\n  margin-block-start: 0;\n}\n`;
+  // 空文本块占位行盒（修复「插入双行注看不见、点很多次才有空隙打字」）：新插入的
+  // 双行注 / 注文容器内嵌的是空 <p></p>，无 border/padding → 不生成任何行盒、高度 0，
+  // 光标落点不可见、无点击热区（连续画布靠 PM 自动补 trailingBreak 撑行，分页画布渲染的是
+  // IR 序列化 HTML，无此兜底）。给空段落补零宽字符伪元素撑出一行；::before 非真实文本节点，
+  // fragTextNodes / domPosInFrag 的字符偏移映射不受影响，也不改动共享的 serializeNode。
+  const emptyBlockRule =
+    `\n${FRAG_SELECTOR} :is(.bt-paragraph, .bt-heading):empty::before {\n  content: "\\200B";\n}\n`;
   let el = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   if (el === null) {
     el = document.createElement('style');
     el.id = STYLE_ELEMENT_ID;
     document.head.appendChild(el);
   }
-  const next = css + continuationRule + pageStartRule;
+  const next = css + continuationRule + pageStartRule + emptyBlockRule;
   if (el.textContent !== next) el.textContent = next;
 }
 

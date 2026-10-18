@@ -167,14 +167,14 @@ const paged = usePagedLayout({
 /**
  * paged 生效：开启分页 + 未显式要求连续（paginationMode !== 'overlay'）+ 内核可用。
  *
- * 缺省（paginationMode 未给）即尝试 paged（翻默认）；直排 / 多栏等 usable=false 时
- * 自动回退连续画布，不劣化。
+ * 缺省（paginationMode 未给）即尝试 paged（翻默认）；单栏横排 / 直排均可用，
+ * 多栏等 usable=false 时自动回退连续画布，不劣化。
  */
 const pagedActive = computed(
   () => props.pagination === true && props.paginationMode !== 'overlay' && paged.usable.value,
 );
 
-/** 首轮分页是否已产出结果（成功或判定不可用均算完成，避免直排/多栏永久 loading） */
+/** 首轮分页是否已产出结果（成功或判定不可用均算完成，避免多栏等场景永久 loading） */
 const firstLayoutDone = computed(() => paged.lastResult.value !== null);
 
 /** loading 遮罩：显式开启 loading + 分页开启 + 首轮重排未就绪 */

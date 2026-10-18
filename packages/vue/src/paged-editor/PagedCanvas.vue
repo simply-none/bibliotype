@@ -958,6 +958,16 @@ watch(
 </template>
 
 <style scoped>
+/*
+ * 编辑分页外壳与书写方向无关：页框 inline 样式带 writing-mode: vertical-rl，
+ * 若槽位 / 页框定位用逻辑属性（inset-inline / inset-block-start）会按页框自身
+ * 直排物理翻转（left→right）导致页框左移溢出被裁；一律物理定位。
+ */
+.bt-paged,
+.bt-paged__track {
+  writing-mode: horizontal-tb;
+}
+
 .bt-paged {
   position: relative;
   width: 100%;
@@ -974,14 +984,20 @@ watch(
 
 .bt-paged__slot {
   position: absolute;
-  inset-inline: 0;
-  margin-inline: auto;
+  left: 0;
+  right: 0;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .bt-paged-page {
   position: absolute;
-  inset-block-start: 0;
-  inset-inline-start: 0;
+  top: 0;
+  left: 0;
+  /* 兜底断开 right / bottom：页框固定宽高，若被注入 right:0 会在直排下
+     over-constrained → 右锚定生效、left 变负整页左偏被裁 */
+  right: auto;
+  bottom: auto;
   box-sizing: border-box;
   background: var(--bt-background, #faf8f4);
   box-shadow:
@@ -1000,7 +1016,10 @@ watch(
 
 .bt-paged-page__no {
   position: absolute;
-  inset-inline: 0;
+  /* 物理 left / right：页框处于 vertical-rl，inset-inline 会被页框书写方向
+     翻转为物理 right / left 锚定，页码横向位置随方向漂移 */
+  left: 0;
+  right: 0;
   bottom: 12px;
   text-align: center;
   font-size: 12px;

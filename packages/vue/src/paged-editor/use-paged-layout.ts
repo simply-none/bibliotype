@@ -10,13 +10,13 @@
  * 输出供 `PagedCanvas` 渲染真实书页盒（像素与预览一致、缝隙处天然无字），
  * 并附「PM 叶块起始位置索引」（与块序列同序），供阶段三把 DOM 光标映射回模型。
  *
- * 适用范围：单栏横排。直排 / 多栏 DOM 量不到 → `usable=false`，调用方回退 overlay。
+ * 适用范围：单栏（横排 / 直排，量尺主轴口径随书写方向转置）。多栏 DOM 量不到 →
+ * `usable=false`，调用方回退 overlay。
  */
 import { onScopeDispose, ref, shallowRef, watch, type Ref } from 'vue';
 import { DEFAULT_THEME, type BookDocument, type BookNode } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
-  isVerticalMode,
   mergeLayoutOptions,
   paginate,
   resolvePageMainSize,
@@ -99,7 +99,7 @@ export interface BuildPagedInput {
 
 /** buildPagedLayout 结果 */
 export interface BuildPagedResult {
-  /** 是否可用（单栏横排且量到有效分页；否则调用方回退 overlay） */
+  /** 是否可用（单栏且量到有效分页——横排 / 直排均可；多栏 / 无 DOM 时调用方回退 overlay） */
   usable: boolean;
   /** 生效的每页主轴尺寸（px） */
   pageMainSize: number;
@@ -272,8 +272,8 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     charsPerLine: context.charsPerLine,
   };
 
-  // paged 依赖单栏横排 DOM 实测；直排 / 多栏 / 无 DOM → 不可用（调用方回退 overlay）
-  if (isVerticalMode(options.writingMode) || (options.columns ?? 1) > 1) return empty;
+  // paged 依赖单栏 DOM 实测（横排 / 直排均可）；多栏 / 无 DOM → 不可用（调用方回退 overlay）
+  if ((options.columns ?? 1) > 1) return empty;
   if (typeof document === 'undefined') return empty;
   if (pageMainSize <= 0) return empty;
 

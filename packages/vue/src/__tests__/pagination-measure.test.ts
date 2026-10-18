@@ -1,9 +1,9 @@
 /**
  * DOM 实测分页尺寸（pagination-measure）测试
  *
- * happy-dom 不产生真实布局盒（offsetTop / offsetHeight 恒为 0），故横排量测
- * 得到空映射（推进量非正被丢弃）；本测试覆盖「安全门」：直排 / 多栏直接回退空映射、
- * 横排不抛错且工作表可创建 / 可回收。真实像素级准确度依赖浏览器实测（手动验证）。
+ * happy-dom 不产生真实布局盒（offsetTop / offsetHeight / offsetWidth 恒为 0），故横排 /
+ * 直排量测均得到空映射（推进量非正被丢弃）；本测试覆盖「安全门」：多栏直接回退空映射、
+ * 横排 / 直排单栏不抛错且工作表可创建 / 可回收。真实像素级准确度依赖浏览器实测（手动验证）。
  */
 import { describe, expect, it } from 'vitest';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
@@ -27,9 +27,12 @@ function sampleDoc(): BookDocument {
 }
 
 describe('measureBlockSizes', () => {
-  it('直排回退空映射（跨栏回流不逐块实测）', () => {
+  it('直排单栏：参与 DOM 实测（happy-dom 无布局 → 空映射），工作表可创建 / 回收', () => {
     const sizes = measureBlockSizes({ doc: sampleDoc(), options: CLASSICAL_LAYOUT_OPTIONS });
+    // 直排不再被安全门拦截：有布局盒时实测列推进尺寸；happy-dom 下仍为空映射（不抛错）
+    expect(sizes).toBeInstanceOf(Map);
     expect(sizes.size).toBe(0);
+    disposeMeasureSheet();
   });
 
   it('多栏回退空映射（分栏度量不可靠）', () => {
@@ -40,7 +43,7 @@ describe('measureBlockSizes', () => {
     expect(sizes.size).toBe(0);
   });
 
-  it('单栏横排：产出映射且工作表可创建 / 可回收', () => {
+  it('单栏（横排 / 直排）：产出映射且工作表可创建 / 可回收', () => {
     const sizes = measureBlockSizes({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
     // 返回值恒为 Map（happy-dom 无布局 → 空；真实浏览器 → 含逐块实测尺寸）
     expect(sizes).toBeInstanceOf(Map);
@@ -61,7 +64,7 @@ describe('measureBlockSizes', () => {
 });
 
 describe('measurePagination', () => {
-  it('单栏横排：返回 sizes / lineOffsets 两个映射，工作表可回收', () => {
+  it('单栏（横排 / 直排）：返回 sizes / lineOffsets 两个映射，工作表可回收', () => {
     const result = measurePagination({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
     expect(result.sizes).toBeInstanceOf(Map);
     expect(result.lineOffsets).toBeInstanceOf(Map);
@@ -77,10 +80,12 @@ describe('measurePagination', () => {
     disposeMeasureSheet();
   });
 
-  it('直排 / 多栏回退空映射（sizes 与 lineOffsets 皆空）', () => {
+  it('直排单栏：走 DOM 实测路径（happy-dom 无布局 → sizes 与 lineOffsets 皆空）', () => {
     const vertical = measurePagination({ doc: sampleDoc(), options: CLASSICAL_LAYOUT_OPTIONS });
+    expect(vertical.sizes).toBeInstanceOf(Map);
     expect(vertical.sizes.size).toBe(0);
     expect(vertical.lineOffsets.size).toBe(0);
+    disposeMeasureSheet();
 
     const multiColumn = measurePagination({
       doc: sampleDoc(),

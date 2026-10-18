@@ -3,7 +3,7 @@
  *
  * happy-dom 无真实布局盒：measurePagination 产出空 sizes → extractBlocks 回退估算器；
  * lineOffsets 亦空 → 跨页块按 charsPerLine 回退切片。仍可验证：
- * - 单栏横排可用、直排/多栏不可用（usable=false）；
+ * - 单栏（横排 / 直排）可用、多栏不可用（usable=false）；
  * - 超长段落被按行拆成跨页片段（存在 fromLine>0 续排片段与 lineCount>0 片段）；
  * - 片段节点文本为原文子串（切片正确，非整段重复）。
  */
@@ -48,13 +48,14 @@ describe('buildPagedLayout', () => {
     disposeMeasureSheet();
   });
 
-  it('直排不可用（paged 依赖单栏横排 DOM 实测）', () => {
+  it('直排单栏可用（量尺主轴口径随书写方向转置，不再被安全门拦截）', () => {
     const result = buildPagedLayout({
       doc: docWithParagraphs(['子曰学而时习之']),
       options: CLASSICAL_LAYOUT_OPTIONS,
     });
-    expect(result.usable).toBe(false);
-    expect(result.pages).toHaveLength(0);
+    expect(result.usable).toBe(true);
+    expect(result.pages.length).toBeGreaterThanOrEqual(1);
+    disposeMeasureSheet();
   });
 
   it('多栏不可用', () => {

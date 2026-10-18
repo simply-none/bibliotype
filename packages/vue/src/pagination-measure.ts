@@ -7,14 +7,16 @@
  * 产出「块 id → 尺寸」映射，交给 reader.extractBlocks / Reader / BtEditor 采用，
  * 使预览分页与编辑分页线都基于同一份真实尺寸。
  *
- * 适用范围：单栏横排。直排（vertical-rl）下单块会跨栏回流、多栏（columns>1）下
- * 分栏宽度与回流难以逐块隔离度量，故这些场景返回空映射，回退到字符数估算
- * （保证不劣化、不崩渲染）。
+ * 适用范围：单栏（横排 / 直排）。横排量「块高与换行」，直排量「块宽（推进含
+ * 行款方向）与换列」——主轴随书写方向物理转置（见 mainAxisOf），页边界来自真实
+ * 布局盒。多栏（columns>1）下分栏宽度与回流难以逐块隔离度量，仍返回空映射，
+ * 回退到字符数估算（保证不劣化、不崩渲染）。
  */
 import { DEFAULT_THEME, type BookDocument } from '@bibliotype/core';
 import {
   buildRootStyle,
   DEFAULT_LAYOUT_OPTIONS,
+  WRITING_MODES,
   isVerticalMode,
   mergeLayoutOptions,
   resolveContentBox,
@@ -22,6 +24,7 @@ import {
   resolvePageMargins,
   type LayoutOptions,
   type StyleDeclaration,
+  type WritingMode,
 } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import {
@@ -72,6 +75,30 @@ const CSS_ID = 'bt-measure-css';
 const CONTAINER_SELECTOR = '.bt-measure-sheet';
 const BLOCK_CLASS = 'bt-measure-block';
 
+/** 主轴口径：横排沿垂直方向推进（top / height），直排沿水平方向推进（left / width） */
+interface MeasureAxis {
+  vertical: boolean;
+  /** 直排自右向左（行款推进方向为「左移」，列边界取 rect.right） */
+  rl: boolean;
+  cross: 'height' | 'width';
+}
+
+/** 由书写方向解析量尺主轴口径 */
+function mainAxisOf(mode: WritingMode): MeasureAxis {
+  const vertical = isVerticalMode(mode);
+  return {
+    vertical,
+    rl: mode === WRITING_MODES.VERTICAL_RL,
+    cross: vertical ? 'width' : 'height',
+  };
+}
+
+/** 主轴推进坐标（块首缘：横排取上缘 top，直排取行款起始缘——rl 取右缘、lr 取左缘） */
+function mainStartOf(rect: DOMRect, axis: MeasureAxis): number {
+  if (!axis.vertical) return rect.top;
+  return axis.rl ? rect.right : rect.left;
+}
+
 /** 解析页边距令牌（"48px 56px" → [Y, X]；与 resolvePageMainSize 同源，仅支持 px） */
 function resolveMargins(tokens: Readonly<Record<string, string | undefined>>): [number, number] {
   return resolvePageMargins(tokens);
@@ -114,22 +141,40 @@ function ensureSheet(): HTMLElement {
   return sheet as HTMLElement;
 }
 
-/** 套用与书页一致的排版（去掉栏 / 背景 / 边框，按单栏无框量尺） */
-function applySheetStyle(sheet: HTMLElement, rootStyle: StyleDeclaration, contentWidth: number): void {
+/**
+ * 套用与书页一致的排版（去掉栏 / 背景 / 边框，按单栏无框量尺）
+ *
+ * 交叉轴恒定尺（横排定宽 = 版心宽、直排定高 = 版心高，页边距 / 版框已扣），
+ * 主轴随内容增长（直排下工作表向左变宽，行款与真实页一致）。
+ */
+function applySheetStyle(
+  sheet: HTMLElement,
+  rootStyle: StyleDeclaration,
+  axis: MeasureAxis,
+  contentMain: number,
+): void {
   const skip = new Set(['column-count', 'column-gap', 'background-color', 'background', 'border']);
   sheet.style.cssText = '';
   for (const [prop, value] of Object.entries(rootStyle)) {
     if (skip.has(prop)) continue;
     sheet.style.setProperty(prop, value);
   }
-  // 定宽（内容宽）、高度随内容、离屏不可见但保留布局盒（visibility:hidden 仍产生度量）
+  // 定交叉轴尺、主轴随内容，离屏不可见但保留布局盒（visibility:hidden 仍产生度量）
+  const auto = `${Math.max(1, Math.round(contentMain))}px`;
   sheet.style.position = 'absolute';
   sheet.style.left = '-100000px';
   sheet.style.top = '0';
-  sheet.style.width = `${contentWidth}px`;
-  sheet.style.height = 'auto';
-  sheet.style.minHeight = '0';
-  sheet.style.maxHeight = 'none';
+  if (axis.vertical) {
+    sheet.style.height = auto;
+    sheet.style.width = 'auto';
+    sheet.style.minWidth = '0';
+    sheet.style.maxWidth = 'none';
+  } else {
+    sheet.style.width = auto;
+    sheet.style.height = 'auto';
+    sheet.style.minHeight = '0';
+    sheet.style.maxHeight = 'none';
+  }
   sheet.style.overflow = 'visible';
   sheet.style.padding = '0';
   sheet.style.margin = '0';
@@ -139,12 +184,19 @@ function applySheetStyle(sheet: HTMLElement, rootStyle: StyleDeclaration, conten
   sheet.style.zIndex = '-1';
 }
 
+/** 取块间折叠的外边距：横排取上下（快排方向），直排取左右（行款方向） */
+function mainMargins(cs: CSSStyleDeclaration, axis: MeasureAxis): [number, number] {
+  if (axis.vertical) {
+    return [Number.parseFloat(cs.marginLeft) || 0, Number.parseFloat(cs.marginRight) || 0];
+  }
+  return [Number.parseFloat(cs.marginTop) || 0, Number.parseFloat(cs.marginBottom) || 0];
+}
+
 /** 末块主轴推进量（自身尺寸 + 沿主轴的两端外边距） */
-function lastBlockSize(el: HTMLElement): number {
+function lastBlockSize(el: HTMLElement, axis: MeasureAxis): number {
   const cs = getComputedStyle(el);
-  const marginTop = Number.parseFloat(cs.marginTop) || 0;
-  const marginBottom = Number.parseFloat(cs.marginBottom) || 0;
-  return el.offsetHeight + marginTop + marginBottom;
+  const [m1, m2] = mainMargins(cs, axis);
+  return (axis.vertical ? el.offsetWidth : el.offsetHeight) + m1 + m2;
 }
 
 /**
@@ -190,13 +242,15 @@ function locateChar(
 }
 
 /**
- * 实测单块每行起始字符偏移（横排）。
+ * 实测单块每行起始字符偏移（横排=换行行首，直排=换列列首）。
  *
- * 用整块 Range.getClientRects 归并出各行上缘，再对每个行边界二分查找首个
- * 「字符矩形 top 落入该行」的全局偏移。happy-dom 无布局（rects 为空）→ 仅返回
- * [0]（单行），由调用方回退估算。浏览器下产出的行边界 = 真实换行位置。
+ * 用整块 Range.getClientRects 归并出各行（列）的推进边界，再对每个边界二分
+ * 查找首个「字符矩形推进坐标落入该行」的全局偏移。happy-dom 无布局（rects
+ * 为空）→ 仅返回 [0]（单行），由调用方回退估算。浏览器下产出的边界 = 真实
+ * 换行 / 换列位置。直排 rl 下行序自右向左，边界取 rect.right 降序；lr 取
+ * rect.left 升序。
  */
-function measureLineOffsets(el: HTMLElement): number[] {
+function measureLineOffsets(el: HTMLElement, axis: MeasureAxis): number[] {
   const list = collectTextOffsets(el);
   const total = list.reduce((sum, entry) => sum + entry.len, 0);
   if (total === 0) return [0];
@@ -206,32 +260,41 @@ function measureLineOffsets(el: HTMLElement): number[] {
   const rects = Array.from(full.getClientRects()).filter((r) => r.height > 0 || r.width > 0);
   if (rects.length <= 1) return [0];
 
-  // 归并各行上缘（容差 2px 合并同一行的多段矩形）
-  const tops: number[] = [];
-  for (const rect of rects) {
-    if (!tops.some((t) => Math.abs(t - rect.top) <= 2)) tops.push(rect.top);
-  }
-  tops.sort((a, b) => a - b);
-  if (tops.length <= 1) return [0];
-
-  const topAt = (g: number): number => {
+  // 推进坐标：横排取 top（升序），直排取行款起始缘（rl 降序 / lr 升序）
+  const startAt = (rect: DOMRect): number => mainStartOf(rect, axis);
+  const edgeOf = (g: number): number => {
     const loc = locateChar(list, Math.min(g, total - 1));
-    if (loc === null) return 0;
+    if (loc === null) return Number.NaN;
     const r = document.createRange();
     const local = Math.min(loc.local, Math.max(0, loc.node.data.length - 1));
     r.setStart(loc.node, local);
     r.setEnd(loc.node, local + 1);
-    return r.getBoundingClientRect().top;
+    return startAt(r.getBoundingClientRect());
   };
 
+  // 归并各行（列）边界（容差 2px 合并同一行的多段矩形）
+  const edges: number[] = [];
+  for (const rect of rects) {
+    const e = startAt(rect);
+    if (!edges.some((v) => Math.abs(v - e) <= 2)) edges.push(e);
+  }
+  edges.sort((a, b) => (axis.vertical && axis.rl ? b - a : a - b));
+  if (edges.length <= 1) return [0];
+
   const offsets = [0];
-  for (let k = 1; k < tops.length; k += 1) {
-    const target = tops[k] as number;
+  for (let k = 1; k < edges.length; k += 1) {
+    const target = edges[k] as number;
     let lo = offsets[offsets.length - 1] as number;
     let hi = total - 1;
+    // 行首字符 = 首个推进坐标越过本行边界的字符（行序与边界序同源同向）
+    const reaches = (g: number): boolean => {
+      const e = edgeOf(g);
+      if (Number.isNaN(e)) return false;
+      return axis.vertical && axis.rl ? e <= target + 2 : e >= target - 2;
+    };
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (topAt(mid) >= target - 2) hi = mid;
+      if (reaches(mid)) hi = mid;
       else lo = mid + 1;
     }
     if (lo > (offsets[offsets.length - 1] as number)) offsets.push(lo);
@@ -242,24 +305,27 @@ function measureLineOffsets(el: HTMLElement): number[] {
 /** 建表并渲染各块（复用），返回与 blocks 对齐的已渲染元素（含空位 null） */
 function renderMeasureSheet(
   input: MeasureBlockSizesInput,
-): { blocks: ReturnType<typeof extractBlocksIndexed>['blocks']; rendered: (HTMLElement | null)[]; targetedOnly: boolean } | null {
+): { blocks: ReturnType<typeof extractBlocksIndexed>['blocks']; rendered: (HTMLElement | null)[]; targetedOnly: boolean; axis: MeasureAxis } | null {
   if (typeof document === 'undefined') return null;
 
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
-  // 仅单栏横排做 DOM 实测；其余回退估算（空映射 → extractBlocks 采用 estimator）
-  if (isVerticalMode(options.writingMode) || (options.columns ?? 1) > 1) return null;
+  // 仅单栏做 DOM 实测（横排 / 直排均可，主轴口径随书写方向转置）；多栏回退估算（空映射 → extractBlocks 采用 estimator）
+  if ((options.columns ?? 1) > 1) return null;
 
+  const axis = mainAxisOf(options.writingMode);
   const tokens = input.tokens ?? DEFAULT_THEME;
   const [marginY, marginX] = resolveMargins(tokens);
   const box = resolveContentBox(options.pageSize, marginY, marginX);
+  // 书页盒 border-box：版框边框侵占内容区，量尺交叉轴尺寸需同步扣除保持同尺
+  const contentMain = (axis.vertical ? box.height : box.width) - resolvePageBorderWidth(tokens) * 2;
 
   syncMeasureCss(tokens, options, input.fontToken);
   const sheet = ensureSheet();
   applySheetStyle(
     sheet,
     buildRootStyle({ tokens, options, fontToken: input.fontToken }),
-    // 书页盒 border-box：版框边框侵占内容区，量尺宽度需同步扣除保持同宽
-    box.width - resolvePageBorderWidth(tokens) * 2,
+    axis,
+    contentMain,
   );
 
   // 块抽取：调用方已抽过（同源）则直接复用，避免同一文档重复全树遍历
@@ -300,7 +366,7 @@ function renderMeasureSheet(
     if (id !== null) byId.set(id, el);
   }
   const rendered = blocks.map((block) => byId.get(block.id) ?? null);
-  return { blocks, rendered, targetedOnly };
+  return { blocks, rendered, targetedOnly, axis };
 }
 
 /** 分页量尺结果：块推进尺寸 + 每行起始字符偏移 + 真实行高 + 块体高 */
@@ -326,7 +392,7 @@ export interface MeasurePaginationResult {
  *
  * 前者供分页归属，后者供 getPageFragments 把跨页块按真实行切片，两者同源。
  *
- * @returns 非单栏横排或无 DOM 时为空映射（回退估算）。
+ * @returns 非单栏或无 DOM 时为空映射（回退估算）。
  */
 export function measurePagination(input: MeasureBlockSizesInput): MeasurePaginationResult {
   const perfStart = perfNow();
@@ -340,7 +406,7 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
   const sheet = renderMeasureSheet(input);
   if (sheet === null)
     return { sizes: new Map(), lineOffsets: new Map(), lineSizes: new Map(), bodySizes: new Map() };
-  const { blocks, rendered, targetedOnly } = sheet;
+  const { blocks, rendered, targetedOnly, axis } = sheet;
 
   const sizes = new Map<string, number>();
   const lineOffsets = new Map<string, number[]>();
@@ -352,7 +418,8 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
     const el = rendered[i];
     if (el === null) continue;
     const id = (blocks[i] as (typeof blocks)[number]).id;
-    // 逐块推进量 = 到下一渲染块上缘的距离（含块间折叠外边距）；末块取自身尺寸 + 两端外边距
+    // 逐块推进量 = 到下一渲染块首缘的距离（含块间折叠外边距；横排取上缘 offsetTop，
+    // 直排取行款起始缘 rect.right/left）；末块取自身尺寸 + 两端外边距
     let nextEl: HTMLElement | null = null;
     for (let j = i + 1; j < rendered.length; j += 1) {
       const cand = rendered[j];
@@ -361,24 +428,33 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
         break;
       }
     }
-    const advance = nextEl === null ? lastBlockSize(el) : nextEl.offsetTop - el.offsetTop;
+    const advance =
+      nextEl === null
+        ? lastBlockSize(el, axis)
+        : axis.vertical
+          ? // 直排包裹层无内边距 / 边框：offsetLeft === rect.left；起始缘差即两包裹盒
+            // 外边缘间距 + 下一块体宽，恒为正，rl / lr 皆适用
+            mainStartOf(el.getBoundingClientRect(), axis) -
+            (axis.rl ? nextEl.offsetLeft + nextEl.offsetWidth : nextEl.offsetLeft)
+          : nextEl.offsetTop - el.offsetTop;
     if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
-    // 块体高：自身盒高（offsetHeight 不含外边距），供 paginate 按体高计追加代价
-    if (el.offsetHeight > 0) bodySizes.set(id, el.offsetHeight);
-    const offsets = measureLineOffsets(el);
+    // 块体尺寸：主轴向盒尺寸（不含外边距；横排 offsetHeight、直排 offsetWidth），供 paginate 按体高计追加代价
+    const body = axis.vertical ? el.offsetWidth : el.offsetHeight;
+    if (body > 0) bodySizes.set(id, body);
+    const offsets = measureLineOffsets(el, axis);
     if (offsets.length > 1) {
       lineOffsets.set(id, offsets);
-      // 真实行高：自身盒高（不含外边距）÷ 真实行数，避免把块间距摊进行高
-      if (el.offsetHeight > 0) lineSizes.set(id, el.offsetHeight / offsets.length);
+      // 真实行高（主轴推进）：自身盒主轴尺寸 ÷ 真实行数，避免把块间距摊进行高
+      if (body > 0) lineSizes.set(id, body / offsets.length);
     }
   }
   return { sizes, lineOffsets, lineSizes, bodySizes };
 }
 
 /**
- * 实测各块沿主轴（横排为高）的真实推进尺寸。
+ * 实测各块沿主轴（横排为高、直排为宽）的真实推进尺寸。
  *
- * @returns 「块 id → 尺寸(px)」映射；非单栏横排或无 DOM 时为空映射（回退估算）。
+ * @returns 「块 id → 尺寸(px)」映射；非单栏或无 DOM 时为空映射（回退估算）。
  */
 export function measureBlockSizes(input: MeasureBlockSizesInput): ReadonlyMap<string, number> {
   return measurePagination(input).sizes;

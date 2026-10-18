@@ -467,6 +467,18 @@ watch([() => props.fit, pageSize], () => {
 </template>
 
 <style scoped>
+/*
+ * 视图层（舞台 / 滚动槽位 / 页框定位盒）与书写方向无关：页框 inline 样式带
+ * writing-mode: vertical-rl，若定位语义用逻辑属性（inset-inline-start）会被页框
+ * 自身的直排物理翻转为 top 与 right，页以右缘锚定、整体左移被裁（可见纸面
+ * 全空白）。故外壳一律强制横排 + 物理 top/left 定位，竖排只发生在页内正文流。
+ */
+.bt-book-view,
+.bt-book-view__stage,
+.bt-scroll__slot {
+  writing-mode: horizontal-tb;
+}
+
 .bt-book-view {
   display: flex;
   align-items: center;
@@ -489,8 +501,10 @@ watch([() => props.fit, pageSize], () => {
 
 .bt-scroll__slot {
   position: absolute;
-  inset-inline: 0;
-  margin-inline: auto;
+  left: 0;
+  right: 0;
+  margin-left: auto;
+  margin-right: auto;
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
   transition: box-shadow 0.2s ease;
 }
@@ -508,8 +522,16 @@ watch([() => props.fit, pageSize], () => {
 }
 
 .bt-reader-page {
+  /* 物理定位：本元素自身处于 vertical-rl（inline 样式驱动），逻辑 inset 会按
+     其书写方向解析为 top/right 导致页框左移溢出舞台；改物理 top/left 后方向无关。
+     right / bottom 显式置 auto：页框带固定宽高，若任何规则同时命中 right:0（或被
+     旧样式表残留污染）会形成 over-constrained，直排下右锚定生效、left 被解析为
+     负值（stage宽 − 页宽）整页左移被裁。scoped 属性选择器特异度高于普通类规则，
+     此处兜底必胜。 */
   position: absolute;
-  inset-block-start: 0;
-  inset-inline-start: 0;
+  top: 0;
+  left: 0;
+  right: auto;
+  bottom: auto;
 }
 </style>

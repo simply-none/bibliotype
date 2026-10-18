@@ -11,17 +11,32 @@
 const CHINESE_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'] as const;
 
 /**
- * 数字 → 中文数字（支持 1~999，页码场景足够）
+ * 数字 → 中文数字（支持 0~9999，大部头竖排古籍千页级页码常见）
+ *
+ * 零的写法规约：级内高位为零补一个「零」（1008 → 一千零八、1056 → 一千零五十六）；
+ * 十位为 1 且为最高位时省「一」（1011 → 一千一十一）。
  */
 export function toChineseNumeral(value: number): string {
-  if (!Number.isInteger(value) || value < 0 || value > 999) {
-    throw new RangeError(`中文数字仅支持 0~999 的整数页码：${value}`);
+  if (!Number.isInteger(value) || value < 0 || value > 9999) {
+    throw new RangeError(`中文数字仅支持 0~9999 的整数页码：${value}`);
   }
   if (value < 10) return CHINESE_DIGITS[value] as string;
 
-  const hundreds = Math.floor(value / 100);
-  const tens = Math.floor((value % 100) / 10);
-  const ones = value % 10;
+  const thousands = Math.floor(value / 1000);
+  const rest = value % 1000;
+
+  // 千位以上：先写「X千」；余下的百 / 十 / 个沿用三位内规则，
+  // 缺百位且有更低位时补一个「零」（1008 → 一千零八、1050 → 一千零五十）
+  if (thousands > 0) {
+    if (rest === 0) return `${CHINESE_DIGITS[thousands]}千`;
+    const restText = toChineseNumeral(rest);
+    const needsZero = rest < 100; // 百位缺失 → 补零
+    return `${CHINESE_DIGITS[thousands]}千${needsZero ? '零' : ''}${restText}`;
+  }
+
+  const hundreds = Math.floor(rest / 100);
+  const tens = Math.floor((rest % 100) / 10);
+  const ones = rest % 10;
 
   let result = '';
   if (hundreds > 0) {

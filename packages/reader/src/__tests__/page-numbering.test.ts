@@ -27,8 +27,18 @@ describe('toChineseNumeral', () => {
     expect(toChineseNumeral(999)).toBe('九百九十九');
   });
 
+  it('千页级大部头（一千/一千零八/一千一百零四/九千九百九十九）', () => {
+    expect(toChineseNumeral(1000)).toBe('一千');
+    expect(toChineseNumeral(1008)).toBe('一千零八');
+    expect(toChineseNumeral(1056)).toBe('一千零五十六');
+    expect(toChineseNumeral(1050)).toBe('一千零五十');
+    expect(toChineseNumeral(1104)).toBe('一千一百零四');
+    expect(toChineseNumeral(1106)).toBe('一千一百零六');
+    expect(toChineseNumeral(9999)).toBe('九千九百九十九');
+  });
+
   it('超出范围抛出 RangeError', () => {
-    expect(() => toChineseNumeral(1000)).toThrow(RangeError);
+    expect(() => toChineseNumeral(10000)).toThrow(RangeError);
     expect(() => toChineseNumeral(-1)).toThrow(RangeError);
     expect(() => toChineseNumeral(1.5)).toThrow(RangeError);
   });

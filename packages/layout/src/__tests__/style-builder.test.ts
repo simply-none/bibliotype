@@ -15,6 +15,7 @@ import {
   resolvePageBorderWidth,
   resolvePageCrossSize,
   resolvePageMainSize,
+  resolvePageMarginBox,
   resolvePageMargins,
 } from '../style-builder.js';
 
@@ -294,5 +295,60 @@ describe('resolvePageMargins', () => {
   it('非 px 单位显式拒绝（避免分页主轴与 CSS 版心静默错位）', () => {
     expect(() => resolvePageMargins({ 'page-margin': '3em 4em' })).toThrow(RangeError);
     expect(() => resolvePageMargins({ 'page-margin': '48px 10%' })).toThrow(RangeError);
+  });
+});
+
+describe('resolvePageMarginBox（四边独立页边距）', () => {
+  it('按 CSS padding 简写逐边展开 1~4 值', () => {
+    expect(resolvePageMarginBox({ 'page-margin': '40px' })).toEqual({
+      top: 40,
+      right: 40,
+      bottom: 40,
+      left: 40,
+    });
+    expect(resolvePageMarginBox({ 'page-margin': '48px 56px' })).toEqual({
+      top: 48,
+      right: 56,
+      bottom: 48,
+      left: 56,
+    });
+    expect(resolvePageMarginBox({ 'page-margin': '10px 20px 30px' })).toEqual({
+      top: 10,
+      right: 20,
+      bottom: 30,
+      left: 20,
+    });
+    // 上 右 下 左（SettingsPanel 四输入框产出的形态）
+    expect(resolvePageMarginBox({ 'page-margin': '48px 20px 60px 100px' })).toEqual({
+      top: 48,
+      right: 20,
+      bottom: 60,
+      left: 100,
+    });
+    expect(resolvePageMarginBox({})).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+  });
+
+  it('直排主轴按左右两边扣减（非对称时不再用右边距×2 造成溢出）', () => {
+    // A5 宽 559 - 左 100 - 右 20 = 439（旧口径会算成 559-20×2=519，多排 80px 溢出左边距）
+    const tokens = { ...DEFAULT_THEME, 'page-margin': '48px 20px 48px 100px' };
+    expect(resolvePageMainSize(CLASSICAL_LAYOUT_OPTIONS, tokens)).toBe(
+      CLASSICAL_LAYOUT_OPTIONS.pageSize.width - 100 - 20,
+    );
+  });
+
+  it('横排主轴按上下两边扣减（非对称时不再用上边距×2）', () => {
+    // A5 高 794 - 上 40 - 下 80 = 674
+    const tokens = { ...DEFAULT_THEME, 'page-margin': '40px 56px 80px 56px' };
+    expect(resolvePageMainSize(DEFAULT_LAYOUT_OPTIONS, tokens)).toBe(
+      PAGE_SIZES.A5.height - 40 - 80,
+    );
+  });
+
+  it('直排交叉轴按上下两边扣减（行长受非对称上下边距约束）', () => {
+    // 直排交叉轴 = 页高 − 上 − 下（CLASSICAL 为正16开）
+    const tokens = { ...DEFAULT_THEME, 'page-margin': '40px 56px 80px 56px' };
+    expect(resolvePageCrossSize(CLASSICAL_LAYOUT_OPTIONS, tokens)).toBe(
+      CLASSICAL_LAYOUT_OPTIONS.pageSize.height - 40 - 80,
+    );
   });
 });

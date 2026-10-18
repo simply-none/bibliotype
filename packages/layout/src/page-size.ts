@@ -52,19 +52,38 @@ export interface ContentBoxSize {
 }
 
 /**
+ * 页边距四边盒（px，物理边）
+ *
+ * 与 CSS `padding` / `@page margin` 简写同源：渲染侧按四边独立内缩，
+ * 分页 / 量尺侧必须按同样的四边扣减，否则左右（直排主轴）或上下
+ * （横排主轴）不对称时，分页版心与真实版心错位 → 正文溢出边距。
+ */
+export interface PageMarginBox {
+  /** 上（px） */
+  top: number;
+  /** 右（px） */
+  right: number;
+  /** 下（px） */
+  bottom: number;
+  /** 左（px） */
+  left: number;
+}
+
+/**
  * 计算内容区尺寸
  *
+ * 按四边独立扣减（width = 页宽 − 左 − 右，height = 页高 − 上 − 下），
+ * 与渲染侧 `padding` 简写逐边对齐；四边相等时与旧「marginX×2」口径等价。
+ *
  * @param page 页面尺寸
- * @param marginY 上下页边距（px）
- * @param marginX 左右页边距（px）
+ * @param margins 页边距四边盒（px）
  */
 export function resolveContentBox(
   page: PageSize,
-  marginY: number,
-  marginX: number,
+  margins: PageMarginBox,
 ): ContentBoxSize {
-  const width = page.width - marginX * 2;
-  const height = page.height - marginY * 2;
+  const width = page.width - margins.left - margins.right;
+  const height = page.height - margins.top - margins.bottom;
   if (width <= 0 || height <= 0) {
     throw new RangeError(`页边距超出页面尺寸：${page.name}`);
   }

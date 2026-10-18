@@ -13,7 +13,7 @@ import {
   LAYOUT_TOKENS,
 } from '@bibliotype/core';
 import type { BottomSlackOptions, LayoutOptions } from './layout-options.js';
-import { resolveContentBox, type PageSize } from './page-size.js';
+import { resolveContentBox, type PageMarginBox, type PageSize } from './page-size.js';
 import { TEXT_ORIENTATIONS, isVerticalMode } from './writing-mode.js';
 import { combineUprightCss } from './combine-upright.js';
 
@@ -136,20 +136,27 @@ export function resolvePageBorderWidth(
 }
 
 /**
- * 解析页边距令牌（"48px 56px" → [上下 marginY, 左右 marginX]，单位 px）
+ * 解析页边距令牌为四边盒（px）
  *
- * 仅支持 px：非 px 单位（em / % 等）会使「分页主轴 = 页高 − 边距」与 CSS
- * 实际版心错位（buildPageStyle 原样透传，浏览器按 em 计算 padding），导致
- * 系统性溢出裁切，故显式拒绝而非静默按数字截取。令牌缺省时返回 [0, 0]
- * （与 buildPageStyle 缺省不内缩的渲染语义一致）。
+ * 支持 CSS `padding` 简写的 1~4 值形态（与 `buildPageStyle` 透传给 CSS 的语义
+ * 一致，均为物理边）：
+ * - 1 值 `a`：四边均 `a`；
+ * - 2 值 `a b`：上下 `a`、左右 `b`；
+ * - 3 值 `a b c`：上 `a`、左右 `b`、下 `c`；
+ * - 4 值 `a b c d`：上 `a`、右 `b`、下 `c`、左 `d`。
+ *
+ * 仅支持 px：非 px 单位（em / % 等）会使「分页主轴 = 页宽/高 − 边距」与 CSS
+ * 实际版心错位（`buildPageStyle` 原样透传，浏览器按 em 计算 padding），导致
+ * 系统性溢出裁切，故显式拒绝而非静默按数字截取。令牌缺省时四边均 0
+ * （与 `buildPageStyle` 缺省不内缩的渲染语义一致）。
  *
  * @throws RangeError 当令牌含非 px 单位值。
  */
-export function resolvePageMargins(
+export function resolvePageMarginBox(
   tokens: Readonly<Record<string, string | undefined>>,
-): [number, number] {
+): PageMarginBox {
   const raw = tokens[LAYOUT_TOKENS.PAGE_MARGIN];
-  if (raw === undefined || raw.trim() === '') return [0, 0];
+  if (raw === undefined || raw.trim() === '') return { top: 0, right: 0, bottom: 0, left: 0 };
   const values = raw
     .trim()
     .split(/\s+/)
@@ -160,9 +167,27 @@ export function resolvePageMargins(
       }
       return Number(match[1]);
     });
-  const marginY = values[0] ?? 0;
-  const marginX = values[1] ?? marginY;
-  return [marginY, marginX];
+  const [v0, v1, v2, v3] = values;
+  // CSS 简写逐边展开（缺省回退到已给定的对边 / 同轴值）
+  const top = v0 ?? 0;
+  const right = v1 ?? top;
+  const bottom = v2 ?? top;
+  const left = v3 ?? right;
+  return { top, right, bottom, left };
+}
+
+/**
+ * 解析页边距令牌（旧口径：`[上下, 左右]` 两值）
+ *
+ * @deprecated 仅保留向后兼容；丢失左右 / 上下不对称信息，分页请用
+ *   {@link resolvePageMarginBox} 取逐边值。本函数返回 `[top, right]`（对称令牌
+ *   下等价于旧 `[marginY, marginX]`）。
+ */
+export function resolvePageMargins(
+  tokens: Readonly<Record<string, string | undefined>>,
+): [number, number] {
+  const box = resolvePageMarginBox(tokens);
+  return [box.top, box.right];
 }
 
 /**
@@ -176,8 +201,7 @@ export function resolvePageMainSize(
   options: LayoutOptions,
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
-  const [marginY, marginX] = resolvePageMargins(tokens);
-  const box = resolveContentBox(options.pageSize, marginY, marginX);
+  const box = resolveContentBox(options.pageSize, resolvePageMarginBox(tokens));
   // 版框边框侵占 border-box 内容区（两侧各一份）
   const border = resolvePageBorderWidth(tokens) * 2;
   const vertical = isVerticalMode(options.writingMode);
@@ -233,7 +257,8 @@ export function resolveBottomSlack(
         ? slack.lines * lineSize
         : 0;
   if (want <= 0) return 0;
-  const [marginY] = resolvePageMargins(tokens);
+  // 溢出吃的是下边距（地脚），取四边盒的 bottom 而非 top（上下不对称时才正确）
+  const marginY = resolvePageMarginBox(tokens).bottom;
   const chrome = options.pageChrome;
   const footerReserved =
     chrome !== undefined && chrome.footer !== 'none' && chrome.footerSize > 0;
@@ -256,8 +281,7 @@ export function resolvePageCrossSize(
   options: LayoutOptions,
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
-  const [marginY, marginX] = resolvePageMargins(tokens);
-  const box = resolveContentBox(options.pageSize, marginY, marginX);
+  const box = resolveContentBox(options.pageSize, resolvePageMarginBox(tokens));
   const border = resolvePageBorderWidth(tokens) * 2;
   const vertical = isVerticalMode(options.writingMode);
   const cross = vertical ? box.height : box.width;

@@ -419,7 +419,7 @@ const editStartPage = ref(0);
 
 /** 缩放比例（默认 1） */
 const editorScale = ref(1);
-/** 编辑舞台元素（用于「适应宽度」测量可用宽） */
+/** 编辑舞台元素（用于「适应宽度 / 适应高度」测量可用尺寸） */
 const editorStageRef = ref<HTMLElement | null>(null);
 
 /** 缩放步进（限幅 0.2~2，两位小数） */
@@ -428,13 +428,18 @@ function zoomStep(delta: number): void {
   editorScale.value = Math.min(2, Math.max(0.2, next));
 }
 
-/** 适应宽度：按舞台可用宽 / 页宽折算缩放（扣除 .app__stage 左右内边距各 20px） */
+/**
+ * 适应交叉轴：横排按舞台可用宽 / 页宽折算（适应宽度）；直排页沿水平排列，
+ * 受整页高可见约束，改按舞台可用高 / 页高折算（适应高度）。
+ * 扣除 .app__stage 对应方向内边距各 20px。
+ */
 function fitEditorWidth(): void {
   const el = editorStageRef.value;
-  const pageWidth = effectiveLayout.value.pageSize.width;
-  if (el === null || pageWidth <= 0) return;
-  const available = el.clientWidth - 40;
-  const ratio = Math.round((available / pageWidth) * 100) / 100;
+  const page = effectiveLayout.value.pageSize;
+  const crossSize = verticalRail.value ? page.height : page.width;
+  if (el === null || crossSize <= 0) return;
+  const available = (verticalRail.value ? el.clientHeight : el.clientWidth) - 40;
+  const ratio = Math.round((available / crossSize) * 100) / 100;
   editorScale.value = Math.min(2, Math.max(0.2, ratio));
 }
 
@@ -1430,10 +1435,10 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="statusbar__button"
-            title="按宽度缩放整页"
+            :title="verticalRail ? '按高度缩放整页' : '按宽度缩放整页'"
             @click="fitEditorWidth"
           >
-            适应宽度
+            {{ verticalRail ? '适应高度' : '适应宽度' }}
           </button>
         </div>
       </template>

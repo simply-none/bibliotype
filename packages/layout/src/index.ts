@@ -8,7 +8,7 @@ export type { WritingMode, TextOrientation } from './writing-mode.js';
 
 /* ---------- 页面尺寸 ---------- */
 export { PAGE_SIZES, createPageSize, resolveContentBox } from './page-size.js';
-export type { PageSize, ContentBoxSize } from './page-size.js';
+export type { PageSize, ContentBoxSize, PageMarginBox } from './page-size.js';
 
 /* ---------- 直排数字/英文合并（D3 补充） ---------- */
 export {
@@ -54,6 +54,7 @@ export {
   resolvePageMainSize,
   resolvePageCrossSize,
   resolveBottomSlack,
+  resolvePageMarginBox,
   resolvePageMargins,
   resolvePageBorderWidth,
 } from './style-builder.js';

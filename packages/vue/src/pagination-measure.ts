@@ -21,7 +21,7 @@ import {
   mergeLayoutOptions,
   resolveContentBox,
   resolvePageBorderWidth,
-  resolvePageMargins,
+  resolvePageMarginBox,
   type LayoutOptions,
   type StyleDeclaration,
   type WritingMode,
@@ -99,9 +99,11 @@ function mainStartOf(rect: DOMRect, axis: MeasureAxis): number {
   return axis.rl ? rect.right : rect.left;
 }
 
-/** 解析页边距令牌（"48px 56px" → [Y, X]；与 resolvePageMainSize 同源，仅支持 px） */
-function resolveMargins(tokens: Readonly<Record<string, string | undefined>>): [number, number] {
-  return resolvePageMargins(tokens);
+/** 解析页边距令牌（四边盒；与 resolvePageMainSize 同源，仅支持 px） */
+function resolveMargins(
+  tokens: Readonly<Record<string, string | undefined>>,
+): ReturnType<typeof resolvePageMarginBox> {
+  return resolvePageMarginBox(tokens);
 }
 
 /** 属性值转义（id 落入 data-measure-id 属性） */
@@ -314,8 +316,7 @@ function renderMeasureSheet(
 
   const axis = mainAxisOf(options.writingMode);
   const tokens = input.tokens ?? DEFAULT_THEME;
-  const [marginY, marginX] = resolveMargins(tokens);
-  const box = resolveContentBox(options.pageSize, marginY, marginX);
+  const box = resolveContentBox(options.pageSize, resolveMargins(tokens));
   // 书页盒 border-box：版框边框侵占内容区，量尺交叉轴尺寸需同步扣除保持同尺
   const contentMain = (axis.vertical ? box.height : box.width) - resolvePageBorderWidth(tokens) * 2;
 
@@ -432,10 +433,14 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
       nextEl === null
         ? lastBlockSize(el, axis)
         : axis.vertical
-          ? // 直排包裹层无内边距 / 边框：offsetLeft === rect.left；起始缘差即两包裹盒
-            // 外边缘间距 + 下一块体宽，恒为正，rl / lr 皆适用
-            mainStartOf(el.getBoundingClientRect(), axis) -
-            (axis.rl ? nextEl.offsetLeft + nextEl.offsetWidth : nextEl.offsetLeft)
+          ? // 直排：块沿水平推进。必须用**同一坐标系**量相邻两块起始缘——两块都取
+            // getBoundingClientRect（视口坐标，量尺工作表停在 left:-100000px 的偏移在相减时抵消）。
+            // 若一块用 rect、另一块用 offsetLeft（offsetParent 坐标）则 -100000 不抵消，
+            // 推进量恒为巨负值被下方 `advance > 0` 丢弃 → 直排整段回退估算、列数与渲染不符而溢出边距。
+            // rl：块在 next 右侧，起始缘=右缘，推进 = el.right − next.right；lr 反之。
+            (axis.rl
+              ? el.getBoundingClientRect().right - nextEl.getBoundingClientRect().right
+              : nextEl.getBoundingClientRect().left - el.getBoundingClientRect().left)
           : nextEl.offsetTop - el.offsetTop;
     if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
     // 块体尺寸：主轴向盒尺寸（不含外边距；横排 offsetHeight、直排 offsetWidth），供 paginate 按体高计追加代价

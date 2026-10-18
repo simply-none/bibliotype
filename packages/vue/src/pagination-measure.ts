@@ -12,7 +12,7 @@
  * 布局盒。多栏（columns>1）下分栏宽度与回流难以逐块隔离度量，仍返回空映射，
  * 回退到字符数估算（保证不劣化、不崩渲染）。
  */
-import { DEFAULT_THEME, type BookDocument } from '@bibliotype/core';
+import { DEFAULT_THEME, type BookDocument, type BookNode } from '@bibliotype/core';
 import {
   buildRootStyle,
   DEFAULT_LAYOUT_OPTIONS,
@@ -74,6 +74,14 @@ const SHEET_ID = 'bt-measure-sheet';
 const CSS_ID = 'bt-measure-css';
 const CONTAINER_SELECTOR = '.bt-measure-sheet';
 const BLOCK_CLASS = 'bt-measure-block';
+
+/**
+ * 单块精确行偏移的最大行（列）数。
+ *
+ * 超过此数的块（通常是整章坍成一个叶块的极端情况）逐行二分代价接近平方级，
+ * 直接回退 charsPerLine 估算切片——宁可页边界略有漂移，也不让主线程被拖死。
+ */
+const MAX_EXACT_LINES = 240;
 
 /** 主轴口径：横排沿垂直方向推进（top / height），直排沿水平方向推进（left / width） */
 interface MeasureAxis {
@@ -274,14 +282,20 @@ function measureLineOffsets(el: HTMLElement, axis: MeasureAxis): number[] {
     return startAt(r.getBoundingClientRect());
   };
 
-  // 归并各行（列）边界（容差 2px 合并同一行的多段矩形）
+  // 归并各行（列）边界（容差 2px 合并同一行的多段矩形）。先排序再线性去重：
+  // 旧实现每取一个矩形就在 edges 里线性查重，块大 / 直排列多时退化为 O(矩形数²)。
+  const raw = rects.map(startAt).sort((a, b) => a - b);
   const edges: number[] = [];
-  for (const rect of rects) {
-    const e = startAt(rect);
-    if (!edges.some((v) => Math.abs(v - e) <= 2)) edges.push(e);
+  for (const e of raw) {
+    const last = edges[edges.length - 1];
+    if (last === undefined || Math.abs(e - last) > 2) edges.push(e);
   }
-  edges.sort((a, b) => (axis.vertical && axis.rl ? b - a : a - b));
+  // 排序为升序（横排 / 直排 lr 直接用；直排 rl 行序自右向左，反转成降序）
+  if (axis.vertical && axis.rl) edges.reverse();
   if (edges.length <= 1) return [0];
+  // 超大块（数千列）逐行二分的代价接近平方级，且整章坍成单块的极端情况才出现；
+  // 直接放弃精确行偏移，回退 charsPerLine 估算切片，保证大文档不被拖死、正文必定出字。
+  if (edges.length > MAX_EXACT_LINES) return [0];
 
   const offsets = [0];
   for (let k = 1; k < edges.length; k += 1) {
@@ -304,10 +318,32 @@ function measureLineOffsets(el: HTMLElement, axis: MeasureAxis): number[] {
   return offsets;
 }
 
-/** 建表并渲染各块（复用），返回与 blocks 对齐的已渲染元素（含空位 null） */
-function renderMeasureSheet(
-  input: MeasureBlockSizesInput,
-): { blocks: ReturnType<typeof extractBlocksIndexed>['blocks']; rendered: (HTMLElement | null)[]; targetedOnly: boolean; axis: MeasureAxis } | null {
+/**
+ * 单批渲染 / 实测的块数上限。
+ *
+ * 旧实现把整本一次性排进同一张量尺表：直排下工作表主轴（横向）随内容无限变宽，
+ * 单次布局复杂度与整本书成正比；再叠加逐行边界的 getBoundingClientRect 强制回流，
+ * 大字号 / 大文档下主线程被阻塞到分钟级——表现为「后面页码一直不出现文字」。
+ * 分批后每次布局只含少量块，代价与文档规模解耦，末段块必定能测出结果。
+ */
+const MEASURE_BATCH = 24;
+
+/** 批内向前多看几块，保证「推进量 = 到下一渲染块首缘」跨批仍正确 */
+const MEASURE_LOOKAHEAD = 8;
+
+/** 量尺上下文：量表已建、范围已定，尚未渲染任何块 */
+interface MeasureSheetContext {
+  sheet: HTMLElement;
+  allBlocks: ReturnType<typeof extractBlocksIndexed>['blocks'];
+  nodeById: ReadonlyMap<string, BookNode>;
+  axis: MeasureAxis;
+  start: number;
+  end: number;
+  targetedOnly: boolean;
+}
+
+/** 建表并确定实测范围（块渲染按批进行，见 measurePaginationInner） */
+function prepareMeasureSheet(input: MeasureBlockSizesInput): MeasureSheetContext | null {
   if (typeof document === 'undefined') return null;
 
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
@@ -348,10 +384,19 @@ function renderMeasureSheet(
     const i = allBlocks.findIndex((block) => block.id === input.fromBlockId);
     if (i > 0) start = i;
   }
-  const blocks = allBlocks.slice(start, end);
-  sheet.innerHTML = blocks
+  return { sheet, allBlocks, nodeById: indexed.nodeById, axis, start, end, targetedOnly };
+}
+
+/** 把 [from, to) 的块渲染进量表，返回按 id 对齐的已渲染元素（空块为 null 占位） */
+function renderMeasureBatch(
+  ctx: MeasureSheetContext,
+  from: number,
+  to: number,
+): (HTMLElement | null)[] {
+  const slice = ctx.allBlocks.slice(from, to);
+  ctx.sheet.innerHTML = slice
     .map((block) => {
-      const node = indexed.nodeById.get(block.id);
+      const node = ctx.nodeById.get(block.id);
       if (node === undefined) return '';
       const html = serializeNode(node);
       if (html.trim() === '') return '';
@@ -359,15 +404,12 @@ function renderMeasureSheet(
     })
     .join('');
 
-  const nodes = Array.from(sheet.children) as HTMLElement[];
-  // 按 data-measure-id 对齐回 blocks（空块未渲染 → null 占位）
   const byId = new Map<string, HTMLElement>();
-  for (const el of nodes) {
+  for (const el of Array.from(ctx.sheet.children) as HTMLElement[]) {
     const id = el.getAttribute('data-measure-id');
     if (id !== null) byId.set(id, el);
   }
-  const rendered = blocks.map((block) => byId.get(block.id) ?? null);
-  return { blocks, rendered, targetedOnly, axis };
+  return slice.map((block) => byId.get(block.id) ?? null);
 }
 
 /** 分页量尺结果：块推进尺寸 + 每行起始字符偏移 + 真实行高 + 块体高 */
@@ -404,53 +446,61 @@ export function measurePagination(input: MeasureBlockSizesInput): MeasurePaginat
 
 /** 量尺主体（埋点在外层，便于把整段 DOM 实测算作一次测量） */
 function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginationResult {
-  const sheet = renderMeasureSheet(input);
-  if (sheet === null)
+  const ctx = prepareMeasureSheet(input);
+  if (ctx === null)
     return { sizes: new Map(), lineOffsets: new Map(), lineSizes: new Map(), bodySizes: new Map() };
-  const { blocks, rendered, targetedOnly, axis } = sheet;
+  const { axis, start, end, targetedOnly } = ctx;
 
   const sizes = new Map<string, number>();
   const lineOffsets = new Map<string, number[]>();
   const lineSizes = new Map<string, number>();
   const bodySizes = new Map<string, number>();
-  for (let i = 0; i < blocks.length; i += 1) {
-    // 定点模式：仅产出目标块（index 0）；后一块只为折叠口径参照，不入结果
-    if (targetedOnly && i > 0) break;
-    const el = rendered[i];
-    if (el === null) continue;
-    const id = (blocks[i] as (typeof blocks)[number]).id;
-    // 逐块推进量 = 到下一渲染块首缘的距离（含块间折叠外边距；横排取上缘 offsetTop，
-    // 直排取行款起始缘 rect.right/left）；末块取自身尺寸 + 两端外边距
-    let nextEl: HTMLElement | null = null;
-    for (let j = i + 1; j < rendered.length; j += 1) {
-      const cand = rendered[j];
-      if (cand !== null) {
-        nextEl = cand;
-        break;
+
+  for (let batchStart = start; batchStart < end; batchStart += MEASURE_BATCH) {
+    // 定点模式只产出目标块（start 一个），一次即完；整批模式按 MEASURE_BATCH 推进
+    const batchEnd = targetedOnly
+      ? Math.min(batchStart + 1, end)
+      : Math.min(batchStart + MEASURE_BATCH, end);
+    // 多渲染 LOOKAHEAD 块：末块推进量要与「下一渲染块首缘」相减，跨批时也能取到参照
+    const renderEnd = Math.min(batchEnd + MEASURE_LOOKAHEAD, end);
+    const rendered = renderMeasureBatch(ctx, batchStart, renderEnd);
+    for (let k = 0; k < batchEnd - batchStart; k += 1) {
+      const el = rendered[k];
+      if (el === null || el === undefined) continue;
+      const id = (ctx.allBlocks[batchStart + k] as (typeof ctx.allBlocks)[number]).id;
+      // 逐块推进量 = 到下一渲染块首缘的距离（含块间折叠外边距；横排取上缘 offsetTop，
+      // 直排取行款起始缘 rect.right/left）；末块取自身尺寸 + 两端外边距
+      let nextEl: HTMLElement | null = null;
+      for (let j = k + 1; j < rendered.length; j += 1) {
+        const cand = rendered[j];
+        if (cand !== null && cand !== undefined) {
+          nextEl = cand;
+          break;
+        }
       }
-    }
-    const advance =
-      nextEl === null
-        ? lastBlockSize(el, axis)
-        : axis.vertical
-          ? // 直排：块沿水平推进。必须用**同一坐标系**量相邻两块起始缘——两块都取
-            // getBoundingClientRect（视口坐标，量尺工作表停在 left:-100000px 的偏移在相减时抵消）。
-            // 若一块用 rect、另一块用 offsetLeft（offsetParent 坐标）则 -100000 不抵消，
-            // 推进量恒为巨负值被下方 `advance > 0` 丢弃 → 直排整段回退估算、列数与渲染不符而溢出边距。
-            // rl：块在 next 右侧，起始缘=右缘，推进 = el.right − next.right；lr 反之。
-            (axis.rl
-              ? el.getBoundingClientRect().right - nextEl.getBoundingClientRect().right
-              : nextEl.getBoundingClientRect().left - el.getBoundingClientRect().left)
-          : nextEl.offsetTop - el.offsetTop;
-    if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
-    // 块体尺寸：主轴向盒尺寸（不含外边距；横排 offsetHeight、直排 offsetWidth），供 paginate 按体高计追加代价
-    const body = axis.vertical ? el.offsetWidth : el.offsetHeight;
-    if (body > 0) bodySizes.set(id, body);
-    const offsets = measureLineOffsets(el, axis);
-    if (offsets.length > 1) {
-      lineOffsets.set(id, offsets);
-      // 真实行高（主轴推进）：自身盒主轴尺寸 ÷ 真实行数，避免把块间距摊进行高
-      if (body > 0) lineSizes.set(id, body / offsets.length);
+      const advance =
+        nextEl === null
+          ? lastBlockSize(el, axis)
+          : axis.vertical
+            ? // 直排：块沿水平推进。必须用**同一坐标系**量相邻两块起始缘——两块都取
+              // getBoundingClientRect（视口坐标，量尺工作表停在 left:-100000px 的偏移在相减时抵消）。
+              // 若一块用 rect、另一块用 offsetLeft（offsetParent 坐标）则 -100000 不抵消，
+              // 推进量恒为巨负值被下方 `advance > 0` 丢弃 → 直排整段回退估算、列数与渲染不符而溢出边距。
+              // rl：块在 next 右侧，起始缘=右缘，推进 = el.right − next.right；lr 反之。
+              (axis.rl
+                ? el.getBoundingClientRect().right - nextEl.getBoundingClientRect().right
+                : nextEl.getBoundingClientRect().left - el.getBoundingClientRect().left)
+            : nextEl.offsetTop - el.offsetTop;
+      if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
+      // 块体尺寸：主轴向盒尺寸（不含外边距；横排 offsetHeight、直排 offsetWidth），供 paginate 按体高计追加代价
+      const body = axis.vertical ? el.offsetWidth : el.offsetHeight;
+      if (body > 0) bodySizes.set(id, body);
+      const offsets = measureLineOffsets(el, axis);
+      if (offsets.length > 1) {
+        lineOffsets.set(id, offsets);
+        // 真实行高（主轴推进）：自身盒主轴尺寸 ÷ 真实行数，避免把块间距摊进行高
+        if (body > 0) lineSizes.set(id, body / offsets.length);
+      }
     }
   }
   return { sizes, lineOffsets, lineSizes, bodySizes };

@@ -669,7 +669,7 @@ async function onResetAll(): Promise<void> {
 </template>
 
 <style scoped>
-/* 遮罩层：固定居中，点击遮罩关闭（面板自身吞掉点击） */
+/* 遮罩层：固定居中，点击遮罩关闭（面板自身吞掉点击）；模糊遮罩与正文分层（主流弹窗惯例） */
 .dialog {
   position: fixed;
   inset: 0;
@@ -679,6 +679,7 @@ async function onResetAll(): Promise<void> {
   justify-content: center;
   padding: 24px;
   background: rgba(24, 21, 16, 0.45);
+  backdrop-filter: blur(3px);
 }
 
 /* 弹窗卡片：定宽 + 限高，内容区独立滚动 */
@@ -693,7 +694,7 @@ async function onResetAll(): Promise<void> {
   font-size: 12px;
   background: var(--demo-panel, #f4f0e8);
   border: 1px solid var(--demo-border, #e2ddd2);
-  border-radius: 8px;
+  border-radius: 10px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
 }
 

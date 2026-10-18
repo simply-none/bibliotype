@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * 属性检视器（Demo 层，编辑模式画布上方）
+ * 属性检视器（Demo 层，编辑态右栏）
  *
+ * 纵向 inspector 列（参照 Word 任务窗格 / Sigil 检视器）：
  * 跟随选区（binding.version 驱动重算）展示光标祖先链节点与选区标记中
  * 「带可编辑属性」的分组，直接经 setNodeAttrs / setMarkAttrs 写回文档：
  * - 节点组：自内向外逐层（章 title、标题 level、列表 ordered、图片 src/alt 等），
@@ -284,7 +285,9 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
 
 <template>
   <section class="inspector">
-    <span class="inspector__title">属性</span>
+    <header class="inspector__header">
+      <span class="inspector__title">属性</span>
+    </header>
     <label v-if="namedStyles !== undefined && namedStyles.length > 0" class="inspector__field">
       <span class="inspector__label">命名样式</span>
       <select
@@ -322,57 +325,63 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
         </label>
       </div>
     </template>
-    <span v-else class="inspector__empty">当前选区与光标祖先均无可编辑属性</span>
+    <p v-else class="inspector__empty">当前选区与光标祖先均无可编辑属性</p>
   </section>
 </template>
 
 <style scoped>
+/* 纵向 inspector：填满右栏列，分组自上而下流式 */
 .inspector {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  padding: 6px 10px;
-  margin-top: 8px;
-  border: 1px solid var(--demo-border);
-  border-radius: 8px;
-  background: var(--demo-panel);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 12px;
   color: var(--demo-text);
   font-size: 12px;
 }
 
-.inspector__title {
-  color: var(--demo-muted);
-  letter-spacing: 0.08em;
-}
-
-.inspector__group {
+.inspector__header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-inline-end: 12px;
-  border-inline-end: 1px dashed var(--demo-border);
+  justify-content: space-between;
+  padding-block-end: 6px;
+  border-block-end: 1px solid var(--demo-border);
 }
 
-.inspector__group:last-child {
-  border-inline-end: none;
-  padding-inline-end: 0;
+.inspector__title {
+  font-size: 13px;
+  letter-spacing: 0.2em;
+}
+
+/* 每组一张小卡：标签页眉 + 字段纵向列表 */
+.inspector__group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--demo-border);
+  border-radius: 6px;
+  background: var(--demo-panel);
 }
 
 .inspector__tag {
-  padding: 2px 8px;
+  align-self: flex-start;
+  padding: 1px 8px;
   border-radius: 10px;
   background: var(--demo-accent);
   color: #fff;
-  font-size: 12px;
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
+/* 字段行：标签在上、控件在下（inspector 惯例，避免横向挤压） */
 .inspector__field {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
 }
 
 .inspector__label {
@@ -380,7 +389,7 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
 }
 
 .inspector__input {
-  width: 110px;
+  width: 100%;
   padding: 3px 6px;
   font-size: 12px;
   color: var(--demo-text);
@@ -390,10 +399,12 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
 }
 
 .inspector__input--num {
-  width: 64px;
+  width: 88px;
 }
 
 .inspector__empty {
+  margin: 4px 0 0;
   color: var(--demo-muted);
+  line-height: 1.6;
 }
 </style>

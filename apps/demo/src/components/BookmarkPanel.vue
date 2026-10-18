@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 书签面板（Demo 组件）
+ * 书签面板（Demo 组件，左栏 tab 面板）
  *
  * 页级书签：localStorage（键 bt-demo:bookmarks:lunyu）持久化；
  * 「添加当前页」记录当前页（重复忽略）；书签项点击跳转（重排后页码越界
- * 收敛到末页），可删除。
+ * 收敛到末页），可删除。开关由左栏 tab 体系承担，不再自带关闭按钮。
  */
 import { computed, ref, watch } from 'vue';
 import { useReaderBinding } from '@bibliotype/vue';
@@ -42,7 +42,7 @@ function loadBookmarks(): BookmarkEntry[] {
 }
 
 const props = defineProps<{ reader: Reader }>();
-const emit = defineEmits<{ close: [] }>();
+defineEmits<{ close: [] }>();
 
 const { currentPage, totalPages } = useReaderBinding(props.reader);
 const bookmarks = ref<BookmarkEntry[]>(loadBookmarks());
@@ -96,9 +96,6 @@ function formatAt(at: number): string {
   <section class="panel">
     <header class="panel__header">
       <h2 class="panel__title">书签</h2>
-      <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">
-        ×
-      </button>
     </header>
 
     <button
@@ -152,22 +149,6 @@ function formatAt(at: number): string {
   font-size: 13px;
   letter-spacing: 0.2em;
   color: var(--demo-text, #3c3a34);
-}
-
-.panel__close {
-  width: 22px;
-  height: 22px;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--demo-muted, #8a8578);
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.panel__close:hover {
-  background: rgba(127, 127, 127, 0.15);
 }
 
 .panel__add {

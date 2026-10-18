@@ -515,6 +515,7 @@ function removeExtra(index: number): void {
   justify-content: center;
   padding: 24px;
   background: rgba(24, 21, 16, 0.45);
+  backdrop-filter: blur(3px);
 }
 
 .dialog__panel {

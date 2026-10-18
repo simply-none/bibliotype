@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
- * 搜索面板（Demo 组件）
+ * 搜索面板（Demo 组件，左栏 tab 面板）
  *
  * 关键词 → Reader.search 全文检索（逐叶块）；结果展示摘录（命中词高亮）/
  * 页码 / 命中数；点击经 goToNode 跳转所在页。
+ * 面板不再自带关闭按钮：开关由左栏 tab 体系承担（再点顶栏「搜索」即收起）。
  */
 import { ref } from 'vue';
 import type { Reader, ReaderSearchResult } from '@bibliotype/reader';
 
 const props = defineProps<{ reader: Reader }>();
-const emit = defineEmits<{ close: [] }>();
+defineEmits<{ close: [] }>();
 
 const query = ref('');
 const results = ref<ReaderSearchResult[]>([]);
@@ -63,9 +64,6 @@ function excerptParts(text: string): ReadonlyArray<{ text: string; hit: boolean 
   <section class="panel">
     <header class="panel__header">
       <h2 class="panel__title">搜索</h2>
-      <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">
-        ×
-      </button>
     </header>
 
     <div class="panel__searchbar">
@@ -129,22 +127,6 @@ function excerptParts(text: string): ReadonlyArray<{ text: string; hit: boolean 
   font-size: 13px;
   letter-spacing: 0.2em;
   color: var(--demo-text, #3c3a34);
-}
-
-.panel__close {
-  width: 22px;
-  height: 22px;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--demo-muted, #8a8578);
-  background: none;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.panel__close:hover {
-  background: rgba(127, 127, 127, 0.15);
 }
 
 .panel__searchbar {

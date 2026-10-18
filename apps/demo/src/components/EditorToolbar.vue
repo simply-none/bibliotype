@@ -656,11 +656,15 @@ const insertActions: readonly ToolbarAction[] = [
   },
 ];
 
-/** 分组（模板按组渲染，组间以分隔线区分） */
-const TOOLBAR_GROUPS: ReadonlyArray<{ key: string; actions: readonly ToolbarAction[] }> = [
-  { key: 'history', actions: historyActions },
-  { key: 'block', actions: blockActions },
-  { key: 'inline', actions: inlineActions },
+/**
+ * 两行功能区（参照 Word / Sigil 二级工具条：按使用频率分层，避免单行超长溢出）
+ *
+ * 第一行：撤销 / 重做 + 块形态 + 行内标记（高频编辑）；
+ * 第二行：古籍标记 + 块插入（低频专题）+ 右端实用区。
+ * 组间以分隔线区分，行内按钮去边框（ghost 制式，激活才现底色）。
+ */
+const TOOLBAR_ROWS: ReadonlyArray<{ key: string; actions: readonly ToolbarAction[] }> = [
+  { key: 'doc', actions: [...historyActions, ...blockActions, ...inlineActions] },
   { key: 'classical', actions: classicalActions },
   { key: 'insert', actions: insertActions },
 ];
@@ -690,12 +694,9 @@ const UTILITY_USAGES: Readonly<Record<string, ToolbarUsage>> = {
   },
 };
 
-/** 工具条横向滚动容器 */
-const barRef = ref<HTMLElement | null>(null);
-
-/** 鼠标滚轮（纵向）映射为工具条横向滚动；触控板横向手势保持原生行为 */
+/** 鼠标滚轮（纵向）映射为所在工具行的横向滚动；触控板横向手势保持原生行为 */
 function onWheel(event: WheelEvent): void {
-  const bar = barRef.value;
+  const bar = event.currentTarget as HTMLElement | null;
   if (bar === null) return;
   // 仅当存在横向溢出、且以纵向滚量为主时接管
   const canScrollX = bar.scrollWidth - bar.clientWidth > 1;
@@ -706,14 +707,15 @@ function onWheel(event: WheelEvent): void {
 </script>
 
 <template>
-  <div ref="barRef" class="editor-toolbar" @wheel="onWheel">
+  <div class="editor-toolbar">
     <div
-      v-for="group in TOOLBAR_GROUPS"
-      :key="group.key"
-      class="editor-toolbar__group"
-      :class="{ 'editor-toolbar__group--disabled': isReadonly }"
+      v-for="row in TOOLBAR_ROWS"
+      :key="row.key"
+      class="editor-toolbar__row"
+      :class="{ 'editor-toolbar__row--readonly': isReadonly }"
+      @wheel="onWheel"
     >
-      <ToolbarUsageTip v-for="action in group.actions" :key="action.label" :usage="action.usage">
+      <ToolbarUsageTip v-for="action in row.actions" :key="action.label" :usage="action.usage">
         <button
           type="button"
           class="editor-toolbar__button"
@@ -726,41 +728,42 @@ function onWheel(event: WheelEvent): void {
           {{ action.label }}
         </button>
       </ToolbarUsageTip>
-    </div>
-    <div class="editor-toolbar__group editor-toolbar__group--end">
-      <ToolbarUsageTip :usage="UTILITY_USAGES['查找替换']">
-        <button
-          type="button"
-          class="editor-toolbar__button"
-          :class="{ 'editor-toolbar__button--active': searchOpen }"
-          @mousedown.prevent
-          @click="searchOpen = !searchOpen"
-        >
-          查找替换
-        </button>
-      </ToolbarUsageTip>
-      <ToolbarUsageTip :usage="UTILITY_USAGES['只读']">
-        <button
-          type="button"
-          class="editor-toolbar__button"
-          :class="{ 'editor-toolbar__button--active': isReadonly }"
-          @mousedown.prevent
-          @click="emit('toggle-readonly')"
-        >
-          {{ isReadonly ? '可编辑' : '只读' }}
-        </button>
-      </ToolbarUsageTip>
-      <ToolbarUsageTip :usage="UTILITY_USAGES['还原样册']">
-        <button
-          type="button"
-          class="editor-toolbar__button"
-          :disabled="isReadonly"
-          @mousedown.prevent
-          @click="emit('reset')"
-        >
-          还原样册
-        </button>
-      </ToolbarUsageTip>
+      <!-- 实用区固定第二行右端 -->
+      <div v-if="row.key === 'insert'" class="editor-toolbar__group editor-toolbar__group--end">
+        <ToolbarUsageTip :usage="UTILITY_USAGES['查找替换']">
+          <button
+            type="button"
+            class="editor-toolbar__button"
+            :class="{ 'editor-toolbar__button--active': searchOpen }"
+            @mousedown.prevent
+            @click="searchOpen = !searchOpen"
+          >
+            查找替换
+          </button>
+        </ToolbarUsageTip>
+        <ToolbarUsageTip :usage="UTILITY_USAGES['只读']">
+          <button
+            type="button"
+            class="editor-toolbar__button"
+            :class="{ 'editor-toolbar__button--active': isReadonly }"
+            @mousedown.prevent
+            @click="emit('toggle-readonly')"
+          >
+            {{ isReadonly ? '可编辑' : '只读' }}
+          </button>
+        </ToolbarUsageTip>
+        <ToolbarUsageTip :usage="UTILITY_USAGES['还原样册']">
+          <button
+            type="button"
+            class="editor-toolbar__button"
+            :disabled="isReadonly"
+            @mousedown.prevent
+            @click="emit('reset')"
+          >
+            还原样册
+          </button>
+        </ToolbarUsageTip>
+      </div>
     </div>
   </div>
   <ReplacePanel
@@ -772,79 +775,88 @@ function onWheel(event: WheelEvent): void {
 </template>
 
 <style scoped>
+/* 二级功能区：整块扁平行条，不再是在画布上飘着的圆角卡片 */
 .editor-toolbar {
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 6px 12px;
-  padding: 8px 10px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  border: 1px solid var(--demo-border);
-  border-radius: 8px;
+  flex: none;
+  flex-direction: column;
+  border-block-end: 1px solid var(--demo-border);
   background: var(--demo-panel);
   color: var(--demo-text);
 }
 
-.editor-toolbar::-webkit-scrollbar {
-  height: 8px;
+.editor-toolbar__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
-.editor-toolbar::-webkit-scrollbar-thumb {
+.editor-toolbar__row + .editor-toolbar__row {
+  border-block-start: 1px solid var(--demo-border);
+}
+
+.editor-toolbar__row::-webkit-scrollbar {
+  height: 6px;
+}
+
+.editor-toolbar__row::-webkit-scrollbar-thumb {
   background: var(--demo-border);
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 .editor-toolbar__group {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 4px;
-}
-
-.editor-toolbar__group + .editor-toolbar__group {
-  padding-inline-start: 12px;
-  border-inline-start: 1px solid var(--demo-border);
-}
-
-.editor-toolbar__group--disabled {
-  opacity: 0.6;
+  gap: 2px;
 }
 
 .editor-toolbar__group--end {
   margin-inline-start: auto;
-  padding-inline-start: 0;
-  border-inline-start: none;
+  padding-inline-start: 12px;
+  border-inline-start: 1px solid var(--demo-control-border);
 }
 
+.editor-toolbar__row--readonly {
+  opacity: 0.75;
+}
+
+/* ghost 按钮制式：平时无边框，悬停现浅底，激活现轻色块 */
 .editor-toolbar__button {
-  padding: 4px 10px;
-  font-size: 13px;
+  flex: none;
+  padding: 3px 9px;
+  font-size: 12.5px;
+  white-space: nowrap;
   color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 4px;
   cursor: pointer;
 }
 
 .editor-toolbar__button:hover:not(:disabled) {
-  border-color: var(--demo-accent);
-  color: var(--demo-accent);
+  background: rgba(127, 127, 127, 0.12);
+  border-color: transparent;
+  color: var(--demo-text);
 }
 
 .editor-toolbar__button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
 
 .editor-toolbar__button--active {
-  color: #fff;
-  background: var(--demo-accent);
-  border-color: var(--demo-accent);
+  color: var(--demo-accent);
+  background: rgba(140, 90, 43, 0.14);
+  font-weight: 600;
 }
 
 .editor-toolbar__button--active:hover:not(:disabled) {
-  color: #fff;
+  color: var(--demo-accent);
 }
 </style>

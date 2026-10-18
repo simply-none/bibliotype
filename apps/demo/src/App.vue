@@ -1,12 +1,17 @@
 <script setup lang="ts">
 /**
- * Demo 主界面（App）
- *
- * - 工具栏：主题切换（现代横排 ↔ 古籍直排）/ 编辑 / 书籍信息 / 搜索 / 书签 / 目录 /
- *   设置 / 导出 EPUB / 导出 PDF（逐页·连续切换；Electron 宿主秒级直出，浏览器降级打印）；
- * - 左栏：搜索面板、书签面板、目录（可分别开关）；设置改为模态弹窗；
- * - 主区：BtBookView（等比缩放自适应）+ 进度条 + BtPager；编辑态为 BtEditor
- *   （工具条 + 属性检视器，后者跟随选区展示节点 / 标记可编辑属性）；
+ * Demo 主界面（App）——参照主流书籍排版编辑器的三层 chrome：
+ * - 顶栏（应用栏）：书名 chip（点击开书籍信息）+ 保存状态；右侧为主题切换、
+ *   编辑、设置、导出等全局动作（单行横向滚动，溢出时滚轮 / 拖动可滑）；
+ * - 左栏（标签面板）：目录 / 搜索 / 书签 / 导入 改为 tab 切换（同屏仅一个，
+ *   参照 Apple Books / Calibre），顶栏按钮即 tab 入口，再点收起；
+ *   编辑态另有右栏「属性」检视器（纵向 inspector 列，Word 任务窗格式）；
+ * - 主区：阅读 = BtBookView（等比缩放自适应）；编辑 = BtEditor（默认插槽只放
+ *   二级格式工具条 EditorToolbar，仿 Word 功能区，位于画布上方）；
+ * - 底部状态栏（阅读器 / PDF 工具惯例）：阅读态 = 进度条 + 翻页器 + 视图切换；
+ *   编辑态 = 页码读数 + 缩放控件；
+ * - 设置 / 书籍信息为模态弹窗；导出 EPUB / PDF（逐页·连续切换；Electron 宿主秒级
+ *   直出，浏览器降级打印）；
  * - 键盘：← / → 翻页；Esc 关闭书籍信息 / 设置弹窗。
  * - 反馈分层：**事前**「这个按钮怎么用」→ 按钮悬浮卡片（ToolbarUsageTip）；
  *   **事后**「刚才发生了什么」→ 右下角消息条（composables/use-toast）。
@@ -48,7 +53,7 @@ import {
   Reader,
   type BlockMeasureContext,
 } from '@bibliotype/reader';
-import { BtBookView, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet } from '@bibliotype/vue';
+import { BtBookView, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet, type EditorBinding } from '@bibliotype/vue';
 import { exportEpub, type ValidationProblem } from '@bibliotype/exporter-epub';
 import {
   createImageBlobRewriter,
@@ -627,7 +632,6 @@ function onImported(doc: BookDocument): void {
   // 新内容立即落盘（导入即新基线；跳过「无待写」判定）
   void autosave.flush({ force: true });
   scheduleRemeasure();
-  importOpen.value = false;
 }
 
 /** 主工具栏「编辑 / 保存并预览」双向切换 */
@@ -877,13 +881,51 @@ function onToolbarClickCapture(event: MouseEvent): void {
 
 /* ---------------- 面板与键盘 ---------------- */
 
-const tocOpen = ref(true);
-const searchOpen = ref(false);
-const bookmarksOpen = ref(false);
+/** 左栏标签面板（同屏仅一个，参照主流阅读器；null = 整栏收起） */
+type AsideTab = 'toc' | 'search' | 'bookmarks' | 'import';
+
+const activeTab = ref<AsideTab | null>('toc');
+/** 顶栏 tab 入口（顺序与左栏面板一致） */
+const ASIDE_TABS: ReadonlyArray<{ key: AsideTab; label: string }> = [
+  { key: 'toc', label: '目录' },
+  { key: 'search', label: '搜索' },
+  { key: 'bookmarks', label: '书签' },
+  { key: 'import', label: '导入' },
+];
+/** 顶栏 tab 入口：点已开项即收起，否则切换 */
+function toggleTab(tab: AsideTab): void {
+  activeTab.value = activeTab.value === tab ? null : tab;
+}
+
 const settingsOpen = ref(false);
 const infoOpen = ref(false);
-/** 文档导入面板（Markdown / HTML） */
-const importOpen = ref(false);
+
+/** 捕获 BtEditor 默认插槽透传的 paged 感知 binding（供右栏属性检视器） */
+const slotBinding = shallowRef<EditorBinding | null>(null);
+/** 插槽渲染计数（非响应式；仅用于识别「首轮捕获」，避免逐事务重渲染） */
+let slotRenderCount = 0;
+function captureSlotBinding(binding: EditorBinding): EditorBinding {
+  slotRenderCount += 1;
+  if (slotBinding.value === null && slotRenderCount === 1) {
+    // 首次捕获：同步递增 version 让消费它的 computed 失效（仅在 null→有值时发生一次）
+    binding.version.value += 1;
+  }
+  slotBinding.value = binding;
+  return binding;
+}
+
+/**
+ * 右栏检视器用的 binding
+ *
+ * 仅「未捕获 → 已捕获」一次切换会重渲染主区（slot 内容随之重建）；
+ * 之后逐事务只走 version 自增，由 AttrInspector 内部 computed 自行响应。
+ */
+const inspectorBinding = computed<EditorBinding | null>(() => {
+  if (slotBinding.value === null && mode.value === 'edit') {
+    void slotRenderCount; // 占位依赖：首次捕获前的空读不再触发额外逻辑
+  }
+  return mode.value === 'edit' ? slotBinding.value : null;
+});
 
 /* 导出 / 导入等**操作后**的一次性反馈走右下角消息条（composables/use-toast）：
    顶栏只承担书名与常驻状态，不再追加会长期滞留、挤占排版的状态行。 */
@@ -945,10 +987,8 @@ function onMetadataSave(patch: Partial<BookMetadata>): void {
   bookVersion.value += 1;
 }
 
-/** 左栏是否有任一区块可见（设置已改为弹窗，不占左栏） */
-const asideVisible = computed(
-  () => searchOpen.value || bookmarksOpen.value || importOpen.value || tocOpen.value,
-);
+/** 左栏是否可见（有任一 tab 激活；设置 / 书籍信息为弹窗不占左栏） */
+const asideVisible = computed(() => activeTab.value !== null);
 
 function onKeydown(event: KeyboardEvent): void {
   /* 编辑模式 Ctrl/Cmd+S：立即落盘（拦截浏览器「保存网页」默认行为） */
@@ -1037,7 +1077,15 @@ onBeforeUnmount(() => {
   <div class="app" :class="{ 'app--night': night }">
     <header class="toolbar">
       <div class="toolbar__title">
-        <strong>{{ bookTitle }}</strong>
+        <button
+          type="button"
+          class="toolbar__book"
+          title="查看书籍信息"
+          @click="infoOpen = true"
+        >
+          <span class="toolbar__book-icon" aria-hidden="true">📖</span>
+          <strong>{{ bookTitle }}</strong>
+        </button>
         <span
           v-if="mode === 'edit'"
           class="toolbar__dirty"
@@ -1076,21 +1124,6 @@ onBeforeUnmount(() => {
               {{ mode === 'edit' ? '保存并预览' : '编辑' }}
             </button>
           </ToolbarUsageTip>
-        </div>
-        <div v-if="mode === 'edit'" class="toolbar__group">
-          <button type="button" class="toolbar__button" title="缩小" @click="zoomStep(-0.1)">
-            −
-          </button>
-          <span class="toolbar__readout">{{ Math.round(editorScale * 100) }}%</span>
-          <button type="button" class="toolbar__button" title="放大" @click="zoomStep(0.1)">+</button>
-          <button type="button" class="toolbar__button" title="恢复 100%" @click="editorScale = 1">
-            100%
-          </button>
-          <button type="button" class="toolbar__button" title="按宽度缩放整页" @click="fitEditorWidth">
-            适应宽度
-          </button>
-        </div>
-        <div class="toolbar__group">
           <button
             type="button"
             class="toolbar__button"
@@ -1099,40 +1132,17 @@ onBeforeUnmount(() => {
           >
             设置
           </button>
-          <button type="button" class="toolbar__button" @click="infoOpen = true">
-            书籍信息
-          </button>
+        </div>
+        <div class="toolbar__group">
           <button
+            v-for="tab in ASIDE_TABS"
+            :key="tab.key"
             type="button"
             class="toolbar__button"
-            :class="{ 'toolbar__button--active': searchOpen }"
-            @click="searchOpen = !searchOpen"
+            :class="{ 'toolbar__button--active': activeTab === tab.key }"
+            @click="toggleTab(tab.key)"
           >
-            搜索
-          </button>
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': bookmarksOpen }"
-            @click="bookmarksOpen = !bookmarksOpen"
-          >
-            书签
-          </button>
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': importOpen }"
-            @click="importOpen = !importOpen"
-          >
-            导入
-          </button>
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': tocOpen }"
-            @click="tocOpen = !tocOpen"
-          >
-            目录
+            {{ tab.label }}
           </button>
         </div>
         <div class="toolbar__group">
@@ -1161,23 +1171,23 @@ onBeforeUnmount(() => {
     <div class="app__body">
       <aside v-show="asideVisible" class="app__aside">
         <SearchPanel
-          v-if="searchOpen"
+          v-if="activeTab === 'search'"
           :key="`search-${themeKey}`"
           :reader="reader"
-          @close="searchOpen = false"
+          @close="activeTab = null"
         />
         <BookmarkPanel
-          v-if="bookmarksOpen"
+          v-if="activeTab === 'bookmarks'"
           :key="`bookmark-${themeKey}`"
           :reader="reader"
-          @close="bookmarksOpen = false"
+          @close="activeTab = null"
         />
         <ImportPanel
-          v-if="importOpen"
-          @close="importOpen = false"
+          v-if="activeTab === 'import'"
+          @close="activeTab = null"
           @imported="onImported"
         />
-        <div v-show="tocOpen" class="app__toc">
+        <div v-show="activeTab === 'toc'" class="app__toc">
           <BtToc :key="`toc-${themeKey}`" :reader="reader" />
         </div>
       </aside>
@@ -1214,30 +1224,74 @@ onBeforeUnmount(() => {
           >
             <template #default="slotProps">
               <EditorToolbar
-                :binding="slotProps"
+                :binding="captureSlotBinding(slotProps)"
                 :readonly="editorReadonly"
                 @toggle-readonly="styleApi.patchEditing({ readonly: !editing.readonly })"
                 @reset="resetSample"
               />
-              <AttrInspector :binding="slotProps" :named-styles="namedStyles.styles" />
             </template>
           </BtEditor>
         </div>
-        <footer v-if="booted && mode === 'read'" class="app__footer">
-          <ProgressBar :key="themeKey" :reader="reader" />
-          <BtPager :key="themeKey" :reader="reader" />
-          <ToolbarUsageTip class="app__view-toggle-slot" :usage="VIEW_MODE_USAGE">
-            <button
-              type="button"
-              class="app__view-toggle"
-              @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
-            >
-              {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
-            </button>
-          </ToolbarUsageTip>
-        </footer>
+
+        <!-- 编辑态右栏：属性检视器（纵向 inspector，跟随选区） -->
+        <aside v-if="mode === 'edit' && inspectorBinding" class="app__inspector">
+          <AttrInspector
+            :binding="inspectorBinding"
+            :named-styles="namedStyles.styles"
+          />
+        </aside>
       </main>
     </div>
+
+    <!-- 底部状态栏：阅读态 = 进度 + 翻页 + 视图切换；编辑态 = 页码读数 + 缩放 -->
+    <footer v-if="booted" class="statusbar">
+      <template v-if="mode === 'read'">
+        <ProgressBar :key="themeKey" class="statusbar__progress" :reader="reader" />
+        <BtPager :key="themeKey" class="statusbar__pager" :reader="reader" />
+        <ToolbarUsageTip :usage="VIEW_MODE_USAGE">
+          <button
+            type="button"
+            class="statusbar__button"
+            :class="{ 'statusbar__button--on': viewMode === 'scroll' }"
+            @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
+          >
+            {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
+          </button>
+        </ToolbarUsageTip>
+      </template>
+      <template v-else>
+        <span class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
+        <span class="statusbar__spacer" />
+        <button
+          type="button"
+          class="statusbar__button"
+          title="缩小"
+          @click="zoomStep(-0.1)"
+        >
+          −
+        </button>
+        <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
+        <button
+          type="button"
+          class="statusbar__button"
+          title="放大"
+          @click="zoomStep(0.1)"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          class="statusbar__button"
+          title="恢复 100%"
+          @click="editorScale = 1"
+        >
+          100%
+        </button>
+        <button type="button" class="statusbar__button" title="按宽度缩放整页" @click="fitEditorWidth">
+          适应宽度
+        </button>
+      </template>
+    </footer>
 
     <SettingsPanel
       v-if="settingsOpen"
@@ -1295,7 +1349,7 @@ onBeforeUnmount(() => {
   --bt-editor-ink: #cfcac2;
 }
 
-/* ---------- 工具栏 ---------- */
+/* ---------- 顶栏（应用栏） ---------- */
 
 .toolbar {
   display: flex;
@@ -1303,7 +1357,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 7px 16px;
   border-block-end: 1px solid var(--demo-border);
   background: var(--demo-panel);
   color: var(--demo-text);
@@ -1312,13 +1366,37 @@ onBeforeUnmount(() => {
 .toolbar__title {
   display: flex;
   flex: none;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
 }
 
-.toolbar__title strong {
-  font-size: 18px;
-  letter-spacing: 0.1em;
+/* 书名 chip：点击开书籍信息（主流阅读器把元数据入口挂在书名上） */
+.toolbar__book {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.toolbar__book:hover {
+  background: rgba(127, 127, 127, 0.12);
+  border-color: var(--demo-control-border);
+}
+
+.toolbar__book strong {
+  font-size: 16px;
+  letter-spacing: 0.08em;
+}
+
+.toolbar__book-icon {
+  font-size: 14px;
+  opacity: 0.75;
 }
 
 .toolbar__dirty {
@@ -1380,11 +1458,10 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.toolbar__readout {
-  min-width: 36px;
-  font-size: 12px;
-  text-align: center;
-  color: var(--demo-muted);
+/* 组间分隔线（Word / Chrome 工具栏惯例，替代纯间距） */
+.toolbar__group + .toolbar__group {
+  padding-inline-start: 12px;
+  border-inline-start: 1px solid var(--demo-control-border);
 }
 
 .toolbar__button {
@@ -1431,7 +1508,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex: none;
   flex-direction: column;
-  width: 240px;
+  width: 280px;
   overflow-y: auto;
   border-inline-end: 1px solid var(--demo-border);
   background: var(--demo-aside);
@@ -1445,13 +1522,14 @@ onBeforeUnmount(() => {
 .app__main {
   display: flex;
   flex: 1;
-  flex-direction: column;
+  flex-direction: row;
   min-width: 0;
   background: var(--demo-bg);
 }
 
 .app__stage {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   padding: 20px;
 }
@@ -1460,29 +1538,78 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
-.app__footer {
+/* 编辑态右栏：属性检视器列（与左栏同宽级，纵向流式） */
+.app__inspector {
   display: flex;
   flex: none;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 16px;
-  border-block-start: 1px solid var(--demo-border);
-  background: var(--demo-panel);
+  flex-direction: column;
+  width: 280px;
+  overflow-y: auto;
+  border-inline-start: 1px solid var(--demo-border);
+  background: var(--demo-aside);
   color: var(--demo-text);
 }
 
-/* 悬浮说明的包裹层占住 flex 位，靠自动外边距把它推到右端（原在按钮上） */
-.app__view-toggle-slot {
-  margin-inline-start: auto;
+/* ---------- 底部状态栏 ---------- */
+
+.statusbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 16px;
+  border-block-start: 1px solid var(--demo-border);
+  background: var(--demo-panel);
+  color: var(--demo-text);
+  font-size: 12px;
 }
 
-.app__view-toggle {
-  padding: 4px 14px;
-  border: 1px solid currentColor;
-  border-radius: 4px;
+.statusbar__progress {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* 进度条与翻页读数二选一：状态栏已有页码，隐翻页器文字段 */
+.statusbar__pager :deep(.bt-pager__status) {
+  display: none;
+}
+
+.statusbar__spacer {
+  flex: 1;
+}
+
+.statusbar__readout {
+  flex: none;
+  color: var(--demo-muted);
+  white-space: nowrap;
+}
+
+.statusbar__zoom {
+  flex: none;
+  min-width: 40px;
+  text-align: center;
+  color: var(--demo-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.statusbar__button {
+  flex: none;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--demo-text);
   background: transparent;
-  color: inherit;
-  font-size: 14px;
+  border: 1px solid var(--demo-control-border);
+  border-radius: 4px;
   cursor: pointer;
+}
+
+.statusbar__button:hover {
+  border-color: var(--demo-accent);
+  color: var(--demo-accent);
+}
+
+.statusbar__button--on {
+  color: var(--demo-accent);
+  border-color: var(--demo-accent);
 }
 </style>

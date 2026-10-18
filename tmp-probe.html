@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; }
+  .sheet {
+    position: absolute;
+    left: -100000px;
+    top: 0;
+    visibility: hidden;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-family: "SimSun", "Songti SC", serif;
+    font-size: 36px;
+    line-height: 1.9;
+    letter-spacing: 0;
+    box-sizing: content-box;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+  }
+  .h600 { height: 600px; }
+  .h700 { height: 700px; }
+  .w101k { width: 101000px; }
+  .w29k { width: 29000px; }
+  .w12k { width: 1200px; }
+  /* 模拟「auto 宽度 + 受 available 限制」的真实量尺形态 */
+  .autow { width: auto; max-width: none; min-width: 0; }
+  p { margin: 0; text-indent: 0; }
+</style>
+</head>
+<body>
+<div class="sheet h600 w101k" id="s1"><p id="p1"></p></div>
+<div class="sheet h600 w29k" id="s2"><p id="p2"></p></div>
+<div class="sheet h600 w12k" id="s3"><p id="p3"></p></div>
+<div class="sheet h600 autow" id="s4"><p id="p4"></p></div>
+<div class="sheet h700 w101k" id="s5"><p id="p5"></p></div>
+<pre id="out">pending</pre>
+<script>
+  const para =
+    '太史公曰：余读秦记，至犬戎败幽王，周东徙洛邑，秦襄公始封为诸侯，作西畤用事上帝，' +
+    '僭端见矣。礼曰天子祭天地，诸侯祭其域内名山大川，今秦杂戎翟之俗，先暴戾，后仁义，' +
+    '位在藩臣而胪于郊祀，君子惧焉。及文公逾陇，攘夷狄，尊陈宝，营岐雍之间，而穆公修政，' +
+    '东竟至河，则与齐桓、晋文中国侯伯侔矣。是后陪臣执政，大夫世禄，六卿擅晋权，' +
+    '征伐会盟，威重于诸侯。及田常杀简公而相齐国，诸侯晏然弗讨，海内争于战功矣。' +
+    '三国终之卒分晋，田和亦灭齐而有之，六国之盛自此始。务在强兵并敌，谋诈用而从衡短长之说起。' +
+    '矫称蜂出，誓盟不信，虽置质剖符犹不能约束也。秦始小国僻远，诸夏宾之，比于戎翟，' +
+    '至献公之后常雄诸侯。论秦之德义不如鲁卫之暴戾者，量秦之兵不如三晋之强也，然卒并天下，' +
+    '非必险固便形埶利也，盖若天所助焉。';
+
+  for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) {
+    document.getElementById(id).textContent = para;
+  }
+
+  function measure(p) {
+    const r = document.createRange();
+    r.selectNodeContents(p);
+    const rects = Array.from(r.getClientRects()).filter((x) => x.width > 0 || x.height > 0);
+    const rights = rects.map((x) => Math.round(x.right));
+    const uniq = [];
+    for (const v of rights) {
+      if (uniq.length === 0 || Math.abs(uniq[uniq.length - 1] - v) > 2) uniq.push(v);
+    }
+    return {
+      rects: rects.length,
+      edges: uniq.length,
+      offsetWidth: p.offsetWidth,
+      offsetHeight: p.offsetHeight,
+      step: uniq.length > 1 ? +((uniq[0] - uniq[1]) / 1).toFixed(2) : 0,
+      sheetW: p.parentElement.getBoundingClientRect().width,
+    };
+  }
+
+  const out = {
+    wide101k: measure(document.getElementById('p1')),
+    mid29k: measure(document.getElementById('p2')),
+    narrow12k: measure(document.getElementById('p3')),
+    auto: measure(document.getElementById('p4')),
+    tall700: measure(document.getElementById('p5')),
+  };
+  document.getElementById('out').textContent = JSON.stringify(out, null, 1);
+</script>
+</body>
+</html>

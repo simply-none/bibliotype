@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; }
+  .sheet {
+    position: absolute; left: -100000px; top: 0; visibility: hidden;
+    writing-mode: vertical-rl; text-orientation: mixed;
+    font-family: "SimSun", serif; font-size: 36px; line-height: 1.9;
+    letter-spacing: 0; box-sizing: content-box; padding: 0; margin: 0;
+    overflow: visible; height: 600px; width: auto; max-width: none; min-width: 0;
+  }
+  p { margin: 0; text-indent: 0; }
+</style>
+</head>
+<body>
+<div class="sheet" id="big"></div>
+<div class="sheet" id="small"></div>
+<pre id="out">pending</pre>
+<script>
+  const PARA =
+    '太史公曰：余读秦记，至犬戎败幽王，周东徙洛邑，秦襄公始封为诸侯，作西畤用事上帝，' +
+    '僭端见矣。礼曰天子祭天地，诸侯祭其域内名山大川，今秦杂戎翟之俗，先暴戾，后仁义，' +
+    '位在藩臣而胪于郊祀，君子惧焉。及文公逾陇，攘夷狄，尊陈宝，营岐雍之间，而穆公修政，' +
+    '东竟至河，则与齐桓、晋文中国侯伯侔矣。是后陪臣执政，大夫世禄，六卿擅晋权，' +
+    '征伐会盟，威重于诸侯。及田常杀简公而相齐国，诸侯晏然弗讨，海内争于战功矣。';
+  const LONG = PARA.repeat(20); // 约 2000 字，竖排 600px 高 → 约 120 列
+
+  function measureBlock(el) {
+    const list = [];
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let start = 0;
+    let n;
+    while ((n = walker.nextNode()) !== null) {
+      list.push({ node: n, start, len: n.data.length });
+      start += n.data.length;
+    }
+    const total = start;
+    if (total === 0) return 0;
+    const full = document.createRange();
+    full.selectNodeContents(el);
+    const rects = Array.from(full.getClientRects()).filter((r) => r.height > 0 || r.width > 0);
+    if (rects.length <= 1) return 1;
+    const startAt = (r) => r.right;
+    const edgeOf = (g) => {
+      const gi = Math.min(g, total - 1);
+      let acc = 0;
+      for (const e of list) {
+        if (gi < acc + e.len) {
+          const local = Math.max(0, Math.min(gi - acc, e.node.data.length - 1));
+          const r = document.createRange();
+          r.setStart(e.node, local);
+          r.setEnd(e.node, local + 1);
+          return startAt(r.getBoundingClientRect());
+        }
+        acc += e.len;
+      }
+      return NaN;
+    };
+    const edges = [];
+    for (const rect of rects) {
+      const e = startAt(rect);
+      if (!edges.some((v) => Math.abs(v - e) <= 2)) edges.push(e);
+    }
+    edges.sort((a, b) => b - a);
+    if (edges.length <= 1) return 1;
+    const offsets = [0];
+    for (let k = 1; k < edges.length; k += 1) {
+      const target = edges[k];
+      let lo = offsets[offsets.length - 1];
+      let hi = total - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        const e = edgeOf(mid);
+        if (!Number.isNaN(e) && e <= target + 2) hi = mid;
+        else lo = mid + 1;
+      }
+      if (lo > offsets[offsets.length - 1]) offsets.push(lo);
+    }
+    return offsets.length;
+  }
+
+  function run(label, container, count, long) {
+    const html = [];
+    for (let i = 0; i < count; i += 1) {
+      html.push('<p>' + (long && i === 0 ? LONG : PARA) + '</p>');
+    }
+    container.innerHTML = html.join('');
+    const els = Array.from(container.children);
+    const t0 = performance.now();
+    let sum = 0;
+    for (const el of els) sum += measureBlock(el);
+    const t1 = performance.now();
+    return { label, blocks: els.length, colsSum: sum, ms: +(t1 - t0).toFixed(1), perBlock: +((t1 - t0) / els.length).toFixed(2), sheetW: Math.round(container.getBoundingClientRect().width) };
+  }
+
+  const out = [];
+  out.push(run('大表 800 块', document.getElementById('big'), 800, true));
+  const small = document.getElementById('small');
+  // 小表：只放 24 块，重复 4 次取平均
+  let smallTotal = 0;
+  for (let round = 0; round < 4; round += 1) {
+    const r = run('小表 24 块 #' + round, small, 24, true);
+    smallTotal += r.ms;
+    if (round === 0) out.push({ label: '小表 24 块', blocks: r.blocks, colsSum: r.colsSum, ms: r.ms, perBlock: r.perBlock, sheetW: r.sheetW });
+  }
+  out.push({ label: '小表 96 块合计', ms: +smallTotal.toFixed(1), perBlock: +(smallTotal / 96).toFixed(2) });
+  document.getElementById('out').textContent = JSON.stringify(out, null, 1);
+</script>
+</body>
+</html>

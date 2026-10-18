@@ -57,6 +57,32 @@ const TEXT_CONTAINER_TYPES: ReadonlySet<string> = new Set([
   'colophon',
 ]);
 
+/**
+ * 恒整块呈现（不跨页拆分）的块类型
+ *
+ * 分页器只在块标记 `splittable` 时按行拆分；此前仅 `paragraph` 标记，
+ * 于是任何「整章 / 整节坍成一个叶块」的容器（卷 / 章 / 节 / 前言等，
+ * 常见于导入的 HTML：块级元素间夹换行空白、或正文直接裸挂在容器下）
+ * 都只能整块塞进一页。直排页宽（列数）远小于横排页高（行数），
+ * 被 `overflow: hidden` 裁掉后几乎看不到字，表现为「后半本 / 某章之后
+ * 一片空白」，而横排因一页能容纳更多行看起来「只是短暂空白」。
+ *
+ * 故改为反向白名单：**除版式块外，含文本的叶块都可按行跨页**。
+ * 版式块保持整块：标题（配合 keepWithNext 孤寡行控制）、图片、分隔线、
+ * 封面 / 书名页 / 版权页 / 封底（单页版面），以及注文 / 牌记 / 题记
+ * 等文本容器（版式语义附着在容器自身，拆开会丢样式）。
+ */
+const ATOMIC_BLOCK_TYPES: ReadonlySet<string> = new Set([
+  NODE_TYPES.HEADING,
+  NODE_TYPES.IMAGE,
+  NODE_TYPES.BREAK,
+  NODE_TYPES.COVER,
+  NODE_TYPES.TITLE_PAGE,
+  NODE_TYPES.COPYRIGHT_PAGE,
+  NODE_TYPES.BACK_COVER,
+  ...TEXT_CONTAINER_TYPES,
+]);
+
 /** 尺寸估算上下文 */
 export interface BlockMeasureContext {
   /** 每行可容纳字符数（按页面主轴与字号估算） */
@@ -232,9 +258,11 @@ export function extractBlocksIndexed(
       // 实测尺寸优先（命中且为正），否则回退估算
       const measured = blockSizes?.get(id);
       const hasMeasured = measured !== undefined && measured > 0;
-      // 正文段落可按行跨页续排（纸书逻辑）：标 splittable + 行高，供 paginate 行级拆分；
-      // 标题 / 注文 / 牌记 / 封面等版式块恒整块呈现，不标。
-      const splittable = node.type === NODE_TYPES.PARAGRAPH;
+      // 可按行跨页续排（纸书逻辑）：正文段落与任何「整章坍成叶块」的容器（卷 / 章 /
+      // 节 / 前言等）都标 splittable + 行高，供 paginate 行级拆分。只按 paragraph
+      // 判定时，整章块不可拆、只能一整页盛放，直排页宽小 → 被裁成「看起来空白」。
+      // 标题 / 注文 / 牌记 / 封面等版式块恒整块呈现（见 ATOMIC_BLOCK_TYPES），不标。
+      const splittable = !ATOMIC_BLOCK_TYPES.has(node.type);
       // 分页符（break variant=page）：自身成一标记块，并强制其后一块另起一页
       const isPageBreak =
         node.type === NODE_TYPES.BREAK && node.attrs?.['variant'] === PAGE_BREAK_VARIANT;

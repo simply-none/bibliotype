@@ -130,6 +130,38 @@ describe('extractBlocks', () => {
     expect(blocks.find((b) => b.id === 'h-1')?.splittable).toBeUndefined();
   });
 
+  it('整章坍成叶块时仍标 splittable：容器正文可按行跨页，不再一页裁切', () => {
+    // 章节容器含「实质裸文本 + 元素子节点」→ isLeafBlock 判为整块（不能下钻，否则拆丢裸文本）
+    const doc = createEmptyDocument({ title: '整章叶块' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-leaf',
+        children: [
+          { type: 'text', text: '正文直接裸挂在章下，拆块会丢字' },
+          {
+            type: NODE_TYPES.PARAGRAPH,
+            id: 'p-inner',
+            children: [{ type: 'text', text: '被包裹的段落' }],
+          },
+        ],
+      },
+    ];
+    const blocks = extractBlocks(doc, {
+      blockSizes: new Map([['chap-leaf', 300]]),
+      lineOffsets: new Map([['chap-leaf', [0, 50, 100, 150, 200, 250]]]),
+      lineSizes: new Map([['chap-leaf', 30]]),
+      bodySizes: new Map([['chap-leaf', 180]]),
+    });
+    // 整章只出一个块（不下钻）
+    expect(blocks.map((b) => b.id)).toEqual(['chap-leaf']);
+    const chap = blocks[0];
+    // 但必须可拆：直排页宽（列数）小，整块塞一页会被 overflow 裁成「看起来空白」
+    expect(chap?.splittable).toBe(true);
+    expect(chap?.lineCount).toBe(6);
+    expect(chap?.lineSize).toBe(30);
+  });
+
   it('lineSize 随估算上下文行高联动', () => {
     const blocks = extractBlocks(sampleDoc(), { context: { lineSize: 42 } });
     expect(blocks.find((b) => b.id === 'p-2')?.lineSize).toBe(42);

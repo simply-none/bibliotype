@@ -11,15 +11,12 @@
 const CHINESE_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'] as const;
 
 /**
- * 数字 → 中文数字（支持 0~9999，大部头竖排古籍千页级页码常见）
+ * 数字 → 中文数字（组内 0~9999 规则）
  *
  * 零的写法规约：级内高位为零补一个「零」（1008 → 一千零八、1056 → 一千零五十六）；
  * 十位为 1 且为最高位时省「一」（1011 → 一千一十一）。
  */
-export function toChineseNumeral(value: number): string {
-  if (!Number.isInteger(value) || value < 0 || value > 9999) {
-    throw new RangeError(`中文数字仅支持 0~9999 的整数页码：${value}`);
-  }
+function toChineseUnder10000(value: number): string {
   if (value < 10) return CHINESE_DIGITS[value] as string;
 
   const thousands = Math.floor(value / 1000);
@@ -29,7 +26,7 @@ export function toChineseNumeral(value: number): string {
   // 缺百位且有更低位时补一个「零」（1008 → 一千零八、1050 → 一千零五十）
   if (thousands > 0) {
     if (rest === 0) return `${CHINESE_DIGITS[thousands]}千`;
-    const restText = toChineseNumeral(rest);
+    const restText = toChineseUnder10000(rest);
     const needsZero = rest < 100; // 百位缺失 → 补零
     return `${CHINESE_DIGITS[thousands]}千${needsZero ? '零' : ''}${restText}`;
   }
@@ -55,6 +52,30 @@ export function toChineseNumeral(value: number): string {
   if (ones > 0) {
     result += CHINESE_DIGITS[ones];
   }
+  return result;
+}
+
+/**
+ * 数字 → 中文数字（支持 0~99999999，覆盖万页级竖排古籍）
+ *
+ * 万以上按「每四位一级」拼「万」单位：10038 → 一万零三十八、12345 → 一万二千
+ * 三百四十五；组内缺千位且有更低位时补「零」（10008 → 一万零八）。上限取到近
+ * 亿级，足以覆盖任何单部古籍的页码；超出视为非法输入。
+ */
+export function toChineseNumeral(value: number): string {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`中文数字仅支持非负整数页码：${value}`);
+  }
+  if (value > 99999999) {
+    throw new RangeError(`中文数字仅支持 0~99999999 的整数页码：${value}`);
+  }
+  if (value < 10000) return toChineseUnder10000(value);
+  const wan = Math.floor(value / 10000);
+  const rest = value % 10000;
+  let result = `${toChineseUnder10000(wan)}万`;
+  if (rest === 0) return result;
+  if (rest < 1000) result += '零'; // 万位与个位之间缺千位 → 补零
+  result += toChineseUnder10000(rest);
   return result;
 }
 
@@ -107,9 +128,18 @@ export type PageNumberStyle = 'decimal' | 'chinese' | 'roman';
 export function formatPageNumber(pageNumber: number, style: PageNumberStyle): string {
   switch (style) {
     case 'chinese':
-      return toChineseNumeral(pageNumber);
+      // 万页级竖排古籍（如 10038 页）若样式上限被触发，回退阿拉伯数字而非抛错中断渲染
+      try {
+        return toChineseNumeral(pageNumber);
+      } catch {
+        return String(pageNumber);
+      }
     case 'roman':
-      return toRomanNumeral(pageNumber);
+      try {
+        return toRomanNumeral(pageNumber);
+      } catch {
+        return String(pageNumber);
+      }
     default:
       return String(pageNumber);
   }

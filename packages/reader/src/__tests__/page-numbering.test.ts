@@ -37,10 +37,19 @@ describe('toChineseNumeral', () => {
     expect(toChineseNumeral(9999)).toBe('九千九百九十九');
   });
 
-  it('超出范围抛出 RangeError', () => {
-    expect(() => toChineseNumeral(10000)).toThrow(RangeError);
+  it('万页级竖排大部头（一万/一万零三十八/一万二千三百四十五/近亿上限）', () => {
+    expect(toChineseNumeral(10000)).toBe('一万');
+    expect(toChineseNumeral(10001)).toBe('一万零一');
+    // 用户实测撞到的崩溃点：竖排 10038 页 → 一万零三十八
+    expect(toChineseNumeral(10038)).toBe('一万零三十八');
+    expect(toChineseNumeral(12345)).toBe('一万二千三百四十五');
+    expect(toChineseNumeral(99999999)).toBe('九千九百九十九万九千九百九十九');
+  });
+
+  it('非法输入（负数 / 小数 / 超大）仍抛出 RangeError', () => {
     expect(() => toChineseNumeral(-1)).toThrow(RangeError);
     expect(() => toChineseNumeral(1.5)).toThrow(RangeError);
+    expect(() => toChineseNumeral(100000000)).toThrow(RangeError);
   });
 });
 
@@ -69,5 +78,11 @@ describe('formatPageNumber', () => {
     expect(formatPageNumber(42, 'decimal')).toBe('42');
     expect(formatPageNumber(42, 'chinese')).toBe('四十二');
     expect(formatPageNumber(42, 'roman')).toBe('xlii');
+  });
+
+  it('样式转换超限时回退阿拉伯数字而非崩溃', () => {
+    expect(formatPageNumber(10038, 'chinese')).toBe('一万零三十八');
+    expect(formatPageNumber(100000000, 'chinese')).toBe('100000000');
+    expect(formatPageNumber(5000, 'roman')).toBe('5000');
   });
 });

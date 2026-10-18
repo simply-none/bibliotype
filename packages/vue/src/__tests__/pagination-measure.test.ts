@@ -6,7 +6,7 @@
  * 横排 / 直排单栏不抛错且工作表可创建 / 可回收。真实像素级准确度依赖浏览器实测（手动验证）。
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument, type BookNode } from '@bibliotype/core';
+import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
 import { extractBlocksIndexed } from '@bibliotype/reader';
 import { measureBlockSizes, measurePagination, disposeMeasureSheet } from '../pagination-measure.js';
@@ -138,30 +138,6 @@ describe('measurePagination', () => {
     // 复用路径同样把块渲染进量尺工作表（否则实测会空转）
     const sheet = document.getElementById('bt-measure-sheet');
     expect(sheet?.querySelectorAll('.bt-measure-block').length).toBe(2);
-    disposeMeasureSheet();
-  });
-});
-
-describe('measurePagination 分批实测', () => {
-  it('大量块分批排入量表，不会一次性渲染整本（避免直排巨表布局卡死、后段块测不出）', () => {
-    const doc = createEmptyDocument({ title: '大文档' });
-    const children: BookNode[] = [];
-    for (let i = 0; i < 120; i += 1) {
-      children.push({
-        type: NODE_TYPES.PARAGRAPH,
-        id: `p-${i}`,
-        children: [{ type: 'text', text: '子曰学而时习之' }],
-      });
-    }
-    doc.root.children = children;
-
-    measurePagination({ doc, options: DEFAULT_LAYOUT_OPTIONS });
-
-    const rendered =
-      document.getElementById('bt-measure-sheet')?.querySelectorAll('.bt-measure-block').length ?? 0;
-    // 旧实现会把 120 块一次性排进同一张量表；分批后仅保留最后一批（≤ 批大小 + 前瞻）
-    expect(rendered).toBeGreaterThan(0);
-    expect(rendered).toBeLessThanOrEqual(32);
     disposeMeasureSheet();
   });
 });

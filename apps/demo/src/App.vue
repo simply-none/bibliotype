@@ -361,6 +361,15 @@ const booted = ref(false);
 /** 阅读视图模式：单页翻页 / 连续滚动多页 */
 const viewMode = ref<'page' | 'scroll'>('page');
 
+/** 编辑态右栏属性检视器是否折叠（收成细条只留展开把手；随界面偏好快照持久化） */
+const inspectorCollapsed = ref(false);
+
+/** 切换属性栏折叠并落盘 */
+function toggleInspector(): void {
+  inspectorCollapsed.value = !inspectorCollapsed.value;
+  persistSettingsSnapshot();
+}
+
 /** 编辑器实例（首次进入编辑模式时惰性创建，之后复用） */
 const bookEditor = shallowRef<BookEditor | null>(null);
 
@@ -477,11 +486,13 @@ const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
 /** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
 const SETTINGS_KEY = 'bibliotype-demo:settings';
 
-/** 界面偏好快照：主题键 + 夜间 / 视图模式 */
+/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 属性栏折叠 */
 interface SettingsSnapshot {
   themeKey: ThemeKey;
   night: boolean;
   viewMode: 'page' | 'scroll';
+  /** 编辑态右栏属性检视器折叠（true = 收成细条） */
+  inspectorCollapsed: boolean;
 }
 
 /** 读取界面偏好快照（非法 / 缺失 → null，逐字段容错回退默认） */
@@ -495,6 +506,7 @@ function readSettingsSnapshot(): SettingsSnapshot | null {
       themeKey: parsed.themeKey,
       night: parsed.night === true,
       viewMode: parsed.viewMode === 'scroll' ? 'scroll' : 'page',
+      inspectorCollapsed: parsed.inspectorCollapsed === true,
     };
   } catch {
     return null;
@@ -511,6 +523,7 @@ function applySettingsSnapshot(snapshot: SettingsSnapshot): void {
   themeKey.value = snapshot.themeKey;
   night.value = snapshot.night;
   viewMode.value = snapshot.viewMode;
+  inspectorCollapsed.value = snapshot.inspectorCollapsed;
 }
 
 /** 收集当前界面偏好并落盘 */
@@ -519,6 +532,7 @@ function persistSettingsSnapshot(): void {
     themeKey: themeKey.value,
     night: night.value,
     viewMode: viewMode.value,
+    inspectorCollapsed: inspectorCollapsed.value,
   };
   try {
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));
@@ -1254,9 +1268,22 @@ onBeforeUnmount(() => {
           </BtEditor>
         </div>
 
-        <!-- 编辑态右栏：属性检视器（纵向 inspector，跟随选区） -->
-        <aside v-if="mode === 'edit' && inspectorBinding" class="app__inspector">
+        <!-- 编辑态右栏：属性检视器（纵向 inspector，跟随选区；可折叠为细条把手段） -->
+        <aside
+          v-if="mode === 'edit' && inspectorBinding"
+          class="app__inspector"
+          :class="{ 'app__inspector--collapsed': inspectorCollapsed }"
+        >
+          <button
+            type="button"
+            class="app__inspector__toggle"
+            :title="inspectorCollapsed ? '展开属性栏' : '折叠属性栏'"
+            @click="toggleInspector"
+          >
+            {{ inspectorCollapsed ? '«' : '»' }}
+          </button>
           <AttrInspector
+            v-show="!inspectorCollapsed"
             :binding="inspectorBinding"
             :named-styles="namedStyles.styles"
           />
@@ -1559,16 +1586,45 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
-/* 编辑态右栏：属性检视器列（与左栏同宽级，纵向流式） */
+/* 编辑态右栏：属性检视器列（与左栏同宽级，纵向流式）；宽度变更带过渡，折叠后只留把手 */
 .app__inspector {
   display: flex;
   flex: none;
   flex-direction: column;
+  gap: 6px;
   width: 280px;
   overflow-y: auto;
   border-inline-start: 1px solid var(--demo-border);
   background: var(--demo-aside);
   color: var(--demo-text);
+  transition: width 0.16s ease;
+}
+
+.app__inspector--collapsed {
+  width: 30px;
+  overflow: hidden;
+}
+
+/* 折叠把手：栏首右上角小方块，与控件制式（ghost 按钮）一致 */
+.app__inspector__toggle {
+  flex: none;
+  align-self: flex-start;
+  width: 22px;
+  height: 22px;
+  margin: 4px 4px 0;
+  padding: 0;
+  border: 1px solid var(--demo-control-border);
+  border-radius: 4px;
+  background: var(--demo-control);
+  color: var(--demo-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.app__inspector__toggle:hover {
+  color: var(--demo-accent);
+  border-color: var(--demo-accent);
 }
 
 /* ---------- 底部状态栏 ---------- */

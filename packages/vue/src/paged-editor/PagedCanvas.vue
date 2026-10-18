@@ -15,10 +15,14 @@
  * 真相在模型；重排（pages 变化）后按模型选区还原 caret 与焦点页。
  * 输入完整性：IME 组合期间不落事务、compositionend 快照差分一次提交；
  * 粘贴归一纯文本；跨块边界退格/删除走 PM join；纯导航键跨页片段边界跳转。
+ *
+ * 翻页轴随书写方向：横排页沿竖直自上而下堆叠（纵向滚）；直排（vertical-rl）页沿水平
+ * 自右向左排布（首页贴右缘、横向滚，与线装书行款一致），主轴口径与 BtBookView
+ * 滚动模式同源；直排下鼠标滚轮映射到横轴（向下拨 = 向前翻页）。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isTextNode, type BookNode, type FeatureStyleSheet, type NamedStyleSet } from '@bibliotype/core';
-import { buildPageStyle, buildRootStyle, type LayoutOptions } from '@bibliotype/layout';
+import { buildPageStyle, buildRootStyle, isVerticalMode, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import {
   buildPageChromeIndex,
@@ -160,6 +164,8 @@ onBeforeUnmount(removeStyle);
 
 const pageSize = computed(() => props.options.pageSize);
 const pageNumberStyle = computed(() => props.options.pageNumberStyle as PageNumberStyle);
+/** 书写方向为直排：翻页主轴由纵向转为水平（自右向左），交叉轴为页高 */
+const verticalWriting = computed(() => isVerticalMode(props.options.writingMode));
 
 /*
  * 页眉 / 页脚（与阅读视图、打印稿同源）：
@@ -221,6 +227,7 @@ const OVERSCAN = 2;
 
 const rootRef = ref<HTMLElement | null>(null);
 const scrollerRef = ref<HTMLElement | null>(null);
+/** 视口沿主轴状态（横排 = scrollTop / clientHeight；直排 = 自内容右缘偏移 / 可视宽） */
 const viewport = ref({ top: 0, height: 0 });
 /** 容器宽自适应缩放（DOM 实测产出；用户倍率优先时不参与） */
 const fitScale = ref(1);
@@ -236,14 +243,22 @@ const userScale = computed<number | null>(() => {
 const scrollScale = computed(() => userScale.value ?? fitScale.value);
 
 const slotHeight = computed(() => pageSize.value.height * scrollScale.value);
-const stride = computed(() => slotHeight.value + SCROLL_GAP);
+/** 单页缩放后宽度（数值；直排时它是主轴尺寸，带 px 字符串版见 slotWidth） */
+const slotMainWidth = computed(() => pageSize.value.width * scrollScale.value);
+/** 页步长：沿主轴（横排 = 页高 + 缝距；直排 = 页宽 + 缝距） */
+const stride = computed(() =>
+  verticalWriting.value ? slotMainWidth.value + SCROLL_GAP : slotHeight.value + SCROLL_GAP,
+);
 
 const pageCount = computed(() => props.pages.length);
 
+/** 轨道主轴总尺寸（含首尾内边距）；直排撑宽 + 满高（页在轨道内垂直居中），横排撑高 */
 const contentStyle = computed(() => {
   const count = pageCount.value;
-  const height = count > 0 ? SCROLL_PADDING * 2 + count * stride.value - SCROLL_GAP : 0;
-  return { height: `${height}px` };
+  const main = count > 0 ? SCROLL_PADDING * 2 + count * stride.value - SCROLL_GAP : 0;
+  return verticalWriting.value
+    ? { width: `${main}px`, height: '100%' }
+    : { height: `${main}px` };
 });
 
 const range = computed(() => {
@@ -267,7 +282,8 @@ interface RenderedFrag {
 
 interface RenderedPage {
   index: number;
-  top: number;
+  /** 本页沿主轴的起始偏移（横排 = 距顶，直排 = 距右缘） */
+  mainPos: number;
   frags: RenderedFrag[];
   numberText: string;
   /** 页眉文本（空串 = 不渲染） */
@@ -323,7 +339,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
     }
     list.push({
       index: i,
-      top: SCROLL_PADDING + i * stride.value,
+      mainPos: SCROLL_PADDING + i * stride.value,
       frags: page.fragments.map((frag) => ({
         key: `${frag.blockId}@${frag.fromLine}`,
         blockId: frag.blockId,
@@ -352,17 +368,27 @@ function updateScale(): void {
     syncViewport();
     return;
   }
-  const available = el.clientWidth - SCROLL_PADDING * 2;
-  fitScale.value = Math.min(1, Math.max(0.1, available / pageSize.value.width));
+  let ratio = (el.clientWidth - SCROLL_PADDING * 2) / pageSize.value.width;
+  if (verticalWriting.value) {
+    // 直排页沿水平排列：页高是交叉轴，必须整页高可见，缩放取宽 / 高双约束较小者
+    ratio = Math.min(ratio, (el.clientHeight - SCROLL_PADDING * 2) / pageSize.value.height);
+  }
+  fitScale.value = Math.min(1, Math.max(0.1, ratio));
   syncViewport();
 }
 
-// 倍率变更即时重缩放（用户倍率走计算属性，fit 分支需重测）
-watch([() => props.scale, () => props.fit], updateScale);
+// 倍率变更即时重缩放（用户倍率走计算属性，fit 分支需重测；直排下换向也需重测）
+watch([() => props.scale, () => props.fit, verticalWriting], updateScale);
 
 function syncViewport(): void {
   const el = scrollerRef.value;
   if (el === null) return;
+  if (verticalWriting.value) {
+    // 直排自右向左：主轴偏移 = 内容右缘到视口右缘的距离（scrollLeft 最大时视口贴右缘）
+    const maxLeft = el.scrollWidth - el.clientWidth;
+    viewport.value = { top: Math.max(0, maxLeft - el.scrollLeft), height: el.clientWidth };
+    return;
+  }
   viewport.value = { top: el.scrollTop, height: el.clientHeight };
 }
 
@@ -384,12 +410,33 @@ function onScroll(): void {
   });
 }
 
-/** 外部定位到某页顶部 */
+/** 外部定位到某页起始沿（横排 = 顶缘对齐 scrollTop，直排 = 右缘对齐 scrollLeft） */
 function scrollToPage(index: number): void {
   const el = scrollerRef.value;
   if (el === null || index < 0 || index >= pageCount.value) return;
-  el.scrollTop = SCROLL_PADDING + index * stride.value;
+  const pos = SCROLL_PADDING + index * stride.value;
+  if (verticalWriting.value) {
+    const maxLeft = el.scrollWidth - el.clientWidth;
+    el.scrollLeft = Math.max(0, maxLeft - pos);
+  } else {
+    el.scrollTop = pos;
+  }
   syncViewport();
+}
+
+/**
+ * 直排横向滚动下的鼠标滚轮适配：容器主轴转为水平后，部分浏览器不把纵向滚轮
+ * 映射到横轴（滚轮无响应）。约定「向下拨 = 向前翻页」——视口左移，即 scrollLeft
+ * 递减（直排右起，首页在右缘）。触控板横向手势（|deltaX| 较大）不拦截，
+ * 交由浏览器原生行为；横排保持原生纵向滚动（滚轮即逐页下翻）。
+ */
+function onWheel(event: WheelEvent): void {
+  if (!verticalWriting.value) return;
+  const el = scrollerRef.value;
+  if (el === null) return;
+  if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  event.preventDefault();
+  el.scrollLeft -= event.deltaY;
 }
 
 /**
@@ -460,7 +507,17 @@ onBeforeUnmount(() => {
   detachSelectionSync();
 });
 
-const slotWidth = computed(() => `${pageSize.value.width * scrollScale.value}px`);
+/** 槽位交叉轴尺寸（横排主轴 = 高、宽度由基规则左右拉满居中；直排主轴 = 宽） */
+const slotWidth = computed(() => `${slotMainWidth.value}px`);
+
+/** 槽位定位：横排沿纵轴写 top（自上而下）；直排沿横轴写 right（自右向左），偏移与 stride 同源 */
+function slotStyle(page: RenderedPage): Record<string, string | number> {
+  const size = { width: slotWidth.value, height: `${slotHeight.value}px` };
+  return verticalWriting.value
+    ? { right: `${page.mainPos}px`, top: 0, bottom: 0, ...size }
+    : { top: `${page.mainPos}px`, ...size };
+}
+
 const scaledFrameStyle = computed(() => ({
   ...pageFrameStyle.value,
   transform: `scale(${scrollScale.value})`,
@@ -917,13 +974,20 @@ watch(
 </script>
 
 <template>
-  <div ref="scrollerRef" class="bt-paged" @scroll="onScroll">
+  <div
+    ref="scrollerRef"
+    class="bt-paged"
+    :class="{ 'bt-paged--x': verticalWriting }"
+    @scroll="onScroll"
+    @wheel="onWheel"
+  >
     <div ref="rootRef" class="bt-paged__track" :style="contentStyle">
       <div
         v-for="page in renderedPages"
         :key="page.index"
         class="bt-paged__slot"
-        :style="{ top: `${page.top}px`, width: slotWidth, height: `${slotHeight}px` }"
+        :class="{ 'bt-paged__slot--x': verticalWriting }"
+        :style="slotStyle(page)"
       >
         <div
           class="bt-paged-page"
@@ -962,6 +1026,7 @@ watch(
  * 编辑分页外壳与书写方向无关：页框 inline 样式带 writing-mode: vertical-rl，
  * 若槽位 / 页框定位用逻辑属性（inset-inline / inset-block-start）会按页框自身
  * 直排物理翻转（left→right）导致页框左移溢出被裁；一律物理定位。
+ * 页阵主轴随书写方向转置（横排纵向 / 直排自右向左横向），但定位均用物理属性。
  */
 .bt-paged,
 .bt-paged__track {
@@ -982,12 +1047,34 @@ watch(
   width: 100%;
 }
 
+/* 直排：页沿水平自右向左排布，横向滚；轨道宽由 contentStyle 按页数撑开，
+   min-width 保证页少时仍铺满视口、右锚定不漂 */
+.bt-paged--x {
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.bt-paged--x .bt-paged__track {
+  min-width: 100%;
+}
+
 .bt-paged__slot {
   position: absolute;
   left: 0;
   right: 0;
   margin-left: auto;
   margin-right: auto;
+}
+
+/* 槽位改右锚定（mainPos 写 right）：断开基规则的 left:0 与居中 margin，避免 left 固定 +
+   right 定位互斥后被静态位置接管；顶 / 底拉满 + auto margin 使页在交叉轴（高）居中，
+   页高超出视口时 auto margin 按规格取 0 → 退为顶对齐且仍可纵向滚到未露区 */
+.bt-paged__slot--x {
+  left: auto;
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: auto;
+  margin-bottom: auto;
 }
 
 .bt-paged-page {

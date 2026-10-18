@@ -4,7 +4,7 @@
  *
  * 两种阅读模式（`mode`）：
  * - `page`（默认）：一次渲染「当前页」，按容器等比缩放居中（fit / ResizeObserver）；
- *   翻页靠外部触发（BtPager 按钮 / 键盘），与历史行为一致。
+ *   翻页靠外部触发（BtPager 按钮 / 键盘）与鼠标滚轮（下翻 = 下一页）。
  * - `scroll`：连续滚动多页——把所有分页沿主轴拼接为一个可滚动容器，
  *   滚动时按可见页回写 Reader 页态，外部翻页（按钮 / 键盘 / 目录）则滚动定位到对应页；
  *   双向同步天然收敛（goToPage 命中同页为 no-op，不自激）。
@@ -237,6 +237,42 @@ const stageStyle = computed(() => ({
   width: `${pageSize.value.width * scale.value}px`,
   height: `${pageSize.value.height * scale.value}px`,
 }));
+
+/* ---------- page 模式滚轮翻页 ---------- */
+
+/** 滚轮翻页的主轴累计阈值（px）：凑够一格才翻，避免高灵敏滚轮一格连翻数页 */
+const WHEEL_PAGE_THRESHOLD = 120;
+/** 翻页后的冷却（ms）：触控板惯性尾巴不再拖动页码 （与键盘连按手感相当） */
+const WHEEL_PAGE_COOLDOWN = 320;
+let wheelAcc = 0;
+let wheelLockAt = 0;
+
+/**
+ * 单页模式下的鼠标滚轮：舞台 overflow hidden、滚轮无原生可滚区，故映射为翻页。
+ * 取主导轴增量累计（同向累加、反向重新起算，不做正负抵消）；「向下 / 向右拨 =
+ * 向前翻页」，与直排、横排的阅读前进方向一致；真翻成一页才 preventDefault。
+ */
+function onPageWheel(event: WheelEvent): void {
+  const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if (!Number.isFinite(raw) || raw === 0) return;
+  const now = Date.now();
+  if (now < wheelLockAt) {
+    wheelAcc = 0;
+    return;
+  }
+  wheelAcc = Math.sign(raw) === Math.sign(wheelAcc) ? wheelAcc + raw : raw;
+  if (Math.abs(wheelAcc) < WHEEL_PAGE_THRESHOLD) return;
+  const forward = wheelAcc > 0;
+  wheelAcc = 0;
+  const flipped = forward ? props.reader.nextPage() : props.reader.prevPage();
+  if (flipped) {
+    event.preventDefault();
+    wheelLockAt = now + WHEEL_PAGE_COOLDOWN;
+  } else {
+    // 首 / 末边缘：短锁避免惯性流量反复撞墙（不阻隔后续反向滚动）
+    wheelLockAt = now + 120;
+  }
+}
 
 /** scroll 模式每页槽位宽度字符串（主轴定位偏移由 renderedPages.mainPos 逐页给定） */
 const slotWidth = computed(() => `${slotMainWidth.value}px`);
@@ -480,8 +516,8 @@ watch([() => props.fit, pageSize], () => {
 </script>
 
 <template>
-  <!-- 单页模式：一次渲染当前页，等比缩放居中 -->
-  <div v-if="mode === 'page'" ref="rootRef" class="bt-book-view">
+  <!-- 单页模式：一次渲染当前页，等比缩放居中；滚轮 = 翻页 -->
+  <div v-if="mode === 'page'" ref="rootRef" class="bt-book-view" @wheel="onPageWheel">
     <div class="bt-book-view__stage" :style="stageStyle">
       <div class="bt-reader-page" :style="scaledPageStyle">
         <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>

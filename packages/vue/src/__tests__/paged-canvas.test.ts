@@ -107,6 +107,54 @@ describe('PagedCanvas', () => {
     disposeMeasureSheet();
   });
 
+  it('直排（vertical-rl）：页阵主轴转置为水平右起 — 槽位写 right、轨道撑宽', () => {
+    const options = { ...DEFAULT_LAYOUT_OPTIONS, writingMode: 'vertical-rl' as const };
+    const { pages } = buildPagedLayout({ doc: longDoc(), options });
+    expect(pages.length).toBeGreaterThan(1);
+
+    const wrapper = mount(PagedCanvas, {
+      props: { pages, options, tokens: DEFAULT_THEME },
+    });
+
+    // 滚动容器换为横向滚动变体，页槽带右锚定类
+    const scroller = wrapper.find('.bt-paged');
+    expect(scroller.classes()).toContain('bt-paged--x');
+    const slots = wrapper.findAll('.bt-paged__slot');
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots[0]?.classes()).toContain('bt-paged__slot--x');
+
+    // 主轴偏移写到 right（首页 = SCROLL_PADDING 16），不再写 top 堆叠
+    const firstStyle = slots[0]?.attributes('style') ?? '';
+    expect(firstStyle).toContain('right: 16px');
+    expect(firstStyle).not.toContain('top: 16px');
+
+    // 逐页步长 = 页宽 + 缝距（而非页高）
+    const secondStyle = slots[1]?.attributes('style') ?? '';
+    const step = options.pageSize.width + 28;
+    expect(secondStyle).toContain(`right: ${16 + step}px`);
+
+    // 轨道沿主轴（宽）按页数撑开，高度填满视口（页在交叉轴居中）
+    const trackStyle = wrapper.find('.bt-paged__track').attributes('style') ?? '';
+    expect(trackStyle).toContain('width:');
+    expect(trackStyle).toContain('height: 100%');
+
+    wrapper.unmount();
+    disposeMeasureSheet();
+  });
+
+  it('横排不变：主轴仍为纵向（槽位写 top、无横向变体类）', () => {
+    const { pages } = buildPagedLayout({ doc: longDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    const wrapper = mount(PagedCanvas, {
+      props: { pages, options: DEFAULT_LAYOUT_OPTIONS, tokens: DEFAULT_THEME },
+    });
+    expect(wrapper.find('.bt-paged').classes()).not.toContain('bt-paged--x');
+    const slotStyle = wrapper.find('.bt-paged__slot').attributes('style') ?? '';
+    expect(slotStyle).toContain('top: 16px');
+    expect(slotStyle).not.toContain('right: 16px');
+    wrapper.unmount();
+    disposeMeasureSheet();
+  });
+
   it('initialPage：首轮分页就绪后定位到目标页并回写可见页（一次性）', async () => {
     const { pages } = buildPagedLayout({ doc: longDoc(), options: DEFAULT_LAYOUT_OPTIONS });
     expect(pages.length).toBeGreaterThan(3);

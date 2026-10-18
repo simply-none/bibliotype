@@ -4,7 +4,7 @@
  * 覆盖：页内容渲染与样式表注入、翻页控件状态与交互、
  * 目录层级渲染与跳转。
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
@@ -215,6 +215,40 @@ describe('BtBookView', () => {
     expect(trackStyle).toMatch(/height: \d+p[xt]/);
     const heightPx = Number(/height: (\d+(?:\.\d+)?)px/.exec(trackStyle)?.[1] ?? '0');
     expect(heightPx).toBeGreaterThan(20 * 100); // 至少能容纳 20 个页位
+  });
+
+  it('page 模式滚轮翻页：达阈向下翻下一页、向上翻上一页，未达阈不翻', async () => {
+    vi.useFakeTimers();
+    try {
+      const reader = createPagedReader(5);
+      const wrapper = mount(BtBookView, { props: { reader, mode: 'page' } });
+      const view = wrapper.find('.bt-book-view');
+
+      // 不足累计阈值（120）：同向两小格共 100 仍不翻页
+      await view.trigger('wheel', { deltaY: 50 });
+      await view.trigger('wheel', { deltaY: 50 });
+      expect(reader.currentPage).toBe(0);
+
+      // 足够一格：向下拨 = 向前翻页
+      await view.trigger('wheel', { deltaY: 200 });
+      expect(reader.currentPage).toBe(1);
+
+      // 冷却（320ms）内后续滚动不连翻（同一帧内连发多格惯性尾巴）
+      await view.trigger('wheel', { deltaY: 200 });
+      expect(reader.currentPage).toBe(1);
+
+      // 反向：绕过冷却后向上拨 = 回上一页
+      vi.advanceTimersByTime(400);
+      await view.trigger('wheel', { deltaY: -300 });
+      expect(reader.currentPage).toBe(0);
+
+      // 首页再向上不越界（prevPage 失败，页态不变）
+      vi.advanceTimersByTime(400);
+      await view.trigger('wheel', { deltaY: -300 });
+      expect(reader.currentPage).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

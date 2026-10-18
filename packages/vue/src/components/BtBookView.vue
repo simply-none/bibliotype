@@ -5,9 +5,11 @@
  * 两种阅读模式（`mode`）：
  * - `page`（默认）：一次渲染「当前页」，按容器等比缩放居中（fit / ResizeObserver）；
  *   翻页靠外部触发（BtPager 按钮 / 键盘），与历史行为一致。
- * - `scroll`：连续滚动多页——把所有分页纵向拼接为一个可滚动容器，
+ * - `scroll`：连续滚动多页——把所有分页沿主轴拼接为一个可滚动容器，
  *   滚动时按可见页回写 Reader 页态，外部翻页（按钮 / 键盘 / 目录）则滚动定位到对应页；
  *   双向同步天然收敛（goToPage 命中同页为 no-op，不自激）。
+ *   拼接方向随书写方向：横排自上而下纵向滚；直排（vertical-rl）自右向左横向滚，
+ *   首页贴右缘、向左续翻，与线装书行款一致。
  *
  * 公共：
  * - 页内容 IR → HTML 经 layout/html 序列化（与导出器同源）；
@@ -18,7 +20,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
-import { buildPageStyle, buildRootStyle } from '@bibliotype/layout';
+import { buildPageStyle, buildRootStyle, isVerticalMode } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import { formatPageNumber, type PageNumberStyle, type Reader } from '@bibliotype/reader';
 import { useReaderBinding } from '../use-reader.js';
@@ -48,6 +50,8 @@ const tokens = computed<Readonly<Record<string, string | undefined>>>(
   () => props.tokens ?? DEFAULT_THEME,
 );
 const pageSize = computed(() => layout.value.pageSize);
+/** 书写方向为直排：滚动模式翻页轴随之由纵向转为水平（自右向左） */
+const verticalWriting = computed(() => isVerticalMode(layout.value.writingMode));
 
 /* ---------- 页内容与样式 ---------- */
 
@@ -184,7 +188,7 @@ function updateScale(): void {
   scale.value = Math.min(1, ratio);
 }
 
-/** scroll 模式：按滚动容器宽度等比缩放（不放大，仅按宽适配） */
+/** scroll 模式：横排按容器宽适配；直排横向滚动额外受容器高约束（整页高须可见） */
 const scrollerRef = ref<HTMLElement | null>(null);
 const scrollScale = ref(1);
 let scrollObserver: ResizeObserver | undefined;
@@ -194,10 +198,14 @@ const SCROLL_PADDING = 16;
 const SCROLL_GAP = 20;
 const OVERSCAN = 2;
 
-/** 单页缩放后高度（各页等高，可精确推算总高与页位） */
+/** 单页缩放后高度（各页等高，可精确推算总尺寸与页位） */
 const slotHeight = computed(() => pageSize.value.height * scrollScale.value);
-/** 页步长（页高 + 间距） */
-const stride = computed(() => slotHeight.value + SCROLL_GAP);
+/** 单页缩放后宽度（数值，供步长计算；带 px 字符串版见 slotWidth） */
+const slotMainWidth = computed(() => pageSize.value.width * scrollScale.value);
+/** 页步长：沿主轴（横排 = 页高 + 间距；直排 = 页宽 + 间距） */
+const stride = computed(() =>
+  verticalWriting.value ? slotMainWidth.value + SCROLL_GAP : slotHeight.value + SCROLL_GAP,
+);
 
 function updateScrollScale(): void {
   const el = scrollerRef.value;
@@ -205,8 +213,12 @@ function updateScrollScale(): void {
     scrollScale.value = 1;
     return;
   }
-  const available = el.clientWidth - SCROLL_PADDING * 2;
-  scrollScale.value = Math.min(1, Math.max(0.1, available / pageSize.value.width));
+  let ratio = (el.clientWidth - SCROLL_PADDING * 2) / pageSize.value.width;
+  if (verticalWriting.value) {
+    // 直排页沿水平排列：页高是交叉轴，必须整页高可见，缩放取宽 / 高双约束较小者
+    ratio = Math.min(ratio, (el.clientHeight - SCROLL_PADDING * 2) / pageSize.value.height);
+  }
+  scrollScale.value = Math.min(1, Math.max(0.1, ratio));
   syncViewport();
 }
 
@@ -226,28 +238,36 @@ const stageStyle = computed(() => ({
   height: `${pageSize.value.height * scale.value}px`,
 }));
 
-/** scroll 模式每页槽位宽度（页高由 slotHeight 推算定位） */
-const slotWidth = computed(() => `${pageSize.value.width * scrollScale.value}px`);
+/** scroll 模式每页槽位宽度字符串（主轴定位偏移由 renderedPages.mainPos 逐页给定） */
+const slotWidth = computed(() => `${slotMainWidth.value}px`);
 
 /* ---------- scroll 模式：窗口化虚拟滚动 + 页态双向同步 ---------- */
 
-/** 滚动视口（scrollTop / clientHeight），驱动渲染窗口与可见页推算 */
+/** 滚动视口沿主轴状态（横排 = scrollTop / clientHeight；直排 = 自内容右缘偏移 / 可视宽），驱动渲染窗口与可见页推算 */
 const viewport = ref({ top: 0, height: 0 });
 
 function syncViewport(): void {
   const scroller = scrollerRef.value;
   if (scroller === null) return;
-  viewport.value = { top: scroller.scrollTop, height: scroller.clientHeight };
+  if (verticalWriting.value) {
+    // 直排自右向左：主轴偏移 = 内容右缘到视口右缘的距离（scrollLeft 最大时视口贴右缘）
+    const maxLeft = scroller.scrollWidth - scroller.clientWidth;
+    viewport.value = { top: Math.max(0, maxLeft - scroller.scrollLeft), height: scroller.clientWidth };
+  } else {
+    viewport.value = { top: scroller.scrollTop, height: scroller.clientHeight };
+  }
 }
 
 /** 总页数 */
 const pageCount = computed(() => (props.mode === 'scroll' ? pagination.value.length : 0));
 
-/** 滚动内容总高（含首尾内边距），撑出真实滚动条 */
+/** 滚动内容主轴总尺寸（含首尾内边距），撑出真实滚动条 */
 const contentStyle = computed(() => {
   const count = pageCount.value;
-  const height = count > 0 ? SCROLL_PADDING * 2 + count * stride.value - SCROLL_GAP : 0;
-  return { height: `${height}px` };
+  const main = count > 0 ? SCROLL_PADDING * 2 + count * stride.value - SCROLL_GAP : 0;
+  return verticalWriting.value
+    ? { width: `${main}px`, height: `${slotHeight.value}px` }
+    : { height: `${main}px` };
 });
 
 /** 当前渲染窗口 [start, end]（含 overscan） */
@@ -265,7 +285,8 @@ const range = computed(() => {
 
 interface RenderedPage {
   index: number;
-  top: number;
+  /** 本页沿主轴的起始偏移（横排 = 距顶，直排 = 距右缘） */
+  mainPos: number;
   html: string;
   showPageNumber: boolean;
   numberText: string;
@@ -293,7 +314,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
     const chrome = props.reader.getPageChromeTexts(i);
     list.push({
       index: i,
-      top: SCROLL_PADDING + i * step,
+      mainPos: SCROLL_PADDING + i * step,
       html: blockNodes.map((node) => serializeNode(node)).join('\n'),
       // 启用页眉页脚后，页码归属页脚字段；未启用才走老的「页脚仅页码」
       showPageNumber:
@@ -306,7 +327,15 @@ const renderedPages = computed<RenderedPage[]>(() => {
   return list;
 });
 
-/** 由 scrollTop 推算参考线（视口 35% 高处）所在页 */
+/** 槽位定位：横排沿纵轴写 top（自上而下）；直排沿横轴写 right（自右向左），主轴偏移同源 mainPos */
+function slotStyle(page: RenderedPage): Record<string, string | number> {
+  const size = { width: slotWidth.value, height: `${slotHeight.value}px` };
+  return verticalWriting.value
+    ? { right: `${page.mainPos}px`, top: 0, ...size }
+    : { top: `${page.mainPos}px`, ...size };
+}
+
+/** 由主轴滚动位置推算参考线（自起始沿 35% 处）所在页 */
 function indexFromViewport(): number {
   const count = pageCount.value;
   if (count === 0) return 0;
@@ -332,13 +361,34 @@ function onScroll(): void {
   });
 }
 
-/** 目标页对齐到容器顶部（按页步长直接定位，并即时刷新视口以纳入渲染窗口） */
+/** 目标页对齐到容器主轴起始沿（横排 = 顶缘，直排 = 右缘），并即时刷新视口以纳入渲染窗口 */
 function scrollToPage(index: number): void {
   const scroller = scrollerRef.value;
   if (scroller === null) return;
   if (index < 0 || index >= pageCount.value) return;
-  scroller.scrollTop = SCROLL_PADDING + index * stride.value;
+  const pos = SCROLL_PADDING + index * stride.value;
+  if (verticalWriting.value) {
+    const maxLeft = scroller.scrollWidth - scroller.clientWidth;
+    scroller.scrollLeft = Math.max(0, maxLeft - pos);
+  } else {
+    scroller.scrollTop = pos;
+  }
   syncViewport();
+}
+
+/**
+ * 直排横向滚动下的鼠标滚轮适配：容器仅 overflow-x 可滚时，部分浏览器不把
+ * 纵向滚轮映射到横轴，滚轮无响应。约定「向下拨 = 向前翻页」——视口左移，
+ * 即 scrollLeft 递减（直排右起，首页在右缘）。触控板横向手势（|deltaX| 较大）
+ * 不拦截，交由浏览器原生行为。
+ */
+function onWheel(event: WheelEvent): void {
+  if (props.mode !== 'scroll' || !verticalWriting.value) return;
+  if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  const scroller = scrollerRef.value;
+  if (scroller === null) return;
+  event.preventDefault();
+  scroller.scrollLeft -= event.deltaY;
 }
 
 // 外部翻页（按钮 / 键盘 / 目录）→ 滚动定位；由滚动驱动的回写则跳过
@@ -445,15 +495,22 @@ watch([() => props.fit, pageSize], () => {
     </div>
   </div>
 
-  <!-- 连续滚动模式：窗口化渲染可见页，滚动 ↔ 页态双向同步 -->
-  <div v-else ref="scrollerRef" class="bt-book-view bt-book-view--scroll" @scroll="onScroll">
+  <!-- 连续滚动模式：窗口化渲染可见页，滚动 ↔ 页态双向同步（直排时沿水平自右向左） -->
+  <div
+    v-else
+    ref="scrollerRef"
+    class="bt-book-view bt-book-view--scroll"
+    :class="{ 'bt-book-view--scroll-x': verticalWriting }"
+    @scroll="onScroll"
+    @wheel="onWheel"
+  >
     <div class="bt-scroll__track" :style="contentStyle">
       <div
         v-for="page in renderedPages"
         :key="page.index"
         class="bt-scroll__slot"
         :class="{ 'is-active': page.index === currentPage }"
-        :style="{ top: `${page.top}px`, width: slotWidth, height: `${slotHeight}px` }"
+        :style="slotStyle(page)"
       >
         <div class="bt-reader-page" :style="scaledPageStyle">
           <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
@@ -492,6 +549,30 @@ watch([() => props.fit, pageSize], () => {
   display: block;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* 直排滚动：页沿水平自右向左排列，横向滚动、纵向居中不滚；
+   justify 显式 flex-start：基类的 center 在内容超宽时会把左端溢出区裁到不可滚达 */
+.bt-book-view--scroll-x {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 轨道宽度由 contentStyle 按页数撑开；min-width 保证页少时仍铺满视口、右锚定不漂 */
+.bt-book-view--scroll-x .bt-scroll__track {
+  flex: none;
+  min-width: 100%;
+}
+
+/* 槽位改右锚定（mainPos 写 right）：断开基规则的 left:0 与居中 margin，
+   避免 left 固定 + right 定位互斥后被静态位置接管 */
+.bt-book-view--scroll-x .bt-scroll__slot {
+  left: auto;
+  margin-left: 0;
+  margin-right: 0;
 }
 
 .bt-scroll__track {

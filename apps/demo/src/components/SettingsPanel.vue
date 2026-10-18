@@ -5,7 +5,9 @@
  * 结构（参考 Word 的「选项 / 样式」组织方式）：
  * - 左导航：功能样式 / 版面与页面 / 页眉页脚 / 编辑行为 / 预设管理；
  * - 右侧：所选分组的表单；功能分组内先选分组、再选功能（胶囊），然后逐项改细节；
- * - 所有改动经 `use-style-settings` 自动落盘（本书作用域），关窗重开仍在。
+ * - 改动先进 `use-style-settings` 草稿（api 处于 draft 模式）：面板内部可感知
+ *   变化，但页面 / 画布不重排；底部「保存」烘焙生效并落盘，「关闭」直接丢弃
+ *   未保存改动（丢弃由父级调 api.discardDraft 完成）。
  *
  * 参数表来自 `use-style-schema.ts`，表单由 `FeatureStyleEditor` 通用渲染，
  * 因此新增参数不需要动本文件。
@@ -320,6 +322,24 @@ async function onGlobal(): Promise<void> {
 async function onResetAll(): Promise<void> {
   await props.api.resetAll();
   presetMessage.value = '已恢复全部默认并清除已保存的样式';
+}
+
+/* ---------- 底部保存 / 关闭 ---------- */
+
+/** 是否存在未保存改动（草稿脏标记；非草稿模式回退常量 false） */
+const dirty = computed(() => props.api.draftDirty.value);
+
+/** 保存：把草稿烘焙进源状态（此刻一次性重排）并落盘，弹窗继续打开可接着改 */
+const saving = ref(false);
+async function onSave(): Promise<void> {
+  if (saving.value) return;
+  saving.value = true;
+  try {
+    await props.api.applyDraft();
+  } finally {
+    saving.value = false;
+  }
+  emit('close');
 }
 </script>
 
@@ -747,6 +767,29 @@ async function onResetAll(): Promise<void> {
           </template>
         </div>
       </div>
+
+      <!-- 底部动作条：改动先进草稿，「保存」后才烘焙生效（避免逐字段重排） -->
+      <footer class="panel__actions">
+        <span v-if="dirty" class="panel__actions-hint">有未保存的改动，关闭将丢弃</span>
+        <div class="panel__actions-buttons">
+          <button
+            type="button"
+            class="panel__secondary"
+            :title="dirty ? '丢弃未保存改动并关闭' : '关闭弹窗'"
+            @click="emit('close')"
+          >
+            关闭
+          </button>
+          <button
+            type="button"
+            class="panel__primary"
+            :disabled="!dirty || saving"
+            @click="onSave"
+          >
+            {{ saving ? '保存中…' : '保存' }}
+          </button>
+        </div>
+      </footer>
     </section>
   </div>
 </template>
@@ -1076,5 +1119,31 @@ async function onResetAll(): Promise<void> {
 .panel__footer {
   margin-block-start: auto;
   padding-block-start: 10px;
+}
+
+/* 底部动作条：与内容区分隔，保存（主）/ 关闭（次）右对齐 */
+.panel__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 18px;
+  border-block-start: 1px solid var(--demo-border);
+  background: var(--demo-panel, #f4f0e8);
+}
+
+.panel__actions-hint {
+  font-size: 11px;
+  color: var(--demo-accent);
+}
+
+.panel__actions-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.panel__actions-buttons .panel__primary,
+.panel__actions-buttons .panel__secondary {
+  min-width: 72px;
 }
 </style>

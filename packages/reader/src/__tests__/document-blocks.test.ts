@@ -71,6 +71,50 @@ describe('extractBlocks', () => {
     expect(blocks.find((b) => b.id === 'p-1')?.breakBefore).toBeUndefined();
   });
 
+  it('分页符块（break variant=page）标记 breakAfter，其他变体不标记', () => {
+    const doc = createEmptyDocument({ title: '分页符' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '上页' }] },
+          { type: NODE_TYPES.BREAK, id: 'br-page', attrs: { variant: 'page' } },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-2', children: [{ type: 'text', text: '新页' }] },
+          { type: NODE_TYPES.BREAK, id: 'br-hr', attrs: { variant: 'hr' } },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-3', children: [{ type: 'text', text: '分隔线后' }] },
+        ],
+      },
+    ];
+    const blocks = extractBlocks(doc);
+    expect(blocks.map((b) => b.id)).toEqual(['p-1', 'br-page', 'p-2', 'br-hr', 'p-3']);
+    expect(blocks.find((b) => b.id === 'br-page')?.breakAfter).toBe(true);
+    expect(blocks.find((b) => b.id === 'br-hr')?.breakAfter).toBeUndefined();
+    // 分页符自身不是正文段：不可拆，也不继承前后块的换页标记
+    expect(blocks.find((b) => b.id === 'br-page')?.splittable).toBeUndefined();
+    expect(blocks.find((b) => b.id === 'p-2')?.breakAfter).toBeUndefined();
+  });
+
+  it('分页符作为结构容器首块时不带 breakBefore（否则它独占一页多出一张空白页）', () => {
+    const doc = createEmptyDocument({ title: '卷首分页符' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        children: [
+          { type: NODE_TYPES.BREAK, id: 'br-page', attrs: { variant: 'page' } },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '正文' }] },
+        ],
+      },
+    ];
+    const blocks = extractBlocks(doc);
+    expect(blocks.map((b) => b.id)).toEqual(['br-page', 'p-1']);
+    // 结构容器首块本应带 breakBefore，分页符例外：它的 breakAfter 已足够让后继另起一页
+    expect(blocks[0]?.breakBefore).toBeUndefined();
+    expect(blocks[0]?.breakAfter).toBe(true);
+    expect(blocks[1]?.breakBefore).toBeUndefined();
+  });
+
   it('标题块标记 keepWithNext', () => {
     const blocks = extractBlocks(sampleDoc());
     expect(blocks.find((b) => b.id === 'h-1')?.keepWithNext).toBe(true);

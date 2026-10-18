@@ -6,7 +6,7 @@
  * 撤销 / 重做｜正文与标题级别｜引用 / 无序 / 有序列表｜粗 / 斜 / 下划线 / 高亮 /
  * 删除线 / 行内代码 / 链接 / 注音｜专名号 / 书名号 / 圈点 / 异体 / 注Ref / 避讳 /
  * 夹注 / 异体载体 / 避讳载体｜插入双行注 / 眉批 / 校勘记 / 出校符号 / 跋文 / 牌记 /
- * 题记 / 版框 / 鱼尾 / 印章 / 图片 / 表格 / 脚注 / 尾注 / 边注｜还原样册。
+ * 题记 / 版框 / 鱼尾 / 印章 / 图片 / 表格 / 脚注 / 尾注 / 边注｜下一页｜还原样册。
  * 激活态由 binding.version 驱动（每次事务后重算 isMarkActive / isNodeActive）。
  *
  * ## 使用说明的落点分工（勿重复也勿遗漏）
@@ -33,6 +33,7 @@ import type { EditorBinding } from '@bibliotype/vue';
 import {
   insertBlockOfType,
   insertImage,
+  insertPageBreak,
   insertTable,
   redoCommand,
   setHeadingLevel,
@@ -489,9 +490,23 @@ const classicalActions: readonly ToolbarAction[] = [
  * - **段后插入容器**（双行注 / 眉批 / 校勘记 / 跋文 / 牌记 / 题记 / 版框 / 鱼尾 / 表格 /
  *   脚注 / 尾注 / 边注）：以「当前叶块之后」为插入点，光标随即进入新容器；
  * - **光标处插入**（出校符号 / 印章 / 图片）：按 `replaceSelectionWith` 替换当前选区。
+ * 另有「下一页」：在光标处插分页符（段中则一分为二），靠分页器的 breakAfter 断页（非容器插入）。
  * 容器类内容的可编辑性、样式全在 `book-css.ts`；`rawAttrs` 兜底保证未知属性往返无损。
  */
 const insertActions: readonly ToolbarAction[] = [
+  {
+    label: '下一页',
+    run: () => execute(insertPageBreak()),
+    title: '在光标处插入分页符：光标后的内容另起一页，光标落在新页首位',
+    usage: {
+      use: '从光标处强行断页：新增一页，光标落到新页第一个可输入位置',
+      where:
+        '光标在段中 / 段尾 → 该段一分为二，后半起新页；光标在段首 → 整段移到新页（均不留空白段）',
+      attrs: 'break.variant = page（分页符，不是普通分隔线 hr / dashed）',
+      limit:
+        '横排 / 直排同一逻辑；分页符在页内渲染为一条分隔线（横排横线、直排竖线），点错可整笔撤销（Mod-Z）',
+    },
+  },
   {
     label: '双行注',
     run: () => execute(insertDoubleNote()),

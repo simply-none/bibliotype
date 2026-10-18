@@ -61,6 +61,8 @@ export {
   insertAtomicNode,
   insertImage,
   insertCodeBlock,
+  insertPageBreak,
+  PAGE_BREAK_VARIANT,
   insertTable,
   tableAddRow,
   tableAddColumn,

@@ -48,6 +48,28 @@ describe('buildPagedLayout', () => {
     disposeMeasureSheet();
   });
 
+  it('分页符（break variant=page）使其后一块从新页页首起排', () => {
+    const doc = createEmptyDocument({ title: '分页符' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        children: [
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '上页正文' }] },
+          { type: NODE_TYPES.BREAK, id: 'br-1', attrs: { variant: 'page' } },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-2', children: [{ type: 'text', text: '新页正文' }] },
+        ],
+      },
+    ];
+    const result = buildPagedLayout({ doc, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(result.usable).toBe(true);
+    // 一页容量内本可装下三块，分页符仍把 p-2 顶到第二页的页首
+    expect(result.pages).toHaveLength(2);
+    expect(result.pages[0]?.fragments.map((frag) => frag.blockId)).toEqual(['p-1', 'br-1']);
+    expect(result.pages[1]?.fragments.map((frag) => frag.blockId)).toEqual(['p-2']);
+    disposeMeasureSheet();
+  });
+
   it('直排单栏可用（量尺主轴口径随书写方向转置，不再被安全门拦截）', () => {
     const result = buildPagedLayout({
       doc: docWithParagraphs(['子曰学而时习之']),

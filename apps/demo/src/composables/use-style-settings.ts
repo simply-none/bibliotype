@@ -10,6 +10,10 @@
  *
  * 保存时机：任何改动 800ms 后自动落盘（切书 / 关窗前 flush）——
  * 「下次打开还是这个样式」不依赖用户点按钮。
+ *
+ * 草稿模式（`draft: true`）：改动只写草稿，不落源状态也不落盘——
+ * 页面 / 画布不会因单个字段重排；`applyDraft` 把草稿烘焙进源状态并持久化，
+ * `discardDraft` 直接丢弃（关窗 = 撤销全部未保存改动）。
  */
 import { computed, onBeforeUnmount, ref, shallowRef, type Ref } from 'vue';
 import {
@@ -45,6 +49,8 @@ export interface UseStyleSettingsOptions {
   bookId?: string;
   /** 迁移用的旧快照读取函数（缺省读 localStorage 的 bt-demo:settings） */
   readLegacy?: () => unknown;
+  /** 草稿模式：改动先进草稿，显式 applyDraft 才生效并落盘（设置弹窗场景） */
+  draft?: boolean;
 }
 
 /** 预设导出格式 */
@@ -84,14 +90,50 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
   const loaded = ref(false);
   /** 存储适配器名（面板上显示，便于确认走的是哪条链路） */
   const storeName = ref(store.name);
+  /** 草稿模式开关 */
+  const draftMode = ref(options.draft === true);
+  /** 草稿是否存在未保存改动 */
+  const draftDirty = ref(false);
+  /** 草稿主体（草稿模式下面板读写的对象；未 apply 前不影响源状态） */
+  const draftBody = ref<StyleSettingsBody>(createEmptyBody());
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let saving: Promise<void> | undefined;
 
   /* ---------- 快照 ---------- */
 
-  /** 当前配置主体 */
-  function currentBody(): StyleSettingsBody {
+  /** 空主体（草稿初始化 / 重置用） */
+  function createEmptyBody(): StyleSettingsBody {
+    return {
+      layout: {},
+      tokens: {},
+      features: {},
+      namedStyles: { version: 1, styles: [] },
+      editing: { ...DEFAULT_EDITING_SETTINGS },
+    };
+  }
+
+  /** 深拷贝一份主体（草稿与源状态隔离，互不引用） */
+  function cloneBody(body: StyleSettingsBody): StyleSettingsBody {
+    return {
+      layout: { ...body.layout },
+      tokens: { ...body.tokens },
+      features: Object.fromEntries(
+        Object.entries(body.features).map(([id, declarations]) => [id, { ...declarations }]),
+      ) as FeatureStyleSheet,
+      namedStyles: {
+        version: 1,
+        styles: body.namedStyles.styles.map((style) => ({
+          ...style,
+          declarations: { ...style.declarations },
+        })),
+      },
+      editing: { ...body.editing },
+    };
+  }
+
+  /** 源主体（当前生效配置；持久化 / 导出 / 全局默认均以此为准） */
+  function sourceBody(): StyleSettingsBody {
     return {
       layout: layoutPatch.value,
       tokens: tokenPatch.value,
@@ -101,18 +143,43 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     };
   }
 
-  /** 当前快照（含作用域） */
+  /**
+   * 面板读写主体
+   *
+   * 草稿模式下面板改的是草稿（源状态不动，页面不重排）；
+   * 非草稿模式即源状态（改动即时生效）。
+   */
+  function panelBody(): StyleSettingsBody {
+    return draftMode.value ? draftBody.value : sourceBody();
+  }
+
+  /** 当前配置主体（预设导出用：草稿模式取面板视图） */
+  function currentBody(): StyleSettingsBody {
+    return panelBody();
+  }
+
+  /** 当前源快照（含作用域；仅非草稿状态有持久化意义） */
   function currentSnapshot(scope = bookScope): StyleSettingsSnapshot {
     return {
       version: 1,
       scope,
-      ...currentBody(),
+      ...sourceBody(),
       updatedAt: Date.now(),
     };
   }
 
-  /** 应用一份主体（覆盖全部状态） */
+  /** 应用一份主体到面板（草稿模式写草稿并标记脏，否则直接写源状态） */
   function applyBody(body: StyleSettingsBody): void {
+    if (draftMode.value) {
+      draftBody.value = cloneBody(body);
+      draftDirty.value = true;
+      return;
+    }
+    applySource(body);
+  }
+
+  /** 应用一份主体到源状态（覆盖全部状态） */
+  function applySource(body: StyleSettingsBody): void {
     layoutPatch.value = { ...body.layout };
     tokenPatch.value = { ...body.tokens };
     features.value = { ...body.features };
@@ -121,6 +188,33 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
       styles: body.namedStyles.styles.map((style) => ({ ...style })),
     };
     editing.value = { ...body.editing };
+  }
+
+  /* ---------- 草稿 ---------- */
+
+  /** 开始编辑：用源状态初始化草稿（弹窗打开时调用） */
+  function beginDraft(): void {
+    draftBody.value = cloneBody(sourceBody());
+    draftDirty.value = false;
+  }
+
+  /**
+   * 保存草稿：烘焙进源状态（页面此刻一次性重排）并落盘
+   *
+   * applyDraft 后草稿自动用新源状态重新初始化，可继续编辑下一轮。
+   */
+  async function applyDraft(): Promise<void> {
+    if (!draftMode.value || !draftDirty.value) return;
+    applySource(draftBody.value);
+    draftDirty.value = false;
+    await flush();
+    beginDraft();
+  }
+
+  /** 丢弃草稿：回到源状态（弹窗关闭时调用，未保存改动全部作废） */
+  function discardDraft(): void {
+    if (!draftMode.value) return;
+    beginDraft();
   }
 
   /* ---------- 持久化 ---------- */
@@ -144,9 +238,9 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     saving = undefined;
   }
 
-  /** 排期落盘（防抖合并连续改动） */
+  /** 排期落盘（防抖合并连续改动）；草稿模式改动未 apply 不落盘 */
   function scheduleSave(): void {
-    if (!loaded.value) return;
+    if (!loaded.value || draftMode.value) return;
     if (saveTimer !== undefined) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       saveTimer = undefined;
@@ -175,16 +269,18 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
   async function load(): Promise<void> {
     const fromBook = await store.load(bookScope).catch(() => undefined);
     if (fromBook !== undefined) {
-      applyBody(fromBook);
+      applySource(fromBook);
       loaded.value = true;
+      beginDraft();
       await refreshPresets();
       return;
     }
 
     const fromGlobal = await store.load(STYLE_SCOPE.GLOBAL).catch(() => undefined);
     if (fromGlobal !== undefined) {
-      applyBody(fromGlobal);
+      applySource(fromGlobal);
       loaded.value = true;
+      beginDraft();
       await refreshPresets();
       return;
     }
@@ -203,14 +299,16 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
       if (typeof record.pagination === 'boolean') {
         migrated.editing = { ...migrated.editing, pagination: record.pagination };
       }
-      applyBody(migrated);
+      applySource(migrated);
       loaded.value = true;
+      beginDraft();
       await store.save(bookScope, migrated).catch(() => undefined);
       await refreshPresets();
       return;
     }
 
     loaded.value = true;
+    beginDraft();
     await refreshPresets();
   }
 
@@ -218,23 +316,32 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
 
   /** 写单个令牌 */
   function setToken(key: string, value: string): void {
-    tokenPatch.value = { ...tokenPatch.value, [key]: value };
+    panelBody().tokens = { ...panelBody().tokens, [key]: value };
+    touchDraft();
     scheduleSave();
   }
 
   /** 删单个令牌覆写（回落主题基准） */
   function clearToken(key: string): void {
-    if (!(key in tokenPatch.value)) return;
-    const next = { ...tokenPatch.value };
+    const body = panelBody();
+    if (!(key in body.tokens)) return;
+    const next = { ...body.tokens };
     delete next[key];
-    tokenPatch.value = next;
+    body.tokens = next;
+    touchDraft();
     scheduleSave();
   }
 
   /** 合并布局补丁 */
   function patchLayout(patch: Record<string, unknown>): void {
-    layoutPatch.value = { ...layoutPatch.value, ...patch };
+    panelBody().layout = { ...panelBody().layout, ...patch };
+    touchDraft();
     scheduleSave();
+  }
+
+  /** 改草稿脏标记（草稿模式下改动即脏；调度落盘由 scheduleSave 负责） */
+  function touchDraft(): void {
+    if (draftMode.value) draftDirty.value = true;
   }
 
   /** 写一条功能声明（value 为 null 表示删除该条，回落默认样式） */
@@ -243,95 +350,124 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     property: string,
     value: string | null,
   ): void {
-    const current = features.value[id] ?? {};
+    const body = panelBody();
+    const current = body.features[id] ?? {};
     const next: FeatureDeclarations = { ...current };
     if (value === null || value === '') delete next[property];
     else next[property] = value;
 
-    const sheet: FeatureStyleSheet = { ...features.value };
+    const sheet: FeatureStyleSheet = { ...body.features };
     if (Object.keys(next).length === 0) delete sheet[id];
     else sheet[id] = next;
-    features.value = sheet;
+    body.features = sheet;
+    touchDraft();
     scheduleSave();
   }
 
   /** 整体覆盖某功能的声明（「自定义声明」文本框用） */
   function setFeatureDeclarations(id: FeatureStyleId, declarations: FeatureDeclarations): void {
-    const sheet: FeatureStyleSheet = { ...features.value };
+    const body = panelBody();
+    const sheet: FeatureStyleSheet = { ...body.features };
     if (Object.keys(declarations).length === 0) delete sheet[id];
     else sheet[id] = declarations;
-    features.value = sheet;
+    body.features = sheet;
+    touchDraft();
     scheduleSave();
   }
 
   /** 恢复某功能的默认样式（删掉它的全部覆盖） */
   function resetFeature(id: FeatureStyleId): void {
-    if (features.value[id] === undefined) return;
-    const sheet = { ...features.value };
+    const body = panelBody();
+    if (body.features[id] === undefined) return;
+    const sheet = { ...body.features };
     delete sheet[id];
-    features.value = sheet;
+    body.features = sheet;
+    touchDraft();
     scheduleSave();
   }
 
-  /** 恢复全部默认（本书作用域清空，并删除已存快照） */
+  /** 恢复全部默认（本书作用域清空，并删除已存快照）
+   *
+   * 直写源状态并立即生效：已存快照此刻删除，若只清草稿、
+   * 「关闭不保存」会造成内存与存储不一致（重开后回落默认）。
+   */
   async function resetAll(): Promise<void> {
-    layoutPatch.value = {};
-    tokenPatch.value = {};
-    features.value = {};
-    namedStyles.value = { version: 1, styles: [] };
-    editing.value = { ...DEFAULT_EDITING_SETTINGS };
+    applySource(createEmptyBody());
+    if (draftMode.value) beginDraft();
     await store.delete(bookScope).catch(() => false);
     await store.delete(STYLE_SCOPE.GLOBAL).catch(() => false);
   }
 
   /** 是否存在任何覆写 */
   const customized = computed(
-    () =>
-      Object.keys(layoutPatch.value).length > 0 ||
-      Object.keys(tokenPatch.value).length > 0 ||
-      Object.keys(features.value).length > 0 ||
-      namedStyles.value.styles.length > 0,
+    () => {
+      const body = panelBody();
+      return (
+        Object.keys(body.layout).length > 0 ||
+        Object.keys(body.tokens).length > 0 ||
+        Object.keys(body.features).length > 0 ||
+        body.namedStyles.styles.length > 0
+      );
+    },
   );
 
   /* ---------- 编辑行为 ---------- */
 
   /** 改编辑行为（逐字段合并） */
   function patchEditing(patch: Partial<EditingSettings>): void {
-    editing.value = { ...editing.value, ...patch };
+    panelBody().editing = { ...panelBody().editing, ...patch };
+    touchDraft();
     scheduleSave();
+  }
+
+  /** 改编辑行为（直写源状态，绕过草稿）
+   *
+   * 供设置弹窗之外的即时生效场景（工具条只读切换 / 进编辑重置）；
+   * 若弹窗开着，关闭时草稿会用最新源状态重新初始化。
+   */
+  function patchEditingDirect(patch: Partial<EditingSettings>): void {
+    editing.value = { ...editing.value, ...patch };
+    if (draftMode.value && !draftDirty.value) beginDraft();
+    // 源状态改动不走草稿防抖（草稿模式下 scheduleSave 会直接跳过），立即落盘
+    void flush();
   }
 
   /* ---------- 命名样式 ---------- */
 
   /** 新建命名样式（基于某功能的当前声明） */
   function createNamedStyle(name: string, featureId: FeatureStyleId): NamedStyle {
+    const body = panelBody();
     const style: NamedStyle = {
       id: createNamedStyleId(),
       name,
       featureId,
-      declarations: { ...(features.value[featureId] ?? {}) },
+      declarations: { ...(body.features[featureId] ?? {}) },
     };
-    namedStyles.value = { version: 1, styles: [...namedStyles.value.styles, style] };
+    body.namedStyles = { version: 1, styles: [...body.namedStyles.styles, style] };
+    touchDraft();
     scheduleSave();
     return style;
   }
 
   /** 改名 */
   function renameNamedStyle(id: string, name: string): void {
-    namedStyles.value = {
+    const body = panelBody();
+    body.namedStyles = {
       version: 1,
-      styles: namedStyles.value.styles.map((style) =>
+      styles: body.namedStyles.styles.map((style) =>
         style.id === id ? { ...style, name } : style,
       ),
     };
+    touchDraft();
     scheduleSave();
   }
 
   /** 改声明 */
   function setNamedStyleDeclaration(id: string, property: string, value: string | null): void {
-    namedStyles.value = {
+    const body = panelBody();
+    body.namedStyles = {
       version: 1,
-      styles: namedStyles.value.styles.map((style) => {
+      styles: body.namedStyles.styles.map((style) => {
         if (style.id !== id) return style;
         const declarations: FeatureDeclarations = { ...style.declarations };
         if (value === null || value === '') delete declarations[property];
@@ -339,15 +475,18 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
         return { ...style, declarations };
       }),
     };
+    touchDraft();
     scheduleSave();
   }
 
   /** 删除 */
   function deleteNamedStyle(id: string): void {
-    namedStyles.value = {
+    const body = panelBody();
+    body.namedStyles = {
       version: 1,
-      styles: namedStyles.value.styles.filter((style) => style.id !== id),
+      styles: body.namedStyles.styles.filter((style) => style.id !== id),
     };
+    touchDraft();
     scheduleSave();
   }
 
@@ -468,6 +607,12 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     loaded,
     storeName,
     customized,
+    /* 草稿 */
+    draftMode,
+    draftDirty,
+    beginDraft,
+    applyDraft,
+    discardDraft,
     /* 生命周期 */
     load,
     flush,
@@ -481,6 +626,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     resetFeature,
     resetAll,
     patchEditing,
+    patchEditingDirect,
     /* 命名样式 */
     createNamedStyle,
     renameNamedStyle,

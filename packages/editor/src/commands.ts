@@ -10,6 +10,7 @@
 import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
 import { lift, setBlockType, toggleMark, wrapIn } from 'prosemirror-commands';
 import { redo, undo } from 'prosemirror-history';
+import { Fragment } from 'prosemirror-model';
 import type { Attrs, Mark, MarkType, Node as PmNode, NodeType, Schema } from 'prosemirror-model';
 import { liftListItem, wrapInList } from 'prosemirror-schema-list';
 import {
@@ -675,6 +676,74 @@ export function insertCodeBlock(language?: string): Command {
     const tr = state.tr.insert(insertPos, block);
     // 空 textblock 用 near 前探落位（between 会停在块前的块层）
     tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/* ---------- 分页符（「下一页」） ---------- */
+
+/** 分页符变体值：`break(variant='page')`，reader.extractBlocks 据此给本块置 breakAfter */
+export const PAGE_BREAK_VARIANT = 'page';
+
+/**
+ * 在光标处插入分页符并另起一页（「下一页」）
+ *
+ * 断页能力由文档模型承载：插入 `break(variant='page')`，reader.extractBlocks 给该
+ * 叶块置 `breakAfter`，layout.paginate 于是强使其后的块从新页页首起排——页是
+ * 固定框、正文如水流动，本命令只在流上打一个「此处断页」的标记。
+ *
+ * 落点三种（光标始终落到新页的第一个可编辑位置）：
+ * - **段中 / 段尾**：按光标把所在块一分为二（与回车同逻辑），前半留本页、后半起
+ *   新页，光标落在后半段段首（Word「下一页」同语义，不额外产生空块）；
+ * - **段首**：分页符插在该块之前，整块移到新页，光标仍在该块段首（不留空块）；
+ * - **不在文本块内**（选中原子块 / 块层空位）：退化为「当前块之后插分页符 + 空段落」，
+ *   光标进入该空段落。
+ *
+ * 横排 / 直排行为一致：主轴方向与页边界由分页内核按书写方向处理，本命令不感知
+ * 方向。分页符自身按实测 / 估算照常入账（编辑器里渲染为分隔标记，见样式表
+ * `.bt-break[data-variant='page']`），不强制零尺寸，保证量尺与渲染同源。
+ * schema 未注册 break / paragraph，或光标位于文档根（depth=0）时返回 false。
+ */
+export function insertPageBreak(): Command {
+  return (state, dispatch) => {
+    const breakType = findNodeType(state.schema, NODE_TYPES.BREAK);
+    const paragraph = findNodeType(state.schema, NODE_TYPES.PARAGRAPH);
+    if (breakType === undefined || paragraph === undefined) {
+      return false;
+    }
+    const { $from, $to } = state.selection;
+    if ($from.depth === 0) {
+      return false;
+    }
+    const brk = breakType.createChecked({ variant: PAGE_BREAK_VARIANT });
+    if (brk === null) {
+      return false;
+    }
+    const tr = state.tr;
+    // split 默认 depth=1：只断开光标所在的文本块，祖先容器（卷 / 章 / 节）原样保留
+    const blockStart = $from.before($from.depth);
+    const cursor = $from.pos;
+    if ($from.parent.isTextblock && cursor > blockStart + 1) {
+      // 段中 / 段尾：[前半][分页符][后半]，光标进后半段首（后半为空段 = 光标在原段尾）
+      tr.split(cursor);
+      const gap = cursor + 1;
+      tr.insert(gap, brk);
+      tr.setSelection(TextSelection.near(tr.doc.resolve(gap + brk.nodeSize + 1), 1));
+    } else if ($from.parent.isTextblock) {
+      // 段首：[分页符][整块]，整块换页，光标留在块首（不产生多余空块）
+      tr.insert(blockStart, brk);
+      tr.setSelection(TextSelection.near(tr.doc.resolve(blockStart + brk.nodeSize + 1), 1));
+    } else {
+      // 光标不在文本块内（原子块选区 / 块层空位）：段后插「分页符 + 空段落」承接光标
+      const para = paragraph.createChecked();
+      if (para === null) {
+        return false;
+      }
+      const insertPos = $to.after($to.depth);
+      tr.insert(insertPos, Fragment.fromArray([brk, para]));
+      tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + brk.nodeSize + 1), 1));
+    }
     dispatch?.(tr.scrollIntoView());
     return true;
   };

@@ -137,6 +137,15 @@ export interface ExtractBlocksOptions {
   bodySizes?: ReadonlyMap<string, number>;
 }
 
+/**
+ * 分页符变体值（与 editor 的 `insertPageBreak` / `PAGE_BREAK_VARIANT` 同口径）
+ *
+ * reader 不依赖 @bibliotype/editor，故此处以字面量表列：`break(variant='page')`
+ * 的叶块恒置 `breakAfter`，其后一块从新页页首起排（横排 / 直排同一逻辑，
+ * 主轴方向由 layout.paginate 的调用方按书写方向传尺寸）。
+ */
+const PAGE_BREAK_VARIANT = 'page';
+
 /** 当前处理中的叶块标记 */
 interface PendingFlags {
   breakBefore?: boolean;
@@ -218,6 +227,9 @@ export function extractBlocksIndexed(
       // 正文段落可按行跨页续排（纸书逻辑）：标 splittable + 行高，供 paginate 行级拆分；
       // 标题 / 注文 / 牌记 / 封面等版式块恒整块呈现，不标。
       const splittable = node.type === NODE_TYPES.PARAGRAPH;
+      // 分页符（break variant=page）：自身成一标记块，并强制其后一块另起一页
+      const isPageBreak =
+        node.type === NODE_TYPES.BREAK && node.attrs?.['variant'] === PAGE_BREAK_VARIANT;
       // 可拆段：行高用真实实测值（不含块间距），行数用实测行边界显式给定，
       // 消除「推进量÷行数」把间距摊入行高导致的每页少放 1~2 行页底空白
       const lines = lineOffsets?.get(id)?.length ?? 0;
@@ -257,7 +269,10 @@ export function extractBlocksIndexed(
             }
           : {}),
         ...(bodyMainSize !== undefined ? { bodyMainSize } : {}),
-        ...(flags.breakBefore === true ? { breakBefore: true } : {}),
+        // 分页符自身不带走一页：它的 breakAfter 已保证后继另起一页，自身再
+        // breakBefore（如它正好是结构容器首块）会只让它独占一页、中间多出一张空白页
+        ...(flags.breakBefore === true && !isPageBreak ? { breakBefore: true } : {}),
+        ...(isPageBreak ? { breakAfter: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
       });
       return;

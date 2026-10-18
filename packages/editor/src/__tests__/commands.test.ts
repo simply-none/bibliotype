@@ -5,7 +5,7 @@
  * 断言 IR 往返后的文档形态与历史行为。
  */
 import { describe, expect, it } from 'vitest';
-import { MARK_TYPES, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
+import { MARK_TYPES, NODE_TYPES, createEmptyDocument, type BookDocument, type BookNode } from '@bibliotype/core';
 import type { Mark, Node as PmNode } from 'prosemirror-model';
 import { TextSelection, type Command } from 'prosemirror-state';
 import {
@@ -13,6 +13,8 @@ import {
   insertBlockAfterSelection,
   insertCodeBlock,
   insertImage,
+  insertPageBreak,
+  PAGE_BREAK_VARIANT,
   insertTable,
   redoCommand,
   setHeadingLevel,
@@ -118,6 +120,20 @@ function collectTextMarks(pm: PmNode): readonly Mark[] {
 /** 章节点（卷 > 章） */
 function chapterNode(editor: BookEditor): BookDocument['root']['children'] | undefined {
   return editor.getDocument().root.children?.[0]?.children;
+}
+
+/** IR 节点全量文本（分页符等无内容块返回空串） */
+function irText(node: BookNode | undefined): string {
+  if (node === undefined) return '';
+  if (node.type === 'text') return node.text ?? '';
+  return (node.children ?? []).map(irText).join('');
+}
+
+/** 把光标置于首个文本节点内指定偏移（非选区） */
+function placeCaretInFirstText(editor: BookEditor, offset: number): void {
+  const { from } = firstTextRange(editor);
+  const state = editor.editorState;
+  editor.dispatch(state.tr.setSelection(TextSelection.create(state.doc, from + offset)));
 }
 
 describe('编辑命令', () => {
@@ -228,6 +244,78 @@ describe('编辑命令', () => {
     expect(run(editor, toggleBulletList())).toBe(true);
     blocks = firstLeafBlock(editor);
     expect(blocks?.[0]?.type).toBe(NODE_TYPES.PARAGRAPH);
+  });
+
+  it('insertPageBreak：光标在段中 → 该段一分为二、分页符居中，光标进后半段首', () => {
+    const editor = createEditor();
+    placeCaretInFirstText(editor, 3);
+
+    expect(run(editor, insertPageBreak())).toBe(true);
+
+    const blocks = firstLeafBlock(editor);
+    expect(blocks).toHaveLength(3);
+    expect(irText(blocks?.[0])).toBe('子曰：');
+    expect(blocks?.[1]?.type).toBe(NODE_TYPES.BREAK);
+    expect(blocks?.[1]?.attrs?.['variant']).toBe(PAGE_BREAK_VARIANT);
+    expect(blocks?.[2]?.type).toBe(NODE_TYPES.PARAGRAPH);
+    expect(irText(blocks?.[2])).toBe('学而时习之。');
+
+    // 光标跳过分页符，落在后半段段首（= 新页第一个可编辑位置）
+    const { $from, empty } = editor.editorState.selection;
+    expect(empty).toBe(true);
+    expect($from.parent.type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect($from.parentOffset).toBe(0);
+    expect($from.parent.textContent).toBe('学而时习之。');
+  });
+
+  it('insertPageBreak：光标在段首 → 分页符置于整块之前，不产生多余空块', () => {
+    const editor = createEditor();
+    placeCaretInFirstText(editor, 0);
+
+    expect(run(editor, insertPageBreak())).toBe(true);
+
+    const blocks = firstLeafBlock(editor);
+    expect(blocks).toHaveLength(2);
+    expect(blocks?.[0]?.type).toBe(NODE_TYPES.BREAK);
+    expect(irText(blocks?.[1])).toBe('子曰：学而时习之。');
+
+    // 整块换页：光标仍在该块段首（即新页首位），未被拆成两段
+    const { $from } = editor.editorState.selection;
+    expect($from.parent.type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect($from.parentOffset).toBe(0);
+    expect(irText(blocks?.[1])).toBe($from.parent.textContent);
+  });
+
+  it('insertPageBreak：光标在段尾 → 后半为空段，光标落在新页直接打字', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+    const state = editor.editorState;
+    const { to } = firstTextRange(editor);
+    editor.dispatch(state.tr.setSelection(TextSelection.create(state.doc, to)));
+
+    expect(run(editor, insertPageBreak())).toBe(true);
+
+    const blocks = firstLeafBlock(editor);
+    expect(blocks).toHaveLength(3);
+    expect(irText(blocks?.[0])).toBe('子曰：学而时习之。');
+    expect(blocks?.[1]?.type).toBe(NODE_TYPES.BREAK);
+    expect(irText(blocks?.[2])).toBe('');
+
+    const { $from } = editor.editorState.selection;
+    expect($from.parent.type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect($from.parent.content.size).toBe(0);
+  });
+
+  it('insertPageBreak：可被撤销（进入历史栈）', () => {
+    const editor = createEditor();
+    placeCaretInFirstText(editor, 3);
+
+    expect(run(editor, insertPageBreak())).toBe(true);
+    expect(firstLeafBlock(editor)).toHaveLength(3);
+
+    expect(run(editor, undoCommand)).toBe(true);
+    expect(firstLeafBlock(editor)).toHaveLength(1);
+    expect(irText(firstLeafBlock(editor)?.[0])).toBe('子曰：学而时习之。');
   });
 
   it('insertBlockAfterSelection：叶块之后插入容器（含空段落）且光标进入新块', () => {

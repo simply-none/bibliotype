@@ -142,9 +142,10 @@ const theme = computed<ThemeConfig>(() => THEMES[themeKey.value]);
  * 样式设置（三级作用域 + 自动持久化）
  *
  * 布局补丁 / 令牌补丁 / 功能样式 / 命名样式 / 编辑行为统一由它管理：
- * 改动自动落盘到本书作用域（IndexedDB 优先），下次打开沿用同一套样式。
+ * 草稿模式——设置弹窗内改动只写草稿（页面不重排），点「保存」才
+ * 烘焙生效并落盘到本书作用域（IndexedDB 优先），下次打开沿用同一套样式。
  */
-const styleApi = useStyleSettings({ bookId: 'demo' });
+const styleApi = useStyleSettings({ bookId: 'demo', draft: true });
 /** 布局补丁（含页面尺寸；主题切换时清空） */
 const layoutPatch = styleApi.layoutPatch as Ref<Partial<LayoutOptions>>;
 /** 令牌补丁（字号 / 行距 / 字体族 / 版式 / 颜色等） */
@@ -657,7 +658,7 @@ async function enterEdit(): Promise<void> {
     dirty.value = bookEditor.value.isDirty;
   }
   mode.value = 'edit';
-  styleApi.patchEditing({ readonly: false });
+  styleApi.patchEditingDirect({ readonly: false });
   // 位置记忆：进编辑定位到阅读模式当前页（分页三端同源，页码可直接对齐）
   editStartPage.value = reader.value.currentPage;
   editorVisiblePage.value = editStartPage.value;
@@ -969,6 +970,12 @@ function toggleTab(tab: AsideTab): void {
 const settingsOpen = ref(false);
 const infoOpen = ref(false);
 
+/** 关闭设置弹窗：未保存的草稿改动直接丢弃（仅「保存」才生效） */
+function closeSettings(): void {
+  settingsOpen.value = false;
+  styleApi.discardDraft();
+}
+
 /** 捕获 BtEditor 默认插槽透传的 paged 感知 binding（供右栏属性检视器） */
 const slotBinding = shallowRef<EditorBinding | null>(null);
 /** 插槽渲染计数（非响应式；仅用于识别「首轮捕获」，避免逐事务重渲染） */
@@ -1076,9 +1083,9 @@ function onKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') infoOpen.value = false;
     return;
   }
-  /* 设置弹窗为模态：Esc 关闭，其余按键不外泄（避免背景页被翻页） */
+  /* 设置弹窗为模态：Esc 关闭（丢弃未保存改动），其余按键不外泄（避免背景页被翻页） */
   if (settingsOpen.value) {
-    if (event.key === 'Escape') settingsOpen.value = false;
+    if (event.key === 'Escape') closeSettings();
     return;
   }
   /* 编辑模式：← / → 交由编辑器移动光标，不翻页 */
@@ -1253,7 +1260,7 @@ onBeforeUnmount(() => {
         <EditorToolbar
           :binding="inspectorBinding"
           :readonly="editorReadonly"
-          @toggle-readonly="styleApi.patchEditing({ readonly: !editing.readonly })"
+          @toggle-readonly="styleApi.patchEditingDirect({ readonly: !editing.readonly })"
           @reset="resetSample"
         />
       </template>
@@ -1319,7 +1326,7 @@ onBeforeUnmount(() => {
                 v-if="!verticalRail"
                 :binding="captureSlotBinding(slotProps)"
                 :readonly="editorReadonly"
-                @toggle-readonly="styleApi.patchEditing({ readonly: !editing.readonly })"
+                @toggle-readonly="styleApi.patchEditingDirect({ readonly: !editing.readonly })"
                 @reset="resetSample"
               />
               <!--
@@ -1451,7 +1458,7 @@ onBeforeUnmount(() => {
       :tokens="tokens"
       :night="night"
       @update:night="night = $event; persistSettingsSnapshot()"
-      @close="settingsOpen = false"
+      @close="closeSettings"
     />
 
     <BookInfoDialog

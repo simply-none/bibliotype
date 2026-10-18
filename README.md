@@ -47,7 +47,8 @@ core → collab / adapter-indexeddb
 
 ```bash
 pnpm install        # 安装依赖
-pnpm build          # 全量构建（turbo）
+pnpm build          # 增量构建（turbo 缓存命中则跳过）
+pnpm build:full     # 全量构建（--force 绕过缓存，所有包重跑；dist 陈旧/怀疑缓存问题时用）
 pnpm test           # 全量测试（vitest）
 pnpm typecheck      # 全量类型检查
 pnpm --filter @bibliotype/demo dev   # 启动 Demo（http://localhost:5173）

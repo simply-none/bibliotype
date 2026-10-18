@@ -612,6 +612,20 @@ function persistSettingsSnapshot(): void {
  * 分页重算由度量签名变化驱动（见 `readerMetricsSignature`）。
  */
 
+/**
+ * 界面偏好（主题 / 夜间 / 视图模式 / 属性栏折叠）任意变化时自动落盘
+ *
+ * 仅靠零散的 `persistSettingsSnapshot()` 调用（切换夜间 / 折叠属性栏）会漏掉最常见、
+ * 也最影响「下次进来观感」的**主题切换**：`switchTheme` 此前未回调持久化，设置面板
+ * 「保存」走的是 `styleApi` 草稿、也不触碰 `themeKey`。漏存会导致下次进来主题回落
+ * 默认、横竖排随之归位，整本观感回到初始化。改用 watch 全量兜底，任何路径改了偏好
+ * 都即时写回 localStorage，无需调用方逐个补 `persistSettingsSnapshot()`。
+ */
+watch(
+  [themeKey, night, viewMode, inspectorCollapsed],
+  persistSettingsSnapshot,
+);
+
 /** 读取上次保存的页码（非法 / 不可用 → 0） */
 function readLastPage(): number {
   try {

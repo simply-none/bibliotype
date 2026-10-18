@@ -167,6 +167,14 @@ export function isLeafBlock(node: BookNode): boolean {
   }
   const children = node.children ?? [];
   const hasElement = children.some((child) => !isTextNode(child));
+  // 结构容器（卷 / 章 / 节等）：仅「含实质裸文本」才整体成块。导入的 HTML / DOCX 几乎
+  // 每个块级元素间都夹着换行 / 缩进等纯空白文本节点；若把它们也算作「混排文本」，整个
+  // 章节会被判成一个叶块 → 一行都不拆、整章挤在一页后被裁切，后续章节内容被吞没（页数
+  // 塌成接近章节数、后半本变空白）。纯空白文本不阻碍逐层下钻，只有真正的裸文本（无元素
+  // 包裹、拆开会丢字的行内载体）才保护成整块；空结构容器则不下钻也不产块（不生成空页）。
+  if (STRUCTURE_TYPES.has(node.type)) {
+    return children.some((child) => isTextNode(child) && (child.text ?? '').trim() !== '');
+  }
   return !hasElement || children.some(isTextNode);
 }
 

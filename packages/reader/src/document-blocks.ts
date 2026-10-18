@@ -126,6 +126,15 @@ export interface ExtractBlocksOptions {
    * （lineCount），块尾余量（间距）由 paginate 在末片段一次性结算。
    */
   lineSizes?: ReadonlyMap<string, number>;
+  /**
+   * 块 id → 块体高（px，DOM 实测自身盒高，不含任何外边距；与 blockSizes 同源产出）
+   *
+   * blockSizes 是到下一块上缘的「推进量」，已含与下一块的折叠外边距；那份间距
+   * 无论本块留在本页还是换页都已被前一块的入账额支付，因而「往本页追加一块」
+   * 的真实代价只是体高。命中本映射时给出 bodyMainSize，供 paginate 按体高判页，
+   * 消除每页虚耗一份间距带来的页底空白（标题 UA 外边距 / 段后距可达半行～一行）。
+   */
+  bodySizes?: ReadonlyMap<string, number>;
 }
 
 /** 当前处理中的叶块标记 */
@@ -188,6 +197,7 @@ export function extractBlocksIndexed(
   const blockSizes = options.blockSizes;
   const lineOffsets = options.lineOffsets;
   const lineSizes = options.lineSizes;
+  const bodySizes = options.bodySizes;
   const context: BlockMeasureContext = {
     ...DEFAULT_MEASURE_CONTEXT,
     ...options.context,
@@ -215,9 +225,30 @@ export function extractBlocksIndexed(
       if (splittable && hasMeasured && lines > 1) {
         lineSize = lineSizes?.get(id) ?? (measured as number) / lines;
       }
+      // 页内追加代价：mainSize 是到下一块上缘的「推进量」（已含与下一块的折叠间距），
+      // 那份间距在前一块的入账里就已被支付，故往本页追加一块的代价只取块体高
+      const advance = hasMeasured ? (measured as number) : estimator(node, context);
+      let bodyMainSize: number | undefined;
+      if (hasMeasured) {
+        // 实测口径：优先取量尺直接实测的体高；未命中时按「行数 × 真实行高」折算
+        // （与量尺同源）。推进量与体高相差不足 0.5px 属亚像素噪声，不产出字段
+        const direct = bodySizes?.get(id) ?? 0;
+        const body =
+          direct > 0
+            ? direct
+            : splittable && lines > 1
+              ? lines * lineSize
+              : 0;
+        if (body > 0 && advance - body >= 0.5) bodyMainSize = body;
+      } else {
+        // 估算口径：defaultEstimator 产出「行数 × 行高 + 块间距」，按行高向下折算即体高
+        // （与 paginate.lineCountOf 的 floor 折算同源，不会多扣 blockSpacing）
+        const body = Math.max(1, Math.floor(advance / lineSize)) * lineSize;
+        if (advance - body >= 0.5) bodyMainSize = body;
+      }
       blocks.push({
         id,
-        mainSize: hasMeasured ? (measured as number) : estimator(node, context),
+        mainSize: advance,
         ...(splittable
           ? {
               splittable: true,
@@ -225,6 +256,7 @@ export function extractBlocksIndexed(
               ...(hasMeasured && lines > 1 ? { lineCount: lines } : {}),
             }
           : {}),
+        ...(bodyMainSize !== undefined ? { bodyMainSize } : {}),
         ...(flags.breakBefore === true ? { breakBefore: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
       });

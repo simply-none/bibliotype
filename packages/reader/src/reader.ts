@@ -19,6 +19,7 @@ import {
   mergeLayoutOptions,
   paginate,
   resolvePageMainSize,
+  resolveBottomSlack,
   sliceNodeByCharRange,
   type LayoutOptions,
   type MeasurableBlock,
@@ -50,6 +51,8 @@ export interface RepaginateOptions {
   layout?: Partial<LayoutOptions>;
   /** 每页可用主轴尺寸（px） */
   pageMainSize?: number;
+  /** 页底溢出（px）覆盖；传 null 关闭，传 undefined 保持当前值 */
+  bottomSlack?: number | null;
   /** 估算上下文局部覆盖（字号/行距变化时联动重算行尺寸） */
   measure?: Partial<BlockMeasureContext>;
   /** 实测块尺寸映射；传 null 清空回退估算，传 undefined 保持当前映射 */
@@ -62,6 +65,14 @@ export interface RepaginateOptions {
   lineOffsets?: ReadonlyMap<string, number[]> | null;
   /** 块 id → 真实行高（px，DOM 实测，不含块间距）；与 lineOffsets 同源产出 */
   lineSizes?: ReadonlyMap<string, number> | null;
+  /**
+   * 块 id → 块体高（px，DOM 实测自身盒高，不含外边距）；与 blockSizes 同源产出
+   *
+   * blockSizes 是「推进量」（体高 + 与下一块的折叠间距）；paginate 按体高计
+   * 「往本页追加一块」的代价，消除每页重复扣一份间距造成的页底空白
+   * （见 extractBlocks 的 bodySizes 说明）。
+   */
+  bodySizes?: ReadonlyMap<string, number> | null;
 }
 
 /** 搜索选项 */
@@ -106,6 +117,13 @@ export interface ReaderOptions {
   layout?: Partial<LayoutOptions>;
   /** 每页可用主轴尺寸（px）；默认按页面尺寸与标准页边距推导 */
   pageMainSize?: number;
+  /**
+   * 页底溢出（px）；缺省按「布局 + 令牌 + 行高」推导（`resolveBottomSlack`）
+   *
+   * 显式传入可保证与调用方的版心口径一致（如 demo 自行解析 tokens 时）；
+   * 传 0 关闭溢出（行为与引入该能力前一致）。
+   */
+  bottomSlack?: number;
   /** 估算上下文覆盖（每行字符数/行高/块间距） */
   measure?: Partial<BlockMeasureContext>;
   /** 自定义块尺寸估算器 */
@@ -122,6 +140,8 @@ export interface ReaderOptions {
   lineOffsets?: ReadonlyMap<string, number[]>;
   /** 块 id → 真实行高（px，DOM 实测，不含块间距）；与 lineOffsets 同源产出 */
   lineSizes?: ReadonlyMap<string, number>;
+  /** 块 id → 块体高（px，DOM 实测，不含外边距）；供 paginate 按体高判页 */
+  bodySizes?: ReadonlyMap<string, number>;
   /**
    * 主题令牌值表（缺省 DEFAULT_THEME）
    *
@@ -150,6 +170,8 @@ export class Reader {
   private doc: BookDocument | undefined;
   private options: LayoutOptions;
   private pageMainSize: number;
+  /** 页底溢出（px）；显式给定时以外部值为准（与调用方版心口径对齐） */
+  private bottomSlack: number | undefined;
   /** 主题令牌值表（默认每页主轴尺寸推导用） */
   private readonly tokens: Readonly<Record<string, string | undefined>>;
   private readonly estimator: BlockSizeEstimator;
@@ -160,6 +182,8 @@ export class Reader {
   private lineOffsets: ReadonlyMap<string, number[]> | undefined;
   /** 块 id → 真实行高（px，DOM 实测，不含块间距） */
   private lineSizes: ReadonlyMap<string, number> | undefined;
+  /** 块 id → 块体高（px，DOM 实测，不含外边距） */
+  private bodySizes: ReadonlyMap<string, number> | undefined;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
@@ -174,11 +198,13 @@ export class Reader {
     this.tokens = options.tokens ?? DEFAULT_THEME;
     this.pageMainSizeExplicit = options.pageMainSize !== undefined;
     this.pageMainSize = options.pageMainSize ?? defaultPageMainSize(this.options, this.tokens);
+    this.bottomSlack = options.bottomSlack;
     this.measure = { ...DEFAULT_MEASURE_CONTEXT, ...options.measure };
     this.estimator = options.estimator ?? defaultEstimator;
     this.blockSizes = options.blockSizes;
     this.lineOffsets = options.lineOffsets;
     this.lineSizes = options.lineSizes;
+    this.bodySizes = options.bodySizes;
     this.events = options.events ?? createEventBus();
   }
 
@@ -216,6 +242,9 @@ export class Reader {
       this.pageMainSize = overrides.pageMainSize;
       this.pageMainSizeExplicit = true;
     }
+    if (overrides.bottomSlack !== undefined) {
+      this.bottomSlack = overrides.bottomSlack ?? undefined;
+    }
     if (overrides.measure !== undefined) {
       this.measure = { ...this.measure, ...overrides.measure };
     }
@@ -228,6 +257,9 @@ export class Reader {
     if (overrides.lineSizes !== undefined) {
       this.lineSizes = overrides.lineSizes ?? undefined;
     }
+    if (overrides.bodySizes !== undefined) {
+      this.bodySizes = overrides.bodySizes ?? undefined;
+    }
 
     this.blocks = extractBlocks(this.doc, {
       estimator: this.estimator,
@@ -235,8 +267,12 @@ export class Reader {
       blockSizes: this.blockSizes,
       lineOffsets: this.lineOffsets,
       lineSizes: this.lineSizes,
+      bodySizes: this.bodySizes,
     });
-    const result = paginate(this.blocks, { pageMainSize: this.pageMainSize });
+    const result = paginate(this.blocks, {
+      pageMainSize: this.pageMainSize,
+      bottomSlack: this.bottomSlackPx,
+    });
     this.pages = result.pages;
 
     this.pageByBlockId.clear();
@@ -264,6 +300,19 @@ export class Reader {
   /** 当前布局配置 */
   get layout(): LayoutOptions {
     return this.options;
+  }
+
+  /**
+   * 生效的页底溢出（px）
+   *
+   * 未显式给定时按「布局 + 令牌 + 行高」推导（行高取估算上下文的正文行高，
+   * 与页底残留的度量口径一致），并截断到不压页码带。
+   */
+  get bottomSlackPx(): number {
+    return (
+      this.bottomSlack ??
+      resolveBottomSlack(this.options, this.tokens, this.measure.lineSize)
+    );
   }
 
   /** 当前每页可用主轴尺寸（px）；随布局重算，供使用方对齐编辑态分页 */

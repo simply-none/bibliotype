@@ -12,7 +12,7 @@ import {
   FONT_TOKENS,
   LAYOUT_TOKENS,
 } from '@bibliotype/core';
-import type { LayoutOptions } from './layout-options.js';
+import type { BottomSlackOptions, LayoutOptions } from './layout-options.js';
 import { resolveContentBox, type PageSize } from './page-size.js';
 import { TEXT_ORIENTATIONS, isVerticalMode } from './writing-mode.js';
 import { combineUprightCss } from './combine-upright.js';
@@ -194,6 +194,51 @@ export function resolvePageMainSize(
       : (chrome.header === 'none' ? 0 : Math.max(0, chrome.headerSize)) +
         (chrome.footer === 'none' ? 0 : Math.max(0, chrome.footerSize));
   return Math.max(1, main - border - chromeMain);
+}
+
+/**
+ * 页码带高度（px）：从渲染侧 `.bt-page-number` 推导
+ *
+ * 页码以 `bottom: 16px` 绝对定位在页面下沿、行高继承根（正文行高倍数），
+ * 字号取 `font-size-note`（默认 12px → 带高 ≈ 16 + 12 × 1.9 ≈ 38.8）。取保守
+ * 上界 40：宁可少溢出一两个像素，也不让正文压到页码。与 book-css 的声明
+ * 同源，改那里必须同步这里。
+ */
+const PAGE_NUMBER_BAND = 40;
+
+/**
+ * 解析页底溢出量（px，分页可用容量的放宽量）
+ *
+ * 几何：换页线由「版心底（H − mB − C）」下移到「页码带顶缘」，故溢出上限受
+ * 三者约束：① 下边距 `mB`（侵入深度不能超过边距本身，否则正文贴到页面物理
+ * 底缘并被 `overflow: hidden` 裁切）；② 页码带（未启用 pageChrome 时页码以
+ * 绝对定位浮在页面下沿，版心与页码顶之间只剩 `mB − PAGE_NUMBER_BAND`）；
+ * ③ 已启用页脚时其占位已从版心扣掉，溢出可吃满整个下边距。
+ *
+ * 直排返回 0：主轴是页宽，溢出吃的是外边距（古籍版框 / 书口侧），风险与横排
+ * 不同源，不默认开放。
+ */
+export function resolveBottomSlack(
+  options: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+  lineSize: number,
+): number {
+  if (isVerticalMode(options.writingMode)) return 0;
+  const slack: BottomSlackOptions | undefined = options.bottomSlack;
+  if (slack === undefined) return 0;
+  const want =
+    typeof slack.px === 'number' && Number.isFinite(slack.px)
+      ? slack.px
+      : typeof slack.lines === 'number' && Number.isFinite(slack.lines)
+        ? slack.lines * lineSize
+        : 0;
+  if (want <= 0) return 0;
+  const [marginY] = resolvePageMargins(tokens);
+  const chrome = options.pageChrome;
+  const footerReserved =
+    chrome !== undefined && chrome.footer !== 'none' && chrome.footerSize > 0;
+  const room = footerReserved ? marginY : Math.max(0, marginY - PAGE_NUMBER_BAND);
+  return Math.max(0, Math.min(want, room));
 }
 
 /**

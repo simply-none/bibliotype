@@ -20,6 +20,7 @@ import {
   mergeLayoutOptions,
   paginate,
   resolvePageMainSize,
+  resolveBottomSlack,
   sliceNodeByCharRange,
   type LayoutOptions,
   type MeasurableBlock,
@@ -76,6 +77,12 @@ export interface BuildPagedInput {
   /** 每页可用主轴尺寸（px）；缺省按 pageSize 与 page-margin 推导 */
   pageMainSize?: number;
   /**
+   * 页底溢出（px）；缺省按「布局 + 令牌 + 行高」推导（不压页码带）
+   *
+   * 须与预览 / 导出传同一口径，否则编辑画布与阅读页的归属会不一致。
+   */
+  bottomSlack?: number;
+  /**
    * 增量重排起点块 id（阶段五）：仅 DOM 实测该块及之后，
    * 之前的块尺寸 / 行偏移沿用 previous 缓存。需与 previous 同用。
    */
@@ -96,6 +103,8 @@ export interface BuildPagedResult {
   usable: boolean;
   /** 生效的每页主轴尺寸（px） */
   pageMainSize: number;
+  /** 生效的页底溢出（px，参与本轮装箱容量） */
+  bottomSlack: number;
   /** 逐页片段序列 */
   pages: PagedPage[];
   /** 分页前的线性块（调试 / 阶段三映射） */
@@ -106,6 +115,8 @@ export interface BuildPagedResult {
   sizes: ReadonlyMap<string, number>;
   /** 块 id → 真实行高 px（不含块间距；增量重排时供下轮合并复用） */
   lineSizes: ReadonlyMap<string, number>;
+  /** 块 id → 块体高 px（不含外边距；供 paginate 按体高判页，增量重排时供下轮合并复用） */
+  bodySizes: ReadonlyMap<string, number>;
   /** 生效的每行字符估算（回退口径，供片段归属换算同源复用） */
   charsPerLine: number;
 }
@@ -217,6 +228,7 @@ function resolvePaginateResume(
       const lineSize = block.lineSize ?? block.mainSize;
       const size =
         frag.lineCount > 0 ? Math.min(block.mainSize, frag.lineCount * lineSize) : block.mainSize;
+      // bodyMainSize 由本轮 extractBlocks 按块 id 携带，items 直接引用新块对象即继承
       items.push({ block, fromLine: frag.fromLine, lineCount: frag.lineCount, mainSize: size });
       used += size;
     }
@@ -245,14 +257,18 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   const tokens = input.tokens ?? DEFAULT_THEME;
   const context: BlockMeasureContext = { ...DEFAULT_MEASURE_CONTEXT, ...input.measure };
   const pageMainSize = input.pageMainSize ?? resolvePageMainSize(options, tokens);
+  const bottomSlack =
+    input.bottomSlack ?? resolveBottomSlack(options, tokens, context.lineSize);
   const empty: BuildPagedResult = {
     usable: false,
     pageMainSize,
+    bottomSlack,
     pages: [],
     blocks: [],
     lineOffsets: new Map(),
     sizes: new Map(),
     lineSizes: new Map(),
+    bodySizes: new Map(),
     charsPerLine: context.charsPerLine,
   };
 
@@ -277,6 +293,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     blockSizes: incremental ? prev.sizes : undefined,
     lineOffsets: incremental ? prev.lineOffsets : undefined,
     lineSizes: incremental ? prev.lineSizes : undefined,
+    bodySizes: incremental ? prev.bodySizes : undefined,
   });
 
   // 定点判定探针：新块序列全部命中旧尺寸缓存 = 无结构性变化（纯文本编辑）
@@ -308,6 +325,8 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   for (const [id, v] of fresh.lineOffsets) lineOffsets.set(id, v);
   const lineSizes = new Map<string, number>(incremental ? prev.lineSizes : []);
   for (const [id, v] of fresh.lineSizes) lineSizes.set(id, v);
+  const bodySizes = new Map<string, number>(incremental ? prev.bodySizes : []);
+  for (const [id, v] of fresh.bodySizes) bodySizes.set(id, v);
   // 陈旧行偏移清理：本轮实测过的块若未产出多行 lineOffsets（文本收缩到单行 / 量不到），
   // 必须删除其上一轮的旧 lineOffsets / lineSizes 项。否则 extractBlocks 会以陈旧多行
   // offsets 给定 lineCount（≠ 真实行数），paginate 造出幽灵续排片段，且片段切片与光标映射
@@ -318,6 +337,8 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
         lineOffsets.delete(id);
         lineSizes.delete(id);
       }
+      // 重测后不再产出块体高（量不到 / 高度为 0）时清陈旧项
+      if (!fresh.bodySizes.has(id)) bodySizes.delete(id);
     }
   }
   const indexed = extractBlocksIndexed(doc, {
@@ -325,6 +346,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     blockSizes: sizes,
     lineOffsets,
     lineSizes,
+    bodySizes,
   });
   const blocks = indexed.blocks;
   if (blocks.length === 0) return empty;
@@ -340,6 +362,9 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     }
     for (const id of [...lineSizes.keys()]) {
       if (!live.has(id)) lineSizes.delete(id);
+    }
+    for (const id of [...bodySizes.keys()]) {
+      if (!live.has(id)) bodySizes.delete(id);
     }
   }
 
@@ -362,7 +387,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     targetBlockId !== undefined && prev !== undefined
       ? resolvePaginateResume(prev, blocks, targetBlockId)
       : undefined;
-  const result = paginate(blocks, { pageMainSize, resume });
+  const result = paginate(blocks, { pageMainSize, bottomSlack, resume });
   const pages: PagedPage[] = result.pages.map((page) => {
     const fragments: PagedFragment[] = [];
     for (const item of page.items) {
@@ -410,10 +435,12 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   return {
     usable: pages.length > 0,
     pageMainSize,
+    bottomSlack,
     pages,
     blocks,
     lineOffsets,
     lineSizes,
+    bodySizes,
     sizes,
     charsPerLine: context.charsPerLine,
   };
@@ -481,6 +508,8 @@ export interface UsePagedLayoutOptions {
   measure?: Ref<BlockMeasureContext | undefined>;
   /** 每页主轴尺寸覆盖 */
   pageMainSize?: Ref<number | undefined>;
+  /** 页底溢出覆盖（px）；未给时由 buildPagedLayout 按布局 + 令牌推导 */
+  bottomSlack?: Ref<number | undefined>;
   /**
    * 排版度量签名（可选）
    *
@@ -582,6 +611,7 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
       fontToken: opts.fontToken.value,
       measure: opts.measure?.value,
       pageMainSize: opts.pageMainSize?.value,
+      bottomSlack: opts.bottomSlack?.value,
       fromBlockId,
       // 定点只信任「单块提示 + 提示后 PM 文档未再变」（提示后有外部事务则退回尾测）
       targetBlockId: allowTargeted && hints.length === 1 ? hints[0] : undefined,
@@ -669,6 +699,7 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
   }
   if (opts.measure !== undefined) watch(opts.measure, () => scheduleForced());
   if (opts.pageMainSize !== undefined) watch(opts.pageMainSize, () => scheduleForced());
+  if (opts.bottomSlack !== undefined) watch(opts.bottomSlack, () => scheduleForced());
   watch(opts.version, () => scheduleRelayout());
   // 组合结束（true → false）：补排被冻结的那一轮（读当前模型 = 已含刚落模的组合文本）。
   // 若同时有 compositionend 的 edited 提示另起了去抖重排，二者均读同一当前模型，

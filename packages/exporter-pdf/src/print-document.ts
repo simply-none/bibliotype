@@ -10,11 +10,17 @@
  * 与 EPUB 共用 @bibliotype/layout/html 的序列化器与书册样式；
  * 不依赖 DOM，可在 Node（无头浏览器）与浏览器中同构生成。
  */
-import { DEFAULT_THEME, type BookDocument } from '@bibliotype/core';
+import {
+  DEFAULT_THEME,
+  FONT_SIZE_TOKENS,
+  LAYOUT_TOKENS,
+  type BookDocument,
+} from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
   resolvePageMainSize,
+  resolveBottomSlack,
   type LayoutOptions,
 } from '@bibliotype/layout';
 import { buildBookCss, escapeHtml, serializeNode } from '@bibliotype/layout/html';
@@ -39,6 +45,13 @@ export interface PrintDocumentOptions {
   mode?: PrintMode;
   /** 每页可用主轴尺寸（px，仅 paged；缺省按页面尺寸与页边距推导） */
   pageMainSize?: number;
+  /**
+   * 页底溢出（px，仅 paged）：末行允许伸入下边距的深度
+   *
+   * 缺省按「布局 + 令牌 + 正文行高」推导并截断到不压页码带；传 0 关闭。
+   * 与预览 / 编辑画布传同一值可保证逐页归属一致。
+   */
+  bottomSlack?: number;
   /** 自定义块尺寸估算器（仅 paged；缺省 reader.defaultEstimator） */
   estimator?: BlockSizeEstimator;
   /**
@@ -63,6 +76,14 @@ export interface PrintDocumentOptions {
    * 与 lineOffsets / blockSizes 同源产出；使分页行高口径与屏幕逐页一致。
    */
   lineSizes?: ReadonlyMap<string, number>;
+  /**
+   * 块 id → 块体高（px，DOM 实测自身盒高，不含外边距，仅 paged）
+   *
+   * 与 blockSizes 同源产出；blockSizes 是含块间距的推进量，本值为块体高，
+   * 使 paginate 按体高计追加代价，消除逐页重复扣一份间距造成的页底空白
+   * （与屏幕预览 / 编辑分页同源口径）。
+   */
+  bodySizes?: ReadonlyMap<string, number>;
   /** 节点类型 → 标签覆盖（透传序列化器，用于插件节点定制） */
   tagOverrides?: Readonly<Record<string, string>>;
   /**
@@ -138,8 +159,12 @@ function renderPagedBody(
     estimator: options.estimator ?? defaultEstimator,
     blockSizes: options.blockSizes,
     pageMainSize: options.pageMainSize ?? defaultPageMainSize(layout, tokens),
+    bottomSlack:
+      options.bottomSlack ??
+      resolveBottomSlack(layout, tokens, defaultLineSize(tokens)),
     lineOffsets: options.lineOffsets,
     lineSizes: options.lineSizes,
+    bodySizes: options.bodySizes,
   });
   reader.loadDocument(book);
   const pages = reader.pagination;
@@ -193,4 +218,15 @@ function defaultPageMainSize(
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
   return resolvePageMainSize(layout, tokens);
+}
+
+/** 正文行高（px）：字号令牌 × 行高令牌（无 DOM 时的回退口径，与量尺同源近似） */
+function defaultLineSize(
+  tokens: Readonly<Record<string, string | undefined>>,
+): number {
+  const num = (value: string | undefined, fallback: number): number => {
+    const match = /^(\d+(?:\.\d+)?)(?:px)?$/.exec((value ?? '').trim());
+    return match === null ? fallback : Number(match[1]);
+  };
+  return num(tokens[FONT_SIZE_TOKENS.BODY], 16) * num(tokens[LAYOUT_TOKENS.LINE_HEIGHT], 1.9);
 }

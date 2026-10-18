@@ -71,6 +71,26 @@ export const DEFAULT_PAGE_CHROME: PageChromeOptions = {
   footerSize: 0,
 };
 
+/**
+ * 页底溢出（末行允许伸入下边距的量）
+ *
+ * 传统装箱把版心底当硬墙：剩余空间不足一整行就换页，页底恒留 0~1 行空白；
+ * 若再叠加孤寡行约束，可留到 1~2 行。本选项把「换页线」从版心底下移一段，
+ * 让末行适度侵入下边距（现实排版中页底留白本就小于天头）。
+ *
+ * 两个字段同时给出时 `px` 优先；解析与上限截断见 `resolveBottomSlack`
+ * （绝不越过页码带顶缘）。
+ */
+export interface BottomSlackOptions {
+  /** 固定像素（形如 page-margin 令牌，仅支持 px） */
+  px?: number;
+  /** 行高倍数（0.5 → 半行；与 `px` 二选一） */
+  lines?: number;
+}
+
+/** 默认页底溢出：半行（`{ px: 0 }` 表示关闭，行为与引入本选项前一致） */
+export const DEFAULT_BOTTOM_SLACK: BottomSlackOptions = { lines: 0.5 };
+
 /** 布局配置 */
 export interface LayoutOptions {
   /** 书写方向 */
@@ -85,6 +105,12 @@ export interface LayoutOptions {
   combineUpright: CombineUprightOptions;
   /** 页眉 / 页脚（可选；缺省不启用） */
   pageChrome?: PageChromeOptions;
+  /**
+   * 页底溢出（缺省 `DEFAULT_BOTTOM_SLACK` 半行）
+   *
+   * 分页可用容量 = 版心高 + 本值（截断到不压页码带）。传 `{ px: 0 }` 关闭。
+   */
+  bottomSlack?: BottomSlackOptions;
 }
 
 /** 默认布局（现代书籍：横排、A5、单栏、阿拉伯页码） */
@@ -94,6 +120,7 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
   columns: 1,
   pageNumberStyle: PAGE_NUMBER_STYLES.DECIMAL,
   combineUpright: DEFAULT_COMBINE_OPTIONS,
+  bottomSlack: DEFAULT_BOTTOM_SLACK,
 };
 
 /** 古籍默认布局（直排右起、16 开、单栏、中文页码） */
@@ -103,6 +130,7 @@ export const CLASSICAL_LAYOUT_OPTIONS: LayoutOptions = {
   columns: 1,
   pageNumberStyle: PAGE_NUMBER_STYLES.CHINESE,
   combineUpright: DEFAULT_COMBINE_OPTIONS,
+  bottomSlack: DEFAULT_BOTTOM_SLACK,
 };
 
 /** 合并布局配置（浅合并，便于调用方覆盖局部） */

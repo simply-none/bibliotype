@@ -28,6 +28,8 @@ import {
   WRITING_MODES,
   createPageSize,
   isVerticalMode,
+  resolveBottomSlack,
+  type BottomSlackOptions,
   type LayoutOptions,
   type PageChromeField,
 } from '@bibliotype/layout';
@@ -122,6 +124,61 @@ function setMargin(side: 'top' | 'right' | 'bottom' | 'left', raw: string): void
     LAYOUT_TOKENS.PAGE_MARGIN,
     `${box.top}px ${box.right}px ${box.bottom}px ${box.left}px`,
   );
+}
+
+/**
+ * 页底溢出（末行可伸入下边距的深度）
+ *
+ * 直排下主轴是页宽（溢出吃外边距 / 版框），不开放；容量按「不压页码带」
+ * 截断（与分页侧 resolveBottomSlack 同源，此处仅用于回显）。
+ */
+const bodyLineSize = computed(() => {
+  const size = Number.parseFloat(numOf(FONT_SIZE_TOKENS.BODY));
+  return Number.isFinite(size) ? size : 16;
+});
+const slackPx = computed(() => {
+  const lh = Number.parseFloat(numOf(LAYOUT_TOKENS.LINE_HEIGHT));
+  return resolveBottomSlack(
+    props.layout,
+    props.tokens,
+    bodyLineSize.value * (Number.isFinite(lh) ? lh : 1.9),
+  );
+});
+const slackEnabled = computed(() => !vertical.value);
+
+/** 页底溢出预设（custom = 自由像素） */
+const SLACK_PRESETS = [
+  { key: 'off', label: '关闭' },
+  { key: 'half', label: '半行' },
+  { key: 'full', label: '一行' },
+  { key: 'custom', label: '自定义' },
+] as const;
+
+/** 当前配置是否命中预设（否则为「自定义」） */
+const slackPreset = computed<string>(() => {
+  const slack = props.layout.bottomSlack;
+  if (slack === undefined) return 'custom';
+  if (typeof slack.px === 'number') return slack.px <= 0 ? 'off' : 'custom';
+  if (slack.lines === 0) return 'off';
+  if (slack.lines === 0.5) return 'half';
+  if (slack.lines === 1) return 'full';
+  return 'custom';
+});
+
+function setSlackPreset(key: string): void {
+  const map: Record<string, BottomSlackOptions> = {
+    off: { lines: 0 },
+    half: { lines: 0.5 },
+    full: { lines: 1 },
+  };
+  const preset = map[key];
+  if (preset !== undefined) props.api.patchLayout({ bottomSlack: preset });
+}
+
+function setSlackPx(raw: string): void {
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value) || value < 0) return;
+  props.api.patchLayout({ bottomSlack: { px: Math.round(value) } });
 }
 
 /** 令牌输入（空值 = 清除覆写，回落主题基准） */
@@ -409,6 +466,32 @@ async function onResetAll(): Promise<void> {
                   @input="setMargin(side, ($event.target as HTMLInputElement).value)"
                 />
               </div>
+            </div>
+
+            <div v-if="slackEnabled" class="panel__field">
+              <span class="panel__label">页底溢出（末行可伸入下边距，不压页码）</span>
+              <div class="panel__chips">
+                <button
+                  v-for="preset in SLACK_PRESETS"
+                  :key="preset.key"
+                  type="button"
+                  class="panel__chip"
+                  :class="{ 'panel__chip--active': slackPreset === preset.key }"
+                  @click="setSlackPreset(preset.key)"
+                >
+                  {{ preset.label }}
+                </button>
+              </div>
+              <input
+                v-if="slackPreset === 'custom'"
+                type="number"
+                class="panel__input"
+                :value="layout.bottomSlack?.px ?? ''"
+                min="0"
+                placeholder="px"
+                @input="setSlackPx(($event.target as HTMLInputElement).value)"
+              />
+              <span class="panel__hint">生效 {{ slackPx.toFixed(1) }} px（按页码带与下边距截断）</span>
             </div>
 
             <div class="panel__row">

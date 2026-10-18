@@ -69,6 +69,13 @@ const props = defineProps<{
   paginationMode?: 'overlay' | 'paged';
   /** 每页可用主轴尺寸（px）；缺省按 options.pageSize 与 page-margin 令牌推导 */
   pageMainSize?: number;
+  /**
+   * 页底溢出（px）：末行允许伸入下边距的深度
+   *
+   * 缺省按「布局 + 令牌 + 行高」推导（与阅读预览 / PDF 导出同源口径）；
+   * 传 0 关闭。须与另外两端传同一值，否则编辑画布与阅读页归属不一致。
+   */
+  bottomSlack?: number;
   /** 块度量估算上下文（横排下作缺 DOM 实测时的回退估算口径） */
   measure?: BlockMeasureContext;
   /** 视图是否可编辑（缺省 true；false 时画布只读，拒绝用户输入） */
@@ -119,6 +126,7 @@ const vertical = computed(() => isVerticalMode(resolvedOptions.value.writingMode
 const fontTokenRef = computed(() => props.fontToken);
 const measureRef = computed(() => props.measure);
 const pageMainSizeRef = computed(() => props.pageMainSize);
+const bottomSlackRef = computed(() => props.bottomSlack);
 
 /**
  * paged 编辑桥的 IME 组合态（由 PagedCanvas 上抛）。
@@ -150,6 +158,7 @@ const paged = usePagedLayout({
   fontToken: fontTokenRef,
   measure: measureRef,
   pageMainSize: pageMainSizeRef,
+  bottomSlack: bottomSlackRef,
   metricsSignature: metricsSignatureRef,
   composing: pagedComposing,
   version: binding.version,
@@ -396,9 +405,10 @@ watch(
   },
 );
 
-// 分页模式 / 每页尺寸 / 度量变化时重排，确保 pages 及时就绪
-watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure], () =>
-  paged.scheduleRelayout(),
+// 分页模式 / 每页尺寸 / 页底溢出 / 度量变化时重排，确保 pages 及时就绪
+watch(
+  [() => props.paginationMode, () => props.pageMainSize, () => props.bottomSlack, () => props.measure],
+  () => paged.scheduleRelayout(),
 );
 </script>
 

@@ -303,7 +303,7 @@ function renderMeasureSheet(
   return { blocks, rendered, targetedOnly };
 }
 
-/** 分页量尺结果：块推进尺寸 + 每行起始字符偏移 + 真实行高 */
+/** 分页量尺结果：块推进尺寸 + 每行起始字符偏移 + 真实行高 + 块体高 */
 export interface MeasurePaginationResult {
   /** 块 id → 主轴推进尺寸(px)（到下一块上缘，含块间折叠外边距） */
   sizes: ReadonlyMap<string, number>;
@@ -311,6 +311,14 @@ export interface MeasurePaginationResult {
   lineOffsets: ReadonlyMap<string, number[]>;
   /** 块 id → 真实行高 px（自身高度 ÷ 行数，不含块间距；仅多行块产出） */
   lineSizes: ReadonlyMap<string, number>;
+  /**
+   * 块 id → 块体高（px，offsetHeight：不含上 / 下外边距）
+   *
+   * sizes 是「推进量」（体高 + 与下一块的折叠间距），同一份间距在前后两块的
+   * 入账里各算一次；供 extractBlocks 产出 bodyMainSize，让 paginate 按体高计
+   * 追加代价，消除每页虚耗一份间距造成的页底空白。
+   */
+  bodySizes: ReadonlyMap<string, number>;
 }
 
 /**
@@ -330,12 +338,14 @@ export function measurePagination(input: MeasureBlockSizesInput): MeasurePaginat
 /** 量尺主体（埋点在外层，便于把整段 DOM 实测算作一次测量） */
 function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginationResult {
   const sheet = renderMeasureSheet(input);
-  if (sheet === null) return { sizes: new Map(), lineOffsets: new Map(), lineSizes: new Map() };
+  if (sheet === null)
+    return { sizes: new Map(), lineOffsets: new Map(), lineSizes: new Map(), bodySizes: new Map() };
   const { blocks, rendered, targetedOnly } = sheet;
 
   const sizes = new Map<string, number>();
   const lineOffsets = new Map<string, number[]>();
   const lineSizes = new Map<string, number>();
+  const bodySizes = new Map<string, number>();
   for (let i = 0; i < blocks.length; i += 1) {
     // 定点模式：仅产出目标块（index 0）；后一块只为折叠口径参照，不入结果
     if (targetedOnly && i > 0) break;
@@ -353,6 +363,8 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
     }
     const advance = nextEl === null ? lastBlockSize(el) : nextEl.offsetTop - el.offsetTop;
     if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
+    // 块体高：自身盒高（offsetHeight 不含外边距），供 paginate 按体高计追加代价
+    if (el.offsetHeight > 0) bodySizes.set(id, el.offsetHeight);
     const offsets = measureLineOffsets(el);
     if (offsets.length > 1) {
       lineOffsets.set(id, offsets);
@@ -360,7 +372,7 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
       if (el.offsetHeight > 0) lineSizes.set(id, el.offsetHeight / offsets.length);
     }
   }
-  return { sizes, lineOffsets, lineSizes };
+  return { sizes, lineOffsets, lineSizes, bodySizes };
 }
 
 /**

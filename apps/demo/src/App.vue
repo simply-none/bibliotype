@@ -46,6 +46,7 @@ import {
   mergeLayoutOptions,
   resolvePageCrossSize,
   resolvePageMainSize,
+  resolveBottomSlack,
   type LayoutOptions,
 } from '@bibliotype/layout';
 import {
@@ -221,20 +222,32 @@ const pageMainSize = computed(() =>
 );
 
 /**
+ * 页底溢出（px）：末行允许伸入下边距的深度（按「不压页码带」截断）
+ *
+ * 预览 / 编辑画布 / PDF 导出共用本值，三端逐页归属才能一致。
+ */
+const bottomSlack = computed(() =>
+  resolveBottomSlack(effectiveLayout.value, tokens.value, typographyMeasure().lineSize ?? 30),
+);
+
+/**
  * DOM 实测块尺寸（块 id → 主轴尺寸 px）与每行起始字符偏移（块 id → number[]）
  *
  * 由量尺工作表对当前文档逐块实测产出，喂给 Reader（预览逐页）：
  * 尺寸定分页归属，行偏移定跨页块的真实行切片；直排 / 多栏回退估算（空映射）。
+ * bodySizes（块体高，不含外边距）供 paginate 按体高计「往本页追加一块」的代价，
+ * 消除每页虚耗一份块间距造成的页底空白。
  * BtEditor（paged 内核）自带同源量尺，不再消费此映射。
  */
 const blockSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
 const blockLineOffsets = shallowRef<ReadonlyMap<string, number[]>>(new Map());
 const blockLineSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
+const blockBodySizes = shallowRef<ReadonlyMap<string, number>>(new Map());
 
 /** 重测当前 Reader 文档的块尺寸 / 行边界 / 真实行高并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
 function remeasure(): void {
   const doc = reader.value.document ?? lunyuDocument;
-  const { sizes, lineOffsets, lineSizes } = measurePagination({
+  const { sizes, lineOffsets, lineSizes, bodySizes } = measurePagination({
     doc,
     options: effectiveLayout.value,
     tokens: tokens.value,
@@ -244,13 +257,16 @@ function remeasure(): void {
   blockSizes.value = sizes;
   blockLineOffsets.value = lineOffsets;
   blockLineSizes.value = lineSizes;
+  blockBodySizes.value = bodySizes;
   reader.value.repaginate({
     layout: effectiveLayout.value,
     blockSizes: sizes,
     lineOffsets,
     lineSizes,
+    bodySizes,
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
+    bottomSlack: bottomSlack.value,
   });
 }
 
@@ -270,9 +286,11 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
     layout,
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
+    bottomSlack: bottomSlack.value,
     blockSizes: blockSizes.value,
     lineOffsets: blockLineOffsets.value,
     lineSizes: blockLineSizes.value,
+    bodySizes: blockBodySizes.value,
   });
   r.loadDocument(document);
   return r;
@@ -755,10 +773,12 @@ async function onExportPdf(): Promise<void> {
     base.mode === 'paged'
       ? {
           pageMainSize: pageMainSize.value,
+          bottomSlack: bottomSlack.value,
           context: typographyMeasure(),
           blockSizes: blockSizes.value,
           lineOffsets: blockLineOffsets.value,
           lineSizes: blockLineSizes.value,
+          bodySizes: blockBodySizes.value,
         }
       : {};
 
@@ -1216,6 +1236,7 @@ onBeforeUnmount(() => {
             :pagination="editing.pagination"
             :loading="true"
             :page-main-size="pageMainSize"
+            :bottom-slack="bottomSlack"
             :measure="measureContext"
             :editable="!editorReadonly"
             :scale="editorScale"

@@ -29,6 +29,7 @@ export {
   PAGE_NUMBER_STYLES,
   PAGE_CHROME_FIELDS,
   DEFAULT_PAGE_CHROME,
+  DEFAULT_BOTTOM_SLACK,
   DEFAULT_LAYOUT_OPTIONS,
   CLASSICAL_LAYOUT_OPTIONS,
   mergeLayoutOptions,
@@ -37,6 +38,7 @@ export type {
   PageNumberStyle,
   PageChromeField,
   PageChromeOptions,
+  BottomSlackOptions,
   LayoutOptions,
 } from './layout-options.js';
 
@@ -51,6 +53,7 @@ export {
   buildCssVariables,
   resolvePageMainSize,
   resolvePageCrossSize,
+  resolveBottomSlack,
   resolvePageMargins,
   resolvePageBorderWidth,
 } from './style-builder.js';

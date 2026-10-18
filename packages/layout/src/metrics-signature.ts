@@ -64,6 +64,7 @@ export interface MetricsSignatureInput {
  *
  * 页眉 / 页脚必须纳入：它由 `resolvePageMainSize` 从版心扣减，
  * 改内容或改占位高度都会改变每页行数 → 不重排就会错页。
+ * 页底溢出（bottomSlack）同样直接放宽装箱容量，必须随配置变化失效。
  */
 function optionsPart(options: LayoutOptions): string {
   const chrome = options.pageChrome;
@@ -71,6 +72,11 @@ function optionsPart(options: LayoutOptions): string {
     chrome === undefined
       ? 'nochrome'
       : [chrome.header, chrome.headerSize, chrome.footer, chrome.footerSize].join('/');
+  const slack = options.bottomSlack;
+  const slackPart =
+    slack === undefined
+      ? 'noslack'
+      : `s${slack.px ?? ''}/${slack.lines ?? ''}`;
   return [
     options.writingMode,
     `${options.pageSize.width}x${options.pageSize.height}`,
@@ -78,6 +84,7 @@ function optionsPart(options: LayoutOptions): string {
     `d${options.combineUpright.maxDigits}`,
     options.combineUpright.latinStrategy,
     chromePart,
+    slackPart,
   ].join(',');
 }
 

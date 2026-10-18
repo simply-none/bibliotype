@@ -184,6 +184,50 @@ describe('extractBlocks', () => {
     expect(p1?.mainSize).toBe(624);
   });
 
+  it('bodySizes 命中时产出 bodyMainSize（页内追加代价按体高计）', () => {
+    const blocks = extractBlocks(sampleDoc(), {
+      // 推进量 624 = 体高 608（20 行×30.4）+ 与下一块的折叠间距 16
+      blockSizes: new Map([['p-1', 624]]),
+      lineOffsets: new Map([['p-1', Array.from({ length: 20 }, (_, i) => i * 26)]]),
+      lineSizes: new Map([['p-1', 608 / 20]]),
+      bodySizes: new Map([['p-1', 608]]),
+    });
+    const p1 = blocks.find((b) => b.id === 'p-1');
+    expect(p1?.mainSize).toBe(624);
+    expect(p1?.bodyMainSize).toBeCloseTo(608, 6);
+    // 未实测推进量的块走估算口径（1 行×30 + 间距 12 → 体高 30）
+    const p2 = blocks.find((b) => b.id === 'p-2');
+    expect(p2?.mainSize).toBe(42);
+    expect(p2?.bodyMainSize).toBe(30);
+  });
+
+  it('bodySizes 未命中时多行可拆段按「行数 × 真实行高」折算体高', () => {
+    const blocks = extractBlocks(sampleDoc(), {
+      blockSizes: new Map([['p-1', 624]]),
+      lineOffsets: new Map([['p-1', Array.from({ length: 20 }, (_, i) => i * 26)]]),
+      lineSizes: new Map([['p-1', 608 / 20]]),
+    });
+    expect(blocks.find((b) => b.id === 'p-1')?.bodyMainSize).toBeCloseTo(608, 6);
+  });
+
+  it('推进量与体高相差不足 0.5px 属亚像素噪声 → 不产出 bodyMainSize', () => {
+    const blocks = extractBlocks(sampleDoc(), {
+      blockSizes: new Map([['p-1', 30.3]]),
+      bodySizes: new Map([['p-1', 30]]),
+    });
+    expect(blocks.find((b) => b.id === 'p-1')?.bodyMainSize).toBeUndefined();
+  });
+
+  it('估算口径同样按行高回折体高（不把 blockSpacing 重复计入代价）', () => {
+    // 默认估算：1 行 × 30 + 块间距 12 = 42 推进量 → 体高 30
+    const blocks = extractBlocks(sampleDoc());
+    const p1 = blocks.find((b) => b.id === 'p-1');
+    expect(p1?.mainSize).toBe(42);
+    expect(p1?.bodyMainSize).toBe(30);
+    // 不可拆的标题块同样受益（UA 外边距不重复扣）
+    expect(blocks.find((b) => b.id === 'h-1')?.bodyMainSize).toBe(30);
+  });
+
   it('含行内载体（空元素/纯文本载体）的块不拆开', () => {
     const doc = createEmptyDocument({ title: '行内载体' });
     doc.root.children = [

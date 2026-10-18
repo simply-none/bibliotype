@@ -246,6 +246,186 @@ describe('paginate（行级拆分 / 孤寡行控制）', () => {
     expect(result.pages[0]?.items[0]?.lineCount).toBe(0);
     expect(result.pages[1]?.items[0]?.block.id).toBe('next');
   });
+
+  it('亚像素容差：推进量小数累加不挤掉实渲放得下的尾行 / 尾块', () => {
+    // 行高 30.4×10 = 304 推进量（无块间距），页高 304：浮点上 304/30.4 = 9.999…
+    // → 严格 floor 只得 9 行，会把尾行拆到续页（实渲恰好 10 行放得下）
+    const result = paginate(
+      [
+        { id: 'p1', mainSize: 304, lineSize: 30.4, lineCount: 10, splittable: true },
+        { id: 'p2', mainSize: 304, lineSize: 30.4, lineCount: 10, splittable: true },
+      ],
+      { pageMainSize: 304 },
+    );
+    expect(result.totalPages).toBe(2);
+    // 两段各自整块落页（未拆分），而非因小数差拆出续排片段
+    expect(result.pages[0]?.items.length).toBe(1);
+    expect(result.pages[1]?.items.length).toBe(1);
+    expect(result.pages[0]?.items[0]?.lineCount).toBe(0);
+    expect(result.pages[1]?.items[0]?.lineCount).toBe(0);
+
+    // 尾块差 0.4px 装得下：60 + 30 + 179.6 = 269.6 ≤ 270 → 不换页
+    const tail = paginate(
+      [
+        block('a', 60),
+        block('b', 30),
+        block('c', 179.6),
+      ],
+      { pageMainSize: 270 },
+    );
+    expect(tail.totalPages).toBe(1);
+  });
+});
+
+describe('paginate（按块体高判页：页底不虚耗块间间距）', () => {
+  it('原子块追加代价取体高，推进量中的间距不重复扣', () => {
+    // 页高 100：a 推进量 50（体高 30 + 与下一块的折叠间距 20）；
+    // b 推进量 60（体高 40 + 尾部间距 20）
+    // 旧口径：50 + 60 > 100 → b 换页（页底仅占 50，虚耗 50）
+    // 新口径：50 + 40 ≤ 100 → 同页（页视觉占用 = 110 − b 尾部间距 20 = 90）
+    const result = paginate(
+      [block('a', 50, { bodyMainSize: 30 }), block('b', 60, { bodyMainSize: 40 })],
+      { pageMainSize: 100 },
+    );
+    expect(result.totalPages).toBe(1);
+    expect(result.pages[0]?.items.map((i) => i.block.id)).toEqual(['a', 'b']);
+  });
+
+  it('不给 bodyMainSize 时行为与旧口径完全一致（向后兼容）', () => {
+    const result = paginate([block('a', 50), block('b', 60)], { pageMainSize: 100 });
+    expect(result.totalPages).toBe(2);
+  });
+
+  it('逐页多放一块：标题 UA 外边距不再逐块重复计入', () => {
+    // 页高 100：每块推进量 15（体高 10 + 间距 5）
+    // 旧口径每页 floor(100/15)=6 块；新口径第 k 块占用 15(k−1)+10 ≤ 100 → 7 块
+    const blocks = Array.from({ length: 14 }, (_, i) =>
+      block(`b${i}`, 15, { bodyMainSize: 10 }),
+    );
+    const result = paginate(blocks, { pageMainSize: 100 });
+    expect(result.totalPages).toBe(2);
+    expect(result.pages[0]?.items.length).toBe(7);
+    expect(result.pages[1]?.items.length).toBe(7);
+  });
+
+  it('keepWithNext 预留按推进量计（本块必有同页后继，尾部间距会渲染）', () => {
+    // 页高 100：a 推进量 30（体高 20）；标题推进量 50（体高 30 + 段间距 20）；
+    // para 2 行×20 = 40（无尾部间距）
+    // 标题若与 a 同页：需 30 + 50(含间距) + 40(整段) = 120 > 100 → 标题整体换页，
+    // 再携 para 同页（若误按体高预留，标题会孤悬上一页页尾）
+    const result = paginate(
+      [
+        block('a', 30, { bodyMainSize: 20 }),
+        block('heading', 50, { bodyMainSize: 30, keepWithNext: true }),
+        block('para', 40, { lineSize: 20, lineCount: 2, splittable: true, bodyMainSize: 40 }),
+      ],
+      { pageMainSize: 100 },
+    );
+    expect(result.totalPages).toBe(2);
+    expect(result.pages[0]?.items.map((i) => i.block.id)).toEqual(['a']);
+    expect(result.pages[1]?.items.map((i) => i.block.id)).toEqual(['heading', 'para']);
+  });
+
+  it('非法 bodyMainSize（非正 / 大于推进量）回退推进量口径', () => {
+    const zero = paginate([block('a', 50), block('b', 60, { bodyMainSize: 0 })], {
+      pageMainSize: 100,
+    });
+    const oversized = paginate([block('a', 50), block('b', 60, { bodyMainSize: 70 })], {
+      pageMainSize: 100,
+    });
+    // 两者均按 mainSize 判页 → 50 + 60 > 100 换页
+    expect(zero.totalPages).toBe(2);
+    expect(oversized.totalPages).toBe(2);
+  });
+
+  it('体高口径与增量续排（resume）共存：前缀页复用不多出一页', () => {
+    // 页高 90：a 推进量 30（体高 20）/ b 40（体高 30）/ c 40（体高 30）
+    // → 全量结果 [[a,b],[c]]；以第一页为前缀、从 c 续排应得到同一结果
+    const blocks = [
+      block('a', 30, { bodyMainSize: 20 }),
+      block('b', 40, { bodyMainSize: 30 }),
+      block('c', 40, { bodyMainSize: 30 }),
+    ];
+    const shape = (pages: { items: { block: MeasurableBlock }[] }[]): string[][] =>
+      pages.map((page) => page.items.map((item) => item.block.id));
+    const full = paginate(blocks, { pageMainSize: 90 });
+    expect(shape(full.pages)).toEqual([['a', 'b'], ['c']]);
+    const resumed = paginate(blocks, {
+      pageMainSize: 90,
+      resume: { prefix: full.pages.slice(0, 1), startIndex: 2 },
+    });
+    expect(shape(resumed.pages)).toEqual([['a', 'b'], ['c']]);
+  });
+});
+
+describe('paginate（页底溢出 bottomSlack：末行可伸入下边距）', () => {
+  it('可拆段落的尾行吃进溢出：版心放不下的那一行在 slack 内放得下', () => {
+    // 页高 100：段 4 行 × 30 = 120 → 无 slack 时容量只容 3 行，但取 3 行会剩 1 行
+    // 寡行（< minLast），孤寡行控制调整为 2 + 2；
+    // 加 20px 溢出后容量 120 恰好整段同页（拆分不再触发）
+    const para = { id: 'p', mainSize: 120, lineSize: 30, lineCount: 4, splittable: true };
+    const without = paginate([para], { pageMainSize: 100 });
+    const withSlack = paginate([para], { pageMainSize: 100, bottomSlack: 20 });
+    expect(without.totalPages).toBe(2);
+    expect(without.pages[0]?.items[0]?.lineCount).toBe(2);
+    expect(without.pages[1]?.items[0]?.lineCount).toBe(2);
+    expect(withSlack.totalPages).toBe(1);
+    expect(withSlack.pages[0]?.items[0]?.lineCount).toBe(0); // 未拆分
+  });
+
+  it('不可拆块同样受益：体高超出版心剩余但在容量内时不换页', () => {
+    const blocks = [block('a', 60, { bodyMainSize: 50 }), block('b', 70, { bodyMainSize: 65 })];
+    // a 按推进量 60 入账；b 追加代价 = 体高 65
+    expect(paginate(blocks, { pageMainSize: 100 }).totalPages).toBe(2);
+    // 60 + 65 = 125 ≤ 100 + 30 + 容差 → 同页
+    expect(paginate(blocks, { pageMainSize: 100, bottomSlack: 30 }).totalPages).toBe(1);
+  });
+
+  it('不破坏孤寡行约束：溢出后仍不得留下 < minLast 的尾片段', () => {
+    // 页 100 + slack 30 = 130 → 容 4 行；段 6 行 × 30：取 4 行后恰好续 2 行（= minLast）
+    const result = paginate(
+      [{ id: 'p', mainSize: 180, lineSize: 30, lineCount: 6, splittable: true }],
+      { pageMainSize: 100, bottomSlack: 30 },
+    );
+    expect(result.totalPages).toBe(2);
+    expect(result.pages[0]?.items[0]?.lineCount).toBe(4);
+    expect(result.pages[1]?.items[0]?.lineCount).toBe(2);
+  });
+
+  it('溢出只放宽判页容量，不改入账尺寸（usedMainSize 仍为真实推进量）', () => {
+    const result = paginate(
+      [{ id: 'p', mainSize: 120, lineSize: 30, lineCount: 4, splittable: true }],
+      { pageMainSize: 100, bottomSlack: 20 },
+    );
+    // 整段未拆 → 按推进量 120 入账（大于版心高 100，但不影响后续块判定）
+    expect(result.pages[0]?.items[0]?.lineCount).toBe(0);
+    expect(result.pages[0]?.usedMainSize).toBe(120);
+  });
+
+  it('非正 / 非法 slack 等价于关闭（向后兼容）', () => {
+    const blocks = [
+      { id: 'p', mainSize: 120, lineSize: 30, lineCount: 4, splittable: true },
+    ];
+    expect(paginate(blocks, { pageMainSize: 100, bottomSlack: 0 }).totalPages).toBe(2);
+    expect(paginate(blocks, { pageMainSize: 100, bottomSlack: -50 }).totalPages).toBe(2);
+  });
+
+  it('slack 与增量续排（resume）共存：前缀页复用口径一致', () => {
+    const blocks = [
+      { id: 'a', mainSize: 120, lineSize: 30, lineCount: 4, splittable: true },
+      block('b', 60, { bodyMainSize: 50 }),
+      block('c', 60, { bodyMainSize: 50 }),
+    ];
+    const shape = (pages: { items: { block: MeasurableBlock }[] }[]): string[][] =>
+      pages.map((page) => page.items.map((item) => item.block.id));
+    const full = paginate(blocks, { pageMainSize: 100, bottomSlack: 20 });
+    const resumed = paginate(blocks, {
+      pageMainSize: 100,
+      bottomSlack: 20,
+      resume: { prefix: full.pages.slice(0, 1), startIndex: 1 },
+    });
+    expect(shape(resumed.pages)).toEqual(shape(full.pages));
+  });
 });
 
 describe('paginate（增量续排 resume）', () => {

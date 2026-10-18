@@ -341,8 +341,12 @@ const viewMode = ref<'page' | 'scroll'>('page');
 /** 编辑器实例（首次进入编辑模式时惰性创建，之后复用） */
 const bookEditor = shallowRef<BookEditor | null>(null);
 
-/** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效） */
-const editorReadonly = ref(false);
+/** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效）
+ *
+ * 单一真相源为 `editing.readonly`（持久化）：设置面板「只读模式」勾选、
+ * 工具条「只读」按钮、进编辑时的重置均经 `patchEditing` 落到该字段，
+ * 本计算属性只读不写——之前用独立 ref 会导致设置面板勾选完全不生效。 */
+const editorReadonly = computed(() => editing.value.readonly === true);
 
 /** 编辑态视口页（PagedCanvas 回写；「保存并预览」时回定位到阅读该页，自 0 起） */
 const editorVisiblePage = ref(0);
@@ -450,12 +454,11 @@ const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
 /** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
 const SETTINGS_KEY = 'bibliotype-demo:settings';
 
-/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 分页开关 */
+/** 界面偏好快照：主题键 + 夜间 / 视图模式 */
 interface SettingsSnapshot {
   themeKey: ThemeKey;
   night: boolean;
   viewMode: 'page' | 'scroll';
-  showGuides: boolean;
 }
 
 /** 读取界面偏好快照（非法 / 缺失 → null，逐字段容错回退默认） */
@@ -469,7 +472,6 @@ function readSettingsSnapshot(): SettingsSnapshot | null {
       themeKey: parsed.themeKey,
       night: parsed.night === true,
       viewMode: parsed.viewMode === 'scroll' ? 'scroll' : 'page',
-      showGuides: parsed.showGuides !== false,
     };
   } catch {
     return null;
@@ -486,7 +488,6 @@ function applySettingsSnapshot(snapshot: SettingsSnapshot): void {
   themeKey.value = snapshot.themeKey;
   night.value = snapshot.night;
   viewMode.value = snapshot.viewMode;
-  showGuides.value = snapshot.showGuides;
 }
 
 /** 收集当前界面偏好并落盘 */
@@ -495,7 +496,6 @@ function persistSettingsSnapshot(): void {
     themeKey: themeKey.value,
     night: night.value,
     viewMode: viewMode.value,
-    showGuides: showGuides.value,
   };
   try {
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));
@@ -585,7 +585,7 @@ async function enterEdit(): Promise<void> {
     dirty.value = bookEditor.value.isDirty;
   }
   mode.value = 'edit';
-  editorReadonly.value = false;
+  styleApi.patchEditing({ readonly: false });
   // 位置记忆：进编辑定位到阅读模式当前页（分页三端同源，页码可直接对齐）
   editStartPage.value = reader.value.currentPage;
   editorVisiblePage.value = editStartPage.value;
@@ -884,8 +884,6 @@ const settingsOpen = ref(false);
 const infoOpen = ref(false);
 /** 文档导入面板（Markdown / HTML） */
 const importOpen = ref(false);
-/** 编辑画布分页参考线（设置面板开关） */
-const showGuides = ref(true);
 
 /* 导出 / 导入等**操作后**的一次性反馈走右下角消息条（composables/use-toast）：
    顶栏只承担书名与常驻状态，不再追加会长期滞留、挤占排版的状态行。 */
@@ -1218,7 +1216,7 @@ onBeforeUnmount(() => {
               <EditorToolbar
                 :binding="slotProps"
                 :readonly="editorReadonly"
-                @toggle-readonly="editorReadonly = !editorReadonly"
+                @toggle-readonly="styleApi.patchEditing({ readonly: !editing.readonly })"
                 @reset="resetSample"
               />
               <AttrInspector :binding="slotProps" :named-styles="namedStyles.styles" />

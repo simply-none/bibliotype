@@ -381,7 +381,7 @@ async function onResetAll(): Promise<void> {
                   class="panel__input"
                   :value="layout.pageSize.width"
                   min="1"
-                  @change="api.patchLayout({ pageSize: createPageSize('自定义', Number(($event.target as HTMLInputElement).value), layout.pageSize.height) })"
+                  @input="api.patchLayout({ pageSize: createPageSize('自定义', Number(($event.target as HTMLInputElement).value), layout.pageSize.height) })"
                 />
               </label>
               <label class="panel__field">
@@ -391,7 +391,7 @@ async function onResetAll(): Promise<void> {
                   class="panel__input"
                   :value="layout.pageSize.height"
                   min="1"
-                  @change="api.patchLayout({ pageSize: createPageSize('自定义', layout.pageSize.width, Number(($event.target as HTMLInputElement).value)) })"
+                  @input="api.patchLayout({ pageSize: createPageSize('自定义', layout.pageSize.width, Number(($event.target as HTMLInputElement).value)) })"
                 />
               </label>
             </div>
@@ -406,7 +406,7 @@ async function onResetAll(): Promise<void> {
                   class="panel__input"
                   :value="marginBox[side]"
                   min="0"
-                  @change="setMargin(side, ($event.target as HTMLInputElement).value)"
+                  @input="setMargin(side, ($event.target as HTMLInputElement).value)"
                 />
               </div>
             </div>
@@ -428,7 +428,7 @@ async function onResetAll(): Promise<void> {
                   :value="numOf(FONT_SIZE_TOKENS.BODY)"
                   min="8"
                   max="48"
-                  @change="numToken(FONT_SIZE_TOKENS.BODY, `${($event.target as HTMLInputElement).value}px`)"
+                  @input="numToken(FONT_SIZE_TOKENS.BODY, `${($event.target as HTMLInputElement).value}px`)"
                 />
               </label>
             </div>
@@ -437,12 +437,12 @@ async function onResetAll(): Promise<void> {
               <label class="panel__field">
                 <span class="panel__label">行距</span>
                 <input type="number" class="panel__input" :value="numOf(LAYOUT_TOKENS.LINE_HEIGHT)" min="1" max="3" step="0.05"
-                  @change="numToken(LAYOUT_TOKENS.LINE_HEIGHT, ($event.target as HTMLInputElement).value)" />
+                  @input="numToken(LAYOUT_TOKENS.LINE_HEIGHT, ($event.target as HTMLInputElement).value)" />
               </label>
               <label class="panel__field">
                 <span class="panel__label">字距</span>
                 <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.LETTER_SPACING] ?? ''" placeholder="0.02em"
-                  @change="numToken(LAYOUT_TOKENS.LETTER_SPACING, ($event.target as HTMLInputElement).value)" />
+                  @input="numToken(LAYOUT_TOKENS.LETTER_SPACING, ($event.target as HTMLInputElement).value)" />
               </label>
             </div>
 
@@ -450,12 +450,12 @@ async function onResetAll(): Promise<void> {
               <label class="panel__field">
                 <span class="panel__label">首行缩进</span>
                 <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.TEXT_INDENT] ?? ''" placeholder="2em"
-                  @change="numToken(LAYOUT_TOKENS.TEXT_INDENT, ($event.target as HTMLInputElement).value)" />
+                  @input="numToken(LAYOUT_TOKENS.TEXT_INDENT, ($event.target as HTMLInputElement).value)" />
               </label>
               <label class="panel__field">
                 <span class="panel__label">栏间距</span>
                 <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.COLUMN_GAP] ?? ''" placeholder="2.5em"
-                  @change="numToken(LAYOUT_TOKENS.COLUMN_GAP, ($event.target as HTMLInputElement).value)" />
+                  @input="numToken(LAYOUT_TOKENS.COLUMN_GAP, ($event.target as HTMLInputElement).value)" />
               </label>
             </div>
 
@@ -463,12 +463,12 @@ async function onResetAll(): Promise<void> {
               <label class="panel__field">
                 <span class="panel__label">标题字号</span>
                 <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.HEADING] ?? ''" placeholder="1.75em"
-                  @change="numToken(FONT_SIZE_TOKENS.HEADING, ($event.target as HTMLInputElement).value)" />
+                  @input="numToken(FONT_SIZE_TOKENS.HEADING, ($event.target as HTMLInputElement).value)" />
               </label>
               <label class="panel__field">
                 <span class="panel__label">注文字号</span>
                 <input type="text" class="panel__input" :value="tokens[FONT_SIZE_TOKENS.NOTE] ?? ''" placeholder="0.75em"
-                  @change="numToken(FONT_SIZE_TOKENS.NOTE, ($event.target as HTMLInputElement).value)" />
+                  @input="numToken(FONT_SIZE_TOKENS.NOTE, ($event.target as HTMLInputElement).value)" />
               </label>
             </div>
 
@@ -477,7 +477,7 @@ async function onResetAll(): Promise<void> {
                 <span class="panel__label">数字合并上限</span>
                 <input type="number" class="panel__input" min="1" max="10"
                   :value="layout.combineUpright.maxDigits"
-                  @change="api.patchLayout({ combineUpright: { ...layout.combineUpright, maxDigits: Math.min(10, Math.max(1, Number(($event.target as HTMLInputElement).value) || 4)) } })" />
+                  @input="api.patchLayout({ combineUpright: { ...layout.combineUpright, maxDigits: Math.min(10, Math.max(1, Number(($event.target as HTMLInputElement).value) || 4)) } })" />
               </label>
               <label class="panel__field">
                 <span class="panel__label">拉丁词</span>
@@ -494,7 +494,7 @@ async function onResetAll(): Promise<void> {
               <label v-for="[key, label] in FONT_FAMILY_FIELDS" :key="key" class="panel__stack">
                 <span class="panel__sub-label">{{ label }}</span>
                 <input type="text" class="panel__input" :value="tokens[key] ?? ''"
-                  @change="numToken(key, ($event.target as HTMLInputElement).value)" />
+                  @input="numToken(key, ($event.target as HTMLInputElement).value)" />
               </label>
             </div>
 
@@ -533,7 +533,7 @@ async function onResetAll(): Promise<void> {
                 <span class="panel__label">页眉占位 px</span>
                 <input type="number" class="panel__input" min="0" max="120"
                   :value="chrome?.headerSize ?? 0"
-                  @change="patchChrome({ headerSize: Number(($event.target as HTMLInputElement).value) })" />
+                  @input="patchChrome({ headerSize: Number(($event.target as HTMLInputElement).value) })" />
               </label>
             </div>
 
@@ -549,7 +549,7 @@ async function onResetAll(): Promise<void> {
                 <span class="panel__label">页脚占位 px</span>
                 <input type="number" class="panel__input" min="0" max="120"
                   :value="chrome?.footerSize ?? 0"
-                  @change="patchChrome({ footerSize: Number(($event.target as HTMLInputElement).value) })" />
+                  @input="patchChrome({ footerSize: Number(($event.target as HTMLInputElement).value) })" />
               </label>
             </div>
 
@@ -573,11 +573,6 @@ async function onResetAll(): Promise<void> {
               书页分页（关闭 = 连续画布）
             </label>
             <label class="panel__switch">
-              <input type="checkbox" :checked="api.editing.value.paginationGuides"
-                @change="api.patchEditing({ paginationGuides: ($event.target as HTMLInputElement).checked })" />
-              显示分页参考线
-            </label>
-            <label class="panel__switch">
               <input type="checkbox" :checked="api.editing.value.inheritBlockType"
                 @change="api.patchEditing({ inheritBlockType: ($event.target as HTMLInputElement).checked })" />
               回车后继承当前块类型
@@ -588,13 +583,13 @@ async function onResetAll(): Promise<void> {
                 <span class="panel__label">自动保存间隔 ms</span>
                 <input type="number" class="panel__input" min="500" max="10000" step="100"
                   :value="api.editing.value.autosaveDelay"
-                  @change="api.patchEditing({ autosaveDelay: Number(($event.target as HTMLInputElement).value) })" />
+                  @input="api.patchEditing({ autosaveDelay: Number(($event.target as HTMLInputElement).value) })" />
               </label>
               <label class="panel__field">
                 <span class="panel__label">撤销合并 ms</span>
                 <input type="number" class="panel__input" min="100" max="2000" step="50"
                   :value="api.editing.value.historyGroupDelay"
-                  @change="api.patchEditing({ historyGroupDelay: Number(($event.target as HTMLInputElement).value) })" />
+                  @input="api.patchEditing({ historyGroupDelay: Number(($event.target as HTMLInputElement).value) })" />
               </label>
             </div>
 

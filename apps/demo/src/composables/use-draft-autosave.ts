@@ -175,12 +175,14 @@ export function useDraftAutosave(options: DraftAutosaveOptions): DraftAutosave {
     const host = globalThis as IdleHost;
 
     // ① 后台优先级调度：无预算概念，但浏览器排序保证不抢输入 / 绘制帧
-    const postTask = host.scheduler?.postTask;
-    if (typeof postTask === 'function') {
+    //   注意：`postTask` 必须以 `scheduler` 为接收者调用——把它从对象上解构下来
+    //   裸调用会丢失 `this`，浏览器抛 `Scheduler.postTask: Illegal invocation`。
+    const scheduler = host.scheduler;
+    if (typeof scheduler?.postTask === 'function') {
       const token = slotToken + 1;
       slotToken = token;
       slot = { via: 'task', token };
-      void postTask(
+      void scheduler.postTask(
         () => {
           if (token !== slotToken) return; // 已被新一轮调度作废
           slot = null;

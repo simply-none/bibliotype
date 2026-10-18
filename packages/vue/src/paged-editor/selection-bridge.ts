@@ -31,12 +31,29 @@ export interface PagedIndex {
 }
 
 /**
+ * PM 叶块位置引用：容器前置位置 + 首个合法文本起始位置。
+ *
+ * `docStart` 为叶块（含容器型注文 / 双行注）的 nodeBefore 坐标；`contentStart`
+ * 为该块**首个 inline 文本**的 PM 位置——纯文本块（段落 / 标题）即 `docStart + 1`，
+ * 而 `content: 'block+'` 容器（脚注 / 尾注 / 边注 / 双行注…）须下钻到内层首个段落，
+ * 否则光标 / 落模定位到「容器开 ↔ 子段落」之间（parent 为块容器、非 inline），
+ * 使分页编辑态下注文 / 双行注无法落选区、打不进字、命令落空。
+ */
+export interface PmLeafPos {
+  docStart: number;
+  contentStart: number;
+}
+
+/** 叶块位置输入：兼容纯 `docStart` 数字（contentStart 回退 docStart + 1）与富引用 */
+export type PmLeafInput = number | PmLeafPos;
+
+/**
  * 构建块索引：blocks 与 leafPositions 同序对齐（第 i 叶块 ↔ 第 i 块）。
  * 数量不一致时取较小值（结构化容器场景 leafPositions 可能少于块数，映射降级，调用方回退）。
  */
 export function buildPagedIndex(
   blocks: readonly MeasurableBlock[],
-  leafPositions: readonly number[],
+  leafPositions: readonly PmLeafInput[],
   lineOffsets: ReadonlyMap<string, number[]>,
 ): PagedIndex {
   const n = Math.min(blocks.length, leafPositions.length);
@@ -44,11 +61,13 @@ export function buildPagedIndex(
   const byId = new Map<string, PagedBlockLoc>();
   for (let i = 0; i < n; i += 1) {
     const block = blocks[i] as MeasurableBlock;
-    const docStart = leafPositions[i] as number;
+    const leaf = leafPositions[i] as PmLeafInput;
+    const docStart = typeof leaf === 'number' ? leaf : leaf.docStart;
+    const contentStart = typeof leaf === 'number' ? leaf + 1 : leaf.contentStart;
     const loc: PagedBlockLoc = {
       blockId: block.id,
       docStart,
-      contentStart: docStart + 1,
+      contentStart,
       lineOffsets: lineOffsets.get(block.id),
     };
     ordered.push(loc);

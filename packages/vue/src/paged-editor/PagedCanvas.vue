@@ -17,7 +17,7 @@
  * 粘贴归一纯文本；跨块边界退格/删除走 PM join；纯导航键跨页片段边界跳转。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { isTextNode, type BookNode } from '@bibliotype/core';
+import { isTextNode, type BookNode, type FeatureStyleSheet, type NamedStyleSet } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import {
@@ -56,6 +56,16 @@ const props = withDefaults(
     tokens: Readonly<Record<string, string | undefined>>;
     /** 正文字体族令牌键 */
     fontToken?: string;
+    /**
+     * 功能样式表（按功能粒度覆盖节点 / 标记 / 角色样式）
+     *
+     * 与 BtEditor 连续画布同源：paged 可见画布容器是 `.bt-paged-page`，隐藏 PM 画布
+     * 上的用户功能样式覆盖不会作用到它，必须把同一份 features 注入分页画布样式表，
+     * 否则「功能样式」在分页编辑态完全不生效。
+     */
+    features?: FeatureStyleSheet;
+    /** 命名样式集合（[data-style-id] 规则，与 features 同源注入） */
+    namedStyles?: NamedStyleSet;
     /** 是否可编辑（片段格承载 contenteditable + 输入路由） */
     editable?: boolean;
     /** 缩放（按容器宽等比适配，缺省开启；传入 scale 时改为用户倍率覆盖自适应） */
@@ -105,6 +115,8 @@ function syncStyle(): void {
     options: props.options,
     fontToken: props.fontToken,
     containerSelector: CONTAINER_SELECTOR,
+    features: props.features,
+    namedStyles: props.namedStyles,
   });
   // 续页片段（fromLine>0）是上一页面段落的接续行：书排惯例不缩进，
   // 去掉 .bt-paragraph 的首行 text-indent（仅片段首段，段内后续行本就不缩进）
@@ -131,7 +143,10 @@ function removeStyle(): void {
 }
 
 onMounted(syncStyle);
-watch(() => [props.tokens, props.options, props.fontToken], syncStyle);
+watch(
+  () => [props.tokens, props.options, props.fontToken, props.features, props.namedStyles],
+  syncStyle,
+);
 onBeforeUnmount(removeStyle);
 
 /* ---------- 页框样式（固定开本 + 页边距 + 排版规则） ---------- */

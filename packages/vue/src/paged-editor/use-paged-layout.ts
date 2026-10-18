@@ -37,7 +37,7 @@ import type { Node as PMNode } from 'prosemirror-model';
 import type { BookEditor } from '@bibliotype/editor';
 import { measurePagination } from '../pagination-measure.js';
 import { PERF_LAYOUT, perfNow, perfRecord } from '../perf.js';
-import { buildPagedIndex, charOfLine, type PagedIndex } from './selection-bridge.js';
+import { buildPagedIndex, charOfLine, type PagedIndex, type PmLeafPos } from './selection-bridge.js';
 
 /** 页内一个片段：整块（lineCount=0）或跨页块的某段连续行 */
 export interface PagedFragment {
@@ -420,16 +420,38 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
 }
 
 /**
- * 收集 PM 文档「叶块」起始位置，与 extractBlocks 块序列严格同序（供编辑态光标 ⇄ 位置映射）。
+ * 由叶块前置位置求其**首个合法 inline 文本位置**（供容器型注文 / 双行注正确落光标）。
+ *
+ * 纯文本块（isTextblock：段落 / 标题 / 直挂 inline 的容器）文本从 `docStart + 1` 起；
+ * `content: 'block+'` 容器（脚注 / 尾注 / 边注 / 双行注…）须沿首个子节点下钻，直到
+ * 命中一个 textblock，其文本从该 textblock 前置位置 + 1 起。空容器无文本，回退 `docStart + 1`。
+ */
+function firstTextPos(doc: PMNode, docStart: number): number {
+  const root: PMNode | null = doc.nodeAt(docStart);
+  if (root === null) return docStart + 1;
+  let node: PMNode = root;
+  let pos = docStart;
+  // 非 textblock 且有子节点 → 下钻首个子节点（进入父节点使前置位置 +1）
+  while (!node.isTextblock && node.childCount > 0) {
+    const child: PMNode | null = node.firstChild;
+    if (child === null) break;
+    pos += 1;
+    node = child;
+  }
+  return pos + 1;
+}
+
+/**
+ * 收集 PM 文档「叶块」位置（容器前置 + 首个文本起始），与 extractBlocks 块序列严格同序。
  *
  * 叶块口径与 reader.isLeafBlock 对齐：版式文本容器整体成块不下钻；无块级子节点的块为叶块；
  * 含块级子节点的结构容器下钻。与 `collectLeafEls`（DOM 侧）判定一致。
  */
-export function collectPmLeafPositions(doc: PMNode): number[] {
-  const out: number[] = [];
+export function collectPmLeafPositions(doc: PMNode): PmLeafPos[] {
+  const out: PmLeafPos[] = [];
   doc.descendants((node: PMNode, pos: number) => {
     if (isLeafBlockTypeName(node.type.name)) {
-      out.push(pos);
+      out.push({ docStart: pos, contentStart: firstTextPos(doc, pos) });
       return false;
     }
     let hasBlockChild = false;
@@ -437,7 +459,7 @@ export function collectPmLeafPositions(doc: PMNode): number[] {
       if (child.isBlock) hasBlockChild = true;
     });
     if (!hasBlockChild) {
-      out.push(pos);
+      out.push({ docStart: pos, contentStart: firstTextPos(doc, pos) });
       return false;
     }
     return true;

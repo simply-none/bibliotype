@@ -416,6 +416,8 @@ watch([() => props.paginationMode, () => props.pageMainSize, () => props.measure
         :options="resolvedOptions"
         :tokens="resolvedTokens"
         :font-token="props.fontToken"
+        :features="props.features"
+        :named-styles="props.namedStyles"
         :editable="isEditable"
         :scale="props.scale === undefined ? undefined : resolvedScale"
         :editor="props.editor"

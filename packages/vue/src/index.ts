@@ -44,7 +44,12 @@ export {
   resolveFragmentPoint,
   locatePmPosition,
 } from './paged-editor/selection-bridge.js';
-export type { PagedBlockLoc, PagedIndex } from './paged-editor/selection-bridge.js';
+export type {
+  PagedBlockLoc,
+  PagedIndex,
+  PmLeafPos,
+  PmLeafInput,
+} from './paged-editor/selection-bridge.js';
 
 export {
   applyFragmentEdit,

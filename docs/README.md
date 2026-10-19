@@ -9,7 +9,7 @@
 | --- | --- |
 | 快速跑起来 | 根 [README](../README.md) 快速开始 → [06 Vue 集成](06-vue-integration.md) |
 | 跑通全链路示例 | 根 [README](../README.md) 快速开始 → [apps/demo/README](../apps/demo/README.md)（分页 / 目录 / 书签 / 直排切换 / 编辑 / 导出） |
-| 做编辑与插件 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [03 古籍](03-classical-layout.md) → [19 工具条使用说明](19-editor-toolbar-usage.md) → [20 选区替换为](20-selection-replace.md) |
+| 做编辑与插件 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [03 古籍](03-classical-layout.md) → [19 工具条使用说明](19-editor-toolbar-usage.md) → [20 选区替换为](20-selection-replace.md) → [21 表格编辑](21-table-editing.md) |
 | 做插件扩展（事件 / 自定义节点） | [01](01-document-model.md) → [13 核心运行时](13-core-runtime.md) → [02 编辑器与插件](02-editor-and-plugins.md) |
 | 做阅读器与版式 | [01](01-document-model.md) → [04 阅读与分页](04-reader-and-pagination.md) → [05 版式与 HTML](05-layout-and-html.md) → [11 主题令牌](11-theme-tokens.md) |
 | 做导出 | [05](05-layout-and-html.md) → [07 EPUB](07-export-epub.md) → [08 PDF 与打印](08-export-pdf.md) |
@@ -43,6 +43,7 @@
 | [18 纸书排版引擎路线图](18-pagination-engine-roadmap.md) | 行级拆分 / 孤寡行 / 预览编辑同源的阶段计划与引擎调研 | `layout` / `reader` / `vue` |
 | [19 编辑工具条使用说明](19-editor-toolbar-usage.md) | 44 个按钮的前提 / 落点 / 命令 / 限制，说明分层的归属约定与「点了没反应」速查 | `apps/demo` / `editor` / `classical` |
 | [20 选区替换为](20-selection-replace.md) | 选中文字转换为双行注 / 眉批 / 夹注等容器；浮动菜单、文本前后切分、id 去重、边界与降级 | `editor` / `classical` / `vue` / `apps/demo` |
+| [21 表格编辑](21-table-editing.md) | Word / WPS 式行列网格插入、语义 DOM、表格整体成块、直排支持与限制 | `editor` / `reader` / `layout` / `vue` / `apps/demo` |
 
 ## 架构总览
 

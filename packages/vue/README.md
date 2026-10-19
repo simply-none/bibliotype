@@ -1,7 +1,8 @@
 # @bibliotype/vue
 
 Vue 3 封装：`useReader` / `useReaderBinding` / `useEditorBinding` 组合式 API，
-`BtBookView` / `BtPager` / `BtToc` / `BtEditor` / `BtSelectionReplaceMenu` 组件，以及全局注册插件。
+`BtBookView` / `BtPager` / `BtToc` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker`
+组件，以及全局注册插件。
 
 ## 安装
 
@@ -75,6 +76,7 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `BtTocItem` | `item`、`depth?` | 递归目录项（供自定义目录结构复用） |
 | `BtEditor` | `editor`（`BookEditor`）、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?` | 编辑画布：挂载 / 卸载 ProseMirror 视图；`pagination` 开启后走自定义可编辑分页内核（真实书页盒 + 行级跨页续排 + 虚拟化；直排 / 多栏自动回退连续画布），片段输入经 `selection-bridge` 落成 `BookEditor` 事务；`loading` 遮罩首轮分页、`initialPage` 定位视口页、`editable=false` 只读 |
 | `BtSelectionReplaceMenu` | `binding`（必需，传 BtEditor 插槽 `slotBinding`）、`groups`（`ReplaceTargetGroup[]`）、`readonly?`、`autoShow?` | 选区「替换为」浮动菜单：选中文字后定位弹出，按分组展示目标，点击经 `binding.execute` 执行；横排 / 直排通用，详见 [docs/20](../../docs/20-selection-replace.md) |
+| `BtTableSizePicker` | `anchor`（触发器矩形）、`trigger?`、`maxRows?` / `maxCols?`（默认 8）、`rows?` / `cols?`（默认 3）；emit `select({ rows, cols })` / `close` | Word / WPS 式表格尺寸选择器：行 × 列网格悬停高亮、点击即插，另给精确行列输入；Teleport + `placeFloating` 定位，详见 [docs/21](../../docs/21-table-editing.md) |
 
 ## API 概览
 
@@ -87,7 +89,7 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `placeFloating(anchor, menu, viewport, gap?, edge?)` | 浮动菜单定位纯函数（上/下翻转、水平夹紧） |
 | `measurePagination(input)` / `measureBlockSizes(input)` | 离屏量尺：块推进尺寸 + 每行字符偏移 + 真实行高（单栏横排 DOM 实测，其余回退估算）；`input.extracted` 可复用调用方已抽好的块序列，省一次全树遍历 |
 | `buildPagedLayout(input)` / `usePagedLayout(opts)` | 编辑态分页内核：块抽取 → 量尺 → 分页 → 逐页片段（支持 `fromBlockId` 增量实测与 `targetBlockId` 定点实测） |
-| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` / `PagedCanvas` | 组件 |
+| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `PagedCanvas` | 组件 |
 | `createBibliotype()` | Vue 插件（全局注册组件） |
 
 在组件 / `effectScope` 内调用组合式 API 时，scope 销毁会自动解绑事件与视图。

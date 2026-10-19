@@ -12,6 +12,7 @@ import {
   BookEditor,
   buildEditorSchema,
   createBookEditorPlugins,
+  insertTable,
   toggleMarkOfType,
 } from '@bibliotype/editor';
 import { TextSelection } from 'prosemirror-state';
@@ -315,5 +316,29 @@ describe('BtEditor', () => {
     expect(plain.find('.bt-editor__loading').exists()).toBe(false);
     plain.unmount();
     vi.useRealTimers();
+  });
+
+  it('插入表格后画布渲染真实 table / tr / td（不是嵌套 div）', async () => {
+    const editor = createEditor();
+    // 走插槽 binding.execute（与工具条同一路径）：它会在派发后同步 PM 视图
+    let binding: EditorBinding | undefined;
+    const wrapper = mount(BtEditor, {
+      props: { editor },
+      slots: {
+        default: (slotProps: Record<string, unknown>) => {
+          binding = slotProps as unknown as EditorBinding;
+          return h('span');
+        },
+      },
+    });
+    const { from } = firstTextRange(editor);
+    setSelection(editor, from, 0);
+    expect(binding?.execute(insertTable(2, 2))).toBe(true);
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('.ProseMirror table.bt-table').exists()).toBe(true);
+    expect(wrapper.findAll('.ProseMirror tr.bt-table-row')).toHaveLength(2);
+    expect(wrapper.findAll('.ProseMirror td.bt-table-cell')).toHaveLength(4);
+    wrapper.unmount();
   });
 });

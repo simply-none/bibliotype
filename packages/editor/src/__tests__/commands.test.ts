@@ -488,6 +488,46 @@ describe('编辑命令', () => {
     expect(table?.children).toHaveLength(3);
   });
 
+  it('insertTable：表格节点使用语义 table / tr / td（不是嵌套 div）', () => {
+    const editor = createEditor();
+    selectFirstText(editor);
+    expect(run(editor, insertTable(2, 2))).toBe(true);
+
+    // 用对象属性承载查找结果，避免 TS 把闭包内赋值的局部变量窄化为 null
+    const found: { node: PmNode | null } = { node: null };
+    editor.editorState.doc.descendants((node) => {
+      if (found.node === null && node.type.name === NODE_TYPES.TABLE) {
+        found.node = node;
+        return false;
+      }
+      return true;
+    });
+    if (found.node === null) {
+      throw new Error('未找到表格节点');
+    }
+    const table: PmNode = found.node;
+
+    const toDomOf = (node: PmNode): readonly unknown[] => {
+      const toDOM = node.type.spec.toDOM;
+      if (toDOM === undefined) {
+        throw new Error(`节点 ${node.type.name} 缺少 toDOM`);
+      }
+      return toDOM(node) as unknown as readonly unknown[];
+    };
+
+    const tableDom = toDomOf(table);
+    const rowDom = toDomOf(table.firstChild as PmNode);
+    const cellDom = toDomOf((table.firstChild as PmNode).firstChild as PmNode);
+
+    // 关键：标签是 table / tr / td，而不是默认的 div 占位
+    expect(tableDom[0]).toBe('table');
+    expect((tableDom[1] as Record<string, string>).class).toContain('bt-table');
+    expect(tableDom[2]).toEqual(['tbody', 0]);
+    expect(rowDom[0]).toBe('tr');
+    expect(cellDom[0]).toBe('td');
+    expect((cellDom[1] as Record<string, string>).class).toContain('bt-table-cell');
+  });
+
   it('undo / redo：历史回退与重放', () => {
     const editor = createEditor();
     const before = editor.getDocument();

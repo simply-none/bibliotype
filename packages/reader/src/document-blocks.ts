@@ -38,8 +38,8 @@ const STRUCTURE_TYPES: ReadonlySet<string> = new Set([
  * 深入」处理，容器将退居中间层而不入块序列——容器样式随之丢失，
  * 稳定 id 也退化为内部无 id 段落的路径 id。
  * 故此处显式声明：无论子级是直挂文本还是段落，都整体成块（渲染与
- * 导出时连容器 class 一并序列化）。结构容器（卷/章等）与列表 / 表格 /
- * 引文等复合块仍走逐层深入策略。
+ * 导出时连容器 class 一并序列化）。结构容器（卷/章等）与列表 / 引文等
+ * 复合块仍走逐层深入策略；表格例外，见 {@link COMPOSITE_ATOMIC_TYPES}。
  *
  * 古籍类型以 kebab-case 字符串表列（reader 不依赖 @bibliotype/classical）。
  */
@@ -56,6 +56,15 @@ const TEXT_CONTAINER_TYPES: ReadonlySet<string> = new Set([
   'imprint',
   'colophon',
 ]);
+
+/**
+ * 必须整体成块的复合节点
+ *
+ * 表格是 `table > tr > td` 的复合结构：分页若逐层下钻，块序列只剩单元格段落，
+ * 渲染 / 导出时会丢失 `<table>` 包裹（页面上表现为一片空白，直排下尤其明显）。
+ * 故与注文容器一样整体成块，由 HTML 序列化器一次输出完整表格。
+ */
+const COMPOSITE_ATOMIC_TYPES: ReadonlySet<string> = new Set([NODE_TYPES.TABLE]);
 
 /**
  * 强制另起页的标题级别上限
@@ -85,6 +94,7 @@ const ATOMIC_BLOCK_TYPES: ReadonlySet<string> = new Set([
   NODE_TYPES.HEADING,
   NODE_TYPES.IMAGE,
   NODE_TYPES.BREAK,
+  NODE_TYPES.TABLE,
   NODE_TYPES.COVER,
   NODE_TYPES.TITLE_PAGE,
   NODE_TYPES.COPYRIGHT_PAGE,
@@ -193,11 +203,12 @@ interface PendingFlags {
  * 拆开会丢失与载体混排的裸文本，故整块渲染与度量。
  * 第一类（注文 / 牌记 / 题记）恒整体成块：子级无论是直挂文本还是
  * 编辑保存后规范化的段落，容器样式与稳定 id 都不能丢。
- * 纯元素容器（卷/章等结构容器，及列表 / 表格 / 引文等复合块）仍逐层深入。
+ * 复合原子块（表格）同样整体成块：拆开会丢失 `<table>` 包裹，渲染成空白。
+ * 纯元素容器（卷/章等结构容器，及列表 / 引文等复合块）仍逐层深入。
  * 与 extractBlocks 的分块规则保持一致（findNodeById / indexNodeAnchors 复用）。
  */
 export function isLeafBlock(node: BookNode): boolean {
-  if (TEXT_CONTAINER_TYPES.has(node.type)) {
+  if (TEXT_CONTAINER_TYPES.has(node.type) || COMPOSITE_ATOMIC_TYPES.has(node.type)) {
     return true;
   }
   const children = node.children ?? [];
@@ -214,14 +225,14 @@ export function isLeafBlock(node: BookNode): boolean {
 }
 
 /**
- * 按「节点类型名」判定是否为版式文本容器（恒整体成块）。
+ * 按「节点类型名」判定是否为恒整体成块的叶块。
  *
  * 供渲染层（ProseMirror DOM 遍历）复用，使「块 → DOM 元素」的叶块口径与
- * extractBlocks 严格一致：注文 / 牌记 / 题记等容器在 IR 侧只出一个块、不下钻，
- * DOM 侧也必须把它当叶块整体取用（否则其内部段落被拆成多块，序列错位）。
+ * extractBlocks 严格一致：注文 / 牌记 / 题记等容器与表格在 IR 侧只出一个块、
+ * 不下钻，DOM 侧也必须把它当叶块整体取用（否则其内部段落被拆成多块，序列错位）。
  */
 export function isLeafBlockTypeName(typeName: string): boolean {
-  return TEXT_CONTAINER_TYPES.has(typeName);
+  return TEXT_CONTAINER_TYPES.has(typeName) || COMPOSITE_ATOMIC_TYPES.has(typeName);
 }
 
 /** extractBlocksIndexed 结果：块序列 + 块 id → 源节点索引 */

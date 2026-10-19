@@ -29,7 +29,11 @@
  */
 import { computed, ref } from 'vue';
 import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
-import { BtSelectionReplaceMenu, type EditorBinding } from '@bibliotype/vue';
+import {
+  BtSelectionReplaceMenu,
+  BtTableSizePicker,
+  type EditorBinding,
+} from '@bibliotype/vue';
 import {
   insertBlockOfType,
   insertImage,
@@ -88,6 +92,8 @@ type EditorCommand = ReturnType<typeof setParagraph>;
 
 /** 工具条按钮描述 */
 interface ToolbarAction {
+  /** 稳定键（个别按钮需要特殊交互时用，如表格弹尺寸选择器） */
+  key?: string;
   /** 按钮文字 */
   label: string;
   /** 点击执行 */
@@ -129,6 +135,44 @@ function executeReplacingSelection(command: () => EditorCommand): void {
   }
   execute(command());
 }
+
+/* ---------- 表格尺寸选择器（Word / WPS 式网格） ---------- */
+
+const tableMenuOpen = ref(false);
+const tableAnchor = ref<{ top: number; left: number; width: number; height: number } | null>(null);
+const tableTrigger = ref<HTMLElement | null>(null);
+
+/**
+ * 工具条按钮点击分发
+ *
+ * 表格按钮不走「立即插 3×3」，而是记录按钮位置并打开尺寸选择器；
+ * 其余按钮保持原行为。用 `key` 而非 label 判定，避免改文案时失效。
+ */
+function onActionClick(action: ToolbarAction, event: MouseEvent): void {
+  if (action.key === 'table') {
+    const button = event.currentTarget as HTMLElement | null;
+    if (button !== null) {
+      const rect = button.getBoundingClientRect();
+      tableAnchor.value = {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      };
+      tableTrigger.value = button;
+    }
+    tableMenuOpen.value = !tableMenuOpen.value;
+    return;
+  }
+  action.run();
+}
+
+/** 选定尺寸后插入表格（行 / 列已由选择器夹紧到 1~max） */
+function onTableSelect(payload: { rows: number; cols: number }): void {
+  execute(insertTable(payload.rows, payload.cols));
+  tableMenuOpen.value = false;
+}
+
 
 /** 行内标记切换（未注册的标记类型不可用） */
 function toggleMark(name: string): void {
@@ -652,13 +696,14 @@ const insertActions: readonly ToolbarAction[] = [
     },
   },
   {
+    key: 'table',
     label: '表格',
     run: () => execute(insertTable(3, 3)),
-    title: '在当前段落之后插入 3×3 表格',
+    title: '选择行 × 列后插入表格',
     usage: {
-      use: '插入 3×3 表格（单元格内嵌空段落）',
-      where: '当前叶块之后',
-      limit: '简化表格模型：无跨行 / 跨列 / 表头属性',
+      use: '打开行 × 列网格：悬停实时高亮尺寸，点击直接插入；也可输入精确行列后点「插入」',
+      where: '当前叶块之后；单元格内嵌空段落',
+      limit: '简化表格模型：无跨行 / 跨列 / 表头属性；横排 / 直排均可插入',
     },
   },
   {
@@ -767,7 +812,7 @@ function onWheel(event: WheelEvent): void {
           :title="action.usage === undefined ? action.title : undefined"
           :disabled="isReadonly || action.disabled?.() === true"
           @mousedown.prevent
-          @click="action.run()"
+          @click="onActionClick(action, $event)"
         >
           {{ action.label }}
         </button>
@@ -810,6 +855,13 @@ function onWheel(event: WheelEvent): void {
       </div>
     </div>
   </div>
+  <BtTableSizePicker
+    v-if="tableMenuOpen && tableAnchor !== null"
+    :anchor="tableAnchor"
+    :trigger="tableTrigger"
+    @select="onTableSelect"
+    @close="tableMenuOpen = false"
+  />
   <BtSelectionReplaceMenu
     :binding="binding"
     :groups="REPLACE_TARGET_GROUPS"

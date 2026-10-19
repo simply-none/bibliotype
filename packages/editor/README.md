@@ -82,7 +82,12 @@ off();
 
 `undoCommand` · `redoCommand` · `undoDepth` · `redoDepth` · `toggleMarkOfType` ·
 `setHeadingLevel` · `setParagraph` · `toggleQuote` · `toggleBulletList` · `insertBlockAfterSelection` ·
-`replaceSelectionWithContainer`
+`replaceSelectionWithContainer` · `insertTable` · `tableAddRow` · `tableAddColumn` ·
+`tableDeleteRow` · `tableDeleteColumn`
+
+`insertTable(rows, cols)`：在当前叶块之后插入表格（单元格内嵌空段落）。`table / table-row /
+table-cell` 渲染为语义 `<table><tbody><tr><td>`（不是默认的嵌套 `div`）。详见
+[docs/21 表格编辑](../../docs/21-table-editing.md)。
 
 `replaceSelectionWithContainer(typeName, attrs?, options?)`：把当前选区的文字搬进目标容器
 （块级 `block+` 切分前后段落 / 清理空段 / id 去重；行内 `inline*` 委托同段包裹）。

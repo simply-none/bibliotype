@@ -78,7 +78,9 @@ BookDocument ──extractBlocks──▶ MeasurableBlock[] ──paginate──
 
 - 块序列仅含**叶块**（稳定 id + 估算尺寸）；分页由 `@bibliotype/layout` 的贪心分页器完成；
 - 结构容器 id（目录项）通过“首叶锚点”映射到页码，因此 `goToNode` 对容器同样有效；
-- 注释容器（脚注 / 尾注 / 边注 / 双行小注等）恒判为原子叶块，样式与 id 在分块时整体保留。
+- 注释容器（脚注 / 尾注 / 边注 / 双行小注等）恒判为原子叶块，样式与 id 在分块时整体保留；
+- 表格是复合原子块：`table` 整体成块，不下钻到 `table-row` / `table-cell`，分页与序列化保留完整
+  `<table>` 包裹（否则页面会丢失表格）。
 
 ## 相关
 

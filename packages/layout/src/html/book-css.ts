@@ -181,11 +181,21 @@ ${scoped('.bt-margin-note')} {
 }
 ${scoped('.bt-table')} {
   border-collapse: collapse;
-  margin: 1em 0;
+  /* 逻辑外边距：横排为上下、直排为左右，表格与相邻块沿书写方向留白 */
+  margin-block: 1em;
+  margin-inline: 0;
+  /* 表格随书写方向排布：直排下单元格文字竖排，列沿页宽方向展开 */
+  writing-mode: inherit;
+  table-layout: auto;
 }
 ${scoped('.bt-table-cell')} {
   border: 1px solid var(--bt-${COLOR_TOKENS.TEXT});
-  padding: 0.25em 0.6em;
+  /* 逻辑内边距：横排上下 0.25em / 左右 0.6em；直排自动换算 */
+  padding-block: 0.25em;
+  padding-inline: 0.6em;
+  /* 空单元格保留可点击 / 可测量面积，避免 Word 式空表塌成一条线 */
+  min-inline-size: 2em;
+  min-block-size: 1.6em;
 }
 ${scoped('.bt-image')} {
   max-width: 100%;

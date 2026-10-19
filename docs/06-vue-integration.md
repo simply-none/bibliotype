@@ -68,6 +68,7 @@ useReader(docRef);
 | `BtTocItem` | `item: OutlineItem`；emit `select` | 单个目录项（层级递归） |
 | `BtEditor` | `editor: BookEditor`、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?`；emit `update:visiblePage` | 编辑画布；默认插槽作用域透传 `EditorBinding`。`pagination` 开启后走自定义可编辑分页内核（`PagedCanvas` 真实书页盒 + 行级跨页续排 + 虚拟化，直排 / 多栏自动回退连续画布），可编辑桥经 `selection-bridge` 把片段输入落成 `BookEditor` 事务；`loading` 在首轮分页就绪前以遮罩挡住未分页内容，`initialPage` 首轮分页后定位（阅读页 ↔ 编辑视口页位置记忆），`editable=false` 只读。**`scale`（缺省 1，限幅 0.2~2）对连续与分页两种模式均生效**：分页下作为用户倍率覆盖 `PagedCanvas` 的「按容器宽自适应且限 ≤1」，允许放大到 100% 以上（页宽超出容器走横向滚动）；不传 `scale` 时分页仍按容器宽自适应 |
 | `BtSelectionReplaceMenu` | `binding: EditorBinding`（传插槽 `slotBinding`）、`groups: ReplaceTargetGroup[]`、`readonly?`、`autoShow?`（默认 `true`） | 选区「替换为」浮动菜单：选中文字后在选区旁弹出，点击目标经 `binding.execute` 执行；Teleport 到 body + fixed 定位，横排 / 直排通用。详见 [20 选区替换为](20-selection-replace.md) |
+| `BtTableSizePicker` | `anchor: FloatingRect`、`trigger?: HTMLElement`、`maxRows?` / `maxCols?`（默认 8）、`rows?` / `cols?`（默认 3）；emit `select({ rows, cols })` / `close` | Word / WPS 式表格尺寸选择器：行 × 列网格悬停高亮、点击即插，另给精确行列输入；Teleport + `placeFloating` 定位。详见 [21 表格编辑](21-table-editing.md) |
 
 ### 编辑保存链路
 

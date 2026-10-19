@@ -459,6 +459,52 @@ describe('extractBlocks', () => {
       expect(blocks.find((b) => b.id === id)?.breakBefore).toBe(true);
     }
   });
+
+  it('表格整体成块（不拆成单元格段落）且不参与行级拆分', () => {
+    const doc = createEmptyDocument({ title: '表格' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        children: [
+          {
+            type: NODE_TYPES.TABLE,
+            id: 'table-1',
+            children: [
+              {
+                type: NODE_TYPES.TABLE_ROW,
+                id: 'row-1',
+                children: [
+                  {
+                    type: NODE_TYPES.TABLE_CELL,
+                    id: 'cell-1',
+                    children: [
+                      { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '甲' }] },
+                    ],
+                  },
+                  {
+                    type: NODE_TYPES.TABLE_CELL,
+                    id: 'cell-2',
+                    children: [
+                      { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '乙' }] },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const blocks = extractBlocks(doc);
+    // 表格自身成一个块，单元格段落不再单独成块（否则渲染会丢失 <table> 包裹）
+    expect(blocks.map((b) => b.id)).toEqual(['table-1']);
+    expect(blocks.find((b) => b.id === 'cell-1')).toBeUndefined();
+    // 复合原子块：不标 splittable，避免按行拆散
+    expect(blocks[0]?.splittable).toBeUndefined();
+    expect(blocks[0]?.mainSize).toBeGreaterThan(0);
+  });
 });
 
 describe('extractBlocksIndexed', () => {

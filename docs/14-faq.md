@@ -245,6 +245,44 @@
 - 菜单必须挂载在 `BtEditor` 插槽内、并把**插槽作用域的 `binding`** 传给 `BtSelectionReplaceMenu`；
 - 回归用例：`packages/vue/src/__tests__/selection-replace.test.ts`（显隐 / 点击执行 / 只读 / 定位）。
 
+## 13. 插入表格后一片空白 / 分页后表格消失
+
+**现象**：点「表格」后编辑画布只有一片空白；或阅读、预览、导出分页后表格不见了。
+
+**根因**（两层，常同时出现）：
+
+1. 表格节点没有显式 `toDOM`，`withDefaultNodeDom` 把它兜底成
+   `div.bt-table > div.bt-table-row > div.bt-table-cell`。浏览器不会对嵌套 `div` 建立表格布局，
+   编辑态看起来就是空白；
+2. `extractBlocks` 把表格逐层下钻，块序列只剩单元格段落；分页 / 序列化时丢失 `<table>` 包裹，
+   页面上自然没有表格。
+
+**处理与排查**：
+
+- `packages/editor/src/schema-registry.ts` 的 `semanticDomShape`：表格三件套输出
+  `<table class="bt-table"><tbody>…</tbody></table>` / `<tr>` / `<td>`，并保留 `data-bt-id`；
+- `packages/reader/src/document-blocks.ts`：`table` 加入 `COMPOSITE_ATOMIC_TYPES` 与
+  `ATOMIC_BLOCK_TYPES`，`isLeafBlock` / `isLeafBlockTypeName` 对表格返回 `true`，整块序列化；
+- 排查口诀：编辑态看 DOM 是否是 `table/tr/td`（不是 `div.bt-table-*`）；分页后看页面 HTML
+  是否含完整 `<table>`；
+- 回归用例：`packages/editor/src/__tests__/commands.test.ts`（语义 DOM）、
+  `packages/reader/src/__tests__/document-blocks.test.ts`（表格整体成块）。
+
+## 14. 直排下表格按钮置灰 / 表格不可见
+
+**现象**：切到直排（竖排）后表格按钮不可用，或插入后看不到表格。
+
+**根因**：旧版表格既没有语义 DOM，也没有直排样式；空单元格没有最小尺寸，直排下容易塌成一条线；
+若工具条再按书写方向禁用，就会表现为「表格仅支持横排」。
+
+**处理与排查**：
+
+- 表格按钮**不按书写方向禁用**，横排 / 直排同一入口；
+- `.bt-table { writing-mode: inherit }` 让单元格文字随书写方向竖排；
+- `.bt-table-cell` 增加 `min-inline-size` / `min-block-size`，空单元格仍保留可点击 / 可测量面积；
+- 表格是复合原子块，直排下整体占一页；列数很多的宽表可能超出页宽，建议减小尺寸（后续可做
+  横排旋转 / 转图片等增强）。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

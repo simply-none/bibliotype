@@ -117,6 +117,7 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [18 纸书排版引擎路线图](docs/18-pagination-engine-roadmap.md) | 行级拆分 / 孤寡行 / 预览编辑同源的阶段计划 |
 | [19 编辑工具条使用说明](docs/19-editor-toolbar-usage.md) | 编辑按钮的前提 / 落点 / 命令 / 限制与「点了没反应」速查 |
 | [20 选区替换为](docs/20-selection-replace.md) | 选中文字转换为双行注 / 眉批 / 夹注等容器；浮动菜单与文本前后切分规则 |
+| [21 表格编辑](docs/21-table-editing.md) | Word / WPS 式行列网格插入、语义 DOM、表格整体成块与直排支持 |
 
 参与贡献见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

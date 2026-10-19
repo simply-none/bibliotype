@@ -123,6 +123,8 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 - 结构容器（封面 / 卷 / 章 / 节 / 序 / 附录 / 目录等）逐层深入，**首块标记 `breakBefore`**（另起页）；
 - 叶块（纯文本容器）各自成块；含「行内载体」子元素的块不拆开（随父块整体度量）；
 - **版式文本容器**（注文 / 牌记 / 题记等）无论子级形态恒整体成块（编辑保存规范化后样式与 id 不丢失）；
+- **表格是复合原子块**：`table` 整体成块（`COMPOSITE_ATOMIC_TYPES`），不再逐层下钻到 `table-row` / `table-cell`；
+  否则块序列只剩单元格段落，序列化会丢失 `<table>` 包裹、页面上表现为空白（详见 [21 表格编辑](21-table-editing.md)）；
 - **h1 / h2 标题另起页**：章 / 节级标题（`attrs.level` ≤ `HEADING_BREAK_BEFORE_MAX_LEVEL`，缺省 2）仿纸质书从新页页首起排，标记 `breakBefore`；h3~h6 不强制另起页。该标记与结构容器首块标记、分页符标记正交，主轴方向由调用方按书写方向传尺寸，**横排与直排同逻辑**；
 - 标题块标记 `keepWithNext`（与下段同页）。
 
@@ -136,6 +138,7 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 | 行级拆分（`splittable` + `lineSize`） | 装不下的正文段落在行处断开跨页续排，页输出 `items: PageItem[]`（`fromLine` / `lineCount`）；未拆分时 `lineCount=0` 按整块渲染，`blocks` 字段向后兼容 |
 | 孤寡行控制（`widowControl`） | 拆分后首页片段 ≥ minFirst 行、末页片段 ≥ minLast 行（默认 2 / 2），不满足则让行或整体换页 |
 | 超大块 | 可拆者按每页容纳行数连续跨页；不可拆者独占一页（避免死循环） |
+| 表格 | 复合原子块：不标 `splittable`，整块占位；超大表独占一页，不拆行 / 单元格 |
 | 非法输入 | `pageMainSize <= 0` 或块尺寸为负抛 `RangeError` |
 
 不传 `splittable` / `lineSize` / `widowControl` 时，行为与块原子版完全一致；行级拆分能力的消费方接入见 [18 纸书排版引擎路线图](18-pagination-engine-roadmap.md)（Phase 3 / 4）。

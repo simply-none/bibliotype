@@ -50,6 +50,16 @@ describe('buildBookCss', () => {
     expect(bodyCss).toContain('body .bt-double-note {');
   });
 
+  it('表格样式：书写方向继承 + 空单元格最小尺寸（直排不塌陷）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: CLASSICAL_LAYOUT_OPTIONS });
+    expect(css).toContain('.bt-table {');
+    expect(css).toContain('writing-mode: inherit;');
+    expect(css).toContain('.bt-table-cell {');
+    expect(css).toContain('padding-block: 0.25em;');
+    expect(css).toContain('min-inline-size: 2em;');
+    expect(css).toContain('min-block-size: 1.6em;');
+  });
+
   it('直排：text-orientation 与 text-combine-upright 生效（D3）', () => {
     const css = buildBookCss({
       tokens: { ...DEFAULT_THEME, 'text-orientation': 'upright' },

@@ -85,6 +85,29 @@ function domDataAttrs(
   return result;
 }
 
+/**
+ * 复合节点的语义 DOM 标签
+ *
+ * 默认 toDOM 用 div 占位；表格若渲染成 `div.bt-table > div.bt-table-row > div.bt-table-cell`，
+ * 浏览器不会建立表格布局，编辑态表现为「一片空白」。这里改用 table / tr / td，
+ * 同时保留 bt-* class 与 data-* 属性（与默认表现共用同一套 attrs 组装）。
+ * 表格内容需包一层 tbody，保证与浏览器解析出的 DOM 结构一致。
+ */
+function semanticDomShape(
+  type: string,
+): { tag: string; wrapper?: string; parseTags?: readonly string[] } | null {
+  switch (type) {
+    case NODE_TYPES.TABLE:
+      return { tag: 'table', wrapper: 'tbody', parseTags: ['table.bt-table', 'table'] };
+    case NODE_TYPES.TABLE_ROW:
+      return { tag: 'tr', parseTags: ['tr'] };
+    case NODE_TYPES.TABLE_CELL:
+      return { tag: 'td', parseTags: ['td', 'th'] };
+    default:
+      return null;
+  }
+}
+
 /** 为缺省 toDOM / parseDOM 的节点规格生成默认 DOM 表现（解锁视图渲染） */
 function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
   // text 节点由 ProseMirror 直接渲染为文本，无需 DOM 表现
@@ -93,7 +116,8 @@ function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
   }
   const next: NodeSpec = { ...spec };
   const className = `${DEFAULT_DOM_CLASS_PREFIX}${type}`;
-  const tag = spec.inline === true || spec.group === 'inline' ? 'span' : 'div';
+  const shape = semanticDomShape(type);
+  const tag = shape?.tag ?? (spec.inline === true || spec.group === 'inline' ? 'span' : 'div');
   if (next.toDOM === undefined || next.toDOM === null) {
     const hasContent = typeof spec.content === 'string' && spec.content.length > 0;
     next.toDOM = (node: PmNode): DOMOutputSpec => {
@@ -106,11 +130,17 @@ function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
       if (typeof id === 'string' && id !== '') {
         domAttrs['data-bt-id'] = id;
       }
+      if (hasContent && shape?.wrapper !== undefined) {
+        return [tag, domAttrs, [shape.wrapper, 0]];
+      }
       return hasContent ? [tag, domAttrs, 0] : [tag, domAttrs];
     };
   }
   if (next.parseDOM === undefined || next.parseDOM === null) {
-    next.parseDOM = [{ tag: `${tag}.${className}` }];
+    next.parseDOM =
+      shape?.parseTags !== undefined
+        ? shape.parseTags.map((parseTag) => ({ tag: parseTag }))
+        : [{ tag: `${tag}.${className}` }];
   }
   return next;
 }

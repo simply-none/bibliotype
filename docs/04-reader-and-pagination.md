@@ -29,7 +29,7 @@ loadDocument
   ├─ extractOutline(root)            → 目录树（卷/章/节）
   ├─ emit('document:load')           
   ├─ repaginate()
-  │    ├─ extractBlocks(doc)         → 线性叶块序列（结构容器首块 breakBefore）
+  │    ├─ extractBlocks(doc)         → 线性叶块序列（结构容器首块 + h1/h2 标题 breakBefore）
   │    ├─ paginate(blocks)           → 页编排（keepWithNext 等）
   │    ├─ 索引块→页映射 + 容器锚点（容器 id → 首叶所在页）
   │    └─ emit('page:change')
@@ -123,6 +123,7 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 - 结构容器（封面 / 卷 / 章 / 节 / 序 / 附录 / 目录等）逐层深入，**首块标记 `breakBefore`**（另起页）；
 - 叶块（纯文本容器）各自成块；含「行内载体」子元素的块不拆开（随父块整体度量）；
 - **版式文本容器**（注文 / 牌记 / 题记等）无论子级形态恒整体成块（编辑保存规范化后样式与 id 不丢失）；
+- **h1 / h2 标题另起页**：章 / 节级标题（`attrs.level` ≤ `HEADING_BREAK_BEFORE_MAX_LEVEL`，缺省 2）仿纸质书从新页页首起排，标记 `breakBefore`；h3~h6 不强制另起页。该标记与结构容器首块标记、分页符标记正交，主轴方向由调用方按书写方向传尺寸，**横排与直排同逻辑**；
 - 标题块标记 `keepWithNext`（与下段同页）。
 
 ## 分页规则（layout.paginate）
@@ -130,7 +131,7 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 | 场景 | 规则 |
 | --- | --- |
 | 贪心装箱 | 块沿主轴累加，超页换页 |
-| `breakBefore` / `breakAfter` | 强制换页（章首 / 卷末） |
+| `breakBefore` / `breakAfter` | 强制换页（章首 / 卷末 / h1·h2 标题；横排与直排同逻辑，由 `extractBlocks` 产出 `breakBefore`） |
 | `keepWithNext` | 与下一块同页；放不下则整体换页（下一块强制换页时不连坐；下块可拆时仅要求头部 minFirst 行同页） |
 | 行级拆分（`splittable` + `lineSize`） | 装不下的正文段落在行处断开跨页续排，页输出 `items: PageItem[]`（`fromLine` / `lineCount`）；未拆分时 `lineCount=0` 按整块渲染，`blocks` 字段向后兼容 |
 | 孤寡行控制（`widowControl`） | 拆分后首页片段 ≥ minFirst 行、末页片段 ≥ minLast 行（默认 2 / 2），不满足则让行或整体换页 |

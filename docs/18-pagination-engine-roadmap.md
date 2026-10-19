@@ -16,7 +16,7 @@
 
 ## 现状与差距
 
-`@bibliotype/layout` 分页器已具备：贪心装箱、`breakBefore` / `breakAfter`（章首 / 卷末另起页）、
+`@bibliotype/layout` 分页器已具备：贪心装箱、`breakBefore` / `breakAfter`（章首 / 卷末 / h1·h2 标题另起页）、
 `keepWithNext`（标题 + 首段同页）、超大块独占一页。
 
 与纸书的差距：**块原子归属**——段落装不下时整块挪页（纸书在行处断开），且缺孤寡行控制。

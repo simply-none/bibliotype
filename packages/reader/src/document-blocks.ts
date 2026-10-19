@@ -58,6 +58,15 @@ const TEXT_CONTAINER_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * 强制另起页的标题级别上限
+ *
+ * h1 / h2（章 / 节级标题）仿纸质书从新页页首起排；h3~h6 不强制另起页，
+ * 仅保留 `keepWithNext` 与下段同页（见下方 leaf 块标记）。横排 / 直排同
+ * 逻辑：分页主轴方向由调用方按书写方向传尺寸，`breakBefore` 与书写方向无关。
+ */
+const HEADING_BREAK_BEFORE_MAX_LEVEL = 2;
+
+/**
  * 恒整块呈现（不跨页拆分）的块类型
  *
  * 分页器只在块标记 `splittable` 时按行拆分；此前仅 `paragraph` 标记，
@@ -294,6 +303,19 @@ export function extractBlocksIndexed(
         const body = Math.max(1, Math.floor(advance / lineSize)) * lineSize;
         if (advance - body >= 0.5) bodyMainSize = body;
       }
+      // 标题分级另起页：h1 / h2（章 / 节级）仿纸质书从新页页首起排；h3~h6 不强制
+      // （仅 keepWithNext 与下段同页）。与结构容器首块标记、分页符标记正交。
+      const rawLevel = node.attrs?.['level'];
+      const headingLevel =
+        node.type === NODE_TYPES.HEADING
+          ? typeof rawLevel === 'number'
+            ? rawLevel
+            : Number(rawLevel) || 1
+          : 0;
+      const breakBeforeByHeading =
+        headingLevel > 0 && headingLevel <= HEADING_BREAK_BEFORE_MAX_LEVEL;
+      const breakBefore =
+        (flags.breakBefore === true || breakBeforeByHeading) && !isPageBreak;
       blocks.push({
         id,
         mainSize: advance,
@@ -307,7 +329,7 @@ export function extractBlocksIndexed(
         ...(bodyMainSize !== undefined ? { bodyMainSize } : {}),
         // 分页符自身不带走一页：它的 breakAfter 已保证后继另起一页，自身再
         // breakBefore（如它正好是结构容器首块）会只让它独占一页、中间多出一张空白页
-        ...(flags.breakBefore === true && !isPageBreak ? { breakBefore: true } : {}),
+        ...(breakBefore ? { breakBefore: true } : {}),
         ...(isPageBreak ? { breakAfter: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
       });

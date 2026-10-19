@@ -115,6 +115,52 @@ describe('extractBlocks', () => {
     expect(blocks[1]?.breakBefore).toBeUndefined();
   });
 
+  it('h1/h2 标题另起页（breakBefore），h3~h6 不强制另起页', () => {
+    const doc = createEmptyDocument({ title: '标题分级换页' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        id: 'chap-1',
+        children: [
+          // h1：既因结构容器首块、又因分级规则 breakBefore
+          { type: NODE_TYPES.HEADING, id: 'h-1', attrs: { level: 1 }, children: [{ type: 'text', text: '卷一' }] },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '序' }] },
+          // h2：结构容器非首块，仅因分级规则 breakBefore
+          { type: NODE_TYPES.HEADING, id: 'h-2', attrs: { level: 2 }, children: [{ type: 'text', text: '第一节' }] },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-2', children: [{ type: 'text', text: '正文' }] },
+          // h3：不强制另起页
+          { type: NODE_TYPES.HEADING, id: 'h-3', attrs: { level: 3 }, children: [{ type: 'text', text: '小节' }] },
+          { type: NODE_TYPES.PARAGRAPH, id: 'p-3', children: [{ type: 'text', text: '细文' }] },
+        ],
+      },
+    ];
+    const blocks = extractBlocks(doc);
+    expect(blocks.find((b) => b.id === 'h-1')?.breakBefore).toBe(true);
+    expect(blocks.find((b) => b.id === 'h-2')?.breakBefore).toBe(true);
+    expect(blocks.find((b) => b.id === 'h-3')?.breakBefore).toBeUndefined();
+    // h1/h2 仍保持与下段同页（纸质书：标题 + 首段同页）
+    expect(blocks.find((b) => b.id === 'h-1')?.keepWithNext).toBe(true);
+    expect(blocks.find((b) => b.id === 'h-2')?.keepWithNext).toBe(true);
+  });
+
+  it('缺省 level 的标题视为 h1，强制另起页', () => {
+    const doc = createEmptyDocument({ title: '默认标题' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        id: 'p-0',
+        children: [{ type: 'text', text: '前文' }],
+      },
+      {
+        type: NODE_TYPES.HEADING,
+        id: 'h-default',
+        children: [{ type: 'text', text: '标题' }],
+      },
+    ];
+    const blocks = extractBlocks(doc);
+    expect(blocks.find((b) => b.id === 'h-default')?.breakBefore).toBe(true);
+  });
+
   it('标题块标记 keepWithNext', () => {
     const blocks = extractBlocks(sampleDoc());
     expect(blocks.find((b) => b.id === 'h-1')?.keepWithNext).toBe(true);

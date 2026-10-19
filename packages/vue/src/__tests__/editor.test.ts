@@ -175,6 +175,31 @@ describe('useEditorBinding', () => {
 
     binding.detach();
   });
+
+  it('goToNode：按 id / 树路径解析节点并设选区，未命中返回 null', () => {
+    const editor = createEditor();
+    const binding = useEditorBinding(editor);
+    const container = createContainer();
+    binding.attach(container);
+
+    // 真实 id 命中：返回 PM 位置，且选区落在该章节点上
+    const pos = binding.goToNode('chap-1');
+    expect(pos).not.toBeNull();
+    expect(editor.editorState.doc.nodeAt(pos!)).not.toBeNull();
+    expect(editor.editorState.doc.nodeAt(pos!)!.type.name).toBe(NODE_TYPES.CHAPTER);
+
+    // 树路径（导入文档回退口径）：/0 = 根下首个元素子节点（章），落在章内
+    const pathPos = binding.goToNode('/0');
+    expect(pathPos).not.toBeNull();
+    expect(editor.editorState.doc.resolve(pathPos!).node(1).type.name).toBe(NODE_TYPES.CHAPTER);
+
+    // 未命中：返回 null，且不改动文档
+    const before = editor.editorState.doc;
+    expect(binding.goToNode('不存在的节点')).toBeNull();
+    expect(editor.editorState.doc).toBe(before);
+
+    binding.detach();
+  });
 });
 
 describe('BtEditor', () => {

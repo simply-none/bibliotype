@@ -18,7 +18,8 @@ import {
 } from 'vue';
 import type { BookEditor } from '@bibliotype/editor';
 import { redoCommand, redoDepth, undoCommand, undoDepth } from '@bibliotype/editor';
-import type { Attrs, NodeType } from 'prosemirror-model';
+import type { Attrs, Node as PMNode, NodeType } from 'prosemirror-model';
+import { TextSelection } from 'prosemirror-state';
 import type { Command, Transaction } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 
@@ -48,6 +49,12 @@ export interface EditorBinding {
   redo: () => boolean;
   /** 外部 loadDocument 后同步视图与版本（skipViewSync: 仅 version++，跳过 PM 视图重建） */
   refresh: (options?: { skipViewSync?: boolean }) => void;
+  /**
+   * 跳转到指定节点（编辑态目录导航）：解析 nodeId（id 命中或树路径 /0/1）→ PM 位置，
+   * 设选区并滚动进入视图；返回解析到的 PM 位置（未命中返回 null）。
+   * 调用方据返回值在分页态另做画布翻页（隐藏 PM 视图不响应 scrollIntoView）。
+   */
+  goToNode: (nodeId: string) => number | null;
 }
 
 /** useEditorBinding 可选配置 */
@@ -106,6 +113,56 @@ function selectionInNode(editor: BookEditor, nodeType: NodeType): boolean {
 }
 
 /**
+ * nodeId → PM 文档位置（节点前置位置）
+ *
+ * 两套口径（与 extractOutline / extractBlocks 的目录 nodeId 一致）：
+ * - 真实 id：遍历文档找 `attrs.id === nodeId` 的节点（IR 的 id 经 ir-to-pm 落到声明了
+ *   id 的节点规格，结构节点普遍带 id）；
+ * - 树路径（如 `/0/1`）：导入的 md / docx / epub 文档常不带 id，目录回退用「连续元素
+ *   子节点」路径；PM 树与 IR 树在结构容器层一一对应，按索引下钻即可。
+ * 均未命中返回 null。
+ */
+function resolveNodePos(doc: PMNode, nodeId: string): number | null {
+  let found: number | null = null;
+  doc.descendants((node, pos) => {
+    if (found !== null) return false;
+    if (node.attrs.id === nodeId) {
+      found = pos;
+      return false;
+    }
+    return true;
+  });
+  if (found !== null) return found;
+
+  if (nodeId.startsWith('/')) {
+    const indices = nodeId
+      .split('/')
+      .slice(1)
+      .map((seg) => Number(seg));
+    if (indices.length > 0 && indices.every((n) => Number.isInteger(n))) {
+      let node: PMNode = doc;
+      // 当前容器节点的前置位置（doc.pos 固定为 0），逐层下钻时同步推进
+      let pos = 0;
+      let ok = true;
+      for (const idx of indices) {
+        if (idx < 0 || idx >= node.childCount) {
+          ok = false;
+          break;
+        }
+        // 跳过容器开标签（pos + 1），再累加其之前各同级子节点尺寸
+        pos += 1;
+        for (let i = 0; i < idx; i += 1) {
+          pos += node.child(i).nodeSize;
+        }
+        node = node.child(idx);
+      }
+      if (ok) return pos;
+    }
+  }
+  return null;
+}
+
+/**
  * 绑定既有 BookEditor 实例：EditorView 生命周期 + 事务桥 + 响应式激活态
  */
 export function useEditorBinding(
@@ -158,6 +215,22 @@ export function useEditorBinding(
     version.value += 1;
   };
 
+  /**
+   * 跳转节点：解析 nodeId → PM 位置，设选区并 scrollIntoView（连续画布态由视图响应滚动；
+   * paged 态视图隐藏不滚动，调用方据返回位置另做画布翻页）。未命中返回 null。
+   */
+  const goToNode = (nodeId: string): number | null => {
+    const pos = resolveNodePos(editor.editorState.doc, nodeId);
+    if (pos === null) return null;
+    const ok = execute((state, dispatch) => {
+      if (dispatch === undefined) return false;
+      const selection = TextSelection.near(state.doc.resolve(pos), -1);
+      dispatch(state.tr.setSelection(selection).scrollIntoView());
+      return true;
+    });
+    return ok ? pos : null;
+  };
+
   if (getCurrentScope() !== undefined) {
     onScopeDispose(detach);
   }
@@ -200,5 +273,6 @@ export function useEditorBinding(
     undo: () => execute(undoCommand),
     redo: () => execute(redoCommand),
     refresh,
+    goToNode,
   };
 }

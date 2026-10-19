@@ -59,6 +59,7 @@ import {
   DEFAULT_MEASURE_CONTEXT,
   Reader,
   type BlockMeasureContext,
+  type OutlineItem,
 } from '@bibliotype/reader';
 import { BtBookView, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet, type EditorBinding } from '@bibliotype/vue';
 import { exportEpub, type ValidationProblem } from '@bibliotype/exporter-epub';
@@ -432,6 +433,9 @@ function toggleInspector(): void {
 /** 编辑器实例（首次进入编辑模式时惰性创建，之后复用） */
 const bookEditor = shallowRef<BookEditor | null>(null);
 
+/** BtEditor 组件实例（编辑态目录跳转等命令入口） */
+const btEditorRef = ref<InstanceType<typeof BtEditor> | null>(null);
+
 /** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效）
  *
  * 单一真相源为 `editing.readonly`（持久化）：设置面板「只读模式」勾选、
@@ -743,6 +747,17 @@ async function switchBook(newId: string): Promise<void> {
   currentBookId.value = newId;
   await styleApi.load();
   scheduleRemeasure();
+}
+
+/**
+ * 目录点击：阅读态经 BtToc 内置的 reader.goToNode 跳页（Reader 即当前可见视图）；
+ * 编辑态主区是 BtEditor（Reader 隐藏），需把目录项导向编辑器——否则点目录「无反应」。
+ * 节点存在才跳转（nodeId 为 undefined 时跳过）。
+ */
+function onTocSelect(item: OutlineItem): void {
+  if (mode.value === 'edit' && btEditorRef.value !== null) {
+    btEditorRef.value.goToNode(item.nodeId ?? '');
+  }
 }
 
 /** 导入文档：载入阅读预览，若编辑器已建则同步内容（loadDocument 重置脏基准），并落盘草稿 + 重排 */
@@ -1355,7 +1370,7 @@ onBeforeUnmount(() => {
           @imported="onImported"
         />
         <div v-show="activeTab === 'toc'" class="app__toc">
-          <BtToc :key="`toc-${themeKey}-${readerEpoch}`" :reader="reader" />
+          <BtToc :key="`toc-${themeKey}-${readerEpoch}`" :reader="reader" @select="onTocSelect" />
         </div>
       </aside>
 
@@ -1373,6 +1388,7 @@ onBeforeUnmount(() => {
           />
           <BtEditor
             v-else-if="booted && bookEditor"
+            ref="btEditorRef"
             class="app__editor"
             :editor="bookEditor"
             :tokens="tokens"

@@ -38,6 +38,8 @@ import type { Command } from 'prosemirror-state';
 import { useEditorBinding, type EditorBinding } from '../use-editor.js';
 import PagedCanvas from '../paged-editor/PagedCanvas.vue';
 import { usePagedLayout } from '../paged-editor/use-paged-layout.js';
+import { locatePmPosition } from '../paged-editor/selection-bridge.js';
+import { resolveCaretTarget } from '../paged-editor/input-router.js';
 import 'prosemirror-view/style/prosemirror.css';
 
 const props = defineProps<{
@@ -203,6 +205,41 @@ function onPagedSync(): void {
 function onPagedHistory(dir: 'undo' | 'redo'): void {
   if (dir === 'undo') binding.undo();
   else binding.redo();
+}
+
+/**
+ * 目录跳转（编辑态）：把 nodeId 解析为模型选区并滚动进入视图。
+ *
+ * - 连续画布态：binding.goToNode 的 scrollIntoView 由可见 PM 视图直接响应；
+ * - paged 态：PM 视图被 v-show 隐藏、不响应 scrollIntoView，故据返回位置在分页索引里
+ *   定位所属页并翻到该页，再请求重排后按模型选区还原光标（跨页滚动兜底）。
+ * 未命中返回 false。
+ */
+function goToNode(nodeId: string): boolean {
+  const pos = binding.goToNode(nodeId);
+  if (pos === null) return false;
+  if (pagedActive.value && pagedCanvasRef.value !== null) {
+    const index = paged.pagedIndex.value;
+    const pages = paged.pages.value;
+    if (index !== null) {
+      const hit = locatePmPosition(index, pos);
+      if (hit !== null) {
+        const target = resolveCaretTarget(
+          pages,
+          index,
+          paged.charsPerLine.value,
+          hit.loc.blockId,
+          hit.blockChar,
+        );
+        if (target !== null) {
+          pagedCanvasRef.value.scrollToPage(target.pageIndex);
+        }
+      }
+    }
+    // 模型已设选区：重排后 caret 还原（含跨页滚动兜底）确保光标落在该节点
+    pagedCanvasRef.value.requestCaretRestore();
+  }
+  return true;
 }
 
 /* ---------- 工具栏命令的 paged 感知包装 ---------- */
@@ -410,6 +447,9 @@ watch(
   [() => props.paginationMode, () => props.pageMainSize, () => props.bottomSlack, () => props.measure],
   () => paged.scheduleRelayout(),
 );
+
+/** 暴露给使用方的命令接口（编辑态目录跳转等） */
+defineExpose({ goToNode });
 </script>
 
 <template>

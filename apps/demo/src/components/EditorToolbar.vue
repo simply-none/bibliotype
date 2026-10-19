@@ -29,7 +29,7 @@
  */
 import { computed, ref } from 'vue';
 import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
-import type { EditorBinding } from '@bibliotype/vue';
+import { BtSelectionReplaceMenu, type EditorBinding } from '@bibliotype/vue';
 import {
   insertBlockOfType,
   insertImage,
@@ -71,6 +71,7 @@ import {
 } from '@bibliotype/classical/editor';
 import ReplacePanel from './ReplacePanel.vue';
 import ToolbarUsageTip from './ToolbarUsageTip.vue';
+import { REPLACE_TARGET_GROUPS } from './replace-targets.js';
 import type { ToolbarUsage } from './toolbar-usage.js';
 
 const props = defineProps<{ binding: EditorBinding; readonly?: boolean }>();
@@ -110,6 +111,23 @@ interface ToolbarAction {
 /** 执行命令（未生效时静默） */
 function execute(command: EditorCommand): void {
   void props.binding.execute(command);
+}
+
+/**
+ * 会替换选区的原子插入（出校符号 / 印章 / 图片）
+ *
+ * 旧版这些入口在非空选区下会「静默吃掉选中文字」。这里加保护区：先确认，
+ * 再执行；真正的文字转换请走选中后弹出的「替换为」菜单。
+ */
+function executeReplacingSelection(command: () => EditorCommand): void {
+  const selection = props.binding.editor.editorState.selection;
+  if (!selection.empty) {
+    const ok = window.confirm('该操作会用新节点替换选中的文字，继续？');
+    if (!ok) {
+      return;
+    }
+  }
+  execute(command());
 }
 
 /** 行内标记切换（未注册的标记类型不可用） */
@@ -487,9 +505,13 @@ const classicalActions: readonly ToolbarAction[] = [
  * 块插入与符号
  *
  * 两类落点，别混：
- * - **段后插入容器**（双行注 / 眉批 / 校勘记 / 跋文 / 牌记 / 题记 / 版框 / 鱼尾 / 表格 /
- *   脚注 / 尾注 / 边注）：以「当前叶块之后」为插入点，光标随即进入新容器；
+ * - **段后插入空容器**（双行注 / 眉批 / 校勘记 / 跋文 / 牌记 / 题记 / 版框 / 鱼尾 / 表格 /
+ *   脚注 / 尾注 / 边注）：以「当前叶块之后」为插入点，光标随即进入新容器，
+ *   **不消费选区**；
  * - **光标处插入**（出校符号 / 印章 / 图片）：按 `replaceSelectionWith` 替换当前选区。
+ *
+ * 选中文字的转换不在这里：选中后由 `BtSelectionReplaceMenu`（【替换为】浮动菜单）
+ * 消费选区、把文字搬进目标容器；本行按钮只负责「新建空容器 / 光标处原子插入」。
  * 另有「下一页」：在光标处插分页符（段中则一分为二），靠分页器的 breakAfter 断页（非容器插入）。
  * 容器类内容的可编辑性、样式全在 `book-css.ts`；`rawAttrs` 兜底保证未知属性往返无损。
  */
@@ -540,7 +562,7 @@ const insertActions: readonly ToolbarAction[] = [
   },
   {
     label: '出校符号',
-    run: () => execute(insertCollationSymbol()),
+    run: () => executeReplacingSelection(() => insertCollationSymbol()),
     title: '在光标处插入出校符号（○）',
     usage: {
       use: '在光标处插入出校符号 ○',
@@ -602,7 +624,7 @@ const insertActions: readonly ToolbarAction[] = [
     run: () => {
       const text = window.prompt('印文（取消则不插入，确定留空用占位）');
       if (text !== null) {
-        execute(insertSeal(text || undefined));
+        executeReplacingSelection(() => insertSeal(text || undefined));
       }
     },
     title: '在光标处插入印章',
@@ -618,7 +640,7 @@ const insertActions: readonly ToolbarAction[] = [
     run: () => {
       const src = window.prompt('图片地址（留空用占位图）', '');
       if (src !== null) {
-        execute(insertImage({ src: src || undefined, alt: '' }));
+        executeReplacingSelection(() => insertImage({ src: src || undefined, alt: '' }));
       }
     },
     title: '在光标处插入图片（src / alt 可在属性栏修改）',
@@ -730,6 +752,13 @@ function onWheel(event: WheelEvent): void {
       :class="{ 'editor-toolbar__row--readonly': isReadonly }"
       @wheel="onWheel"
     >
+      <span
+        v-if="row.key === 'insert'"
+        class="editor-toolbar__row-label"
+        title="不消费选区；选中文字请用「替换为」浮动菜单"
+      >
+        插入空容器（段后）
+      </span>
       <ToolbarUsageTip v-for="action in row.actions" :key="action.label" :usage="action.usage">
         <button
           type="button"
@@ -781,6 +810,11 @@ function onWheel(event: WheelEvent): void {
       </div>
     </div>
   </div>
+  <BtSelectionReplaceMenu
+    :binding="binding"
+    :groups="REPLACE_TARGET_GROUPS"
+    :readonly="isReadonly"
+  />
   <ReplacePanel
     v-if="searchOpen"
     :binding="binding"
@@ -813,6 +847,15 @@ function onWheel(event: WheelEvent): void {
 
 .editor-toolbar__row + .editor-toolbar__row {
   border-block-start: 1px solid var(--demo-border);
+}
+
+.editor-toolbar__row-label {
+  flex: none;
+  padding-inline-end: 6px;
+  color: var(--demo-text-muted, #8a8f98);
+  font-size: 11px;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .editor-toolbar__row::-webkit-scrollbar {

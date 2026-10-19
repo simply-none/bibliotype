@@ -22,6 +22,7 @@ import {
   insertBlockAfterSelection,
   insertBlockOfType,
   insertInlineNodeWrapping,
+  replaceSelectionWithContainer,
   toggleMarkOfType,
 } from '@bibliotype/editor';
 import type { Attrs } from 'prosemirror-model';
@@ -140,6 +141,48 @@ export function insertColophon(): Command {
 /** 在当前叶块之后插入版框 */
 export function insertBorderFrame(): Command {
   return insertBlockOfType(CLASSICAL_NODE_TYPES.BORDER_FRAME);
+}
+
+/* ---------- 选区替换为块级容器（「替换为」） ----------
+ *
+ * 与上面的「段后插入空容器」相对：这几条命令**消费选区**，把选中文字搬进
+ * 目标容器，并按 `replaceSelectionWithContainer` 的规则切分前后段落、清理空段、
+ * 保证 id 不重复。空选区时仍退化为「段后插入空容器」，保持旧行为。
+ */
+
+/** 将选区转换为双行小注（选中文字进入注文） */
+export function replaceWithDoubleNote(): Command {
+  return replaceSelectionWithContainer(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
+}
+
+/** 将选区转换为眉批 */
+export function replaceWithHeadNote(): Command {
+  return replaceSelectionWithContainer(CLASSICAL_NODE_TYPES.HEAD_NOTE);
+}
+
+/** 将选区转换为跋文 */
+export function replaceWithTailNote(): Command {
+  return replaceSelectionWithContainer(CLASSICAL_NODE_TYPES.TAIL_NOTE);
+}
+
+/** 将选区转换为校勘记 */
+export function replaceWithCollationNote(): Command {
+  return replaceSelectionWithContainer(CLASSICAL_NODE_TYPES.COLLATION_NOTE);
+}
+
+/** 将选区转换为牌记 */
+export function replaceWithImprint(): Command {
+  return replaceSelectionWithContainer(CLASSICAL_NODE_TYPES.IMPRINT);
+}
+
+/** 将选区转换为题记 */
+export function replaceWithColophon(): Command {
+  return replaceSelectionWithContainer(CLASSICAL_NODE_TYPES.COLOPHON);
+}
+
+/** 将选区转换为版框 */
+export function replaceWithBorderFrame(): Command {
+  return replaceSelectionWithContainer(CLASSICAL_NODE_TYPES.BORDER_FRAME);
 }
 
 /* ---------- 行内容器包裹（夹注 / 异体字 / 避讳字载体） ----------

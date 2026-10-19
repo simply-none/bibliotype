@@ -67,6 +67,7 @@ useReader(docRef);
 | `BtToc` | `reader: Reader`；emit `select(item)` | 目录树；点击经 `goToNode` 跳页并抛出 `select` |
 | `BtTocItem` | `item: OutlineItem`；emit `select` | 单个目录项（层级递归） |
 | `BtEditor` | `editor: BookEditor`、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?`；emit `update:visiblePage` | 编辑画布；默认插槽作用域透传 `EditorBinding`。`pagination` 开启后走自定义可编辑分页内核（`PagedCanvas` 真实书页盒 + 行级跨页续排 + 虚拟化，直排 / 多栏自动回退连续画布），可编辑桥经 `selection-bridge` 把片段输入落成 `BookEditor` 事务；`loading` 在首轮分页就绪前以遮罩挡住未分页内容，`initialPage` 首轮分页后定位（阅读页 ↔ 编辑视口页位置记忆），`editable=false` 只读。**`scale`（缺省 1，限幅 0.2~2）对连续与分页两种模式均生效**：分页下作为用户倍率覆盖 `PagedCanvas` 的「按容器宽自适应且限 ≤1」，允许放大到 100% 以上（页宽超出容器走横向滚动）；不传 `scale` 时分页仍按容器宽自适应 |
+| `BtSelectionReplaceMenu` | `binding: EditorBinding`（传插槽 `slotBinding`）、`groups: ReplaceTargetGroup[]`、`readonly?`、`autoShow?`（默认 `true`） | 选区「替换为」浮动菜单：选中文字后在选区旁弹出，点击目标经 `binding.execute` 执行；Teleport 到 body + fixed 定位，横排 / 直排通用。详见 [20 选区替换为](20-selection-replace.md) |
 
 ### 编辑保存链路
 
@@ -145,6 +146,8 @@ refresh();                                      // 外部 loadDocument 后同步
 | `isMarkActive` / `isNodeActive` | 选区激活态（`isNodeActive` 可按属性过滤） |
 | `canUndo` / `canRedo` / `undo` / `redo` | 撤销 / 重做 |
 | `execute` | 执行任意 `Command`（返回是否生效） |
+| `useSelectionReplace(binding, { autoShow?, readonly?, showDelay? })` | 选区替换菜单状态：`{ visible, anchor, close, refresh }`；去抖 120ms，优先用可见 DOM 选区定位 |
+| `placeFloating(anchor, menu, viewport, gap?, edge?)` | 浮动菜单定位纯函数：上/下翻转、水平夹紧 |
 
 `BtEditor` 内部即用本组合式函数，并把 `EditorBinding` 通过插槽作用域透传给工具条：
 
@@ -155,6 +158,24 @@ refresh();                                      // 外部 loadDocument 后同步
     <button @click="binding.execute(toggleProperName())">专名号</button>
   </template>
 </BtEditor>
+```
+
+配合 `BtSelectionReplaceMenu` 即可获得选中文字后的【替换为】菜单。**`binding` 必须传插槽作用域这一份**
+（`BtEditor` 已把 `execute` 包成 paged 感知：先 flush 选区 → 执行 → 重排后还原光标）：
+
+```vue
+<template>
+  <BtEditor :editor="editor">
+    <template #default="binding">
+      <EditorToolbar :binding="binding" />
+      <BtSelectionReplaceMenu
+        :binding="binding"
+        :groups="REPLACE_TARGET_GROUPS"
+        :readonly="readonly"
+      />
+    </template>
+  </BtEditor>
+</template>
 ```
 
 ## 注意

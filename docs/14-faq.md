@@ -206,6 +206,45 @@
 - **验证限制**：光标还原 / 片段焦点 / scrollIntoView 均依赖真实布局与真实焦点链，happy-dom 无布局引擎，
   `buildPagedLayout` 与浏览器层需在 demo 手工确认；纯函数 `syncView` 门控可脱 DOM 单测。
 
+## 11. 选区转换为容器后出现重复 id / 定位错乱
+
+**现象**：把选中文字转为双行注、眉批等容器后，保存 / 重载或分页锚点出现**重复 id**，跳转定位串位。
+
+**根因**：ProseMirror `tr.split` 会把原块 attrs（含稳定 `id`）复制到拆分出的两半。若先 `split`
+再包容器，就会产生两个同 id 的块；后续按 id 定位（分页、目录、协同）无法区分。
+
+**处理与排查**：
+
+- `replaceSelectionWithContainer` 改为手工 `Fragment.cut` + `tr.replaceRange`，**不做 `tr.split`**，
+  从源头避免 attrs 复制；
+- id 归属规则：原 textblock 的 `id` 保留给**文档序第一个存留片段**（前段 → 容器内段落 → 后段），
+  其余拆分片段 `id: null`；新建容器 `id: null`，由路径 id 兜底；
+- 排查口诀：转换后遍历文档收集 `attrs.id`，断言集合无重复；
+- 回归用例：`packages/editor/src/__tests__/selection-convert.test.ts`（「id 各自保留且不重复」）。
+
+## 12. 选中文字后「替换为」菜单不弹 / 位置错 / paged 下命令后光标丢失
+
+**现象**：明明选中了文字，选区旁却没有【替换为】菜单；或菜单出现在视口左上角；或 paged 态点了
+「双行注」后重排完成却无法继续输入。
+
+**根因**（三条，横跨模块边界与 paged 视图）：
+
+1. 用 `instanceof TextSelection` 判定选区：跨包 / 跨模块实例时 `prosemirror-state` 可能被重复解析，
+   `instanceof` 失效 → 菜单误判为「非文本选区」直接隐藏；
+2. 用 `view.coordsAtPos()` 定位：paged 态 PM 整文档视图被 `v-show` 隐藏，隐藏元素的坐标全为 0，
+   菜单被放到左上角；
+3. 菜单执行用了原始 `useEditorBinding().execute`：绕过 paged 的「先 flush 选区 → 执行 → 重排后
+   按模型选区还原光标」，重排重建片段后焦点丢失。
+
+**处理与排查**：
+
+- 选区判定改用**结构判断**：`!selection.empty && selection.$from.parent.isTextblock`，
+  不依赖 `instanceof`；
+- 定位优先 `window.getSelection().getRangeAt(0).getBoundingClientRect()`（连续画布与 paged 片段
+  都能拿到真实可见矩形），取不到再回退 `coordsAtPos()`；
+- 菜单必须挂载在 `BtEditor` 插槽内、并把**插槽作用域的 `binding`** 传给 `BtSelectionReplaceMenu`；
+- 回归用例：`packages/vue/src/__tests__/selection-replace.test.ts`（显隐 / 点击执行 / 只读 / 定位）。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

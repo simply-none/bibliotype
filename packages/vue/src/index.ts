@@ -75,6 +75,17 @@ export { default as BtPager } from './components/BtPager.vue';
 export { default as BtToc } from './components/BtToc.vue';
 export { default as BtTocItem } from './components/BtTocItem.vue';
 export { default as BtEditor } from './components/BtEditor.vue';
+export { default as BtSelectionReplaceMenu } from './components/BtSelectionReplaceMenu.vue';
 export { default as PagedCanvas } from './paged-editor/PagedCanvas.vue';
+
+export { placeFloating } from './floating-position.js';
+export type { FloatingPlacement, FloatingRect, FloatingSize } from './floating-position.js';
+export { useSelectionReplace } from './use-selection-replace.js';
+export type {
+  ReplaceTargetGroup,
+  ReplaceTargetItem,
+  SelectionReplaceState,
+  UseSelectionReplaceOptions,
+} from './use-selection-replace.js';
 
 export { createBibliotype } from './plugin.js';

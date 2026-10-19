@@ -1,7 +1,7 @@
 # @bibliotype/vue
 
 Vue 3 封装：`useReader` / `useReaderBinding` / `useEditorBinding` 组合式 API，
-`BtBookView` / `BtPager` / `BtToc` / `BtEditor` 组件，以及全局注册插件。
+`BtBookView` / `BtPager` / `BtToc` / `BtEditor` / `BtSelectionReplaceMenu` 组件，以及全局注册插件。
 
 ## 安装
 
@@ -74,6 +74,7 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `BtToc` | `reader`；emit `select(item)` | 目录树（点击节点跳页并上报） |
 | `BtTocItem` | `item`、`depth?` | 递归目录项（供自定义目录结构复用） |
 | `BtEditor` | `editor`（`BookEditor`）、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?` | 编辑画布：挂载 / 卸载 ProseMirror 视图；`pagination` 开启后走自定义可编辑分页内核（真实书页盒 + 行级跨页续排 + 虚拟化；直排 / 多栏自动回退连续画布），片段输入经 `selection-bridge` 落成 `BookEditor` 事务；`loading` 遮罩首轮分页、`initialPage` 定位视口页、`editable=false` 只读 |
+| `BtSelectionReplaceMenu` | `binding`（必需，传 BtEditor 插槽 `slotBinding`）、`groups`（`ReplaceTargetGroup[]`）、`readonly?`、`autoShow?` | 选区「替换为」浮动菜单：选中文字后定位弹出，按分组展示目标，点击经 `binding.execute` 执行；横排 / 直排通用，详见 [docs/20](../../docs/20-selection-replace.md) |
 
 ## API 概览
 
@@ -82,6 +83,8 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `useReader(source?, options?)` | 创建或绑定 Reader 并转为响应式（`UseReaderReturn`） |
 | `useReaderBinding(reader)` | 绑定既有 Reader（`ReaderBinding`） |
 | `useEditorBinding(editor)` | 编辑器 DOM 视图绑定（`EditorBinding`，`attach` / `detach`） |
+| `useSelectionReplace(binding, opts?)` | 选区「替换为」状态：`{ visible, anchor, close, refresh }`；去抖 120ms，优先用可见 DOM 选区定位 |
+| `placeFloating(anchor, menu, viewport, gap?, edge?)` | 浮动菜单定位纯函数（上/下翻转、水平夹紧） |
 | `measurePagination(input)` / `measureBlockSizes(input)` | 离屏量尺：块推进尺寸 + 每行字符偏移 + 真实行高（单栏横排 DOM 实测，其余回退估算）；`input.extracted` 可复用调用方已抽好的块序列，省一次全树遍历 |
 | `buildPagedLayout(input)` / `usePagedLayout(opts)` | 编辑态分页内核：块抽取 → 量尺 → 分页 → 逐页片段（支持 `fromBlockId` 增量实测与 `targetBlockId` 定点实测） |
 | `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` / `PagedCanvas` | 组件 |

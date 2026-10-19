@@ -114,6 +114,9 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [15 SSR 与 Node 同构](docs/15-ssr-and-node.md) | 环境对照表与浏览器依赖替代方案 |
 | [16 测试指南](docs/16-testing.md) | 测试组织、vitest、fake-indexeddb / happy-dom |
 | [17 文档导入](docs/17-document-import.md) | Markdown / HTML / docx / epub → BookDocument |
+| [18 纸书排版引擎路线图](docs/18-pagination-engine-roadmap.md) | 行级拆分 / 孤寡行 / 预览编辑同源的阶段计划 |
+| [19 编辑工具条使用说明](docs/19-editor-toolbar-usage.md) | 编辑按钮的前提 / 落点 / 命令 / 限制与「点了没反应」速查 |
+| [20 选区替换为](docs/20-selection-replace.md) | 选中文字转换为双行注 / 眉批 / 夹注等容器；浮动菜单与文本前后切分规则 |
 
 参与贡献见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

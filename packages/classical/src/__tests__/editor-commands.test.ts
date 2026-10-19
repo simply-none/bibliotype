@@ -14,6 +14,13 @@ import {
   insertCollationSymbol,
   insertDoubleNote,
   insertHeadNote,
+  replaceWithBorderFrame,
+  replaceWithCollationNote,
+  replaceWithColophon,
+  replaceWithDoubleNote,
+  replaceWithHeadNote,
+  replaceWithImprint,
+  replaceWithTailNote,
   toggleBookTitle,
   toggleCircleEmphasis,
   toggleInlineNote,
@@ -268,6 +275,52 @@ describe('行内容器包裹命令（修复 R1）', () => {
     const before = editor.getDocument();
     expect(run(editor, toggleInlineNote())).toBe(false);
     expect(editor.getDocument()).toEqual(before);
+  });
+});
+
+describe('选区替换为块级容器命令', () => {
+  it('replaceWithDoubleNote：段中选区 → 前段 + 双行注 + 后段', () => {
+    const editor = createEditor();
+    const { from } = firstTextRange(editor);
+    selectText(editor, from + 2, 2); // "学而"
+
+    expect(run(editor, replaceWithDoubleNote())).toBe(true);
+
+    const blocks = chapterBlocks(editor);
+    expect(blocks?.map((block) => block.type)).toEqual([
+      NODE_TYPES.PARAGRAPH,
+      CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
+      NODE_TYPES.PARAGRAPH,
+    ]);
+    expect(blocks?.[0]?.children?.[0]?.text).toBe('子曰');
+    // 容器内是「容器 > 段落 > 文本」
+    expect(blocks?.[1]?.children?.[0]?.children?.[0]?.text).toBe('学而');
+    expect(blocks?.[2]?.children?.[0]?.text).toBe('时习之');
+    // 原段 id 保留给文档序第一个存留片段（前段）
+    expect(blocks?.[0]?.id).toBe('p-1');
+  });
+
+  it('其余块级容器：整段选区直接搬入目标容器', () => {
+    const cases: ReadonlyArray<readonly [() => Command, string]> = [
+      [replaceWithHeadNote, CLASSICAL_NODE_TYPES.HEAD_NOTE],
+      [replaceWithTailNote, CLASSICAL_NODE_TYPES.TAIL_NOTE],
+      [replaceWithCollationNote, CLASSICAL_NODE_TYPES.COLLATION_NOTE],
+      [replaceWithImprint, CLASSICAL_NODE_TYPES.IMPRINT],
+      [replaceWithColophon, CLASSICAL_NODE_TYPES.COLOPHON],
+      [replaceWithBorderFrame, CLASSICAL_NODE_TYPES.BORDER_FRAME],
+    ];
+
+    for (const [make, expectedType] of cases) {
+      const editor = createEditor();
+      const { from, to } = firstTextRange(editor);
+      selectText(editor, from, to - from);
+
+      expect(run(editor, make())).toBe(true);
+      const blocks = chapterBlocks(editor);
+      expect(blocks).toHaveLength(1);
+      expect(blocks?.[0]?.type).toBe(expectedType);
+      expect(blocks?.[0]?.children?.[0]?.children?.[0]?.text).toBe('子曰学而时习之');
+    }
   });
 });
 

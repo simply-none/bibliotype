@@ -81,7 +81,14 @@ off();
 ### 编辑命令
 
 `undoCommand` · `redoCommand` · `undoDepth` · `redoDepth` · `toggleMarkOfType` ·
-`setHeadingLevel` · `setParagraph` · `toggleQuote` · `toggleBulletList` · `insertBlockAfterSelection`
+`setHeadingLevel` · `setParagraph` · `toggleQuote` · `toggleBulletList` · `insertBlockAfterSelection` ·
+`replaceSelectionWithContainer`
+
+`replaceSelectionWithContainer(typeName, attrs?, options?)`：把当前选区的文字搬进目标容器
+（块级 `block+` 切分前后段落 / 清理空段 / id 去重；行内 `inline*` 委托同段包裹）。
+与 `insertBlockAfterSelection`（段后新建空容器、不消费选区）相对。选项：
+`dropEmptyFragments` / `idOwner` / `insertWhenEmpty` / `normalizeTextblocks`。
+详见 [docs/20 选区替换为](../../docs/20-selection-replace.md)。
 
 ### 插件与键位
 

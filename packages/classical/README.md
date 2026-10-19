@@ -49,6 +49,12 @@ const editor = new BookEditor({ schema, plugins: createBookEditorPlugins(schema)
 编辑命令：`toggleProperName` · `toggleBookTitle` · `toggleCircleEmphasis` · `toggleVariant` ·
 `insertDoubleNote` · `insertHeadNote` · `insertCollationNote` · `insertCollationSymbol`
 
+**选区替换为**（消费选区，把选中文字搬进容器，而不是段后新建空容器）：
+`replaceWithDoubleNote` · `replaceWithHeadNote` · `replaceWithTailNote` ·
+`replaceWithCollationNote` · `replaceWithImprint` · `replaceWithColophon` · `replaceWithBorderFrame`
+（底层统一走 `@bibliotype/editor` 的 `replaceSelectionWithContainer`，详见
+[docs/20 选区替换为](../../docs/20-selection-replace.md)）。
+
 ## 内容模型
 
 ### 古籍节点（`CLASSICAL_NODE_TYPES`，13 种）

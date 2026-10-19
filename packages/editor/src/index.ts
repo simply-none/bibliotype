@@ -75,6 +75,10 @@ export {
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
 
+/* ---------- 选区转换为容器（「替换为」） ---------- */
+export { replaceSelectionWithContainer } from './selection-convert.js';
+export type { ReplaceContainerOptions, ReplaceIdOwner } from './selection-convert.js';
+
 /* ---------- 编辑态查找替换 ---------- */
 export {
   findTextMatches,

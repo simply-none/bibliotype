@@ -32,4 +32,11 @@ export {
   insertFishTail,
   insertSeal,
   insertCollationSymbol,
+  replaceWithDoubleNote,
+  replaceWithHeadNote,
+  replaceWithTailNote,
+  replaceWithCollationNote,
+  replaceWithImprint,
+  replaceWithColophon,
+  replaceWithBorderFrame,
 } from './editor-commands.js';

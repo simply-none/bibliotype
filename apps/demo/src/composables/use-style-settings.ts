@@ -104,6 +104,12 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
 
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let saving: Promise<void> | undefined;
+  /** 首轮 load 的 Promise（flush 在加载完成前需 await 它，避免丢首轮保存） */
+  let loadPromise: Promise<void> | undefined;
+  /** 用户是否已改动源状态（首轮 load 未落定前改动则不回写旧值，防首轮保存被覆盖） */
+  let sourceDirty = false;
+  /** 是否处于首轮加载阶段（切书 load 不当作首轮，必应用新书设置） */
+  let initialLoadPending = true;
 
   /* ---------- 快照 ---------- */
 
@@ -165,12 +171,18 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
 
   /** 当前源快照（含作用域；仅非草稿状态有持久化意义） */
   function currentSnapshot(scope = bookScope.value): StyleSettingsSnapshot {
-    return {
-      version: 1,
-      scope,
-      ...sourceBody(),
-      updatedAt: Date.now(),
-    };
+    const body = sourceBody();
+    // 去响应式：源状态经 ref 持有，都是 Vue reactive 代理；IndexedDB 走 structured clone 落盘，
+    // 无法序列化 Proxy（会抛 DataCloneError 且被 flush 吞掉），导致「保存后刷新回到默认」。
+    // 这里先转纯对象再保存（配置全为 JSON 安全数据，round-trip 安全）。
+    return JSON.parse(
+      JSON.stringify({
+        version: 1,
+        scope,
+        ...body,
+        updatedAt: Date.now(),
+      }),
+    ) as StyleSettingsSnapshot;
   }
 
   /** 应用一份主体到面板（草稿模式写草稿并标记脏，否则直接写源状态） */
@@ -212,6 +224,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     if (!draftMode.value || !draftDirty.value) return;
     applySource(draftBody.value);
     draftDirty.value = false;
+    sourceDirty = true;
     await flush();
     beginDraft();
   }
@@ -230,14 +243,27 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
       clearTimeout(saveTimer);
       saveTimer = undefined;
     }
-    if (!loaded.value) return;
+    // 首轮加载未完成时，先等 load 落定：避免「加载前默认态覆盖已存配置」；
+    // load 在 sourceDirty 时不会回写旧值，故首轮保存（含极快保存的竞态）不会丢失。
+    if (!loaded.value) {
+      if (loadPromise !== undefined) {
+        await loadPromise;
+        if (!loaded.value) return;
+      } else {
+        return;
+      }
+    }
     if (saving !== undefined) {
       await saving.catch(() => undefined);
     }
     const snapshot = currentSnapshot();
     saving = store.save(bookScope.value, snapshot).then(
       () => undefined,
-      () => undefined,
+      (error: unknown) => {
+        // 落盘失败必须可见：此前 reactive 代理导致 IndexedDB DataCloneError 被吞掉，
+        // 表现为「保存后刷新回到默认」，故此处改为打印而非静默丢弃。
+        console.error('[style-settings] 落盘失败', error);
+      },
     );
     await saving;
     saving = undefined;
@@ -270,51 +296,64 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
    * 优先级：本书快照 → 全局快照 → 旧版 demo 快照（迁移）→ 空。
    * 旧版迁移时把 `layoutPatch` / `tokenPatch` / `pagination` 映射进新结构，
    * 并写一份本书快照，避免下次再迁移。
+   *
+   * 首轮加载前用户可能已改动（如极快地保存）：`sourceDirty` 为真时回写旧值会吞掉改动，
+   * 故首轮阶段遇已改动则保留内存态、仅标记 loaded；切书阶段（initialLoadPending 已置否）
+   * 一律应用新书设置。
    */
   async function load(): Promise<void> {
-    const fromBook = await store.load(bookScope.value).catch(() => undefined);
-    if (fromBook !== undefined) {
-      applySource(fromBook);
+    loadPromise = (async () => {
+      const fromBook = await store.load(bookScope.value).catch(() => undefined);
+      if (fromBook !== undefined) {
+        if (!initialLoadPending || !sourceDirty) applySource(fromBook);
+        loaded.value = true;
+        initialLoadPending = false;
+        beginDraft();
+        await refreshPresets();
+        return;
+      }
+
+      const fromGlobal = await store.load(STYLE_SCOPE.GLOBAL).catch(() => undefined);
+      if (fromGlobal !== undefined) {
+        if (!initialLoadPending || !sourceDirty) applySource(fromGlobal);
+        loaded.value = true;
+        initialLoadPending = false;
+        beginDraft();
+        await refreshPresets();
+        return;
+      }
+
+      const legacy = (options.readLegacy ?? defaultReadLegacy)();
+      if (legacy !== undefined) {
+        const migrated = normalizeStyleSnapshot(legacy, bookScope.value);
+        /* 旧结构的键名不同：layoutPatch / tokenPatch / pagination */
+        const record = legacy as Record<string, unknown>;
+        if (record.layoutPatch !== undefined) {
+          migrated.layout = (record.layoutPatch as Record<string, unknown>) ?? {};
+        }
+        if (record.tokenPatch !== undefined) {
+          migrated.tokens = (record.tokenPatch as Record<string, string>) ?? {};
+        }
+        if (typeof record.pagination === 'boolean') {
+          migrated.editing = { ...migrated.editing, pagination: record.pagination };
+        }
+        if (!initialLoadPending || !sourceDirty) {
+          applySource(migrated);
+          await store.save(bookScope.value, migrated).catch(() => undefined);
+        }
+        loaded.value = true;
+        initialLoadPending = false;
+        beginDraft();
+        await refreshPresets();
+        return;
+      }
+
       loaded.value = true;
+      initialLoadPending = false;
       beginDraft();
       await refreshPresets();
-      return;
-    }
-
-    const fromGlobal = await store.load(STYLE_SCOPE.GLOBAL).catch(() => undefined);
-    if (fromGlobal !== undefined) {
-      applySource(fromGlobal);
-      loaded.value = true;
-      beginDraft();
-      await refreshPresets();
-      return;
-    }
-
-    const legacy = (options.readLegacy ?? defaultReadLegacy)();
-    if (legacy !== undefined) {
-      const migrated = normalizeStyleSnapshot(legacy, bookScope.value);
-      /* 旧结构的键名不同：layoutPatch / tokenPatch / pagination */
-      const record = legacy as Record<string, unknown>;
-      if (record.layoutPatch !== undefined) {
-        migrated.layout = (record.layoutPatch as Record<string, unknown>) ?? {};
-      }
-      if (record.tokenPatch !== undefined) {
-        migrated.tokens = (record.tokenPatch as Record<string, string>) ?? {};
-      }
-      if (typeof record.pagination === 'boolean') {
-        migrated.editing = { ...migrated.editing, pagination: record.pagination };
-      }
-      applySource(migrated);
-      loaded.value = true;
-      beginDraft();
-      await store.save(bookScope.value, migrated).catch(() => undefined);
-      await refreshPresets();
-      return;
-    }
-
-    loaded.value = true;
-    beginDraft();
-    await refreshPresets();
+    })();
+    return loadPromise;
   }
 
   /* ---------- 修改入口 ---------- */
@@ -398,6 +437,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
    */
   async function resetAll(): Promise<void> {
     applySource(createEmptyBody());
+    sourceDirty = true;
     if (draftMode.value) beginDraft();
     await store.delete(bookScope.value).catch(() => false);
     await store.delete(STYLE_SCOPE.GLOBAL).catch(() => false);
@@ -432,6 +472,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
    */
   function patchEditingDirect(patch: Partial<EditingSettings>): void {
     editing.value = { ...editing.value, ...patch };
+    sourceDirty = true;
     if (draftMode.value && !draftDirty.value) beginDraft();
     // 源状态改动不走草稿防抖（草稿模式下 scheduleSave 会直接跳过），立即落盘
     void flush();

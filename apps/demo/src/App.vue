@@ -748,12 +748,20 @@ async function switchBook(newId: string): Promise<void> {
 /** 导入文档：载入阅读预览，若编辑器已建则同步内容（loadDocument 重置脏基准），并落盘草稿 + 重排 */
 async function onImported(doc: BookDocument): Promise<void> {
   reader.value.loadDocument(doc);
-  bookEditor.value?.loadDocument(doc);
   // 新文档（含元数据）载入 → 顶部书名等派生值重新取值
   bookVersion.value += 1;
-  dirty.value = bookEditor.value?.isDirty ?? false;
-  // 新内容立即落盘（导入即新基线；跳过「无待写」判定）
-  void autosave.flush({ force: true });
+  if (bookEditor.value === null) {
+    // 编辑器尚未创建（进入编辑模式才惰性创建）：autosave 只能序列化已存在的编辑器，
+    // 若此处不落盘，enterEdit 从 IndexedDB 读到的仍是导入前的旧草稿，编辑区标题与正文
+    // 会显示成旧书。故导入书直接作为草稿基线写入，确保惰性创建的编辑器载入的是新书。
+    dirty.value = false;
+    await draftStore.save(DRAFT_ID, doc);
+  } else {
+    bookEditor.value.loadDocument(doc);
+    dirty.value = bookEditor.value.isDirty;
+    // 新内容立即落盘（导入即新基线；跳过「无待写」判定）
+    void autosave.flush({ force: true });
+  }
   // 切到导入书的设置作用域（落盘旧书设置 + 载入新书设置并应用）
   await switchBook(bookIdFromTitle(doc.metadata.title));
   scheduleRemeasure();

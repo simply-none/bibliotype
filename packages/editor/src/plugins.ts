@@ -13,6 +13,7 @@ import type { Schema } from 'prosemirror-model';
 import { splitListItem } from 'prosemirror-schema-list';
 import type { Command, Plugin } from 'prosemirror-state';
 import { redoCommand, setHeadingLevel, setParagraph, undoCommand } from './commands.js';
+import { createInputRulesPlugin } from './input-rules.js';
 import { createPasteMarkdownPlugin } from './paste.js';
 
 /**
@@ -56,7 +57,17 @@ export function createBookEditorKeymap(schema: Schema): Record<string, Command> 
   return bindings;
 }
 
-/** 创建书籍编辑器插件集（history + keymap + 粘贴增强） */
+/**
+ * 创建书籍编辑器插件集
+ *
+ * history + keymap + 粘贴增强（Markdown → PM）+ 快捷输入（`# ` / `> ` / `- ` / ` ``` ` / `---`）。
+ * 快捷输入以 appendTransaction 实现，无视图场景（BookEditor）同样生效。
+ */
 export function createBookEditorPlugins(schema: Schema): Plugin[] {
-  return [history(), keymap(createBookEditorKeymap(schema)), createPasteMarkdownPlugin()];
+  return [
+    history(),
+    keymap(createBookEditorKeymap(schema)),
+    createPasteMarkdownPlugin(),
+    createInputRulesPlugin(),
+  ];
 }

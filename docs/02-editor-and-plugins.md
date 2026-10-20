@@ -44,7 +44,7 @@ import { createEmptyDocument } from '@bibliotype/core';
 const schema = createDefaultEditorSchemaRegistry().buildSchema();
 const editor = new BookEditor({
   schema,
-  plugins: createBookEditorPlugins(schema),   // history + 键位
+  plugins: createBookEditorPlugins(schema),   // history + 键位 + 粘贴增强 + 快捷输入
   document: createEmptyDocument({ title: '论语集解' }),
 });
 
@@ -97,6 +97,31 @@ off();
 | `Mod-z` / `Shift-Mod-z` / `Mod-y` | 撤销 / 重做 / 重做（Windows 习惯） |
 | `Mod-Alt-0..3` | 正文 / 标题 1~3 |
 | `Enter`（列表项内） | 优先切分列表项，否则回退基础键位 |
+
+## Markdown 快捷输入（input rules）
+
+`createInputRulesPlugin(options?)` 以 `appendTransaction` 实现，**不依赖 `EditorView`**——无视图编辑
+状态机（`BookEditor`）与自绘画布（`BtEditor`）同样生效。在**块首**输入触发串即转为对应节点：
+
+| 输入 | 结果 |
+| --- | --- |
+| `# ` ~ `###### ` | 标题 1~6（保留块 `id` 与其余属性） |
+| `> ` | 引用块（包裹当前段落） |
+| `- ` / `* ` / `+ ` | 无序列表 |
+| `1. ` | 有序列表 |
+| ` ```ts ` | 代码块（`language = 'ts'`，缺省语言为空） |
+| `---` / `***` | 分隔符 `break(variant='hr')`；位于末块时自动补空段落承接光标 |
+
+```ts
+import { createInputRulesPlugin, matchInputRule } from '@bibliotype/editor';
+
+const plugins = [createInputRulesPlugin({ horizontalRule: false })];   // 按种类关闭
+matchInputRule('# ');   // { kind: 'heading', prefixLength: 2, headingLevel: 1 }
+```
+
+- 选项 `headings` / `quote` / `lists` / `codeBlock` / `horizontalRule`，缺省全开；
+- 只处理空选区（光标）且光标位于文本块内：带前缀（`请# `）或非块首不触发；
+- 判定逻辑是纯函数 `matchInputRule`，`applyInputRules` 可单独复用于自定义输入管线。
 
 ## IR ⇄ ProseMirror 转换细节
 

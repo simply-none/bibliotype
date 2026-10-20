@@ -7,6 +7,7 @@
 import {
   NODE_TYPES,
   DEFAULT_THEME,
+  createBlockAnchor,
   createEventBus,
   isTextNode,
   type BibliotypeEventMap,
@@ -46,6 +47,22 @@ import {
   type PageChromeTexts,
 } from './page-chrome.js';
 import { resolvePageGutterTexts } from './page-gutter.js';
+import {
+  buildMatchExcerpt,
+  buildSearchPattern,
+  collectSubtreeNodes,
+  findMatchRanges,
+  type ReaderSearchOptions,
+  type ReaderSearchResult,
+} from './search.js';
+import {
+  createReadingPosition,
+  parseReadingPosition,
+  type ReadingPosition,
+} from './position.js';
+
+export type { ReaderSearchOptions, ReaderSearchResult, TextMatchRange } from './search.js';
+export type { ReadingPosition } from './position.js';
 
 /** 重排参数 */
 export interface RepaginateOptions {
@@ -75,42 +92,6 @@ export interface RepaginateOptions {
    * （见 extractBlocks 的 bodySizes 说明）。
    */
   bodySizes?: ReadonlyMap<string, number> | null;
-}
-
-/** 搜索选项 */
-export interface ReaderSearchOptions {
-  /** 结果上限（默认 50） */
-  limit?: number;
-  /** 摘录上下文半径（命中词前后各取多少字符，默认 12） */
-  contextLength?: number;
-}
-
-/** 搜索结果条目 */
-export interface ReaderSearchResult {
-  /** 命中块（叶块）节点 id，可直接用于 goToNode */
-  nodeId: string;
-  /** 命中块所在页（自 0 起） */
-  pageIndex: number;
-  /** 命中块节点类型 */
-  blockType: string;
-  /** 去掉首尾空白的命中上下文摘录（首尾越界处以省略号标记） */
-  excerpt: string;
-  /** 该块内命中次数 */
-  matchCount: number;
-}
-
-/** 截取命中上下文摘录 */
-function buildExcerpt(
-  text: string,
-  index: number,
-  keywordLength: number,
-  contextLength: number,
-): string {
-  const start = Math.max(0, index - contextLength);
-  const end = Math.min(text.length, index + keywordLength + contextLength);
-  const prefix = start > 0 ? '…' : '';
-  const suffix = end < text.length ? '…' : '';
-  return `${prefix}${text.slice(start, end)}${suffix}`;
 }
 
 /** Reader 配置 */
@@ -491,46 +472,106 @@ export class Reader {
   }
 
   /**
-   * 全文搜索（按块级文本，大小写敏感的字面子串匹配）
+   * 全文搜索（按块级文本）
    *
-   * 逐页扫描叶块文本，返回带页号与上下文摘录的结果；
-   * nodeId 可直接传给 goToNode 完成跳转。
+   * 逐页扫描叶块文本，返回带页号与上下文摘录的结果；`nodeId` 可直接传给 goToNode。
+   *
+   * - 缺省为**字面匹配 + 大小写敏感**（与历史行为一致）；
+   * - `regex: true` 把查询串按正则解释（非法正则抛 `RangeError`）；
+   * - `caseSensitive: false` 忽略大小写；
+   * - `scope` 限定到某结构节点的子树（「本章内查找」）；
+   * - `ranges: true` 时返回命中区间（相对块纯文本），供渲染层高亮；
+   * - 跨页拆分的同一块只报告一次（首次出现页）。
    */
   search(query: string, options: ReaderSearchOptions = {}): ReaderSearchResult[] {
     const keyword = query.trim();
     if (keyword === '' || this.doc === undefined) return [];
     const limit = options.limit ?? 50;
     const contextLength = options.contextLength ?? 12;
+    const maxRangesPerBlock = options.maxRangesPerBlock ?? 20;
+    const pattern = buildSearchPattern(keyword, {
+      regex: options.regex,
+      caseSensitive: options.caseSensitive,
+    });
+
+    const scopeNodes =
+      options.scope === undefined ? undefined : collectSubtreeNodes(this.doc.root, options.scope);
+    if (options.scope !== undefined && scopeNodes === undefined) {
+      return [];
+    }
 
     const results: ReaderSearchResult[] = [];
+    const seen = new Set<string>();
     for (const page of this.pages) {
       for (const block of page.blocks) {
+        if (seen.has(block.id)) continue;
         const node = findNodeById(this.doc.root, block.id);
         if (node === undefined) continue;
+        if (scopeNodes !== undefined && !scopeNodes.has(node)) continue;
         const text = collectNodeText(node);
-        const first = text.indexOf(keyword);
-        if (first === -1) continue;
+        if (text === '') continue;
 
-        let matchCount = 0;
-        for (
-          let cursor = first;
-          cursor !== -1;
-          cursor = text.indexOf(keyword, cursor + keyword.length)
-        ) {
-          matchCount += 1;
-        }
+        const { count, ranges } = findMatchRanges(text, pattern, maxRangesPerBlock);
+        const first = ranges[0];
+        if (count === 0 || first === undefined) continue;
 
-        results.push({
+        seen.add(block.id);
+        const result: ReaderSearchResult = {
           nodeId: block.id,
           pageIndex: page.index,
           blockType: node.type,
-          excerpt: buildExcerpt(text, first, keyword.length, contextLength),
-          matchCount,
-        });
+          excerpt: buildMatchExcerpt(text, first.from, first.to, contextLength),
+          matchCount: count,
+        };
+        if (options.ranges === true) {
+          result.ranges = ranges;
+        }
+        results.push(result);
         if (results.length >= limit) return results;
       }
     }
     return results;
+  }
+
+  /* ---------------- 阅读位置 ---------------- */
+
+  /**
+   * 当前位置快照（锚点 = 当前页首块）
+   *
+   * 页码只作锚点失效时的回退；`savedAt` 由调用方注入（库内不取当前时间）。
+   * 未载入文档 / 空文档返回 `undefined`。
+   */
+  getPosition(options: { savedAt?: string } = {}): ReadingPosition | undefined {
+    const page = this.pages[this.pageIndex];
+    if (page === undefined) return undefined;
+    const firstId = page.items[0]?.block.id ?? page.blocks[0]?.id;
+    if (firstId === undefined) return undefined;
+    return createReadingPosition(
+      createBlockAnchor(firstId),
+      this.pageIndex,
+      this.progress,
+      options.savedAt,
+    );
+  }
+
+  /**
+   * 恢复阅读位置
+   *
+   * 优先按锚点定位（版式变化后仍准确）；锚点目标已被删除时回退到快照页码。
+   *
+   * @param position 位置快照对象或其 JSON 字符串
+   * @returns 是否已定位到有效页（空文档返回 false）
+   */
+  restorePosition(position: ReadingPosition | string): boolean {
+    if (this.pages.length === 0) return false;
+    const parsed = typeof position === 'string' ? parseReadingPosition(position) : position;
+    const target = this.pageByBlockId.get(parsed.anchor.nodeId);
+    if (target !== undefined) {
+      return this.goToPage(target) || target === this.pageIndex;
+    }
+    const fallback = Math.min(parsed.pageIndex, this.pages.length - 1);
+    if (fallback < 0) return false;
+    return this.goToPage(fallback) || fallback === this.pageIndex;
   }
 
   /* ---------------- 导航 ---------------- */

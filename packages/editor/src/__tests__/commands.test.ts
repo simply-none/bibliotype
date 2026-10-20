@@ -559,15 +559,17 @@ describe('编辑插件与键位', () => {
     expect(bindings['Enter']).toBeDefined();
   });
 
-  it('createBookEditorPlugins：返回 history、keymap 与粘贴增强插件', () => {
+  it('createBookEditorPlugins：返回 history、keymap、粘贴增强与快捷输入插件', () => {
     const schema = buildEditorSchema();
     const plugins = createBookEditorPlugins(schema);
-    expect(plugins).toHaveLength(3);
+    expect(plugins).toHaveLength(4);
     // history 插件提供 state 字段；keymap 与粘贴插件提供 props
     expect(plugins[0]?.spec.state).toBeDefined();
     expect(plugins[1]?.spec.props).toBeDefined();
     // 粘贴插件注册 handlePaste（接管 Markdown 纯文本粘贴）
     expect((plugins[2]?.spec.props as { handlePaste?: unknown } | undefined)?.handlePaste).toBeInstanceOf(Function);
+    // 快捷输入插件以 appendTransaction 实现（无视图同样生效）
+    expect(plugins[3]?.spec.appendTransaction).toBeInstanceOf(Function);
   });
 
   it('BookEditor 携带插件后仍可正常载入与导出文档', () => {

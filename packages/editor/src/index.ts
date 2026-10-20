@@ -91,6 +91,29 @@ export type { TextMatch } from './search.js';
 /* ---------- 插件与键位 ---------- */
 export { createBookEditorKeymap, createBookEditorPlugins } from './plugins.js';
 
+/* ---------- 状态查询（工具栏反显 / 快捷键互斥） ---------- */
+export {
+  getActiveMarkNames,
+  isMarkActive,
+  getActiveMarkAttrs,
+  getActiveBlockInfo,
+  getSelectionInfo,
+} from './state-query.js';
+export type { BlockAncestor, ActiveBlockInfo, SelectionInfo } from './state-query.js';
+
+/* ---------- Markdown 快捷输入（input rules） ---------- */
+export {
+  INPUT_RULE_KINDS,
+  matchInputRule,
+  applyInputRules,
+  createInputRulesPlugin,
+} from './input-rules.js';
+export type {
+  InputRuleKind,
+  InputRuleMatch,
+  BookInputRulesOptions,
+} from './input-rules.js';
+
 /* ---------- 粘贴增强（Markdown → PM） ---------- */
 export {
   looksLikeMarkdown,

@@ -60,11 +60,31 @@ export {
 } from './page-numbering.js';
 export type { PageNumberStyle } from './page-numbering.js';
 
-/* ---------- 阅读器 ---------- */
-export { Reader } from './reader.js';
+/* ---------- 阅读位置快照 ---------- */
+export {
+  READING_POSITION_SCHEMA_VERSION,
+  createReadingPosition,
+  serializeReadingPosition,
+  parseReadingPosition,
+  positionAnchorKey,
+} from './position.js';
+export type { ReadingPosition } from './position.js';
+
+/* ---------- 搜索内核（纯函数，可独立复用） ---------- */
+export {
+  escapeRegExp,
+  buildSearchPattern,
+  findMatchRanges,
+  buildMatchExcerpt,
+  collectSubtreeNodes,
+} from './search.js';
 export type {
-  ReaderOptions,
-  RepaginateOptions,
   ReaderSearchOptions,
   ReaderSearchResult,
-} from './reader.js';
+  TextMatchRange,
+  MatchScanResult,
+} from './search.js';
+
+/* ---------- 阅读器 ---------- */
+export { Reader } from './reader.js';
+export type { ReaderOptions, RepaginateOptions } from './reader.js';

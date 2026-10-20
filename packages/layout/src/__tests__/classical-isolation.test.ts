@@ -17,12 +17,19 @@ import {
 import { resolvePageMarginBox } from '../page-size.js';
 import { buildBookCss } from '../html/book-css.js';
 import { isFacsimileEnabled } from '../facsimile.js';
+import {
+  CLASSICAL_BASELINE_CONTAINER,
+  CLASSICAL_BASELINE_FONT_TOKEN,
+  CLASSICAL_BASELINE_TOKENS,
+  CLASSICAL_CROSS_SIZE,
+  CLASSICAL_CSS_FNV,
+  CLASSICAL_MAIN_SIZE,
+  CLASSICAL_SIGNATURE_FNV,
+  fnv1a,
+} from './fixtures/classical-baseline.js';
 
 /** 古典主题的典型令牌（含 demo 里的版框令牌） */
-const CLASSICAL_TOKENS = {
-  ...DEFAULT_THEME,
-  'page-border': '3px double #b09a76',
-};
+const CLASSICAL_TOKENS = CLASSICAL_BASELINE_TOKENS;
 
 describe('古籍直排：仿真能力缺省时零影响', () => {
   it('默认布局与古典布局都不带 facsimile 字段', () => {
@@ -79,6 +86,29 @@ describe('古籍直排：仿真能力缺省时零影响', () => {
     );
     expect(resolvePageCrossSize(CLASSICAL_LAYOUT_OPTIONS, CLASSICAL_TOKENS)).toBe(
       CLASSICAL_LAYOUT_OPTIONS.pageSize.height - margins.top - margins.bottom - border,
+    );
+  });
+
+  it('基线快照：古典 CSS 全文 / 签名 / 版心尺寸与锁定值一致', () => {
+    const css = buildBookCss({
+      tokens: CLASSICAL_TOKENS,
+      options: CLASSICAL_LAYOUT_OPTIONS,
+      fontToken: CLASSICAL_BASELINE_FONT_TOKEN,
+      containerSelector: CLASSICAL_BASELINE_CONTAINER,
+    });
+    expect(fnv1a(css), '古典样式表发生字符级变化').toBe(CLASSICAL_CSS_FNV);
+
+    const signature = computeMetricsSignature({
+      tokens: CLASSICAL_TOKENS,
+      options: CLASSICAL_LAYOUT_OPTIONS,
+    });
+    expect(fnv1a(signature), '古典度量签名发生字符级变化').toBe(CLASSICAL_SIGNATURE_FNV);
+
+    expect(resolvePageMainSize(CLASSICAL_LAYOUT_OPTIONS, CLASSICAL_TOKENS)).toBe(
+      CLASSICAL_MAIN_SIZE,
+    );
+    expect(resolvePageCrossSize(CLASSICAL_LAYOUT_OPTIONS, CLASSICAL_TOKENS)).toBe(
+      CLASSICAL_CROSS_SIZE,
     );
   });
 

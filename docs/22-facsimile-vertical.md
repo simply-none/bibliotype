@@ -74,10 +74,12 @@ interface FacsimileOptions {
 | `page-frame-inner-width` | 内框线宽 | `1px` |
 | `page-rule-color` | 界行颜色 | `#3b322a` |
 | `gutter-color` | 版心文字 / 鱼尾颜色 | `#3b322a` |
+| `page-texture` | 纸纹图层（原样作为 `background-image`，渐变 / `url()` 均可，平铺在页面元素上） | 无（不设则不输出） |
 | `font-family-classical-song` | 宋体族（`FACSIMILE_FONT_TOKENS.SONG`） | 模板给出 |
 | `font-family-classical-fangsong` | 仿宋族（`FACSIMILE_FONT_TOKENS.FANGSONG`） | 模板给出 |
 
 颜色 / 线宽 / 纸纹属纯绘制令牌，**不进度量签名**；`facsimile.gutter.size` 与两个字体族令牌进签名。
+`page-texture` 只在仿真装饰段输出（`pageDecoration && facsimile && 直排`），因此「古籍直排 / 现代横排」即便令牌里留了值也不会画出纸纹。
 
 ## 5. 三端渲染
 
@@ -100,7 +102,7 @@ interface FacsimileOptions {
 - **行款回显**：每半页 N 行 × 每行 M 字（由当前字号行距边距实时推导）；
 - **已修改态**：与模板基准深比较（版式字段 + 字号/行距/字距/页边距），显示「已修改，基于 X」，可一键「恢复模板默认」。
 
-模板令牌由 `resolveFacsimilePreset(id).tokens` **派生**合并（`theme.tokens → preset.tokens → tokenPatch → night`），不写入令牌补丁——因此从仿真切回「古籍直排」不会残留纸色 / 字体 / 框色。
+模板令牌由 `resolveFacsimilePreset(id).tokens` **派生**合并（`theme.tokens → preset.tokens → tokenPatch → night`），不写入令牌补丁——因此从仿真切回「古籍直排」不会残留纸色 / 字体 / 框色。Demo 侧把这段规则收在 `apps/demo/src/facsimile-theme.ts` 的纯函数里（`resolveActiveFacsimilePreset` / `resolveFacsimilePresetTokens` / `resolveActiveFontToken`），布局与字体同源派生，便于单测。
 
 ## 7. 已知限制
 

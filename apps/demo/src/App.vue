@@ -52,7 +52,6 @@ import {
   computeMetricsSignature,
   isVerticalMode,
   mergeLayoutOptions,
-  resolveFacsimilePreset,
   resolvePageCrossSize,
   resolvePageMainSize,
   resolveBottomSlack,
@@ -90,6 +89,11 @@ import { useStyleSettings } from './composables/use-style-settings.js';
 import { useToast } from './composables/use-toast.js';
 import { installPerfProbe, type PerfProbe } from './composables/use-perf-probe.js';
 import { lunyuDocument } from './data/lunyu.js';
+import {
+  resolveActiveFacsimilePreset,
+  resolveActiveFontToken,
+  resolveFacsimilePresetTokens,
+} from './facsimile-theme.js';
 
 /* ---------------- 主题定义 ---------------- */
 
@@ -211,18 +215,16 @@ const effectiveLayout = computed<LayoutOptions>(() =>
 );
 
 /** 当前仿真模板（由 `layout.facsimile.preset` 派生；未启用仿真版式时为 undefined） */
-const facsimilePreset = computed(() =>
-  resolveFacsimilePreset(effectiveLayout.value.facsimile?.preset),
-);
+const facsimilePreset = computed(() => resolveActiveFacsimilePreset(effectiveLayout.value));
 
 /** 仿真模板令牌覆盖：只派生、不写入令牌补丁（切主题即消失，不污染古典） */
-const facsimilePresetTokens = computed<Readonly<Record<string, string>>>(
-  () => facsimilePreset.value?.tokens ?? {},
+const facsimilePresetTokens = computed<Readonly<Record<string, string>>>(() =>
+  resolveFacsimilePresetTokens(effectiveLayout.value),
 );
 
 /** 生效正文字体令牌键：仿真模板优先，其余仍取主题默认 */
-const activeFontToken = computed(
-  () => facsimilePreset.value?.fontToken ?? theme.value.fontToken,
+const activeFontToken = computed(() =>
+  resolveActiveFontToken(effectiveLayout.value, theme.value.fontToken),
 );
 
 /**

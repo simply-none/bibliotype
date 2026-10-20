@@ -90,6 +90,19 @@ export function buildFacsimileDecorationCss(
     );
   }
 
+  /*
+   * ---------- 1.5 纸纹（可选） ----------
+   *
+   * 令牌 `page-texture` 的值原样作为 `background-image` 使用（渐变 / `url()`
+   * 均可），铺在页面元素上、位于正文之下。纯视觉：不改变版心、不进度量签名。
+   */
+  const texture = (tokens['page-texture'] ?? '').trim();
+  if (texture !== '') {
+    rules.push(
+      `${containerSelector} {\n  background-image: var(--bt-page-texture);\n  background-repeat: repeat;\n}`,
+    );
+  }
+
   /* ---------- 2. 界行（节距 = 字号 × 行距，锚定版心起始侧） ---------- */
   if (facsimile.rule !== FACSIMILE_RULES.NONE) {
     rules.push(

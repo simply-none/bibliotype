@@ -218,6 +218,28 @@ describe('装饰图层样式（buildBookCss）', () => {
     expect(css).toContain('#a33a2a');
   });
 
+  it('纸纹：page-texture 令牌存在时输出背景图层，缺省不输出', () => {
+    const textured = buildBookCss({
+      tokens: {
+        ...FAC_TOKENS,
+        'page-texture': 'repeating-linear-gradient(0deg, #00000008 0 2px, transparent 2px 4px)',
+      },
+      options: FAC_LAYOUT,
+      containerSelector: '.bt-reader-page',
+      pageDecoration: true,
+    });
+    expect(textured).toContain('--bt-page-texture:');
+    expect(textured).toContain('background-image: var(--bt-page-texture)');
+
+    const plain = buildBookCss({
+      tokens: FAC_TOKENS,
+      options: FAC_LAYOUT,
+      containerSelector: '.bt-reader-page',
+      pageDecoration: true,
+    });
+    expect(plain).not.toContain('background-image: var(--bt-page-texture)');
+  });
+
   it('横排下即便带 facsimile 也不输出装饰与仿真变量', () => {
     const css = buildBookCss({
       tokens: FAC_TOKENS,

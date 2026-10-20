@@ -20,7 +20,8 @@ pnpm --dir apps/demo typecheck  # 类型检查（vue-tsc）
 push `master`（改动命中 `apps/demo/**`、`packages/**` 或根配置）触发
 [`.github/workflows/pages.yml`](../../.github/workflows/pages.yml)：
 全仓构建 → 上传 `apps/demo/dist` → 部署到 Pages，站点地址 `https://<owner>.github.io/<repo>/`。
-仓库需一次性设置 **Settings → Pages → Source = GitHub Actions**。
+首次运行由 `configure-pages` 自动开通 Pages（`enablement: true`）；若组织策略禁止，
+需一次性手动设置 **Settings → Pages → Source = GitHub Actions**。
 
 站点基址由 `VITE_BASE_PATH` 决定（`vite.config.ts`，默认 `/`）；流水线按仓库名自动取
 `/<repo>/`，本地模拟项目页时同样传入：

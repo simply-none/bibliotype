@@ -39,7 +39,7 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 | [`@bibliotype/typography-cjk`](packages/typography-cjk/README.md) | 中文排印（禁则 / 标点挤压 / 中西文混排，零依赖） |
 | [`@bibliotype/xref`](packages/xref/README.md) | 交叉引用（两遍排版页码索引与占位替换） |
 | [`@bibliotype/textconvert`](packages/textconvert/README.md) | 繁简 / 异体字转换（内置表 + OpenCC 适配） |
-| `@bibliotype/demo`（`apps/demo`，私有） | 《论语》全链路示例：分页阅读 / 目录 / 直排切换 / 编辑 / 导出 |
+| `@bibliotype/demo`（`apps/demo`，私有） | 《论语》全链路示例（[在线 Demo](https://simply-none.github.io/bibliotype/)）：分页阅读 / 目录 / 直排切换 / 编辑 / 导出 |
 
 包依赖关系（自下而上）：
 

@@ -1,0 +1,91 @@
+# Demo 部署流水线：GitHub Pages
+#
+# 触发：
+#   - push master（仅当影响 demo 的文件变动时，避免纯文档提交重复部署）
+#   - workflow_dispatch（手动重发）
+#
+# 流程：计算基址 → 安装依赖 → 全仓构建（demo 消费各包 dist）→ 上传产物 → 部署 Pages。
+# 基址：项目页为 /<repo>/，用户页（<owner>.github.io）为 /，经 VITE_BASE_PATH 传给 Vite。
+# 前置条件：仓库 Settings → Pages → Source 选择「GitHub Actions」（仅需配置一次）。
+# 详见 docs/12-release-and-ci.md「Demo 部署（GitHub Pages）」。
+
+name: Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/demo/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'turbo.json'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: 构建 Demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版本读取根 package.json 的 packageManager 字段
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 计算 Pages 基址
+        id: base
+        shell: bash
+        run: |
+          repo="${GITHUB_REPOSITORY#*/}"
+          if [ "$repo" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
+            echo "value=/" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=/$repo/" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Pages 基址：$(tail -n 1 "$GITHUB_OUTPUT")"
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建全仓（turbo 全量）
+        run: pnpm build
+        env:
+          VITE_BASE_PATH: ${{ steps.base.outputs.value }}
+
+      - name: 校验产物
+        run: |
+          test -f apps/demo/dist/index.html || { echo "缺少 apps/demo/dist/index.html"; exit 1; }
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/demo/dist
+
+  deploy:
+    name: 部署到 GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

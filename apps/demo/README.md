@@ -15,6 +15,23 @@ pnpm --dir apps/demo preview    # 预览构建产物
 pnpm --dir apps/demo typecheck  # 类型检查（vue-tsc）
 ```
 
+## 部署（GitHub Pages）
+
+push `master`（改动命中 `apps/demo/**`、`packages/**` 或根配置）触发
+[`.github/workflows/pages.yml`](../../.github/workflows/pages.yml)：
+全仓构建 → 上传 `apps/demo/dist` → 部署到 Pages，站点地址 `https://<owner>.github.io/<repo>/`。
+仓库需一次性设置 **Settings → Pages → Source = GitHub Actions**。
+
+站点基址由 `VITE_BASE_PATH` 决定（`vite.config.ts`，默认 `/`）；流水线按仓库名自动取
+`/<repo>/`，本地模拟项目页时同样传入：
+
+```bash
+VITE_BASE_PATH=/<repo>/ pnpm build
+VITE_BASE_PATH=/<repo>/ pnpm --dir apps/demo preview   # 预览按 base 挂载，路径为 /<repo>/
+```
+
+细节见 [docs/12](../../docs/12-release-and-ci.md)。
+
 ## 功能清单
 
 | 分组 | 功能 |

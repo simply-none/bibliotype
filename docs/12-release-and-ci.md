@@ -12,7 +12,7 @@ bibliotype/
  ├── apps/demo         示例应用（private，不发布）
  ├── scripts/version.mjs   日期版本脚本（发版核心）
  ├── .changeset/       变更说明（config.json + 待消费的 md）
- ├── .github/workflows/    GitHub Actions（ci.yml / release.yml）
+ ├── .github/workflows/    GitHub Actions（ci.yml / release.yml / pages.yml）
  ├── .gitlab-ci.yml        GitLab CI（备用）
  ├── docs/             功能用法参考（本篇所在）
  └── turbo.json        turbo 任务编排（build / test / typecheck）
@@ -104,6 +104,38 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 
 所需配置：仓库 Secret `NPM_TOKEN`（npm 发布令牌）；workflow 已开 `id-token: write`
 以支持 npm provenance。
+
+#### Demo 部署（GitHub Pages）
+
+`.github/workflows/pages.yml`：把 `apps/demo` 的构建产物发布为 GitHub Pages 站点。
+
+触发条件（满足其一）：
+
+- push `master`，且改动命中 `apps/demo/**`、`packages/**`、根 `package.json` /
+  `pnpm-lock.yaml` / `pnpm-workspace.yaml` / `tsconfig.base.json` / `turbo.json`
+  （纯文档提交不触发，避免重复部署）；
+- `workflow_dispatch` 手动重发。
+
+流程：计算基址 → `pnpm install --frozen-lockfile` → `pnpm build`（全仓，demo 消费各包
+`dist`）→ 校验 `apps/demo/dist/index.html` → `actions/upload-pages-artifact` →
+`actions/deploy-pages`（`pages` 环境，`concurrency: pages` 串行且不取消进行中的部署）。
+
+基址处理：Vite 的 `base` 读环境变量 `VITE_BASE_PATH`（`apps/demo/vite.config.ts`，默认 `/`）。
+仓库名为 `<owner>.github.io` 时为 `/`，否则为 `/<repo>/`——项目页的绝对路径资源若缺前缀会 404。
+该变量已登记在 `turbo.json` 的 `build.env`（同时用于缓存键），换基址不会命中旧缓存。
+
+前置配置（仅一次）：仓库 **Settings → Pages → Source = GitHub Actions**；
+无需 `gh-pages` 分支，也不用手写 `NPM_TOKEN` 之类密钥（`pages: write` + `id-token: write`
+由 workflow 自带）。站点地址为 `https://<owner>.github.io/<repo>/`。
+
+本地复现站点产物：
+
+```bash
+# 模拟项目页基址（Windows PowerShell 用 $env:VITE_BASE_PATH='/<repo>/'）
+VITE_BASE_PATH=/<repo>/ pnpm build
+# 预览同样带基址（preview 按 base 挂载路径），地址 http://localhost:4173/<repo>/
+VITE_BASE_PATH=/<repo>/ pnpm --dir apps/demo preview
+```
 
 ### GitLab CI（备用）
 

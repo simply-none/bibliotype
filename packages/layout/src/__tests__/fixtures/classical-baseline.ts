@@ -34,6 +34,9 @@ export const CLASSICAL_MAIN_SIZE = 581;
 /** 基线版心交叉轴尺寸（页高 − 边距 − 版框） */
 export const CLASSICAL_CROSS_SIZE = 881;
 
+/** 基线页底溢出（直排恒为 0：溢出吃的是外边距，不默认开放） */
+export const CLASSICAL_BOTTOM_SLACK = 0;
+
 /**
  * FNV-1a 32 位哈希（十六进制 8 位）
  *

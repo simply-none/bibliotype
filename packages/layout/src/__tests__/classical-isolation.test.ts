@@ -11,6 +11,7 @@ import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '../layout-opti
 import { computeMetricsSignature } from '../metrics-signature.js';
 import {
   buildRootStyle,
+  resolveBottomSlack,
   resolvePageCrossSize,
   resolvePageMainSize,
 } from '../style-builder.js';
@@ -21,6 +22,7 @@ import {
   CLASSICAL_BASELINE_CONTAINER,
   CLASSICAL_BASELINE_FONT_TOKEN,
   CLASSICAL_BASELINE_TOKENS,
+  CLASSICAL_BOTTOM_SLACK,
   CLASSICAL_CROSS_SIZE,
   CLASSICAL_CSS_FNV,
   CLASSICAL_MAIN_SIZE,
@@ -109,6 +111,9 @@ describe('古籍直排：仿真能力缺省时零影响', () => {
     );
     expect(resolvePageCrossSize(CLASSICAL_LAYOUT_OPTIONS, CLASSICAL_TOKENS)).toBe(
       CLASSICAL_CROSS_SIZE,
+    );
+    expect(resolveBottomSlack(CLASSICAL_LAYOUT_OPTIONS, CLASSICAL_TOKENS, 30)).toBe(
+      CLASSICAL_BOTTOM_SLACK,
     );
   });
 

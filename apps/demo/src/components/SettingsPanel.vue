@@ -48,6 +48,7 @@ import {
   type PageChromeField,
 } from '@bibliotype/layout';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
+import { isFacsimilePresetModified } from '../facsimile-theme.js';
 import FeatureStyleEditor from './FeatureStyleEditor.vue';
 
 const props = defineProps<{
@@ -262,22 +263,10 @@ const facsimilePreset = computed(() => resolveFacsimilePreset(facsimilePresetId.
 /**
  * 模板基准是否已被改动
  *
- * 只比较版式字段与四个结构令牌（字号 / 行距 / 字距 / 页边距）；夜间配色等
- * 纯颜色令牌不参与，避免夜里切一下就误报「已修改」。
+ * 判定规则收在 `facsimile-theme.ts` 的纯函数里（只比版式字段与四个结构令牌，
+ * 纯颜色令牌不参与），便于单测。
  */
-const facsimileDirty = computed(() => {
-  const preset = facsimilePreset.value;
-  const current = facsimile.value;
-  if (preset === undefined || current === undefined) return false;
-  if (JSON.stringify(current) !== JSON.stringify(preset.layout.facsimile)) return true;
-  const structuralKeys = [
-    FONT_SIZE_TOKENS.BODY,
-    LAYOUT_TOKENS.LINE_HEIGHT,
-    LAYOUT_TOKENS.LETTER_SPACING,
-    LAYOUT_TOKENS.PAGE_MARGIN,
-  ];
-  return structuralKeys.some((key) => (props.tokens[key] ?? '') !== (preset.tokens[key] ?? ''));
-});
+const facsimileDirty = computed(() => isFacsimilePresetModified(props.layout, props.tokens));
 
 /** 行款回显（每半页行数 / 每行字数 / 列距 / 带宽） */
 const facsimileGrid = computed(() => resolveFacsimileGrid(props.layout, props.tokens));
@@ -949,7 +938,10 @@ async function onSave(): Promise<void> {
                 行款：每半页 {{ facsimileGrid.linesPerHalfLeaf }} 行 × 每行
                 {{ facsimileGrid.charsPerColumn }} 字（列距 {{ facsimileGrid.linePitch }}px，
                 版心带宽 {{ facsimileGrid.gutterSize }}px，版心宽 {{ facsimileGrid.contentWidth }}px）。
-                装饰只在直排下渲染；改版框颜色 / 界行颜色不会触发重排。
+                改版框颜色 / 界行颜色不会触发重排。
+              </p>
+              <p v-if="!vertical" class="panel__hint">
+                仿真装饰仅在直排下渲染：当前为横排，版框 / 界行 / 版心均不显示（版式数据保留）。
               </p>
             </template>
 

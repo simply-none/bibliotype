@@ -14,7 +14,7 @@ pnpm add @bibliotype/reader @bibliotype/core @bibliotype/layout
 ```ts
 import { Reader } from '@bibliotype/reader';
 
-const reader = new Reader();          // 可传 layout / pageMainSize / measure / estimator
+const reader = new Reader();          // 可传 layout / pageMainSize / measure / estimator / footnoteFloat
 reader.loadDocument(document);        // BookDocument（IR）
 
 /* 翻页与进度 */
@@ -48,14 +48,15 @@ off();
 
 | 成员 | 说明 |
 | --- | --- |
-| `new Reader(options?)` | `layout`（局部覆盖默认布局）/ `pageMainSize` / `measure` / `estimator` / `events` |
+| `new Reader(options?)` | `layout`（局部覆盖默认布局）/ `pageMainSize` / `measure` / `estimator` / `events` / `footnoteFloat`（脚注浮注）/ `noteMaxRatio`（注区占页面主轴比例，缺省 0.4） |
 | `loadDocument(doc)` | 载入文档：提取块 → 分页 → 建目录 → 触发事件 |
 | `repaginate(overrides?)` | 重新分页（布局 / 主轴尺寸 / 估算上下文变更），保持当前页 |
 | `document` / `layout` | 当前文档与布局配置 |
 | `currentPage` / `totalPages` / `progress` | 阅读状态（progress 按已读至页尾计，0~1） |
 | `outline` | 目录树（`OutlineItem[]`） |
 | `allBlocks` / `pagination` / `getPageBlocks(i)` | 分页前块序列 / 分页结果 / 某页的块 |
-| `getPageNodes(i)` | 某页的 IR 节点（块 id 经 `findNodeById` 还原） |
+| `getPageNodes(i)` | 某页正文 IR 节点（块 id 经块索引还原） |
+| `getPageNoteItems(i)` / `getPageNotes(i)` / `getPageNoteMainSize(i)` | 页底注条目 / 注节点 / 注区占高（`footnoteFloat` 开启时） |
 | `getPageGutterTexts(i)` | 版心（书口）竖写文本：书名 / 篇卷 / 叶次；未启用仿真版式或封面页返回 `undefined` |
 | `formatCurrentPageNumber()` | 当前页展示页码 |
 | `search(query, options?)` | 全文搜索（`limit` 默认 50、`contextLength` 默认 12） |
@@ -82,6 +83,8 @@ BookDocument ──extractBlocks──▶ MeasurableBlock[] ──paginate──
 - 块序列仅含**叶块**（稳定 id + 估算尺寸）；分页由 `@bibliotype/layout` 的贪心分页器完成；
 - 结构容器 id（目录项）通过“首叶锚点”映射到页码，因此 `goToNode` 对容器同样有效；
 - 注释容器（脚注 / 尾注 / 边注 / 双行小注等）恒判为原子叶块，样式与 id 在分块时整体保留；
+- `footnoteFloat: true` 时脚注块标 `floatToBottom`，不进正文流：落所在页页底注区、正文容量按注区
+  扣减，注区超过 `noteMaxRatio` 时整条续到下一页页底（尾注 / 边注不受影响）；
 - 表格是复合原子块：`table` 整体成块，不下钻到 `table-row` / `table-cell`，分页与序列化保留完整
   `<table>` 包裹（否则页面会丢失表格）。
 

@@ -26,13 +26,14 @@ import {
   type LayoutOptions,
   type MeasurableBlock,
   type PageGutterTexts,
+  type PageItem,
   type PaginatedPage,
 } from '@bibliotype/layout';
 import {
   DEFAULT_MEASURE_CONTEXT,
   defaultEstimator,
   collectNodeText,
-  extractBlocks,
+  extractBlocksIndexed,
   isLeafBlock,
   type BlockMeasureContext,
   type BlockSizeEstimator,
@@ -144,6 +145,15 @@ export interface ReaderOptions {
   tokens?: Readonly<Record<string, string | undefined>>;
   /** 外部事件总线（与 core 实例共享）；默认自建 */
   events?: EventBus<BibliotypeEventMap>;
+  /**
+   * 脚注浮注（页底注区）
+   *
+   * 开启后脚注块不进正文流，落所在页的页底注区：正文容量按注区高度收缩，
+   * 注区超过 `noteMaxRatio` 时整条续到下一页页底（跨页续注）。
+   */
+  footnoteFloat?: boolean;
+  /** 页底注区最多占页面主轴的多少（0~1，缺省 0.4；仅 `footnoteFloat` 生效） */
+  noteMaxRatio?: number;
 }
 
 /** 默认每页主轴尺寸（横排取内容区高，竖排取内容区宽；含页边距与版框边框扣除） */
@@ -178,12 +188,18 @@ export class Reader {
   private bodySizes: ReadonlyMap<string, number> | undefined;
   /** 排文主轴（直排为 column）：透传给 extractBlocks，仅供下游解释 lineSize 语义 */
   private axis: BlockAxis | undefined;
+  /** 脚注浮注：脚注块不进正文流，落所在页页底注区 */
+  private readonly footnoteFloat: boolean;
+  /** 页底注区上限（占页面容量比例，已夹到 0.05~1） */
+  private readonly noteMaxRatio: number;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
   private outlineItems: OutlineItem[] = [];
   private pageIndex = 0;
   private readonly pageByBlockId = new Map<string, number>();
+  /** 块 id → 源节点（分页管线同源产出，免逐块全树查找） */
+  private nodeById: ReadonlyMap<string, BookNode> = new Map();
   /** pageMainSize 是否由外部显式给定（否则随布局变化重算） */
   private pageMainSizeExplicit: boolean;
 
@@ -200,6 +216,9 @@ export class Reader {
     this.lineSizes = options.lineSizes;
     this.bodySizes = options.bodySizes;
     this.axis = options.axis;
+    this.footnoteFloat = options.footnoteFloat === true;
+    // 与 paginate 的夹取口径一致：注区至少 5%（保证有空间），至多占满一页
+    this.noteMaxRatio = Math.min(1, Math.max(0.05, options.noteMaxRatio ?? 0.4));
     this.events = options.events ?? createEventBus();
   }
 
@@ -264,7 +283,7 @@ export class Reader {
       this.axis = overrides.axis ?? undefined;
     }
 
-    this.blocks = extractBlocks(this.doc, {
+    const extracted = extractBlocksIndexed(this.doc, {
       estimator: this.estimator,
       context: this.measure,
       blockSizes: this.blockSizes,
@@ -273,9 +292,18 @@ export class Reader {
       bodySizes: this.bodySizes,
       axis: this.axis,
     });
+    this.nodeById = extracted.nodeById;
+    this.blocks = this.footnoteFloat
+      ? extracted.blocks.map((block) => {
+          // 仅脚注浮注：尾注（书末）/ 边注（版心外侧）仍按正文流就地排
+          const node = extracted.nodeById.get(block.id);
+          return node?.type === NODE_TYPES.FOOTNOTE ? { ...block, floatToBottom: true } : block;
+        })
+      : extracted.blocks;
     const result = paginate(this.blocks, {
       pageMainSize: this.pageMainSize,
       bottomSlack: this.bottomSlackPx,
+      ...(this.footnoteFloat ? { noteArea: { maxRatio: this.noteMaxRatio } } : {}),
     });
     this.pages = result.pages;
 
@@ -283,6 +311,10 @@ export class Reader {
     for (const page of result.pages) {
       for (const block of page.blocks) {
         this.pageByBlockId.set(block.id, page.index);
+      }
+      // 页底注块同样可定位（脚注跳转 / 阅读位置锚点落在注文上）
+      for (const item of page.notes ?? []) {
+        this.pageByBlockId.set(item.block.id, page.index);
       }
     }
     this.indexNodeAnchors();
@@ -360,15 +392,41 @@ export class Reader {
     return this.pages[pageIndex]?.blocks ?? [];
   }
 
-  /** 取某页的节点（块 id 经 findNodeById 还原；未载入或未命中时缺省） */
+  /** 取某页的节点（块 id 经块索引还原；未载入或未命中时缺省） */
   getPageNodes(pageIndex: number): readonly BookNode[] {
     if (this.doc === undefined) return [];
     const nodes: BookNode[] = [];
     for (const block of this.getPageBlocks(pageIndex)) {
-      const node = findNodeById(this.doc.root, block.id);
+      const node = this.nodeOf(block.id);
       if (node !== undefined) nodes.push(node);
     }
     return nodes;
+  }
+
+  /**
+   * 取某页的页底注条目（脚注浮注开启时；含跨页续注片段）
+   *
+   * 注条目不占正文 `items` / `usedMainSize`，渲染侧排在版心底部注区；
+   * 未开启 `footnoteFloat` 或该页无注时返回空数组。
+   */
+  getPageNoteItems(pageIndex: number): readonly PageItem[] {
+    return this.pages[pageIndex]?.notes ?? [];
+  }
+
+  /** 取某页的页底注节点（注条目块 id 经块索引还原） */
+  getPageNotes(pageIndex: number): readonly BookNode[] {
+    if (this.doc === undefined) return [];
+    const nodes: BookNode[] = [];
+    for (const item of this.getPageNoteItems(pageIndex)) {
+      const node = this.nodeOf(item.block.id);
+      if (node !== undefined) nodes.push(node);
+    }
+    return nodes;
+  }
+
+  /** 某页页底注区占用的主轴尺寸（px；未开启浮注或无注时为 0） */
+  getPageNoteMainSize(pageIndex: number): number {
+    return this.pages[pageIndex]?.noteMainSize ?? 0;
   }
 
   /**
@@ -385,7 +443,7 @@ export class Reader {
     if (page === undefined) return [];
     const nodes: BookNode[] = [];
     for (const item of page.items) {
-      const node = findNodeById(this.doc.root, item.block.id);
+      const node = this.nodeOf(item.block.id);
       if (node === undefined) continue;
       // lineCount === 0：未拆分（整块），原样返回
       if (item.lineCount === 0) {
@@ -396,6 +454,19 @@ export class Reader {
       nodes.push(sliceNodeByCharRange(node, from, to));
     }
     return nodes;
+  }
+
+  /**
+   * 块 id → 源节点
+   *
+   * 优先用分页时同源产出的块索引（O(1)）；未命中（如文档在重排前被改写）
+   * 回退全树查找，保持旧行为。
+   */
+  private nodeOf(id: string): BookNode | undefined {
+    return (
+      this.nodeById.get(id) ??
+      (this.doc === undefined ? undefined : findNodeById(this.doc.root, id))
+    );
   }
 
   /** 行区间 [fromLine, fromLine+lineCount) → 字符半开区间（实测优先，回退估算） */
@@ -524,9 +595,14 @@ export class Reader {
     const results: ReaderSearchResult[] = [];
     const seen = new Set<string>();
     for (const page of this.pages) {
-      for (const block of page.blocks) {
+      // 页底注（脚注浮注）不进 page.blocks，单独并入扫描，注文同样可搜
+      const pageBlocks = [
+        ...page.blocks,
+        ...(page.notes === undefined ? [] : page.notes.map((item) => item.block)),
+      ];
+      for (const block of pageBlocks) {
         if (seen.has(block.id)) continue;
-        const node = findNodeById(this.doc.root, block.id);
+        const node = this.nodeOf(block.id);
         if (node === undefined) continue;
         if (scopeNodes !== undefined && !scopeNodes.has(node)) continue;
         const text = collectNodeText(node);

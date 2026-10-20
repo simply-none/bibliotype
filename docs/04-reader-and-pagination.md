@@ -17,6 +17,8 @@ const reader = new Reader({
   measure: { charsPerLine: 30 },           // 估算上下文覆盖（字号/行距变化时联动重算）
   estimator,                               // 自定义块尺寸估算器（缺省 defaultEstimator）
   events,                                  // 外部事件总线（与 core 实例共享）；缺省自建
+  footnoteFloat: true,                     // 脚注浮注：脚注落页底注区（缺省关闭）
+  noteMaxRatio: 0.35,                      // 注区最多占页面主轴的 35%（缺省 0.4）
 });
 
 reader.loadDocument(document);             // 提取块 → 分页 → 建目录 → 触发事件
@@ -29,8 +31,9 @@ loadDocument
   ├─ extractOutline(root)            → 目录树（卷/章/节）
   ├─ emit('document:load')           
   ├─ repaginate()
-  │    ├─ extractBlocks(doc)         → 线性叶块序列（结构容器首块 + h1/h2 标题 breakBefore）
-  │    ├─ paginate(blocks)           → 页编排（keepWithNext 等）
+  │    ├─ extractBlocksIndexed(doc)  → 线性叶块序列 + 块 id→节点索引
+  │    │                              （结构容器首块 + h1/h2 标题 breakBefore；浮注开启时脚注块标 floatToBottom）
+  │    ├─ paginate(blocks)           → 页编排（keepWithNext / 页底注区等）
   │    ├─ 索引块→页映射 + 容器锚点（容器 id → 首叶所在页）
   │    └─ emit('page:change')
   └─ emit('toc:ready')
@@ -69,10 +72,36 @@ reader.repaginate({
 | `progress` | `number` | 阅读进度 0~1（按已读至的页尾计） |
 | `outline` | `readonly OutlineItem[]` | 目录树 |
 | `allBlocks` / `pagination` | 只读 | 分页前块序列 / 分页结果 |
-| `getPageBlocks(i)` | `readonly MeasurableBlock[]` | 某页的块（含 `mainSize`） |
-| `getPageNodes(i)` | `readonly BookNode[]` | 某页的 IR 节点（块 id 经 `findNodeById` 还原） |
+| `getPageBlocks(i)` | `readonly MeasurableBlock[]` | 某页正文块（含 `mainSize`；不含页底注） |
+| `getPageNodes(i)` | `readonly BookNode[]` | 某页正文 IR 节点（块 id 经块索引还原） |
+| `getPageNoteItems(i)` | `readonly PageItem[]` | 某页页底注条目（脚注浮注开启时；含续注片段） |
+| `getPageNotes(i)` | `readonly BookNode[]` | 某页页底注的 IR 节点 |
+| `getPageNoteMainSize(i)` | `number` | 某页注区占用的主轴尺寸（px；未开启 / 无注为 0） |
 | `formatCurrentPageNumber()` | `string` | 当前页展示页码（按 `pageNumberStyle` 格式化） |
 | `events` | `EventBus<BibliotypeEventMap>` | 事件总线（只读）；载入 / 分页 / 目录事件由此触发 |
+
+## 脚注浮注（页底注区）
+
+`footnoteFloat: true` 时，`footnote` 类型节点不再进正文流，而落在**所在页的页底注区**：
+正文可用容量按注区高度收缩，注区超过 `noteMaxRatio`（0~1，缺省 0.4，夹到 5%~100%）
+时整条续到下一页页底（跨页续注）。
+
+```ts
+const reader = new Reader({ footnoteFloat: true, noteMaxRatio: 0.4 });
+reader.loadDocument(document);
+
+reader.getPageBlocks(0);       // 正文块（不含脚注）
+reader.getPageNotes(0);        // 页底注 IR 节点
+reader.getPageNoteItems(0);    // 注条目（block / fromLine / lineCount / mainSize）
+reader.getPageNoteMainSize(0); // 注区占高 → 正文容量 = pageMainSize − 本值
+```
+
+- 只浮 **`footnote`**：`endnote`（书末 / 篇末注）与 `margin-note`（边注）仍随正文流；
+- 注块不在 `getPageBlocks` / `page.items` 里，也不计入 `usedMainSize`，渲染侧按
+  `getPageNoteMainSize` 在版心底部预留注区；注区内的条目保持文档顺序；
+- 注文可 `goToNode` 定位（落在其所在页）、可被 `search` 命中（搜索范围含页底注）；
+- 关闭时（缺省）行为与旧版完全一致：注文就地排，页对象不出现 `notes` / `noteMainSize`；
+- 分页内核语义见 [05 版式与 HTML](05-layout-and-html.md#页底注区脚注浮注)。
 
 ## 导航
 

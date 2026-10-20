@@ -130,6 +130,9 @@ pages[0]?.noteMainSize; // 注区占高 60 → 正文容量降为 540
 - 单条注超过上限也独占一页（不死循环），由渲染侧截断 / 拆条；
 - 未开启 `noteArea` 时行为与旧版完全一致（页对象不出现 `notes` / `noteMainSize`）。
 
+阅读器侧由 `Reader({ footnoteFloat: true, noteMaxRatio })` 自动把 `footnote` 块标 `floatToBottom` 并开启注区，
+注文经 `getPageNoteItems` / `getPageNotes` / `getPageNoteMainSize` 取用（[04 阅读器与分页](04-reader-and-pagination.md#脚注浮注页底注区)）。
+
 ## HTML 序列化（`@bibliotype/layout/html`）
 
 子入口与主入口分离：测量 / 分页场景不引入 HTML 输出代码。

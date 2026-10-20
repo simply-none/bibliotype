@@ -494,3 +494,140 @@ describe('Reader 搜索', () => {
     expect(hit?.excerpt).toBe('…九十甲乙丙…');
   });
 });
+
+/** 构造：段 + 脚注 + 两段（浮注样本；p-1=200 / fn-1=60 / p-2=250 / p-3=250） */
+function footnoteDoc(): BookDocument {
+  const doc = createEmptyDocument({ title: '浮注' });
+  doc.root.children = [
+    { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '子曰' }] },
+    {
+      type: NODE_TYPES.FOOTNOTE,
+      id: 'fn-1',
+      children: [
+        { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '注文' }] },
+      ],
+    },
+    { type: NODE_TYPES.PARAGRAPH, id: 'p-2', children: [{ type: 'text', text: '有朋' }] },
+    { type: NODE_TYPES.PARAGRAPH, id: 'p-3', children: [{ type: 'text', text: '为政' }] },
+  ];
+  return doc;
+}
+
+/** 浮注阅读器：页主轴 600、页底溢出关闭（容量口径确定），块尺寸固定 */
+function floatReader(options: { footnoteFloat?: boolean; noteMaxRatio?: number } = {}) {
+  return new Reader({
+    pageMainSize: 600,
+    bottomSlack: 0,
+    footnoteFloat: options.footnoteFloat ?? true,
+    noteMaxRatio: options.noteMaxRatio,
+    estimator: fixedEstimator({ 'p-1': 200, 'fn-1': 60, 'p-2': 250, 'p-3': 250 }),
+  });
+}
+
+describe('Reader 脚注浮注（页底注区）', () => {
+  it('开启后脚注不进正文流：落页底注区，正文容量收缩提前换页', () => {
+    const reader = floatReader();
+    reader.loadDocument(footnoteDoc());
+
+    // 正文容量 600 − 注区 60 = 540：p-3 本页只剩 3 行（90px），余下续页
+    expect(reader.totalPages).toBe(2);
+    expect(reader.getPageBlocks(0).map((block) => block.id)).toEqual(['p-1', 'p-2', 'p-3']);
+    expect(reader.getPageNodes(0).map((node) => node.id)).toEqual(['p-1', 'p-2', 'p-3']);
+    expect(reader.pagination[0]?.items[2]?.fromLine).toBe(0);
+    expect(reader.pagination[0]?.items[2]?.lineCount).toBe(3);
+    expect(reader.pagination[1]?.items[0]?.fromLine).toBe(3);
+    // 正文入账不含注文：本页正文 540 = 600 − 注区 60
+    expect(reader.pagination[0]?.usedMainSize).toBe(540);
+
+    // 页底注：条目 / 节点 / 注区高度同源
+    expect(reader.getPageNoteItems(0).map((item) => item.block.id)).toEqual(['fn-1']);
+    expect(reader.getPageNotes(0).map((node) => node.id)).toEqual(['fn-1']);
+    expect(reader.getPageNoteMainSize(0)).toBe(60);
+    expect(reader.pagination[0]?.noteMainSize).toBe(60);
+    expect(reader.getPageNoteMainSize(1)).toBe(0);
+
+    // 块标浮注，供下层分页器识别
+    expect(reader.allBlocks.find((block) => block.id === 'fn-1')?.floatToBottom).toBe(true);
+
+    // 注文可定位、可检索（注块不在 page.blocks 里）
+    reader.goToPage(1);
+    expect(reader.goToNode('fn-1')).toBe(true);
+    expect(reader.currentPage).toBe(0);
+    expect(reader.search('注文')).toEqual([
+      {
+        nodeId: 'fn-1',
+        pageIndex: 0,
+        blockType: NODE_TYPES.FOOTNOTE,
+        excerpt: '注文',
+        matchCount: 1,
+      },
+    ]);
+  });
+
+  it('noteMaxRatio 控制注区上限：超限则整条续到下一页页底', () => {
+    const doc = createEmptyDocument({ title: '续注' });
+    doc.root.children = [
+      { type: NODE_TYPES.FOOTNOTE, id: 'fn-1', children: [{ type: 'text', text: '注一' }] },
+      { type: NODE_TYPES.FOOTNOTE, id: 'fn-2', children: [{ type: 'text', text: '注二' }] },
+    ];
+    const estimator = fixedEstimator({ 'fn-1': 120, 'fn-2': 120 });
+
+    // 缺省 0.4 → 上限 240：两注同页
+    const wide = new Reader({ pageMainSize: 600, bottomSlack: 0, footnoteFloat: true, estimator });
+    wide.loadDocument(doc);
+    expect(wide.totalPages).toBe(1);
+    expect(wide.getPageNotes(0).map((node) => node.id)).toEqual(['fn-1', 'fn-2']);
+    expect(wide.getPageNoteMainSize(0)).toBe(240);
+
+    // 0.2 → 上限 120：第二条续到下一页页底
+    const tight = new Reader({
+      pageMainSize: 600,
+      bottomSlack: 0,
+      footnoteFloat: true,
+      noteMaxRatio: 0.2,
+      estimator,
+    });
+    tight.loadDocument(doc);
+    expect(tight.totalPages).toBe(2);
+    expect(tight.getPageNotes(0).map((node) => node.id)).toEqual(['fn-1']);
+    expect(tight.getPageNotes(1).map((node) => node.id)).toEqual(['fn-2']);
+  });
+
+  it('关闭浮注时行为不变：注文按正文流就地排，页对象不出现注字段', () => {
+    const reader = floatReader({ footnoteFloat: false });
+    reader.loadDocument(footnoteDoc());
+
+    // 注文就地在正文流中占位（60px）：本页仍放得下 p-3 的 3 行，但已无注区
+    expect(reader.getPageBlocks(0).map((block) => block.id)).toEqual([
+      'p-1',
+      'fn-1',
+      'p-2',
+      'p-3',
+    ]);
+    expect(reader.pagination[0]?.items[3]?.lineCount).toBe(3);
+    // 注文计入正文流：本页正文入账 600（含注文 60），无注区扣减
+    expect(reader.pagination[0]?.usedMainSize).toBe(600);
+    expect(reader.getPageNoteItems(0)).toEqual([]);
+    expect(reader.getPageNoteMainSize(0)).toBe(0);
+    expect(reader.pagination[0]?.notes).toBeUndefined();
+  });
+
+  it('只浮脚注：尾注 / 边注仍随正文流', () => {
+    const doc = createEmptyDocument({ title: '注释类型' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '正文' }] },
+      { type: NODE_TYPES.ENDNOTE, id: 'en-1', children: [{ type: 'text', text: '尾注' }] },
+      { type: NODE_TYPES.MARGIN_NOTE, id: 'mn-1', children: [{ type: 'text', text: '边注' }] },
+    ];
+    const reader = new Reader({
+      pageMainSize: 600,
+      bottomSlack: 0,
+      footnoteFloat: true,
+      estimator: fixedEstimator({ 'p-1': 100, 'en-1': 100, 'mn-1': 100 }),
+    });
+    reader.loadDocument(doc);
+
+    expect(reader.getPageBlocks(0).map((block) => block.id)).toEqual(['p-1', 'en-1', 'mn-1']);
+    expect(reader.getPageNoteItems(0)).toEqual([]);
+  });
+});

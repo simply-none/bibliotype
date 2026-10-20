@@ -136,6 +136,9 @@ exportEpub(document, { endnoteGrouping: 'book', endnoteTitle: '注释' }); // �
 
 ## 限制与后续
 
-- 目前是**块级注释**：注文排在其在文档中的位置（脚注就近、尾注集中靠作者手排），没有「正文上标 + 页底浮注」的自动分栏排版（能力清单 B5「脚注浮注」仍未做）；
+- 目前是**块级注释**：注文排在其在文档中的位置（脚注就近、尾注集中靠作者手排）；「页底浮注」已由
+  `Reader({ footnoteFloat: true })` 接入（脚注落页底注区、注区收缩正文、超限续页，
+  见 [04 阅读器与分页](04-reader-and-pagination.md#脚注浮注页底注区)），但**正文上标 + 注文自动编号**
+  仍未打通（注码目前在插入时写入 `attrs.marker`，正文无 noteref 锚点）；
 - 尾注聚合只在导出期生效（`endnoteGrouping`），编辑态始终就地显示；
 - 编号只在插入时写入 `attrs.marker`，批量重排（删注后全局重编）需要按 `collectNotes` 结果回写，暂未提供命令。

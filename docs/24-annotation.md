@@ -116,3 +116,13 @@ const set = deserializeAnnotationSet(json);          // 非法输入抛 TypeErro
 | 标注随正文一起丢失 | 把标注塞进了 `BookDocument` 又被整体覆盖 | 标注单独存储，与正文解耦 |
 | 同一处高亮出现两条 | 手工生成 id（随机 / 时间戳） | 用 `createHighlight` 的内容哈希 id |
 | 评论无法标记已解决 | 直接改 `resolved` 字段 | 用 `setCommentResolved(annotation, true)` 返回新对象 |
+
+## 在 Vue 中消费（C6 / D2）
+
+标注包只管数据；视图侧由 `@bibliotype/vue` 提供：
+
+- `useAnnotations({ bookId, document, store, getSelectionAnchor, locate })`：选区 → `Anchor` → `createBookmark/createHighlight/createNote/createComment`，经 `AnnotationStorage`（indexedDB / http / localStorage 适配器）持久化；
+- `buildAnnotationSidebarModel(document.root, annotations)`：`resolveAnnotations` 解析锚点后归入最近章节，产出侧栏视图模型（纯函数，可单测）；
+- `BtAnnotationSidebar`：书签 / 高亮 / 笔记 / 评论四个 tab，按章分组，emit `locate` / `remove` / `resolve` / `reply`；正文内高亮装饰留给 D9；
+- `annotationsToMarkdown(document.root, annotations)`：按章节导出 Markdown 摘要（`# 标注导出` + 每章列表）；
+- 依赖方向：`vue → annotation → core`；导出器不依赖 annotation，评论经 `core` 的 `ExportComment` 契约传入（见 [07](07-export-epub.md)）。

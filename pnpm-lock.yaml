@@ -23,6 +23,9 @@ importers:
       '@bibliotype/adapter-indexeddb':
         specifier: workspace:*
         version: link:../../packages/adapter-indexeddb
+      '@bibliotype/annotation':
+        specifier: workspace:*
+        version: link:../../packages/annotation
       '@bibliotype/classical':
         specifier: workspace:*
         version: link:../../packages/classical
@@ -446,6 +449,9 @@ importers:
 
   packages/vue:
     dependencies:
+      '@bibliotype/annotation':
+        specifier: workspace:*
+        version: link:../annotation
       '@bibliotype/core':
         specifier: workspace:*
         version: link:../core

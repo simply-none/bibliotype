@@ -41,6 +41,9 @@ export {
   deserializeAnnotationSet,
 } from './serialize.js';
 
+/* ---------- Markdown 导出 ---------- */
+export { annotationsToMarkdown } from './markdown.js';
+
 /* ---------- 容器 ---------- */
 export { AnnotationStore } from './store.js';
 export type { AnnotationPatch, AnnotationListener } from './store.js';

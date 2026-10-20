@@ -48,6 +48,7 @@ export {
   clampAnchor,
   resolveAnchor,
 } from './ir/anchor.js';
+export type { ExportComment } from './ir/export-comment.js';
 
 /* ---------- IR 校验与版本迁移 ---------- */
 export { DOCUMENT_ISSUE_CODES, validateDocument } from './ir/validate.js';

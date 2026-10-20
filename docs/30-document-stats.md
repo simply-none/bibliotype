@@ -88,3 +88,7 @@ report.inconsistentCount;        // 存在异写的术语数
 ## 与写作辅助的边界
 
 `countDocumentStats` 只回答「多少字、多久读完、哪一章最长」；错别字修正策略、批量替换交互属于上层：编辑器侧用 `findTextMatches` / `replaceAll`（见 [02 编辑器与插件](02-editor-and-plugins.md)），标注侧用脚注锚点落批注。
+
+## 状态栏（C9）
+
+`@bibliotype/vue` 提供 `useDocumentStats({ document, revision?, debounceMs = 300 })` 与 `BtDocumentStats`：字数 / 块数 / 阅读时长 / 注释数 + 章节分布（纯 CSS 条形，不引图表库）。以「文档引用变化 / revision 变化」触发并防抖，避免每次键入全量遍历 IR；数值与 `countDocumentStats` 完全一致。

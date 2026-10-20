@@ -217,3 +217,11 @@ EPUB 2（`version: '2.0'`）另输出 `<guide>`：`toc` 指向 `nav.xhtml`、`te
 - 包参考：[`@bibliotype/exporter-epub`](../packages/exporter-epub/README.md)
 - 序列化与样式（共用）：[05 版式与 HTML](05-layout-and-html.md)
 - 打印 / PDF：[08 PDF 与打印](08-export-pdf.md)
+
+## 评论导出（C6）
+
+`exportEpub(doc, { includeComments: true, comments })`：评论经 `core` 的 `ExportComment` 契约传入（`anchor` / `body` / `author?` / `createdAt?`），导出期在书末追加「读者评论」章，不改动原文档；缺省 `includeComments: false`。导出器不依赖 `@bibliotype/annotation`。
+
+## 校验命令行（E9）
+
+`bt-validate-epub <file.epub> [--json] [--max-section-bytes=<n>]`：解包后复用 `validateEpub`（epubcheck 规则子集）。退出码 `0` 无 error、`1` 存在 error、`2` 用法 / 读取 / 解包失败。CI 在 build 后对合法样本与损坏文件各跑一次（见 [12](12-release-and-ci.md)）。

@@ -89,6 +89,7 @@ export {
   getBlockStyleId,
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
+export { mergeCells, splitCell } from './table-merge.js';
 export type {
   FigureOptions,
   TableCellAlign,

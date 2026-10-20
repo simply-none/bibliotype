@@ -28,8 +28,12 @@
       "require": "./dist/index.cjs"
     }
   },
+  "bin": {
+    "bt-validate-epub": "./bin/bt-validate-epub.mjs"
+  },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "scripts": {
     "build": "tsup",

@@ -627,6 +627,9 @@ describe('Reader 脚注浮注（页底注区）', () => {
     expect(tight.totalPages).toBe(2);
     expect(tight.getPageNotes(0).map((node) => node.id)).toEqual(['fn-1']);
     expect(tight.getPageNotes(1).map((node) => node.id)).toEqual(['fn-2']);
+    // 跨页续注：第 2 页承接第 1 页溢出的注文
+    expect(tight.isPageNotesContinued(1)).toBe(true);
+    expect(tight.isPageNotesContinued(0)).toBe(false);
   });
 
   it('关闭浮注时行为不变：注文按正文流就地排，页对象不出现注字段', () => {

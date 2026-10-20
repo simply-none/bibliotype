@@ -15,6 +15,8 @@ export type { SerializeNodeOptions } from './html-serializer.js';
 export { buildBookCss, declarationToCss, flattenCssVariables } from './book-css.js';
 export type { BuildBookCssOptions } from './book-css.js';
 export { serializePageGutter } from './page-gutter.js';
+export { serializePageNotes } from './page-notes.js';
+export type { SerializePageNotesOptions } from './page-notes.js';
 export { buildFacsimileDecorationCss } from './facsimile-frame-css.js';
 export type { BuildFacsimileDecorationCssOptions } from './facsimile-frame-css.js';
 export {

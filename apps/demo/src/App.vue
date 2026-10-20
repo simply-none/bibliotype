@@ -64,7 +64,7 @@ import {
   type BlockMeasureContext,
   type OutlineItem,
 } from '@bibliotype/reader';
-import { BtBookView, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet, type EditorBinding } from '@bibliotype/vue';
+import { BtBookView, BtDocumentStats, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
 import { exportEpub, type ValidationProblem } from '@bibliotype/exporter-epub';
 import {
   createImageBlobRewriter,
@@ -77,7 +77,7 @@ import {
 import AppToast from './components/AppToast.vue';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
-import BookmarkPanel from './components/BookmarkPanel.vue';
+import AnnotationPanel from './components/AnnotationPanel.vue';
 import EditorToolbar from './components/EditorToolbar.vue';
 import ImportPanel from './components/ImportPanel.vue';
 import ProgressBar from './components/ProgressBar.vue';
@@ -276,6 +276,17 @@ function parseTokenNum(value: string | undefined, fallback: number): number {
 const fontSizeNum = computed(() =>
   parseTokenNum(tokens.value[FONT_SIZE_TOKENS.BODY], 16),
 );
+
+/**
+ * 双指缩放回调：写回令牌补丁并重排
+ *
+ * 组件只上抛字号，重排（重新量尺）由宿主负责 —— 与设置面板字号滑杆同一条通道。
+ */
+function onFontSizeUpdate(next: number): void {
+  const clamped = Math.min(32, Math.max(12, Math.round(next)));
+  tokenPatch.value = { ...tokenPatch.value, [FONT_SIZE_TOKENS.BODY]: `${clamped}px` };
+  scheduleRemeasure();
+}
 /** 正文行高（可连续调节） */
 const lineHeightNum = computed(() =>
   parseTokenNum(tokens.value[LAYOUT_TOKENS.LINE_HEIGHT], 1.9),
@@ -419,6 +430,11 @@ const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
  * 供 `currentMetadata` / `bookTitle` 重新取值（顶部书名、书籍信息弹窗都依赖它）。
  */
 const bookVersion = ref(0);
+
+/** 当前文档引用（供统计组合式按引用变化重算） */
+const currentDocument = computed<BookDocument>(() => reader.value.document ?? lunyuDocument);
+/** 文档统计（状态栏）：300ms 防抖，随文档 / bookVersion 重算 */
+const documentStats = useDocumentStats({ document: currentDocument, revision: bookVersion });
 
 /**
  * 阅读预览的排版度量签名
@@ -1419,10 +1435,12 @@ onBeforeUnmount(() => {
           :reader="reader"
           @close="activeTab = null"
         />
-        <BookmarkPanel
+        <AnnotationPanel
           v-if="activeTab === 'bookmarks'"
-          :key="`bookmark-${themeKey}-${readerEpoch}`"
+          :key="`annotation-${themeKey}-${readerEpoch}`"
           :reader="reader"
+          :document="reader.document ?? lunyuDocument"
+          :book-id="currentBookId"
           @close="activeTab = null"
         />
         <ImportPanel
@@ -1446,6 +1464,8 @@ onBeforeUnmount(() => {
             :features="features"
             :named-styles="namedStyles"
             :mode="viewMode"
+            :font-size="fontSizeNum"
+            @update:font-size="onFontSizeUpdate"
           />
           <BtEditor
             v-else-if="booted && bookEditor"
@@ -1542,6 +1562,7 @@ onBeforeUnmount(() => {
         <div class="statusbar__cluster">
           <ProgressBar :key="`${themeKey}-${readerEpoch}`" class="statusbar__progress" :reader="reader" />
           <BtPager :key="`${themeKey}-${readerEpoch}`" class="statusbar__pager" :reader="reader" />
+          <BtDocumentStats class="statusbar__stats" :stats="documentStats.stats.value" :compact="true" />
         </div>
         <div class="statusbar__cluster">
           <ToolbarUsageTip :usage="VIEW_MODE_USAGE">

@@ -40,6 +40,7 @@
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
+    "@bibliotype/annotation": "workspace:*",
     "@bibliotype/core": "workspace:*",
     "@bibliotype/editor": "workspace:*",
     "@bibliotype/layout": "workspace:*",

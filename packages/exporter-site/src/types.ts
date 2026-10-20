@@ -5,6 +5,7 @@
  * `style.css` + `search-index.json`（可选）+ `book.json`（IR 原文，可选）。
  * 全部为文本文件，输出确定性（无时间戳、路径按节序编号）。
  */
+import type { ExportComment } from '@bibliotype/core';
 import type { LayoutOptions } from '@bibliotype/layout';
 
 /** 站点文件（全部为文本） */
@@ -61,6 +62,10 @@ export interface SiteExportOptions {
   searchIndex?: boolean;
   /** 导出的最大节数保护（缺省 2000，防误导出超长书） */
   maxSections?: number;
+  /** 是否把读者评论导出到站点（缺省 false） */
+  includeComments?: boolean;
+  /** 评论数据（开启 `includeComments` 时生效） */
+  comments?: readonly ExportComment[];
 }
 
 /** 导出结果 */

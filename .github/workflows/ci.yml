@@ -39,6 +39,25 @@ jobs:
       - name: 构建（turbo 全量）
         run: pnpm build
 
+      # E9：epubcheck 子集校验的命令行护栏 —— 合法样本须退出 0，损坏文件须非 0
+      - name: EPUB 校验 CLI
+        working-directory: packages/exporter-epub
+        run: |
+          node --input-type=module -e '
+          import { writeFileSync } from "node:fs";
+          import { createEmptyDocument } from "@bibliotype/core";
+          import { exportEpub } from "./dist/index.js";
+          const doc = createEmptyDocument({ title: "CI 样本" });
+          doc.root.children = [{ type: "chapter", id: "ch-1", attrs: { title: "第一章" }, children: [{ type: "paragraph", id: "p-1", children: [{ type: "text", text: "正文" }] }] }];
+          writeFileSync("/tmp/ok.epub", exportEpub(doc, { modified: "2026-01-02T00:00:00Z" }));
+          '
+          node bin/bt-validate-epub.mjs /tmp/ok.epub
+          printf 'not a zip' > /tmp/bad.epub
+          if node bin/bt-validate-epub.mjs /tmp/bad.epub; then
+            echo "损坏 EPUB 未被拒绝（期望非 0 退出码）"
+            exit 1
+          fi
+
       - name: 测试（turbo 全量）
         run: pnpm test
 

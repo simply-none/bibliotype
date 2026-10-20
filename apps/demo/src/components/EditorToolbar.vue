@@ -39,6 +39,7 @@ import {
   insertImage,
   insertPageBreak,
   insertTable,
+  mergeCells,
   redoCommand,
   setHeadingLevel,
   setLink,
@@ -50,6 +51,7 @@ import {
   toggleQuote,
   undoCommand,
   unsetLink,
+  splitCell,
 } from '@bibliotype/editor';
 import { CLASSICAL_MARK_TYPES } from '@bibliotype/classical';
 import {
@@ -704,6 +706,29 @@ const insertActions: readonly ToolbarAction[] = [
       use: '打开行 × 列网格：悬停实时高亮尺寸，点击直接插入；也可输入精确行列后点「插入」',
       where: '当前叶块之后；单元格内嵌空段落',
       limit: '简化表格模型：无跨行 / 跨列 / 表头属性；横排 / 直排均可插入',
+    },
+  },
+  {
+    label: '合并单元格',
+    run: () => execute(mergeCells),
+    disabled: () => props.binding.editor.editorState.selection.empty,
+    title: '合并选中矩形区域内的单元格（需非矩形选区覆盖 ≥2 格）',
+    usage: {
+      use: '选中跨行 / 跨列的矩形区域后点击，左上格保留、其余格内容并入并清除',
+      require: '选区须覆盖至少两个单元格且为矩形、不跨表头行',
+      where: '当前表格内（table-cell → table-row → table）',
+      limit: '非矩形或跨表头冲突时静默不生效；合并后 colspan / rowspan 分别取区域列数 / 行数',
+    },
+  },
+  {
+    label: '拆分单元格',
+    run: () => execute(splitCell),
+    title: '把光标所在的合并单元格拆回独立空单元格',
+    usage: {
+      use: '光标置于带 colspan / rowspan 的单元格内点击；首格保留原内容，其余还原为空',
+      require: '光标须在已合并的单元格内；普通单元格（跨度 1×1）静默不生效',
+      where: '当前表格内',
+      limit: '拆分按跨度的列数 × 行数补齐空单元格，不递归拆分其子合并',
     },
   },
   {

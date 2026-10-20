@@ -18,10 +18,10 @@
  * - 页脚页码：底部居中展示页码（封面页自动隐藏）。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
+import { DEFAULT_THEME, FONT_SIZE_TOKENS, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, isVerticalMode } from '@bibliotype/layout';
-import { buildBookCss, serializeNode, serializePageGutter } from '@bibliotype/layout/html';
+import { buildBookCss, serializeNode, serializePageGutter, serializePageNotes } from '@bibliotype/layout/html';
 import { formatPageNumber, type PageNumberStyle, type Reader } from '@bibliotype/reader';
 import { useReaderBinding } from '../use-reader.js';
 
@@ -43,16 +43,29 @@ const props = withDefaults(
     mode?: 'page' | 'scroll';
     /** 阅读区无障碍名称（读屏用） */
     ariaLabel?: string;
+    /**
+     * 正文字号（px，可选）
+     *
+     * 传入时覆盖主题令牌 `font-size-body`（双指缩放 / 宿主字号设置共用同一入口）；
+     * 重排（重新量尺）由宿主负责，本组件只做视觉覆盖 + 手势上抛。
+     */
+    fontSize?: number;
   }>(),
   { fit: 'contain', mode: 'page', ariaLabel: '正文阅读区，可用方向键翻页' },
 );
 
+const emit = defineEmits<{
+  (event: 'update:fontSize', value: number): void;
+}>();
+
 const { layout, pagination, pageNumberText, currentPage, totalPages } = useReaderBinding(
   props.reader,
 );
-const tokens = computed<Readonly<Record<string, string | undefined>>>(
-  () => props.tokens ?? DEFAULT_THEME,
-);
+const tokens = computed<Readonly<Record<string, string | undefined>>>(() => {
+  const base = props.tokens ?? DEFAULT_THEME;
+  if (props.fontSize === undefined) return base;
+  return { ...base, [FONT_SIZE_TOKENS.BODY]: `${props.fontSize}px` };
+});
 const pageSize = computed(() => layout.value.pageSize);
 /** 书写方向为直排：滚动模式翻页轴随之由纵向转为水平（自右向左） */
 const verticalWriting = computed(() => isVerticalMode(layout.value.writingMode));
@@ -143,6 +156,22 @@ const gutterHtml = computed(() => {
     layout.value.facsimile,
   );
 });
+
+/**
+ * 取某页页底注区 HTML（承接续注标记）
+ *
+ * 数据来自 Reader 已还原的页底注节点（`getPageNotes`）；无注时返回空串，
+ * 调用方据此决定是否渲染注区槽，避免空 `<div>` 泄漏进正文流。
+ */
+function pageNotesHtmlOf(index: number): string {
+  void pagination.value;
+  const notes = props.reader.getPageNotes(index);
+  if (notes.length === 0) return '';
+  return serializePageNotes(notes, { continued: props.reader.isPageNotesContinued(index) });
+}
+
+/** 当前页页底注区 HTML（page 模式） */
+const pageNotesHtml = computed(() => pageNotesHtmlOf(currentPage.value));
 
 /** 页框样式（固定尺寸 + 页边距 + 排版规则） */
 const pageStyle = computed(() => ({
@@ -301,11 +330,57 @@ let touchStartY = 0;
 /** 触屏滑动判定阈值（px，小于此值视为点按 / 抖动） */
 const TOUCH_SWIPE_THRESHOLD = 40;
 
+/** 正文字号可缩放区间（px） */
+const FONT_SIZE_MIN = 12;
+const FONT_SIZE_MAX = 32;
+/** 双指起始间距（px，0 表示当前不是双指手势） */
+let pinchStartDistance = 0;
+/** 双指起始字号（px） */
+let pinchBaseSize = 16;
+/** 已上抛的最近字号（避免同值重复 emit） */
+let pinchLastSize = 0;
+
+function distanceBetween(touches: TouchList): number {
+  const a = touches[0];
+  const b = touches[1];
+  if (a === undefined || b === undefined) return 0;
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
+function clampFontSize(value: number): number {
+  return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(value)));
+}
+
 function onPageTouchStart(event: TouchEvent): void {
+  if (event.touches.length >= 2) {
+    const distance = distanceBetween(event.touches);
+    if (distance > 0) {
+      pinchStartDistance = distance;
+      pinchBaseSize = clampFontSize(props.fontSize ?? 16);
+      pinchLastSize = pinchBaseSize;
+    }
+  }
   const touch = event.touches[0];
   if (touch === undefined) return;
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
+}
+
+/**
+ * 双指缩放 → 字号档位
+ *
+ * 组件只负责「手势 → 字号」并 emit，重排（重新量尺）交由宿主；手势期间
+ * `preventDefault` 阻止浏览器整页缩放。距离变化不足 1px 档位不 emit，避免抖动。
+ */
+function onPageTouchMove(event: TouchEvent): void {
+  if (event.touches.length < 2 || pinchStartDistance <= 0) return;
+  event.preventDefault();
+  const ratio = distanceBetween(event.touches) / pinchStartDistance;
+  const next = clampFontSize(pinchBaseSize * ratio);
+  if (next !== pinchLastSize) {
+    pinchLastSize = next;
+    emit('update:fontSize', next);
+  }
 }
 
 /**
@@ -316,6 +391,10 @@ function onPageTouchStart(event: TouchEvent): void {
  * - 纵向位移大于横向时视为滚动意图，不翻页；不足阈值视为点按。
  */
 function onPageTouchEnd(event: TouchEvent): void {
+  // 双指手势结束后不把残留位移当成滑动翻页
+  const wasPinch = pinchStartDistance > 0;
+  pinchStartDistance = 0;
+  if (wasPinch) return;
   const touch = event.changedTouches[0];
   if (touch === undefined) return;
   const dx = touch.clientX - touchStartX;
@@ -327,6 +406,36 @@ function onPageTouchEnd(event: TouchEvent): void {
   } else {
     props.reader.prevPage();
   }
+}
+
+/**
+ * 滚动模式键盘翻页
+ *
+ * 容器可聚焦（`tabindex="0"`），PageUp / PageDown / 空格 / Home / End 滚动约一屏；
+ * 直排（横向滚动）时改按容器宽度推进。带修饰键的组合不拦截。
+ */
+function onScrollKeydown(event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+  const el = scrollerRef.value;
+  if (el === null) return;
+  const horizontal = verticalWriting.value;
+  const step = horizontal ? el.clientWidth : el.clientHeight;
+  if (step <= 0) return;
+  let handled = true;
+  if (event.key === 'Home') {
+    el.scrollTo({ left: 0, top: 0 });
+  } else if (event.key === 'End') {
+    el.scrollTo({ left: el.scrollWidth, top: el.scrollHeight });
+  } else if (event.key === 'PageDown' || event.key === ' ') {
+    if (horizontal) el.scrollBy({ left: step, top: 0 });
+    else el.scrollBy({ left: 0, top: step });
+  } else if (event.key === 'PageUp') {
+    if (horizontal) el.scrollBy({ left: -step, top: 0 });
+    else el.scrollBy({ left: 0, top: -step });
+  } else {
+    handled = false;
+  }
+  if (handled) event.preventDefault();
 }
 
 /**
@@ -408,6 +517,8 @@ interface RenderedPage {
   html: string;
   /** 版心（书口）HTML（空串 = 不渲染；未启用仿真版式时恒为空） */
   gutterHtml: string;
+  /** 页底注区 HTML（空串 = 不渲染；未开启页底浮注或本页无注时恒为空） */
+  notesHtml: string;
   showPageNumber: boolean;
   numberText: string;
   /** 页眉文本（空串 = 不渲染） */
@@ -438,6 +549,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
       mainPos: SCROLL_PADDING + i * step,
       html: blockNodes.map((node) => serializeNode(node)).join('\n'),
       gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
+      notesHtml: pageNotesHtmlOf(i),
       // 启用页眉页脚后，页码归属页脚字段；未启用才走老的「页脚仅页码」
       showPageNumber:
         chrome === undefined && firstBlock !== undefined && !coverNodes.value.has(firstBlock),
@@ -613,12 +725,14 @@ watch([() => props.fit, pageSize], () => {
     @wheel="onPageWheel"
     @keydown="onPageKeydown"
     @touchstart.passive="onPageTouchStart"
+    @touchmove="onPageTouchMove"
     @touchend="onPageTouchEnd"
   >
     <div class="bt-book-view__stage" :style="stageStyle">
       <div class="bt-reader-page" :style="scaledPageStyle">
         <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>
         <div class="bt-reader-page__flow" v-html="pageHtml"></div>
+        <div v-if="pageNotesHtml" class="bt-page-notes-host" v-html="pageNotesHtml"></div>
         <div v-if="gutterHtml" class="bt-page-gutter-host" v-html="gutterHtml"></div>
         <footer v-if="currentChrome?.footer" class="bt-page-footer">{{ currentChrome.footer }}</footer>
         <footer
@@ -637,8 +751,11 @@ watch([() => props.fit, pageSize], () => {
     ref="scrollerRef"
     class="bt-book-view bt-book-view--scroll"
     :class="{ 'bt-book-view--scroll-x': verticalWriting }"
+    tabindex="0"
+    :aria-label="ariaLabel"
     @scroll="onScroll"
     @wheel="onWheel"
+    @keydown="onScrollKeydown"
   >
     <div class="bt-scroll__track" :style="contentStyle">
       <div
@@ -651,6 +768,7 @@ watch([() => props.fit, pageSize], () => {
         <div class="bt-reader-page" :style="scaledPageStyle">
           <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
           <div class="bt-reader-page__flow" v-html="page.html"></div>
+          <div v-if="page.notesHtml" class="bt-page-notes-host" v-html="page.notesHtml"></div>
           <div v-if="page.gutterHtml" class="bt-page-gutter-host" v-html="page.gutterHtml"></div>
           <footer v-if="page.footer" class="bt-page-footer">{{ page.footer }}</footer>
           <footer v-else-if="page.showPageNumber" class="bt-page-number">{{ page.numberText }}</footer>
@@ -709,6 +827,16 @@ watch([() => props.fit, pageSize], () => {
   display: block;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* 滚动模式同样支持键盘翻屏：焦点环只在键盘导航时出现 */
+.bt-book-view--scroll:focus {
+  outline: none;
+}
+
+.bt-book-view--scroll:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 /* 直排滚动：页沿水平自右向左排列，横向滚动、纵向居中不滚；

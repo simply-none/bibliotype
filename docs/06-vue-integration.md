@@ -197,3 +197,14 @@ refresh();                                      // 外部 loadDocument 后同步
 - 包参考：[`@bibliotype/vue`](../packages/vue/README.md)
 - 编辑核心与命令：[02 编辑器与插件](02-editor-and-plugins.md)
 - 示例应用：[apps/demo](../apps/demo/README.md)
+
+## 新增组件（P0）
+
+| 组件 / 组合式 | 用途 | 关键 props / 事件 |
+| --- | --- | --- |
+| `BtAnnotationSidebar` | 书签 / 高亮 / 笔记 / 评论侧栏 | `model`（按章分组）、`readonly`；emit `locate` / `remove` / `resolve` / `reply` |
+| `useAnnotations` | 选区建标注 + 存储编排 + 侧栏模型 | `{ bookId, document, store, getSelectionAnchor, locate, author?, clock? }`；返回 `annotations` / `model` / `create` / `remove` / `resolveComment` / `reply` |
+| `BtDocumentStats` | 状态栏统计 | `stats`、`compact`、`selectable`；emit `select-structure` |
+| `useDocumentStats` | 300ms 防抖统计 | `{ document, revision?, debounceMs?, options? }` |
+
+`BtBookView` 新增 `fontSize` prop 与 `update:fontSize` 事件：page 模式双指缩放上抛字号（12–32px 夹紧），重排由宿主负责；scroll 模式容器可聚焦，PageUp / PageDown / 空格 / Home / End 滚动一屏。

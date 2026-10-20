@@ -167,3 +167,12 @@ table-cell  → <td class="bt-table-cell">…</td>
 - 表格 HTML 序列化与样式：[05](05-layout-and-html.md)
 - Vue 组件与插槽 binding：[06](06-vue-integration.md)
 - 编辑命令与 IR ⇄ PM：[02](02-editor-and-plugins.md)
+
+## 合并 / 拆分单元格（C4）
+
+`@bibliotype/editor` 导出 `mergeCells` / `splitCell`（`src/table-merge.ts`）：
+
+- 选区须在同一表格、覆盖至少两个单元格、构成矩形，且不跨表头行；不满足返回 `false` 且**不派发事务**（无半合并状态）。
+- 合并保留左上格，其余格文本段落按行优先拼入并跳过空段落，`colspan` / `rowspan` 取区域列数 / 行数。
+- 拆分仅对跨度 > 1×1 的单元格生效：首格保留内容，其余位置还原为空 `table-cell`（内嵌空段落，满足 PM 内容表达式）。
+- demo 工具条「合并单元格 / 拆分单元格」复用同一命令；合并按钮在空选区时禁用。

@@ -135,3 +135,14 @@ MR 运行；`release` 阶段为 manual job（同样经 `version.mjs` + `pnpm -r 
 
 - 根 README 快速开始与包一览：[README](../README.md)
 - Changesets 工作流速查：[.changeset/README.md](../.changeset/README.md)
+
+## EPUB 校验护栏（E9）
+
+CI 在 `pnpm build` 后执行 `packages/exporter-epub/bin/bt-validate-epub.mjs`：先用 `exportEpub` 生成样本并期望退出 0，再对非 ZIP 文件期望非 0（步骤失败即中断）。本地等价命令：
+
+```bash
+cd packages/exporter-epub
+node bin/bt-validate-epub.mjs <file.epub> [--json]
+```
+
+`@bibliotype/exporter-epub` 的 `bin` 字段随 `files: ["dist", "bin"]` 一起发布。

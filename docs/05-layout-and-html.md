@@ -218,3 +218,12 @@ const css = buildBookCss({
 - 包参考：[`@bibliotype/layout`](../packages/layout/README.md)
 - 分页与阅读状态机：[04 阅读器与分页](04-reader-and-pagination.md)
 - 令牌体系：[11 主题与令牌](11-theme-tokens.md)
+
+## 页底注区（B5）
+
+`serializePageNotes(notes, options)` 把分页器已算出的 `page.notes` 序列化为页底注区 HTML：
+
+- 容器 `bt-page-notes`，每条 `bt-page-note` 带 `data-note-id`，注文沿用节点自身 attrs（注码 / 编号由注文节点提供）；
+- `continued` 为真时输出「续前页」标记（`bt-note-continued`）；**不输出「接下页」** —— 分页器不知道注文后续是否还有内容，不臆造标记；
+- `overflow` 为真时给注区加 `data-overflow="true"` 仅作告警，不裁剪（按行拆条属于分页内核职责）；
+- 样式由 `buildBookCss` 输出（`.bt-page-notes` / `.bt-page-note` / `.bt-note-continued`）：与正文等宽、顶部 `border-block-start` 分隔线，直排按列宽收束。

@@ -644,6 +644,48 @@ ${scoped('.bt-page-footer')} {
 }
 `);
 
+  /*
+   * ---------- 7.5 页底注区（footnote area） ----------
+   *
+   * 注区排在版心底部、与正文等宽；首条以分隔线与正文隔开。注文沿用 .bt-footnote
+   * 等既有类（字号 / 行距由 §6 控制），此处只管容器与续注标记。直排下注区沿列宽
+   * 收束、分隔线落在注区上缘（logical 边界），故全部用 logical 属性。
+   */
+  rules.push(
+    `/* ---------- 页底注区（footnote area） ---------- */
+${scoped('.bt-page-notes')} {
+  margin-block-start: 0.8em;
+  padding-block-start: 0.5em;
+  border-block-start: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 40%, transparent);
+  font-size: var(--bt-${FONT_SIZE_TOKENS.NOTE});
+  line-height: 1.5;
+}
+${scoped('.bt-page-notes--overflow')} {
+  /* 注区超上限：仅标记，截断交回分页器；可见告警便于宿主排查 */
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 70%, transparent);
+}
+${scoped('.bt-page-note')} {
+  margin: 0.3em 0;
+  text-indent: 0;
+}
+${scoped('.bt-page-note')} > .bt-footnote,
+${scoped('.bt-page-note')} > .bt-endnote,
+${scoped('.bt-page-note')} > .bt-margin-note {
+  margin: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+${scoped('.bt-note-continued')} {
+  font-size: 0.85em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+  opacity: 0.7;
+  letter-spacing: 0.05em;
+}
+${scoped('.bt-note-continued--prev')} {
+  text-align: end;
+}`,
+  );
+
   /* ---------- 8. 专名号：横排标于字下 / 直排标于字左（GB 古籍整理规范） ---------- */
   rules.push(
     vertical

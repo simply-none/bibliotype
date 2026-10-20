@@ -138,6 +138,12 @@ export interface PaginatedPage {
   notes?: PageItem[];
   /** 本页页底注区占用的主轴尺寸（px，缺省 0） */
   noteMainSize?: number;
+  /**
+   * 本页注区承接上一页溢出的注释（跨页续注）
+   *
+   * 仅当上页注区已满、本页是续接页时置真；渲染侧据以在注区顶部输出「续前页」标记。
+   */
+  notesCarried?: boolean;
 }
 
 /** 孤寡行控制 */
@@ -344,6 +350,13 @@ export function paginate(
     notes: PageItem[];
     /** 页底注区占用的主轴尺寸 */
     noteSize: number;
+    /**
+     * 本页注区承接上一页溢出的注释（跨页续注）
+     *
+     * 仅当上页注区已满、本页是 `placeNote` 因溢出新建的续接页时置真；
+     * 渲染侧据以在注区顶部输出「续前页」标记。
+     */
+    notesCarried?: boolean;
   }
   // 增量续排：前缀页原样复用（只由前面的块决定，与后续块无关），从 startIndex 起从新页续排
   const startIndex =
@@ -355,6 +368,7 @@ export function paginate(
     usedMainSize: page.usedMainSize,
     notes: [...(page.notes ?? [])],
     noteSize: page.noteMainSize ?? 0,
+    notesCarried: page.notesCarried,
   }));
   let cur: MutablePage = { items: [], usedMainSize: 0, notes: [], noteSize: 0 };
   let pendingBreak = false;
@@ -388,7 +402,10 @@ export function paginate(
     const overflow =
       cur.noteSize > 0 &&
       (cur.noteSize + size > noteLimit || cur.usedMainSize + size > capacity);
-    if (overflow) cur = startPage();
+    if (overflow) {
+      cur = startPage();
+      cur.notesCarried = true;
+    }
     cur.notes.push({ block, fromLine: 0, lineCount: 0, mainSize: size });
     cur.noteSize += size;
   }
@@ -534,7 +551,7 @@ export function paginate(
     };
     /* 仅在开启注区时附带注字段，保证未开启时的产物结构完全不变 */
     if (noteArea === undefined) return base;
-    return { ...base, notes: page.notes, noteMainSize: page.noteSize };
+    return { ...base, notes: page.notes, noteMainSize: page.noteSize, notesCarried: page.notesCarried };
   });
 
   return {

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@bibliotype/adapter-indexeddb": "workspace:*",
+    "@bibliotype/annotation": "workspace:*",
     "@bibliotype/classical": "workspace:*",
     "@bibliotype/core": "workspace:*",
     "@bibliotype/editor": "workspace:*",

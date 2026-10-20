@@ -375,3 +375,53 @@ describe('BtToc', () => {
     expect((emitted?.[0]?.[0] as { title: string }).title).toBe('为政第二');
   });
 });
+
+describe('BtBookView 页底注区（B5）', () => {
+  it('浮注开启时渲染页底注区且含注码', () => {
+    const doc = createEmptyDocument({ title: '注区' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '正文' }] },
+      {
+        type: NODE_TYPES.FOOTNOTE,
+        id: 'fn-1',
+        children: [{ type: NODE_TYPES.PARAGRAPH, id: 'fn-1-p', children: [{ type: 'text', text: '注文' }] }],
+      },
+    ];
+    const reader = new Reader({
+      pageMainSize: 600,
+      bottomSlack: 0,
+      footnoteFloat: true,
+      noteMaxRatio: 0.4,
+      estimator: fixedEstimator({ 'p-1': 100, 'fn-1': 60 }),
+    });
+    reader.loadDocument(doc);
+
+    const wrapper = mount(BtBookView, { props: { reader } });
+    const html = wrapper.html();
+    expect(html).toContain('bt-page-notes');
+    expect(html).toContain('data-note-id="fn-1"');
+    expect(html).toContain('bt-footnote');
+  });
+
+  it('关闭浮注时不渲染注区', () => {
+    const doc = createEmptyDocument({ title: '注区' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '正文' }] },
+      {
+        type: NODE_TYPES.FOOTNOTE,
+        id: 'fn-1',
+        children: [{ type: NODE_TYPES.PARAGRAPH, id: 'fn-1-p', children: [{ type: 'text', text: '注文' }] }],
+      },
+    ];
+    const reader = new Reader({
+      pageMainSize: 600,
+      bottomSlack: 0,
+      footnoteFloat: false,
+      estimator: fixedEstimator({ 'p-1': 100, 'fn-1': 60 }),
+    });
+    reader.loadDocument(doc);
+
+    const wrapper = mount(BtBookView, { props: { reader } });
+    expect(wrapper.html()).not.toContain('bt-page-notes');
+  });
+});

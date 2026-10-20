@@ -11,6 +11,7 @@ import {
   DEFAULT_THEME,
   FONT_TOKENS,
   NODE_TYPES,
+  createBlockAnchor,
   createEmptyDocument,
   type BookDocument,
   type BookNode,
@@ -886,5 +887,28 @@ describe('古籍仿真布局：EPUB 不加装饰', () => {
     const css = files['OEBPS/style.css'] ?? '';
     expect(css).not.toContain('--bt-fs-');
     expect(css).not.toContain('bt-page-gutter');
+  });
+});
+
+describe('评论导出（C6）', () => {
+  it('默认不含评论，includeComments 开启后追加「读者评论」章', () => {
+    const plain = Object.values(
+      readEntries(exportEpub(sampleDoc(), { modified: FIXED_MODIFIED })),
+    ).join('\n');
+    expect(plain).not.toContain('读者评论');
+
+    const withComments = Object.values(
+      readEntries(
+        exportEpub(sampleDoc(), {
+          modified: FIXED_MODIFIED,
+          includeComments: true,
+          comments: [
+            { anchor: createBlockAnchor('p-1'), body: '此句存疑', author: '读者甲' },
+          ],
+        }),
+      ),
+    ).join('\n');
+    expect(withComments).toContain('读者评论');
+    expect(withComments).toContain('读者甲：此句存疑');
   });
 });

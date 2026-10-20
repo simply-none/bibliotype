@@ -446,6 +446,15 @@ export class Reader {
   }
 
   /**
+   * 某页注区是否承接上一页溢出的注释（跨页续注）
+   *
+   * 供渲染侧决定是否在注区顶部输出「续前页」。未开启浮注、首页或无续注时为 false。
+   */
+  isPageNotesContinued(pageIndex: number): boolean {
+    return this.pages[pageIndex]?.notesCarried === true;
+  }
+
+  /**
    * 取某页的「行片段」节点（纸书跨页续排的渲染契约）
    *
    * 与 getPageNodes 的区别：跨页拆分的块只输出本页应显示的那部分文本

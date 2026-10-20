@@ -39,8 +39,11 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-20 五次更新：`ruby > rt` 增 `line-height: 1.2`（注文不继承正文大行距，
  * 否则注音行行盒被撑高，逐行实测与分页失真），样式表全文变化，基线重锁。
+ *
+ * 2026-10-20 六次更新：新增页底注区样式 `.bt-page-notes` / `.bt-page-note` /
+ * `.bt-note-continued`（与正文等宽、分隔线、续注标记），样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '42c1fcab';
+export const CLASSICAL_CSS_FNV = '04cbaf09';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

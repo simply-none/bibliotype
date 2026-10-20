@@ -15,7 +15,7 @@
  *   `<meta property>`（京东读书 RMSDK 解析器不识别）。
  * 两路均附带 toc.ncx（EPUB 3 向后兼容推荐做法），差异仅在 OPF 特性与文档壳。
  */
-import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookDocument, type BookNode } from '@bibliotype/core';
+import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookDocument, type BookNode, type ExportComment } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { DEFAULT_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
@@ -85,6 +85,15 @@ export interface EpubExportOptions {
    * 不输出属性以保持既有产物稳定。
    */
   pageDirection?: 'ltr' | 'rtl';
+  /**
+   * 是否把读者评论导出到 EPUB（缺省 false）
+   *
+   * 开启时，`comments` 中的评论以书末新增一章「读者评论」输出（每条 `作者：正文`）。
+   * 评论数据由 `@bibliotype/annotation` 经 `ExportComment` 提供，本导出器不反向依赖标注包。
+   */
+  includeComments?: boolean;
+  /** 评论数据（开启 `includeComments` 时生效） */
+  comments?: readonly ExportComment[];
 }
 
 /** 导出 EPUB（返回完整 epub 文件字节，含 zip 容器） */
@@ -116,13 +125,35 @@ export function exportEpub(
     options.pageDirection ?? (layout.writingMode === 'vertical-rl' ? 'rtl' : 'ltr');
 
   /* ---------- 尾注聚合（导出期重排，不改动原文档） ---------- */
-  const root =
+  const baseRoot =
     options.endnoteGrouping !== undefined && options.endnoteGrouping !== 'keep'
       ? groupEndnotes(document.root, {
           scope: options.endnoteGrouping,
           title: options.endnoteTitle,
         })
       : document.root;
+
+  /* ---------- 评论聚合（导出期追加书末章，不改动原文档） ---------- */
+  let root = baseRoot;
+  if (options.includeComments === true && options.comments !== undefined && options.comments.length > 0) {
+    const commentNodes: BookNode[] = options.comments.map((comment, index) => ({
+      type: NODE_TYPES.PARAGRAPH,
+      id: `comment-${index}`,
+      children: [{ type: 'text', text: `${comment.author ?? '匿名'}：${comment.body}` }],
+    }));
+    root = {
+      ...baseRoot,
+      children: [
+        ...(baseRoot.children ?? []),
+        {
+          type: NODE_TYPES.CHAPTER,
+          id: '__comments__',
+          attrs: { title: '读者评论' },
+          children: commentNodes,
+        },
+      ],
+    };
+  }
 
   /* ---------- 章节规划、锚点与媒体收集 ---------- */
   const plan = planDocument(root);

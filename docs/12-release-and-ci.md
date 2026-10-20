@@ -124,9 +124,11 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 仓库名为 `<owner>.github.io` 时为 `/`，否则为 `/<repo>/`——项目页的绝对路径资源若缺前缀会 404。
 该变量已登记在 `turbo.json` 的 `build.env`（同时用于缓存键），换基址不会命中旧缓存。
 
-Pages 开通：`configure-pages@v5` 带 `enablement: true`，首次运行会自动在仓库创建 Pages
-站点（此前未启用时 `GET /repos/{owner}/{repo}/pages` 返回 404，步骤会直接失败）。
-若组织策略禁止 token 开通 Pages，则需一次性手动设置 **Settings → Pages → Source = GitHub Actions**。
+Pages 开通需**手动配置一次**：**Settings → Pages → Build and deployment → Source =
+GitHub Actions**。创建 Pages 站点属管理类操作，要求 Administration 权限，而 `GITHUB_TOKEN`
+不具备（`configure-pages` 的 `enablement: true` 会报 `Resource not accessible by integration`），
+故流水线不做自动开通，改为在 `configure-pages` 之前用 `gh api` 检查站点是否存在；
+未启用时以中文错误提示直接失败，避免 404 噪音。
 无需 `gh-pages` 分支，也不用手写密钥（`pages: write` + `id-token: write` 由 workflow 自带）。
 站点地址为 `https://<owner>.github.io/<repo>/`。
 

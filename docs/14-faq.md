@@ -140,7 +140,7 @@
 **处理与排查**：
 
 - **清理陈旧项**（`use-paged-layout.ts` 增量合并后）：本轮实测过（在 `fresh.sizes`）但未产出
-  多行 `lineOffsets` 的块，删除其旧 `lineOffsets` / `lineSizes`——收缩到单行的块不再被虚报行数；
+  多行 `lineOffsets` 的块，删除其旧 `lineOffsets` / `lineSizes` / `lineMainSizes`——收缩到单行的块不再被虚报行数；
 - **越界外推而非回退块首**（`selection-bridge.ts` 的 `charOfLine`）：行号超出实测行数时按平均
   行宽向前外推（`last + (line - lastIdx) * avg`），使起点落在块尾之后 → 幽灵续排片段自然为空；
 - 已有「三表裁剪」只删**已消失块**的陈旧项，本条补上**仍存在但已收缩块**的清理，两者互补；

@@ -46,9 +46,13 @@
 - ~~直排（vertical-rl）行级拆分 = 列级拆分~~ **已落地**：量尺对直排按主轴实测列推进、
   `document-blocks` 标注 `axis: 'column'`、`MeasurePaginationResult.axis` 透传 `Reader` /
   `buildPagedLayout`；剩余为真实像素回归（happy-dom 无法验证布局盒，需浏览器用例）；
-- 多栏（columns > 1）分页、脚注浮注、对页（recto / verso）与奇偶页眉；
+- 多栏（columns > 1）分页、对页（recto / verso）与奇偶页眉；脚注浮注已落地（`floatToBottom` / `noteArea`）；
 - PDF 导出管线评估（Paged.js / Vivliostyle / 打印 CSS），与编辑态解耦；
-- ruby 注音导致行高不均时的实测行盒精修（当前按均匀行高算术）。
+- ~~ruby 注音导致行高不均时的实测行盒精修~~ **已落地**：量尺按基础文本矩形划分行（排除 `<rt>` 注文），
+  再把注音矩形按交叉轴重叠并入所在行，产出逐行主轴尺寸 `lineMainSizes`（含直排列宽）；
+  `extractBlocks` → `Reader` / `buildPagedLayout` / `exporter-pdf` 全链路透传，
+  `paginate` 按行累加判页（`lineRangeMainSize`）；缺省回退均高，行为不变。
+  剩余为浏览器真实像素回归（happy-dom 无布局盒）。
 
 相关实现：`packages/layout/src/paginator.ts`、`packages/reader/src/document-blocks.ts`、
 `packages/vue/src/pagination-measure.ts`、`packages/vue/src/components/BtEditor.vue`、

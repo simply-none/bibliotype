@@ -100,6 +100,22 @@ function mainStartOf(rect: DOMRect, axis: MeasureAxis): number {
   return axis.rl ? rect.right : rect.left;
 }
 
+/** 主轴推进终点（横排取 bottom，直排 rl 取左缘、lr 取右缘） */
+function mainEndOf(rect: DOMRect, axis: MeasureAxis): number {
+  if (!axis.vertical) return rect.bottom;
+  return axis.rl ? rect.left : rect.right;
+}
+
+/** 交叉轴起点（横排取左缘，直排取上缘） */
+function crossStartOf(rect: DOMRect, axis: MeasureAxis): number {
+  return axis.vertical ? rect.top : rect.left;
+}
+
+/** 交叉轴终点（横排取右缘，直排取下缘） */
+function crossEndOf(rect: DOMRect, axis: MeasureAxis): number {
+  return axis.vertical ? rect.bottom : rect.right;
+}
+
 /** 解析页边距令牌（四边盒；与 resolvePageMainSize 同源，仅支持 px） */
 function resolveMargins(
   tokens: Readonly<Record<string, string | undefined>>,
@@ -244,27 +260,90 @@ function locateChar(
   return null;
 }
 
+/** 一行（列）行盒：基础文本的推进边界 + 并入注音后的行盒范围 */
+interface MeasuredLineBox {
+  /** 基础文本推进起点（行序 / 行首偏移二分用；注音不参与） */
+  start: number;
+  /** 行盒推进起点（含注音行内增高） */
+  boxStart: number;
+  /** 行盒推进终点（含注音行内增高） */
+  boxEnd: number;
+  /** 交叉轴范围（横排 x、直排 y；用于把 `<rt>` 归入其所注释的那一行） */
+  crossMin: number;
+  crossMax: number;
+}
+
+/** 元素矩形（无布局环境返回空） */
+function elementRects(el: Element): DOMRect[] {
+  if (typeof el.getClientRects !== 'function') return [];
+  return Array.from(el.getClientRects()).filter((r) => r.height > 0 || r.width > 0);
+}
+
 /**
- * 实测单块每行起始字符偏移（横排=换行行首，直排=换列列首）。
+ * 实测单块的逐行行盒：行首字符偏移 + 每行主轴尺寸。
  *
- * 用整块 Range.getClientRects 归并出各行（列）的推进边界，再对每个边界二分
- * 查找首个「字符矩形推进坐标落入该行」的全局偏移。happy-dom 无布局（rects
- * 为空）→ 仅返回 [0]（单行），由调用方回退估算。浏览器下产出的边界 = 真实
- * 换行 / 换列位置。直排 rl 下行序自右向左，边界取 rect.right 降序；lr 取
- * rect.left 升序。
+ * 行（列）划分只取基础文本矩形（跳过 `<rt>` 注文），避免注音行的 rt 被误判为
+ * 独立一行；再按交叉轴重叠把 `<rt>` / `<rp>` 矩形并入所在行，得到真实行盒高度
+ * （直排为列宽）——注音行比普通行更高，等宽均高会把这一差值算错，导致页面溢出
+ * 或注音被裁。happy-dom 无布局（rects 为空）→ 返回单行 [0] + 空尺寸，由调用方
+ * 回退均高估算。浏览器下产出的边界即真实换行 / 换列位置与行盒尺寸。
  */
-function measureLineOffsets(el: HTMLElement, axis: MeasureAxis): number[] {
+function measureLineBoxes(
+  el: HTMLElement,
+  axis: MeasureAxis,
+): { offsets: number[]; mainSizes: number[] } {
   const list = collectTextOffsets(el);
   const total = list.reduce((sum, entry) => sum + entry.len, 0);
-  if (total === 0) return [0];
+  if (total === 0) return { offsets: [0], mainSizes: [] };
 
-  const full = document.createRange();
-  full.selectNodeContents(el);
-  const rects = Array.from(full.getClientRects()).filter((r) => r.height > 0 || r.width > 0);
-  if (rects.length <= 1) return [0];
+  // 逐文本节点取矩形：整块 Range 会连带 `<rt>` 注文（它是真实文本节点），
+  // 其推进坐标与基础行不同源，会把注音误算成额外一行
+  const baseRects: DOMRect[] = [];
+  for (const entry of list) {
+    const range = document.createRange();
+    range.selectNodeContents(entry.node);
+    baseRects.push(
+      ...Array.from(range.getClientRects()).filter((r) => r.height > 0 || r.width > 0),
+    );
+  }
+  if (baseRects.length === 0) return { offsets: [0], mainSizes: [] };
 
-  // 推进坐标：横排取 top（升序），直排取行款起始缘（rl 降序 / lr 升序）
-  const startAt = (rect: DOMRect): number => mainStartOf(rect, axis);
+  // 归并同一行（列）的矩形（容差 2px）：同一行的多段文本 / 行内元素共享推进起点
+  const boxes: MeasuredLineBox[] = [];
+  for (const rect of baseRects) {
+    const start = mainStartOf(rect, axis);
+    const end = mainEndOf(rect, axis);
+    const crossMin = crossStartOf(rect, axis);
+    const crossMax = crossEndOf(rect, axis);
+    const box = boxes.find((candidate) => Math.abs(candidate.start - start) <= 2);
+    if (box === undefined) {
+      boxes.push({ start, boxStart: start, boxEnd: end, crossMin, crossMax });
+      continue;
+    }
+    box.start = Math.min(box.start, start);
+    box.boxStart = Math.min(box.boxStart, start);
+    box.boxEnd = Math.max(box.boxEnd, end);
+    box.crossMin = Math.min(box.crossMin, crossMin);
+    box.crossMax = Math.max(box.crossMax, crossMax);
+  }
+
+  // 注音矩形并入「交叉轴相交」的那一行：扩展行盒的推进范围（不参与行序划分）
+  for (const rt of Array.from(el.querySelectorAll('rt, rp'))) {
+    for (const rect of elementRects(rt)) {
+      const crossMin = crossStartOf(rect, axis);
+      const crossMax = crossEndOf(rect, axis);
+      for (const box of boxes) {
+        if (Math.min(crossMax, box.crossMax) - Math.max(crossMin, box.crossMin) <= 0) continue;
+        box.boxStart = Math.min(box.boxStart, mainStartOf(rect, axis));
+        box.boxEnd = Math.max(box.boxEnd, mainEndOf(rect, axis));
+      }
+    }
+  }
+
+  boxes.sort((a, b) => (axis.vertical && axis.rl ? b.start - a.start : a.start - b.start));
+  if (boxes.length <= 1) return { offsets: [0], mainSizes: [] };
+
+  /** 字符 g 的推进起点（行首偏移二分用） */
   const edgeOf = (g: number): number => {
     const loc = locateChar(list, Math.min(g, total - 1));
     if (loc === null) return Number.NaN;
@@ -272,18 +351,10 @@ function measureLineOffsets(el: HTMLElement, axis: MeasureAxis): number[] {
     const local = Math.min(loc.local, Math.max(0, loc.node.data.length - 1));
     r.setStart(loc.node, local);
     r.setEnd(loc.node, local + 1);
-    return startAt(r.getBoundingClientRect());
+    return mainStartOf(r.getBoundingClientRect(), axis);
   };
 
-  // 归并各行（列）边界（容差 2px 合并同一行的多段矩形）
-  const edges: number[] = [];
-  for (const rect of rects) {
-    const e = startAt(rect);
-    if (!edges.some((v) => Math.abs(v - e) <= 2)) edges.push(e);
-  }
-  edges.sort((a, b) => (axis.vertical && axis.rl ? b - a : a - b));
-  if (edges.length <= 1) return [0];
-
+  const edges = boxes.map((box) => box.start);
   const offsets = [0];
   for (let k = 1; k < edges.length; k += 1) {
     const target = edges[k] as number;
@@ -302,7 +373,13 @@ function measureLineOffsets(el: HTMLElement, axis: MeasureAxis): number[] {
     }
     if (lo > (offsets[offsets.length - 1] as number)) offsets.push(lo);
   }
-  return offsets;
+
+  // 行盒尺寸与行首偏移同序：仅在行数一致时成对产出（偏移去重后可能少于行盒）
+  const mainSizes =
+    offsets.length === boxes.length
+      ? boxes.map((box) => Math.max(0.5, box.boxEnd - box.boxStart))
+      : [];
+  return { offsets, mainSizes };
 }
 
 /** 建表并渲染各块（复用），返回与 blocks 对齐的已渲染元素（含空位 null） */
@@ -387,6 +464,13 @@ export interface MeasurePaginationResult {
   /** 块 id → 真实行高 px（自身高度 ÷ 行数，不含块间距；仅多行块产出） */
   lineSizes: ReadonlyMap<string, number>;
   /**
+   * 块 id → 逐行主轴尺寸 px（长度 = 行数；仅多行块产出）
+   *
+   * 行盒逐行实测（含 ruby 注音增高），供 `extractBlocks` 的 `lineMainSizes`
+   * 与分页器按行累加判页；`lineSizes` 是它的均值回退口径。
+   */
+  lineMainSizes: ReadonlyMap<string, number[]>;
+  /**
    * 块 id → 块体高（px，offsetHeight：不含上 / 下外边距）
    *
    * sizes 是「推进量」（体高 + 与下一块的折叠间距），同一份间距在前后两块的
@@ -426,6 +510,7 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
       sizes: new Map(),
       lineOffsets: new Map(),
       lineSizes: new Map(),
+      lineMainSizes: new Map(),
       bodySizes: new Map(),
     };
   const { blocks, rendered, targetedOnly, axis } = sheet;
@@ -433,6 +518,7 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
   const sizes = new Map<string, number>();
   const lineOffsets = new Map<string, number[]>();
   const lineSizes = new Map<string, number>();
+  const lineMainSizes = new Map<string, number[]>();
   const bodySizes = new Map<string, number>();
   for (let i = 0; i < blocks.length; i += 1) {
     // 定点模式：仅产出目标块（index 0）；后一块只为折叠口径参照，不入结果
@@ -467,14 +553,18 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
     // 块体尺寸：主轴向盒尺寸（不含外边距；横排 offsetHeight、直排 offsetWidth），供 paginate 按体高计追加代价
     const body = axis.vertical ? el.offsetWidth : el.offsetHeight;
     if (body > 0) bodySizes.set(id, body);
-    const offsets = measureLineOffsets(el, axis);
-    if (offsets.length > 1) {
-      lineOffsets.set(id, offsets);
+    const lines = measureLineBoxes(el, axis);
+    if (lines.offsets.length > 1) {
+      lineOffsets.set(id, lines.offsets);
       // 真实行高（主轴推进）：自身盒主轴尺寸 ÷ 真实行数，避免把块间距摊进行高
-      if (body > 0) lineSizes.set(id, body / offsets.length);
+      if (body > 0) lineSizes.set(id, body / lines.offsets.length);
+      // 逐行行盒：注音行不等高时供分页按行累加（与 lineOffsets 等长才产出）
+      if (lines.mainSizes.length === lines.offsets.length) {
+        lineMainSizes.set(id, lines.mainSizes);
+      }
     }
   }
-  return { axis: blockAxis, sizes, lineOffsets, lineSizes, bodySizes };
+  return { axis: blockAxis, sizes, lineOffsets, lineSizes, lineMainSizes, bodySizes };
 }
 
 /**

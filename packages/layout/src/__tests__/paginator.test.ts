@@ -507,3 +507,64 @@ describe('paginate（增量续排 resume）', () => {
     expect(resumed.pages[0]).toEqual(full.pages[0]);
   });
 });
+
+describe('paginate 逐行行盒（lineMainSizes）', () => {
+  /** 注音行更高的可拆段：3 行 = 30 + 60 + 30 */
+  const rubyBlock = (): MeasurableBlock =>
+    block('p', 120, { splittable: true, lineSize: 30, lineMainSizes: [30, 60, 30] });
+
+  it('按逐行尺寸判页：注音行放不下时提前续页（均高口径会溢出）', () => {
+    const perLine = paginate([rubyBlock()], { pageMainSize: 90 });
+    // 30 + 60 = 90 恰好放下；第 3 行续到下一页
+    expect(perLine.totalPages).toBe(2);
+    expect(perLine.pages[0]?.items[0]?.lineCount).toBe(2);
+    expect(perLine.pages[0]?.items[0]?.mainSize).toBe(90);
+    expect(perLine.pages[1]?.items[0]?.fromLine).toBe(2);
+    expect(perLine.pages[1]?.items[0]?.lineCount).toBe(1);
+
+    // 均高口径：3 行 × 30 = 90，会误判为整块放得下（注音行实际 60 → 溢出）
+    const uniform = paginate(
+      [block('p', 120, { splittable: true, lineSize: 30, lineCount: 3 })],
+      { pageMainSize: 90 },
+    );
+    expect(uniform.totalPages).toBe(1);
+  });
+
+  it('末片段结算含块尾余量：逐行尺寸之和之外的间距不丢账', () => {
+    // 3 行尺寸合计 120，推进量 132（含块尾间距）
+    const result = paginate(
+      [block('p', 132, { splittable: true, lineSize: 30, lineMainSizes: [30, 60, 30] })],
+      { pageMainSize: 90 },
+    );
+    const last = result.pages[1]?.items[0];
+    expect(last?.fromLine).toBe(2);
+    expect(last?.mainSize).toBe(42); // max(30, 132 − 90)
+  });
+
+  it('缺行数时按逐行尺寸长度取行数，空数组回退均高', () => {
+    const perLine = paginate(
+      [block('p', 90, { splittable: true, lineSize: 30, lineMainSizes: [30, 30, 30], lineCount: 99 })],
+      { pageMainSize: 90 },
+    );
+    // lineMainSizes 长度（3）优先于失真的 lineCount（99）
+    expect(perLine.totalPages).toBe(1);
+
+    const fallback = paginate(
+      [block('p', 90, { splittable: true, lineSize: 30, lineCount: 3, lineMainSizes: [] })],
+      { pageMainSize: 90 },
+    );
+    expect(fallback.totalPages).toBe(1);
+  });
+
+  it('孤寡行控制在逐行尺寸下仍生效', () => {
+    // 4 行 = 30 + 30 + 60 + 30；页容量 90 先取 2 行（60），余 2 行合规
+    const result = paginate(
+      [block('p', 150, { splittable: true, lineSize: 30, lineMainSizes: [30, 30, 60, 30] })],
+      { pageMainSize: 90 },
+    );
+    expect(result.totalPages).toBe(2);
+    expect(result.pages[0]?.items[0]?.lineCount).toBe(2);
+    // 续页：60 + 30 = 90 恰好放下 2 行
+    expect(result.pages[1]?.items[0]?.lineCount).toBe(2);
+  });
+});

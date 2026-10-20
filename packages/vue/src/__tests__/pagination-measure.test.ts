@@ -137,6 +137,8 @@ describe('measurePagination', () => {
     expect(result.sizes).toBeInstanceOf(Map);
     expect(result.lineOffsets.size).toBe(0);
     expect(result.lineSizes.size).toBe(0);
+    // 无布局时逐行行盒也回退空映射（调用方按均高估算）
+    expect(result.lineMainSizes.size).toBe(0);
     disposeMeasureSheet();
     expect(document.getElementById('bt-measure-sheet')).toBeNull();
   });
@@ -161,6 +163,7 @@ describe('measurePagination', () => {
     expect(shared.sizes).toEqual(fresh.sizes);
     expect(shared.lineOffsets).toEqual(fresh.lineOffsets);
     expect(shared.lineSizes).toEqual(fresh.lineSizes);
+    expect(shared.lineMainSizes).toEqual(fresh.lineMainSizes);
     // 复用路径同样把块渲染进量尺工作表（否则实测会空转）
     const sheet = document.getElementById('bt-measure-sheet');
     expect(sheet?.querySelectorAll('.bt-measure-block').length).toBe(2);

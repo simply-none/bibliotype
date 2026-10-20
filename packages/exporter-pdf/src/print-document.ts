@@ -82,6 +82,12 @@ export interface PrintDocumentOptions {
    */
   lineSizes?: ReadonlyMap<string, number>;
   /**
+   * 块 id → 逐行主轴尺寸（px，DOM 实测，仅 paged）
+   *
+   * 与 lineSizes 同源产出；注音（ruby）等行高不等时按行判页，与屏幕预览一致。
+   */
+  lineMainSizes?: ReadonlyMap<string, number[]>;
+  /**
    * 块 id → 块体高（px，DOM 实测自身盒高，不含外边距，仅 paged）
    *
    * 与 blockSizes 同源产出；blockSizes 是含块间距的推进量，本值为块体高，
@@ -173,6 +179,7 @@ function renderPagedBody(
       resolveBottomSlack(layout, tokens, defaultLineSize(tokens)),
     lineOffsets: options.lineOffsets,
     lineSizes: options.lineSizes,
+    lineMainSizes: options.lineMainSizes,
     bodySizes: options.bodySizes,
   });
   reader.loadDocument(book);

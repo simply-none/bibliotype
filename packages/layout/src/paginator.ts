@@ -20,6 +20,8 @@
  *   判页会逐页虚耗一份间距（标题 UA 外边距 / 段后距，可达半行～一行），把本页
  *   其实放得下的块挤到下页 → 页底空白。不变式：页视觉占用 = usedMainSize −
  *   末片段的尾部间距（keepWithNext 的预留除外，那时本块必有同页后继）；
+ * - 逐行行盒（lineMainSizes）：注音（ruby）等行内增高会让行高不等，给出实测逐行
+ *   尺寸时按行累加判页 / 结算片段，缺省仍按均高 `lineSize`，行为与旧版一致；
  * - 页底溢出（bottomSlack）：版心底不当硬墙，末行允许伸入下边距 slack 那么深
  *   （由调用方按「不压页码带」截断后传入，见 resolveBottomSlack）。装箱剩余
  *   不足一整行就换页，每页恒虚耗 0~1 行（叠加孤寡行可达 1~2 行），本项把
@@ -58,6 +60,14 @@ export interface MeasurableBlock {
    * 标题 / 封面 / 注文 / 牌记等须整块呈现，恒为 falsy。
    */
   splittable?: boolean;
+  /**
+   * 逐行主轴尺寸（px，DOM 实测；长度 = 真实行数）
+   *
+   * 注音（ruby）与大小字混排会让行盒沿主轴不等高：给出本字段时按行累加判页 /
+   * 切片，不再用 `lineSize` 均高近似（均高会把矮行空间算给高行 → 页面溢出，
+   * 或把高行压成矮行 → 注音被裁）。缺省或长度不符时整体回退 `lineSize`。
+   */
+  lineMainSizes?: number[];
   /**
    * 块体高（px，不含与下一块的块间折叠外边距）
    *
@@ -221,6 +231,61 @@ function linesWithin(avail: number, lineSize: number): number {
   return Math.floor((avail + SUBPIXEL_TOL) / lineSize);
 }
 
+/** 块的真实行数：逐行尺寸优先，其次显式 lineCount，最后按 mainSize/lineSize 折算 */
+export function lineCountOfBlock(block: MeasurableBlock): number {
+  const sizes = block.lineMainSizes;
+  if (sizes !== undefined && sizes.length > 0) return sizes.length;
+  return block.lineCount ?? Math.max(1, Math.floor(block.mainSize / (block.lineSize as number)));
+}
+
+/** 第 index 行沿主轴的尺寸（逐行尺寸优先，越界 / 缺省回退均高 `lineSize`） */
+export function lineMainSizeAt(block: MeasurableBlock, index: number): number {
+  const sizes = block.lineMainSizes;
+  if (sizes !== undefined && index >= 0 && index < sizes.length) {
+    return sizes[index] as number;
+  }
+  return block.lineSize as number;
+}
+
+/**
+ * [from, from+count) 行的主轴尺寸合计
+ *
+ * 与 `count × lineSize` 在无逐行尺寸时完全等价；供分页器与渲染层（片段尺寸、
+ * 续排切片）共用同一口径，避免两侧一个按均高、一个按逐行累加而错位。
+ */
+export function lineRangeMainSize(
+  block: MeasurableBlock,
+  from: number,
+  count: number,
+): number {
+  const sizes = block.lineMainSizes;
+  if (sizes === undefined || sizes.length === 0) {
+    return count * (block.lineSize as number);
+  }
+  let sum = 0;
+  for (let i = from; i < from + count; i += 1) {
+    sum += sizes[i] ?? (block.lineSize as number);
+  }
+  return sum;
+}
+
+/** 从 from 行起，avail 空间内能放下的行数（逐行尺寸优先，带亚像素容差） */
+function linesFitting(block: MeasurableBlock, from: number, avail: number): number {
+  const sizes = block.lineMainSizes;
+  if (sizes === undefined || sizes.length === 0) {
+    return linesWithin(avail, block.lineSize as number);
+  }
+  let used = 0;
+  let count = 0;
+  for (let i = from; i < sizes.length; i += 1) {
+    const size = sizes[i] as number;
+    if (used + size > avail + SUBPIXEL_TOL) break;
+    used += size;
+    count += 1;
+  }
+  return count;
+}
+
 /**
  * 页内追加一块的真实代价（px）
  *
@@ -337,21 +402,21 @@ export function paginate(
   /** keepWithNext 时下一块「至少需与标题同页」的头部代价 */
   function headSizeOf(block: MeasurableBlock, next: MeasurableBlock): number {
     if (!isSplittable(next)) return costOf(next);
-    const lineSize = next.lineSize as number;
-    const totalLines = lineCountOf(next);
+    const totalLines = lineCountOfBlock(next);
     // 放置标题后，下一段在本页可容纳的行数；模拟 placeSplittable 的取行约束：
     // 头部合规行数取不足（minFirst / minLast 不满足）时下一段会整体换页，
     // 此时改要求整段随标题同页，避免标题违反 keepWithNext 孤悬页尾
-    const availLines = linesWithin(
+    const availLines = linesFitting(
+      next,
+      0,
       bodyCapacity() - (cur.usedMainSize + block.mainSize),
-      lineSize,
     );
     if (availLines < totalLines) {
       const leftover = totalLines - availLines;
       const take = leftover < minLast ? totalLines - minLast : availLines;
       if (take < minFirst) return costOf(next);
     }
-    return Math.min(costOf(next), minFirst * lineSize);
+    return Math.min(costOf(next), lineRangeMainSize(next, 0, minFirst));
   }
 
   /** 不可拆块：整块贪心放置（保持块原子版行为） */
@@ -369,15 +434,9 @@ export function paginate(
     pushFragment(block, 0, 0, block.mainSize);
   }
 
-  /** 块的真实行数：显式 lineCount 优先，缺省按 mainSize/lineSize 下折算 */
-  function lineCountOf(block: MeasurableBlock): number {
-    return block.lineCount ?? Math.max(1, Math.floor(block.mainSize / (block.lineSize as number)));
-  }
-
   /** 可拆块：按行跨页续排，含孤寡行约束 */
   function placeSplittable(block: MeasurableBlock): void {
-    const lineSize = block.lineSize as number;
-    const totalLines = lineCountOf(block);
+    const totalLines = lineCountOfBlock(block);
     let from = 0;
     let remaining = totalLines;
 
@@ -385,7 +444,7 @@ export function paginate(
       // 页内剩余空间取未入账值：上一块的推进量入账已附带本片段上方的折叠间距，
       // 换页后的空页则无此负担（usedMainSize = 0），两种情形口径一致
       const avail = bodyCapacity() - cur.usedMainSize;
-      let availLines = linesWithin(avail, lineSize);
+      let availLines = linesFitting(block, from, avail);
       if (availLines <= 0) {
         if (cur.items.length > 0) {
           cur = startPage();
@@ -426,8 +485,11 @@ export function paginate(
       // 块尾片段一次性结算 mainSize 余量（含块尾折叠外边距），行高不含间距时不丢账
       const size =
         from + take >= totalLines
-          ? Math.max(take * lineSize, block.mainSize - from * lineSize)
-          : take * lineSize;
+          ? Math.max(
+              lineRangeMainSize(block, from, take),
+              block.mainSize - lineRangeMainSize(block, 0, from),
+            )
+          : lineRangeMainSize(block, from, take);
       pushFragment(block, from, take, size);
       from += take;
       remaining -= take;

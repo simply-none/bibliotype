@@ -172,6 +172,14 @@ export interface ExtractBlocksOptions {
    */
   lineSizes?: ReadonlyMap<string, number>;
   /**
+   * 块 id → 逐行主轴尺寸（px，DOM 实测，长度 = 真实行数；与 blockSizes 同源产出）
+   *
+   * `lineSizes` 只有一个均高，注音（ruby）或大小字混排下同一段落各行行盒不等高：
+   * 均高会把矮行空间算给高行 → 页面溢出，或把高行压成矮行 → 注音被裁。命中本映射
+   * （长度 > 1）时块携带 `lineMainSizes`，行数取数组长度，行高取均值作回退口径。
+   */
+  lineMainSizes?: ReadonlyMap<string, number[]>;
+  /**
    * 块 id → 块体高（px，DOM 实测自身盒高，不含任何外边距；与 blockSizes 同源产出）
    *
    * blockSizes 是到下一块上缘的「推进量」，已含与下一块的折叠外边距；那份间距
@@ -268,6 +276,7 @@ export function extractBlocksIndexed(
   const blockSizes = options.blockSizes;
   const lineOffsets = options.lineOffsets;
   const lineSizes = options.lineSizes;
+  const lineMainSizes = options.lineMainSizes;
   const bodySizes = options.bodySizes;
   const axis = options.axis;
   const context: BlockMeasureContext = {
@@ -298,8 +307,18 @@ export function extractBlocksIndexed(
       // 可拆段：行高用真实实测值（不含块间距），行数用实测行边界显式给定，
       // 消除「推进量÷行数」把间距摊入行高导致的每页少放 1~2 行页底空白
       const lines = lineOffsets?.get(id)?.length ?? 0;
+      // 逐行行盒（DOM 实测）：ruby 注音等行内增高使行高不等，长度即真实行数；
+      // 命中时优先于均高 lineSizes，均高仅作回退口径（切片换算 / 旧消费方）
+      const measuredLineSizes = splittable ? lineMainSizes?.get(id) : undefined;
+      const perLineSizes =
+        measuredLineSizes !== undefined && measuredLineSizes.length > 1
+          ? measuredLineSizes
+          : undefined;
       let lineSize = context.lineSize;
-      if (splittable && hasMeasured && lines > 1) {
+      if (perLineSizes !== undefined) {
+        lineSize =
+          perLineSizes.reduce((sum, size) => sum + size, 0) / perLineSizes.length;
+      } else if (splittable && hasMeasured && lines > 1) {
         lineSize = lineSizes?.get(id) ?? (measured as number) / lines;
       }
       // 页内追加代价：mainSize 是到下一块上缘的「推进量」（已含与下一块的折叠间距），
@@ -313,9 +332,11 @@ export function extractBlocksIndexed(
         const body =
           direct > 0
             ? direct
-            : splittable && lines > 1
-              ? lines * lineSize
-              : 0;
+            : splittable && perLineSizes !== undefined
+              ? perLineSizes.reduce((sum, size) => sum + size, 0)
+              : splittable && lines > 1
+                ? lines * lineSize
+                : 0;
         if (body > 0 && advance - body >= 0.5) bodyMainSize = body;
       } else {
         // 估算口径：defaultEstimator 产出「行数 × 行高 + 块间距」，按行高向下折算即体高
@@ -344,7 +365,11 @@ export function extractBlocksIndexed(
               splittable: true,
               lineSize,
               ...(axis === 'column' ? { axis } : {}),
-              ...(hasMeasured && lines > 1 ? { lineCount: lines } : {}),
+              ...(perLineSizes !== undefined
+                ? { lineMainSizes: [...perLineSizes], lineCount: perLineSizes.length }
+                : hasMeasured && lines > 1
+                  ? { lineCount: lines }
+                  : {}),
             }
           : {}),
         ...(bodyMainSize !== undefined ? { bodyMainSize } : {}),

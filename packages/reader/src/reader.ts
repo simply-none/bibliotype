@@ -86,6 +86,8 @@ export interface RepaginateOptions {
   lineOffsets?: ReadonlyMap<string, number[]> | null;
   /** 块 id → 真实行高（px，DOM 实测，不含块间距）；与 lineOffsets 同源产出 */
   lineSizes?: ReadonlyMap<string, number> | null;
+  /** 块 id → 逐行主轴尺寸（px，DOM 实测；注音等行高不等时按行判页）；与 lineSizes 同源 */
+  lineMainSizes?: ReadonlyMap<string, number[]> | null;
   /**
    * 块 id → 块体高（px，DOM 实测自身盒高，不含外边距）；与 blockSizes 同源产出
    *
@@ -127,6 +129,13 @@ export interface ReaderOptions {
   lineOffsets?: ReadonlyMap<string, number[]>;
   /** 块 id → 真实行高（px，DOM 实测，不含块间距）；与 lineOffsets 同源产出 */
   lineSizes?: ReadonlyMap<string, number>;
+  /**
+   * 块 id → 逐行主轴尺寸（px，DOM 实测，长度 = 真实行数）
+   *
+   * 注音（ruby）等行内增高使同一段落各行行盒不等高时，分页按逐行累加判页，
+   * 不再用均高近似（均高会让注音行溢出页心或把高行压成矮行）。
+   */
+  lineMainSizes?: ReadonlyMap<string, number[]>;
   /** 块 id → 块体高（px，DOM 实测，不含外边距）；供 paginate 按体高判页 */
   bodySizes?: ReadonlyMap<string, number>;
   /**
@@ -184,6 +193,8 @@ export class Reader {
   private lineOffsets: ReadonlyMap<string, number[]> | undefined;
   /** 块 id → 真实行高（px，DOM 实测，不含块间距） */
   private lineSizes: ReadonlyMap<string, number> | undefined;
+  /** 块 id → 逐行主轴尺寸（px，DOM 实测；注音行高不等时按行判页） */
+  private lineMainSizes: ReadonlyMap<string, number[]> | undefined;
   /** 块 id → 块体高（px，DOM 实测，不含外边距） */
   private bodySizes: ReadonlyMap<string, number> | undefined;
   /** 排文主轴（直排为 column）：透传给 extractBlocks，仅供下游解释 lineSize 语义 */
@@ -214,6 +225,7 @@ export class Reader {
     this.blockSizes = options.blockSizes;
     this.lineOffsets = options.lineOffsets;
     this.lineSizes = options.lineSizes;
+    this.lineMainSizes = options.lineMainSizes;
     this.bodySizes = options.bodySizes;
     this.axis = options.axis;
     this.footnoteFloat = options.footnoteFloat === true;
@@ -276,6 +288,9 @@ export class Reader {
     if (overrides.lineSizes !== undefined) {
       this.lineSizes = overrides.lineSizes ?? undefined;
     }
+    if (overrides.lineMainSizes !== undefined) {
+      this.lineMainSizes = overrides.lineMainSizes ?? undefined;
+    }
     if (overrides.bodySizes !== undefined) {
       this.bodySizes = overrides.bodySizes ?? undefined;
     }
@@ -289,6 +304,7 @@ export class Reader {
       blockSizes: this.blockSizes,
       lineOffsets: this.lineOffsets,
       lineSizes: this.lineSizes,
+      lineMainSizes: this.lineMainSizes,
       bodySizes: this.bodySizes,
       axis: this.axis,
     });

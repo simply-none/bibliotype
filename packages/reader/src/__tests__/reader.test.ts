@@ -524,6 +524,42 @@ function floatReader(options: { footnoteFloat?: boolean; noteMaxRatio?: number }
   });
 }
 
+/** 构造：单段（3 行，注音行抬高到 60） */
+function rubyDoc(): BookDocument {
+  const doc = createEmptyDocument({ title: '注音' });
+  doc.root.children = [
+    { type: NODE_TYPES.PARAGRAPH, id: 'p-ruby', children: [{ type: 'text', text: '一二三' }] },
+  ];
+  return doc;
+}
+
+describe('Reader 逐行行盒（注音）', () => {
+  it('lineMainSizes 参与分页：注音行按实测行盒判页，不溢出页心', () => {
+    const options = {
+      pageMainSize: 90,
+      bottomSlack: 0,
+      estimator: fixedEstimator({ 'p-ruby': 120 }),
+      blockSizes: new Map([['p-ruby', 120]]),
+      lineOffsets: new Map([['p-ruby', [0, 1, 2]]]),
+      lineSizes: new Map([['p-ruby', 40]]),
+      lineMainSizes: new Map([['p-ruby', [30, 60, 30]]]),
+    };
+    const reader = new Reader(options);
+    reader.loadDocument(rubyDoc());
+
+    // 30 + 60 = 90 恰好放下，第三行续页
+    expect(reader.totalPages).toBe(2);
+    expect(reader.pagination[0]?.items[0]?.lineCount).toBe(2);
+    expect(reader.pagination[1]?.items[0]?.fromLine).toBe(2);
+
+    // 清空逐行尺寸后回退均高（40 × 3 = 120 > 90 → 仍拆页，但按均高切 2/1）
+    reader.repaginate({ lineMainSizes: null });
+    expect(reader.getPageBlocks(0).map((block) => block.id)).toEqual(['p-ruby']);
+    expect(reader.pagination[0]?.items[0]?.lineCount).toBe(2);
+    expect(reader.allBlocks[0]?.lineMainSizes).toBeUndefined();
+  });
+});
+
 describe('Reader 脚注浮注（页底注区）', () => {
   it('开启后脚注不进正文流：落页底注区，正文容量收缩提前换页', () => {
     const reader = floatReader();

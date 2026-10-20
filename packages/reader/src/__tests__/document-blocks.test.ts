@@ -213,6 +213,42 @@ describe('extractBlocks', () => {
     expect(blocks.find((b) => b.id === 'p-2')?.lineSize).toBe(42);
   });
 
+  it('逐行行盒：lineMainSizes 长度即行数，均高取均值，体高按行累加', () => {
+    const doc = createEmptyDocument({ title: '注音' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        id: 'p-ruby',
+        children: [{ type: 'text', text: '注音段落' }],
+      },
+    ];
+    const blocks = extractBlocks(doc, {
+      blockSizes: new Map([['p-ruby', 132]]),
+      lineOffsets: new Map([['p-ruby', [0, 2, 4]]]),
+      lineSizes: new Map([['p-ruby', 30]]),
+      lineMainSizes: new Map([['p-ruby', [30, 60, 30]]]),
+      bodySizes: new Map([['p-ruby', 120]]),
+    });
+    const ruby = blocks[0];
+    expect(ruby?.splittable).toBe(true);
+    // 行数 / 逐行尺寸以实测数组为准（不受 lineSizes 均高影响）
+    expect(ruby?.lineCount).toBe(3);
+    expect(ruby?.lineMainSizes).toEqual([30, 60, 30]);
+    // 均高退化为回退口径：120 / 3
+    expect(ruby?.lineSize).toBe(40);
+    expect(ruby?.bodyMainSize).toBe(120);
+  });
+
+  it('lineMainSizes 只有一行 / 未命中时不产出逐行字段（回退均高）', () => {
+    const doc = createEmptyDocument({ title: '单行' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '单行' }] },
+    ];
+    const single = extractBlocks(doc, { lineMainSizes: new Map([['p-1', [30]]]) });
+    expect(single[0]?.lineMainSizes).toBeUndefined();
+    expect(single[0]?.lineSize).toBe(DEFAULT_MEASURE_CONTEXT.lineSize);
+  });
+
   it('axis：直排给可拆块标注 column，横排缺省不标注且尺寸不变', () => {
     const vertical = extractBlocks(sampleDoc(), { axis: 'column' });
     expect(vertical.find((b) => b.id === 'p-1')?.axis).toBe('column');

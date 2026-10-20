@@ -59,8 +59,9 @@ const { pages, totalPages } = paginate(
 - `keepWithNext`：与下一块同页（标题 + 首段），放不下则整体换页（下块可拆时仅要求头部 minFirst 行同页）；
 - **行级拆分**：块标 `splittable: true` 且给 `lineSize` 时，装不下的段落在行处断开跨页续排（页固定、正文流动）；
 - **孤寡行控制**：`widowControl.minFirst` / `minLast`（默认 2 / 2）约束拆分后首 / 尾片段最少行数，不满足则让行或整体换页；
+- **逐行行盒**：给 `lineMainSizes`（实测逐行尺寸，长度即行数）时按行累加判页，注音等行高不等不再溢出；缺省回退均高 `lineSize`；
 - 超大块：可拆者按每页行数连续跨页，不可拆者独占一页；直排「主轴」为横向，`mainSize` 由调用方按书写方向传入。
-- 不传 `splittable` / `lineSize` / `widowControl` 时，行为与块原子版完全一致。
+- 不传 `splittable` / `lineSize` / `lineMainSizes` / `widowControl` 时，行为与块原子版完全一致。
 
 ### HTML 序列化与书册样式表（`./html`）
 

@@ -110,7 +110,13 @@ export type { StyleDeclaration, BuildRootStyleInput } from './style-builder.js';
 export { sliceNodeByCharRange } from './node-slice.js';
 
 /* ---------- 分页 ---------- */
-export { paginate, blockAxisOf } from './paginator.js';
+export {
+  paginate,
+  blockAxisOf,
+  lineCountOfBlock,
+  lineMainSizeAt,
+  lineRangeMainSize,
+} from './paginator.js';
 export type {
   BlockAxis,
   MeasurableBlock,

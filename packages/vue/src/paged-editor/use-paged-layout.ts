@@ -19,6 +19,7 @@ import {
   DEFAULT_LAYOUT_OPTIONS,
   isVerticalMode,
   mergeLayoutOptions,
+  lineRangeMainSize,
   paginate,
   resolvePageMainSize,
   resolveBottomSlack,
@@ -119,6 +120,8 @@ export interface BuildPagedResult {
   sizes: ReadonlyMap<string, number>;
   /** 块 id → 真实行高 px（不含块间距；增量重排时供下轮合并复用） */
   lineSizes: ReadonlyMap<string, number>;
+  /** 块 id → 逐行主轴尺寸 px（含注音行盒；增量重排时供下轮合并复用） */
+  lineMainSizes: ReadonlyMap<string, number[]>;
   /** 块 id → 块体高 px（不含外边距；供 paginate 按体高判页，增量重排时供下轮合并复用） */
   bodySizes: ReadonlyMap<string, number>;
   /** 生效的每行字符估算（回退口径，供片段归属换算同源复用） */
@@ -229,9 +232,14 @@ function resolvePaginateResume(
       const block = blockById.get(frag.blockId);
       // 前缀页里出现本轮不存在的块（被删）→ 说明结构变了，放弃增量
       if (block === undefined) return undefined;
-      const lineSize = block.lineSize ?? block.mainSize;
+      // 片段尺寸按行累加（逐行行盒优先，缺省均高），与 paginate 结算口径一致
       const size =
-        frag.lineCount > 0 ? Math.min(block.mainSize, frag.lineCount * lineSize) : block.mainSize;
+        frag.lineCount > 0
+          ? Math.min(
+              block.mainSize,
+              lineRangeMainSize(block, frag.fromLine, frag.lineCount),
+            )
+          : block.mainSize;
       // bodyMainSize 由本轮 extractBlocks 按块 id 携带，items 直接引用新块对象即继承
       items.push({ block, fromLine: frag.fromLine, lineCount: frag.lineCount, mainSize: size });
       used += size;
@@ -275,6 +283,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     lineOffsets: new Map(),
     sizes: new Map(),
     lineSizes: new Map(),
+    lineMainSizes: new Map(),
     bodySizes: new Map(),
     charsPerLine: context.charsPerLine,
   };
@@ -333,6 +342,8 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   for (const [id, v] of fresh.lineOffsets) lineOffsets.set(id, v);
   const lineSizes = new Map<string, number>(incremental ? prev.lineSizes : []);
   for (const [id, v] of fresh.lineSizes) lineSizes.set(id, v);
+  const lineMainSizes = new Map<string, number[]>(incremental ? prev.lineMainSizes : []);
+  for (const [id, v] of fresh.lineMainSizes) lineMainSizes.set(id, v);
   const bodySizes = new Map<string, number>(incremental ? prev.bodySizes : []);
   for (const [id, v] of fresh.bodySizes) bodySizes.set(id, v);
   // 陈旧行偏移清理：本轮实测过的块若未产出多行 lineOffsets（文本收缩到单行 / 量不到），
@@ -344,6 +355,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
       if (!fresh.lineOffsets.has(id)) {
         lineOffsets.delete(id);
         lineSizes.delete(id);
+        lineMainSizes.delete(id);
       }
       // 重测后不再产出块体高（量不到 / 高度为 0）时清陈旧项
       if (!fresh.bodySizes.has(id)) bodySizes.delete(id);
@@ -354,6 +366,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     blockSizes: sizes,
     lineOffsets,
     lineSizes,
+    lineMainSizes,
     bodySizes,
     axis,
   });
@@ -371,6 +384,9 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     }
     for (const id of [...lineSizes.keys()]) {
       if (!live.has(id)) lineSizes.delete(id);
+    }
+    for (const id of [...lineMainSizes.keys()]) {
+      if (!live.has(id)) lineMainSizes.delete(id);
     }
     for (const id of [...bodySizes.keys()]) {
       if (!live.has(id)) bodySizes.delete(id);
@@ -450,6 +466,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     blocks,
     lineOffsets,
     lineSizes,
+    lineMainSizes,
     bodySizes,
     sizes,
     charsPerLine: context.charsPerLine,

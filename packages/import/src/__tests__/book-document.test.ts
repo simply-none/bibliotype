@@ -13,7 +13,7 @@ describe('nodesToBookDocument', () => {
   it('块节点合成 book 根，schemaVersion 与 metadata 原样注入', () => {
     const nodes = markdownToNodes('# 标题\n\n正文', schema);
     const doc = nodesToBookDocument(nodes, schema, metadata);
-    expect(doc.schemaVersion).toBe('0.2.0');
+    expect(doc.schemaVersion).toBe('0.3.0');
     expect(doc.metadata).toEqual(metadata);
     expect(doc.root.type).toBe(NODE_TYPES.BOOK);
     expect(doc.root.children?.length).toBeGreaterThan(0);

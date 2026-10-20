@@ -90,6 +90,7 @@ export {
   setTableCellAlign,
   setNodeAttrs,
   setMarkAttrs,
+  toggleIndexTerm,
   setBlockStyleId,
   getBlockStyleId,
   applyNamedStyle,

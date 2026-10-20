@@ -60,6 +60,16 @@ describe('serializePageGutter', () => {
     expect(html).toContain('data-field="pageNumber"');
   });
 
+  it('鱼尾按字段分段定位：单鱼尾落在中间字段之后', () => {
+    const html = serializePageGutter(
+      { bookTitle: '论语', volumeTitle: '卷一', chapterTitle: '', pageNumber: '七' },
+      facsimile({ fields: ['bookTitle', 'volumeTitle', 'pageNumber'] }),
+    );
+    const fish = html.indexOf('bt-page-gutter__fish');
+    expect(fish).toBeGreaterThan(html.indexOf('卷一'));
+    expect(fish).toBeLessThan(html.indexOf('>七<'));
+  });
+
   it('鱼尾数量随配置：单 / 双 / 无', () => {
     const count = (fishTail: 'none' | 'single' | 'double') =>
       (serializePageGutter(

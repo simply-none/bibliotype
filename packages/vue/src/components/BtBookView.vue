@@ -246,7 +246,12 @@ const currentChrome = computed(() => {
 const pageDecoration = computed(() => layout.value.facsimile !== undefined);
 
 /** 版心空文本（reader 返回 undefined 时的占位，序列化会因字段为空输出空串） */
-const EMPTY_GUTTER_TEXTS = { bookTitle: '', chapterTitle: '', pageNumber: '' } as const;
+const EMPTY_GUTTER_TEXTS = {
+  bookTitle: '',
+  volumeTitle: '',
+  chapterTitle: '',
+  pageNumber: '',
+} as const;
 
 /** 当前页版心（书口）HTML；未启用仿真版式或封面页为空串 */
 const gutterHtml = computed(() => {

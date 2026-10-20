@@ -14,6 +14,8 @@ import type { PageGutterTexts } from '@bibliotype/layout';
 export interface ResolvePageGutterInput {
   /** 书名 */
   bookTitle: string;
+  /** 该页所在卷次标题（无卷 / 缺省空串） */
+  volumeTitle?: string;
   /** 该页篇卷 / 章名（缺省空串） */
   chapterTitle: string;
   /** 已格式化的叶次（含中文 / 罗马数字样式） */
@@ -28,6 +30,7 @@ export interface ResolvePageGutterInput {
 export function resolvePageGutterTexts(input: ResolvePageGutterInput): PageGutterTexts {
   return {
     bookTitle: input.bookTitle.trim(),
+    volumeTitle: (input.volumeTitle ?? '').trim(),
     chapterTitle: input.chapterTitle.trim(),
     pageNumber: input.pageNumberText.trim(),
   };

@@ -22,6 +22,7 @@ import {
   type BookNode,
   type ConditionContext,
 } from '@bibliotype/core';
+import { renderSealSvg, type SealBorder, type SealLayout, type SealStyle } from '../svg/seal.js';
 import { transformVerticalText, type VerticalTextOptions } from '../vertical-text.js';
 
 /** 序列化选项 */
@@ -60,6 +61,13 @@ export interface SerializeNodeOptions {
    * 缺省不传：保留全部条件内容（导出 / 阅读器不注入上下文时不会误删）。
    */
   conditionContext?: ConditionContext;
+  /**
+   * 印章是否输出内联 SVG 印谱（缺省 true）
+   *
+   * EPUB 2 阅读器对 SVG 支持不齐，导出侧可关闭改为**文字印章**兜底
+   * （`.bt-seal:empty::after` 读取 `data-text`），不打包位图、不增加资源。
+   */
+  inlineSealSvg?: boolean;
 }
 
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
@@ -201,6 +209,7 @@ function resolveTag(node: BookNode, options: SerializeNodeOptions): string {
  */
 const DATA_ATTR_NAME_OVERRIDES: Readonly<Record<string, string>> = {
   styleId: 'style-id',
+  sortKey: 'sort-key',
 };
 
 /** 非白名单属性 → data-* 属性串（值统一字符串化并转义） */
@@ -302,6 +311,28 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
   const idAttr = id !== undefined && id !== '' ? ` id="${escapeHtml(id)}"` : '';
   const classAttr = ` class="bt-${escapeHtml(node.type)}"`;
   const whitelist = ATTR_WHITELIST[node.type] ?? [];
+
+  /* 印章（classical 插件节点，layout 不能依赖它，故按类型名识别）：内联 SVG 印谱 */
+  if (node.type === 'seal') {
+    const text = typeof attrs?.text === 'string' ? attrs.text : '';
+    const extras = dataAttrs(attrs, ['text', 'style', 'layout', 'border']);
+    const textAttr = ` data-text="${escapeHtml(text)}"`;
+    if (options.inlineSealSvg === false || text === '') {
+      return `<span${idAttr} class="bt-seal"${textAttr}${extras}></span>`;
+    }
+    const sealStyle: SealStyle = attrs?.style === 'bai' ? 'bai' : 'zhu';
+    const sealLayout: SealLayout = attrs?.layout === 'column' ? 'column' : 'square';
+    const rawBorder = attrs?.border;
+    const sealBorder: SealBorder =
+      rawBorder === 'none' || rawBorder === 'thin' || rawBorder === 'thick' ? rawBorder : 'thick';
+    const svg = renderSealSvg({
+      text,
+      style: sealStyle,
+      layout: sealLayout,
+      border: sealBorder,
+    });
+    return `<span${idAttr} class="bt-seal"${textAttr}${extras}>${svg}</span>`;
+  }
 
   /* 表格：需要按表头行分组 thead/tbody 并把表头单元格输出为 th */
   if (node.type === NODE_TYPES.TABLE) {

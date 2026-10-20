@@ -15,7 +15,17 @@
  *   `<meta property>`（京东读书 RMSDK 解析器不识别）。
  * 两路均附带 toc.ncx（EPUB 3 向后兼容推荐做法），差异仅在 OPF 特性与文档壳。
  */
-import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookDocument, type BookNode, type ExportComment } from '@bibliotype/core';
+import {
+  DEFAULT_THEME,
+  MARK_TYPES,
+  NODE_TYPES,
+  buildIndexAppendix,
+  buildIndexEntries,
+  isTextNode,
+  type BookDocument,
+  type BookNode,
+  type ExportComment,
+} from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { DEFAULT_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
@@ -94,6 +104,45 @@ export interface EpubExportOptions {
   includeComments?: boolean;
   /** 评论数据（开启 `includeComments` 时生效） */
   comments?: readonly ExportComment[];
+  /**
+   * 是否在书末追加「索引」附录（缺省 true）
+   *
+   * 只在文档含 `index-term` 标记时产生章节；EPUB 无固定页码，条目以词条链接
+   * 回跳正文锚点（跨文件链接自动带 `text/sec-N.xhtml` 前缀）。
+   */
+  includeIndex?: boolean;
+  /** 索引章标题（缺省「索引」） */
+  indexTitle?: string;
+  /**
+   * 调用方追加的书末附录（如校勘汇总表）
+   *
+   * 每个节点自成 XHTML；其中 `href="#id"` 会被改写成跨文件地址
+   * （`text/sec-N.xhtml#id`），因此调用方按普通 IR 构造即可。
+   */
+  appendices?: readonly BookNode[];
+}
+
+/** 递归改写附录里的 `#id` 锚点为跨文件地址（未命中的保持原样） */
+function rewriteAppendixAnchors(
+  node: BookNode,
+  fileById: ReadonlyMap<string, string>,
+): BookNode {
+  const marks = node.marks?.map((mark) => {
+    if (mark.type !== MARK_TYPES.LINK) return mark;
+    const href = mark.attrs?.['href'];
+    if (typeof href !== 'string' || !href.startsWith('#')) return mark;
+    const file = fileById.get(href.slice(1));
+    return file === undefined
+      ? mark
+      : { ...mark, attrs: { ...mark.attrs, href: `${file}${href}` } };
+  });
+  return {
+    ...node,
+    ...(marks === undefined ? {} : { marks }),
+    ...(node.children === undefined
+      ? {}
+      : { children: node.children.map((child) => rewriteAppendixAnchors(child, fileById)) }),
+  };
 }
 
 /** 导出 EPUB（返回完整 epub 文件字节，含 zip 容器） */
@@ -157,6 +206,44 @@ export function exportEpub(
 
   /* ---------- 章节规划、锚点与媒体收集 ---------- */
   const plan = planDocument(root);
+
+  /* ---------- 附录（导出期追加，不改动原文档） ----------
+     先规划正文得到「块 id → 文件」映射，再把带跨文件链接的附录作为最后一节
+     追加，避免链接指向错误文件。 */
+  const fileById = new Map<string, string>();
+  const collectIds = (node: BookNode, file: string): void => {
+    if (typeof node.id === 'string' && node.id !== '') fileById.set(node.id, file);
+    for (const child of node.children ?? []) collectIds(child, file);
+  };
+  for (const section of plan.sections) {
+    for (const node of section.nodes) collectIds(node, section.file);
+  }
+
+  const appendSection = (node: BookNode): void => {
+    plan.sections.push({
+      file: `text/sec-${plan.sections.length}.xhtml`,
+      nodes: [node],
+    });
+  };
+
+  const indexEntries = options.includeIndex === false ? [] : buildIndexEntries(root);
+  if (indexEntries.length > 0) {
+    appendSection(
+      buildIndexAppendix(indexEntries, {
+        showPageNumbers: false,
+        ...(options.indexTitle === undefined ? {} : { title: options.indexTitle }),
+        hrefFor: (blockId) => {
+          const file = fileById.get(blockId);
+          return file === undefined ? `#${blockId}` : `${file}#${blockId}`;
+        },
+      }),
+    );
+  }
+
+  /* 调用方追加的附录（如校勘汇总表）：把 `#id` 锚点改写为跨文件地址 */
+  for (const appendixNode of options.appendices ?? []) {
+    appendSection(rewriteAppendixAnchors(appendixNode, fileById));
+  }
   const media = new MediaCollector();
   const serializeOptions = {
     tagOverrides: options.tagOverrides,
@@ -165,6 +252,8 @@ export function exportEpub(
     /* 注释块补 epub:type（footnote / endnote / sidebar）：EPUB 3 阅读器据此
        收进注释系统；EPUB 2 引擎不认该属性，关闭以免输出无意义标记。 */
     epubSemantics: epubVersion === '3.0',
+    /* EPUB 2 阅读器对 SVG 支持不齐：印章退化为文字印章（data-text），不打包位图 */
+    inlineSealSvg: epubVersion !== '2.0',
   };
 
   /* 封面预登记：先于序列化拿到 manifest id（序列化期内图片去重归并到同一条目） */

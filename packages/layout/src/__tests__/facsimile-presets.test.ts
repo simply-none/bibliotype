@@ -84,14 +84,19 @@ describe('FACSIMILE_PRESETS', () => {
     }
   });
 
-  it('版心字段为默认三段（书名 / 篇卷 / 叶次）且顺序稳定', () => {
+  it('版心字段随形制声明（K5：不再统一三段）', () => {
     for (const preset of FACSIMILE_PRESETS) {
-      expect(preset.layout.facsimile?.gutter?.fields).toEqual([
-        'bookTitle',
-        'chapterTitle',
-        'pageNumber',
-      ]);
+      const fields = preset.layout.facsimile?.gutter?.fields ?? [];
+      expect(fields.length, preset.id).toBeGreaterThan(0);
+      expect(fields, preset.id).toContain('pageNumber');
+      expect(fields[fields.length - 1], preset.id).toBe('pageNumber');
     }
+    /* 宋刻浙本 / 武英殿本用卷次替代篇卷，巾箱本只留篇卷与叶次 */
+    expect(FACSIMILE_PRESETS[0]?.layout.facsimile?.gutter?.fields).toEqual([
+      'bookTitle',
+      'volumeTitle',
+      'pageNumber',
+    ]);
   });
 
   it('按 id 取模板：未知 id 返回 undefined', () => {

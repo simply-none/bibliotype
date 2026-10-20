@@ -46,6 +46,7 @@ import {
   isPageChromeEnabled,
   resolveChapterTitleForNode,
   resolvePageChromeTexts,
+  resolveVolumeTitleForNode,
   type PageChromeTexts,
 } from './page-chrome.js';
 import { resolvePageGutterTexts } from './page-gutter.js';
@@ -548,6 +549,14 @@ export class Reader {
     return resolveChapterTitleForNode(this.doc.root, first.id);
   }
 
+  /** 页首块所属卷名（版心 `volumeTitle` 字段；无卷时为空串） */
+  getPageVolumeTitle(pageIndex: number = this.pageIndex): string {
+    if (this.doc === undefined) return '';
+    const first = this.pages[pageIndex]?.blocks[0];
+    if (first === undefined) return '';
+    return resolveVolumeTitleForNode(this.doc.root, first.id);
+  }
+
   /**
    * 页眉 / 页脚文本（按 `layout.pageChrome` 解析）
    *
@@ -568,6 +577,7 @@ export class Reader {
       chrome,
       pageIndex,
       bookTitle: this.doc.metadata.title,
+      volumeTitle: this.getPageVolumeTitle(pageIndex),
       chapterTitle: this.getPageChapterTitle(pageIndex),
       pageNumberText: formatPageNumber(pageIndex + 1, style),
     });
@@ -592,6 +602,7 @@ export class Reader {
     const style = this.options.pageNumberStyle as PageNumberStyle;
     return resolvePageGutterTexts({
       bookTitle: this.doc.metadata.title,
+      volumeTitle: this.getPageVolumeTitle(pageIndex),
       chapterTitle: this.getPageChapterTitle(pageIndex),
       pageNumberText: formatPageNumber(pageIndex + 1, style),
     });

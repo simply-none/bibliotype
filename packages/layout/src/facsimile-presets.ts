@@ -29,6 +29,7 @@ import {
   type GutterFishTail,
   type GutterMouth,
 } from './facsimile.js';
+import type { PageChromeField } from './layout-options.js';
 import {
   FACSIMILE_BASE_LAYOUT,
   mergeLayoutOptions,
@@ -77,6 +78,8 @@ interface PresetSeed {
   gutterSize: number;
   mouth: GutterMouth;
   fishTail: GutterFishTail;
+  /** 版心字段序列（缺省 `DEFAULT_GUTTER_FIELDS`） */
+  fields?: readonly PageChromeField[];
   /** 纸色 */
   background: string;
   /** 正文墨色 */
@@ -106,7 +109,7 @@ function createPreset(seed: PresetSeed): FacsimilePreset {
       size: seed.gutterSize,
       mouth: seed.mouth,
       fishTail: seed.fishTail,
-      fields: DEFAULT_GUTTER_FIELDS,
+      fields: seed.fields ?? DEFAULT_GUTTER_FIELDS,
     },
   };
 
@@ -164,6 +167,7 @@ export const FACSIMILE_PRESETS: readonly FacsimilePreset[] = [
     gutterSize: 34,
     mouth: GUTTER_MOUTHS.WHITE,
     fishTail: GUTTER_FISH_TAILS.SINGLE,
+    fields: ['bookTitle', 'volumeTitle', 'pageNumber'],
     background: '#f2e8d5',
     text: '#2b241c',
     note: '#5c5142',
@@ -187,6 +191,7 @@ export const FACSIMILE_PRESETS: readonly FacsimilePreset[] = [
     gutterSize: 30,
     mouth: GUTTER_MOUTHS.WHITE,
     fishTail: GUTTER_FISH_TAILS.SINGLE,
+    fields: ['bookTitle', 'chapterTitle', 'pageNumber'],
     background: '#f5eddc',
     text: '#2b241c',
     note: '#5a4f40',
@@ -210,6 +215,7 @@ export const FACSIMILE_PRESETS: readonly FacsimilePreset[] = [
     gutterSize: 38,
     mouth: GUTTER_MOUTHS.WHITE,
     fishTail: GUTTER_FISH_TAILS.SINGLE,
+    fields: ['bookTitle', 'volumeTitle', 'chapterTitle', 'pageNumber'],
     background: '#f7f1e3',
     text: '#241f19',
     note: '#574d3f',
@@ -231,6 +237,7 @@ export const FACSIMILE_PRESETS: readonly FacsimilePreset[] = [
     gutterSize: 28,
     mouth: GUTTER_MOUTHS.BLACK,
     fishTail: GUTTER_FISH_TAILS.SINGLE,
+    fields: ['bookTitle', 'chapterTitle', 'pageNumber'],
     background: '#f4ead6',
     text: '#2b241c',
     note: '#5c5142',
@@ -254,6 +261,7 @@ export const FACSIMILE_PRESETS: readonly FacsimilePreset[] = [
     gutterSize: 36,
     mouth: GUTTER_MOUTHS.WHITE,
     fishTail: GUTTER_FISH_TAILS.NONE,
+    fields: ['volumeTitle', 'pageNumber'],
     background: '#f9f2e4',
     text: '#33261f',
     note: '#6b3a30',
@@ -275,6 +283,7 @@ export const FACSIMILE_PRESETS: readonly FacsimilePreset[] = [
     gutterSize: 24,
     mouth: GUTTER_MOUTHS.BLACK,
     fishTail: GUTTER_FISH_TAILS.SINGLE,
+    fields: ['chapterTitle', 'pageNumber'],
     background: '#f5eedd',
     text: '#2b241c',
     note: '#5c5142',

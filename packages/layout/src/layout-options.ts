@@ -33,6 +33,8 @@ export const PAGE_CHROME_FIELDS = {
   BOOK_TITLE: 'bookTitle',
   /** 当前章名 */
   CHAPTER_TITLE: 'chapterTitle',
+  /** 当前卷名（版心卷次；页眉页脚同样可用） */
+  VOLUME_TITLE: 'volumeTitle',
   /** 页码 */
   PAGE_NUMBER: 'pageNumber',
 } as const;

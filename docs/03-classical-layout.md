@@ -134,6 +134,33 @@ reader.loadDocument(document);
 - **导出**：EPUB / PDF 导出传 `tokens`（古籍合并令牌）+ `fontToken: FONT_TOKENS.CLASSICAL_BODY`
   + `layout: CLASSICAL_LAYOUT_OPTIONS`，序列化器按 `bt-{type}` 类输出容器样式。
 
+## 印章印谱（K5）
+
+`seal` 节点新增可选 attrs：`style`（`zhu` 朱文 / `bai` 白文，缺省朱文）、
+`layout`（`square` 方印回文 / `column` 竖排，缺省方印）、`border`
+（`none` / `thin` / `thick`，缺省粗边）。
+
+- 序列化（`@bibliotype/layout`）把印章输出为**内联 SVG 印谱**
+  （`renderSealSvg`，确定性纯函数，同输入同字节）；方印按传统读序
+  「右上 → 右下 → 左上 → 左下」排字，白文为朱底留白；
+- 关闭 SVG（`inlineSealSvg: false`，EPUB 2 自动关闭）或印文为空时退化为
+  `.bt-seal:empty::after { content: attr(data-text) }` 的文字方框印章，
+  不打包位图、不新增资源登记。
+
+## 校勘配对与汇总表（K2）
+
+- `collation-mark` 新增 `pairId` / `role`（`base` / `variant`），
+  `collation-note` 新增 `pairId` / `marker`（独立编号序列）；
+- 编辑命令：`insertCollationNote()` 插入时自动取号（现有最大编号 + 1）；
+  `renumberCollationNotes()` 按文档顺序压缩编号（单事务、可撤销）；
+  `pairCollation(baseBlockId, variantBlockId)` 把两块内的校勘标记绑定为
+  同一 `pairId`（底本 / 校本各标角色）；`unpairCollation(pairId)` 解绑；
+- 阅读层：`BtCollationCompare`（`@bibliotype/vue`）按 `pairId` 并排两侧
+  段落，悬浮 / 聚焦时同配对双侧同步高亮；不做编辑器内并排编辑；
+- 汇总表：`buildCollationSummary(document)` 生成与索引附录同构的
+  `appendix` 节点（编号升序、摘要截断、每条回跳注文）；导出时经
+  `exportEpub` 的 `appendices` 选项追加，`#id` 锚点自动改写为跨文件地址。
+
 ## 相关
 
 - 包参考：[`@bibliotype/classical`](../packages/classical/README.md)

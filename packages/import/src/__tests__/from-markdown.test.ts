@@ -61,7 +61,7 @@ describe('markdownToBookDocument', () => {
   it('metadata 原样注入（确定性，不读当前时间）', () => {
     const doc = markdownToBookDocument('正文', schema, metadata);
     expect(doc.metadata).toEqual(metadata);
-    expect(doc.schemaVersion).toBe('0.2.0');
+    expect(doc.schemaVersion).toBe('0.3.0');
   });
 
   it('空 Markdown 产出空 book 根', () => {

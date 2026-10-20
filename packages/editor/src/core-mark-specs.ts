@@ -92,4 +92,35 @@ export const CORE_EDITOR_MARK_SPECS: readonly EditorMarkSpecEntry[] = [
     },
   },
   { type: MARK_TYPES.HIGHLIGHT, spec: { attrs: COMMON_MARK_ATTRS } },
+  /**
+   * 索引词：书末索引的采集来源
+   *
+   * `term` 缺省取选中文本（由 `toggleIndexTerm` 写入）；`sortKey` 供手工指定
+   * 拼音 / 笔画序，缺省由采集器回退到 `term`。
+   */
+  {
+    type: MARK_TYPES.INDEX_TERM,
+    spec: {
+      inclusive: false,
+      attrs: {
+        ...COMMON_MARK_ATTRS,
+        term: { default: null },
+        sortKey: { default: null },
+      },
+      parseDOM: [
+        {
+          tag: 'span.bt-mark-index-term',
+          getAttrs: (dom): Record<string, unknown> | false => {
+            if (typeof dom === 'string') return false;
+            const term = dom.getAttribute('data-term');
+            const sortKey = dom.getAttribute('data-sort-key');
+            return {
+              ...(term === null ? {} : { term }),
+              ...(sortKey === null ? {} : { sortKey }),
+            };
+          },
+        },
+      ],
+    },
+  },
 ];

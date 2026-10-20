@@ -76,7 +76,7 @@ describe('docxToBookDocument', () => {
   it('metadata 原样注入、schemaVersion 固定（确定性红线）', async () => {
     const doc = await docxToBookDocument(sampleDocx, schema, metadata);
     expect(doc.metadata).toEqual(metadata);
-    expect(doc.schemaVersion).toBe('0.2.0');
+    expect(doc.schemaVersion).toBe('0.3.0');
   });
 
   it('空字节经组合入口同样抛错', async () => {

@@ -39,6 +39,8 @@ export const DOCUMENT_ISSUE_CODES = {
   INVALID_ATTR_VALUE: 'invalid-attr-value',
   /** 标记出现在非文本节点上 */
   MARK_ON_CONTAINER: 'mark-on-container',
+  /** 索引词标记缺少非空 term */
+  INVALID_INDEX_TERM: 'invalid-index-term',
   /** schemaVersion 与期望不一致 */
   SCHEMA_VERSION_MISMATCH: 'schema-version-mismatch',
 } as const;
@@ -329,6 +331,21 @@ export function validateDocument(
               unknownSeverity,
               nodeId,
             );
+            return;
+          }
+          /* 索引词必须能落到一个非空词条，否则书末索引会出现空条目 */
+          if (markType === MARK_TYPES.INDEX_TERM) {
+            const attrs = isPlainObject(mark) ? mark.attrs : undefined;
+            const term = isPlainObject(attrs) ? attrs['term'] : undefined;
+            if (typeof term !== 'string' || term.trim() === '') {
+              push(
+                DOCUMENT_ISSUE_CODES.INVALID_INDEX_TERM,
+                `${path}.marks[${index}].attrs.term`,
+                '索引词标记必须提供非空 term：请在标注时指定词条或让 term 取选中文本。',
+                'error',
+                nodeId,
+              );
+            }
           }
         });
       }

@@ -119,6 +119,14 @@ export const MARK_TYPES = {
    * 供注文末的回跳链接使用）。
    */
   NOTE_REF: 'noteref',
+  /**
+   * 索引词（书末索引条目的采集来源）
+   *
+   * 作为**标记**而非节点：索引是对既有文字的语义覆盖，加节点会破坏选区、
+   * 既有编辑命令与无损往返。attrs：`term`（索引词，缺省取选中文本）、
+   * `sortKey`（可选排序键，如手填拼音 / 笔画序）。
+   */
+  INDEX_TERM: 'index-term',
 } as const;
 
 /** 标记类型联合（由 MARK_TYPES 推导） */

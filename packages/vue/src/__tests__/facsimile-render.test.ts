@@ -70,7 +70,7 @@ function bookCss(): string {
 }
 
 describe('BtBookView：古籍仿真直排', () => {
-  it('注入版框 / 界行样式，并按页渲染版心（书名 / 篇卷 / 叶次）', () => {
+  it('注入版框 / 界行样式，并按模板字段渲染版心（书名 / 卷次 / 叶次）', () => {
     const reader = createReader(PRESET.layout);
     const wrapper = mount(BtBookView, { props: { reader, tokens: FAC_TOKENS } });
 
@@ -78,8 +78,9 @@ describe('BtBookView：古籍仿真直排', () => {
     expect(gutter.exists()).toBe(true);
     expect(gutter.attributes('data-side')).toBe('left');
     expect(gutter.attributes('data-mouth')).toBe('white');
+    /* K5：song-zhe 模板字段为 书名 / 卷次 / 叶次，卷次取自 volume 祖先 */
     const fields = wrapper.findAll('.bt-page-gutter__field').map((node) => node.text());
-    expect(fields).toEqual(['论语', '学而第一', '一']);
+    expect(fields).toEqual(['论语', '卷一', '一']);
     /* 单鱼尾 */
     expect(wrapper.findAll('.bt-page-gutter__fish')).toHaveLength(1);
 

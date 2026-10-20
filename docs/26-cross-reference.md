@@ -85,7 +85,26 @@ EPUB / 站点导出的推荐顺序：
 
 注意：**先解引用再序列化**，否则占位符会被转义。
 
-## 五、常见错误
+## 五、索引词与书末索引附录（K4）
+
+对选中文字套用 `index-term` 标记（编辑器命令 `toggleIndexTerm(term?)`，
+缺省以选中文本为词条；`sortKey` 可手工指定拼音 / 笔画序），采集与附录在
+`@bibliotype/core`（导出器只依赖 core，故放 IR 层）：
+
+- `collectIndexTerms(document)`：按文档顺序收集 `term / sortKey / blockId`；
+- `buildIndexEntries(document, pageNumbers?, options?)`：按词条分组，页码
+  去重排序、连续页合并为区间（`3, 5–7`），记录首个命中块作回跳锚点；
+  排序缺省 `localeCompare('zh-Hans-CN-u-co-pinyin')`，无 ICU 退化为码位序
+  （确定性），可用 `options.compare` 覆盖；
+- `buildIndexAppendix(entries, options)`：生成 `appendix` 节点（标题「索引」
+  + 条目段落 + 回跳 `link` 标记）；`showPageNumbers: false` 时只出词条链接
+  （EPUB 无固定页码即用此模式），`hrefFor` 控制链接地址。
+
+`exportEpub` 缺省自动追加索引章（`includeIndex: false` 关闭），跨文件链接
+由导出器按「块 id → 文件」映射生成；站点 / PDF 直接把附录节点排进 IR 即可，
+三端共用同一份采集结果。分页重排后重新执行「两遍排版 + 采集」页码即更新。
+
+## 六、常见错误
 
 | 现象 | 根因 | 处理 |
 | --- | --- | --- |

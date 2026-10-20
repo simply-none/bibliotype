@@ -53,6 +53,13 @@ export const BUILTIN_MIGRATIONS: readonly MigrationStep[] = [
     // 无需改写：columns 缺省视为 1，页眉页脚与条件内容为可选新增，旧结构天然合法。
     migrate: (document) => document,
   },
+  {
+    from: '0.2.0',
+    to: '0.3.0',
+    description: '0.3.0 引入索引词标记 index-term：纯新增标记，旧文档无需改写。',
+    // 无需改写：未使用索引词的文档结构不变；新增标记向后兼容。
+    migrate: (document) => document,
+  },
 ];
 
 /** 迁移选项 */

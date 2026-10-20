@@ -77,6 +77,8 @@ export interface ResolvePageChromeInput {
   bookTitle: string;
   /** 该页章名（`chapterTitle` 字段；缺省空串） */
   chapterTitle: string;
+  /** 该页所在卷名（`volumeTitle` 字段；缺省空串） */
+  volumeTitle?: string;
   /** 已格式化的页码（`pageNumber` 字段，含中文 / 罗马数字样式） */
   pageNumberText: string;
 }
@@ -91,6 +93,8 @@ function fieldText(
       return input.bookTitle;
     case 'chapterTitle':
       return input.chapterTitle;
+    case 'volumeTitle':
+      return input.volumeTitle ?? '';
     case 'pageNumber':
       return input.pageNumberText;
     default:
@@ -130,6 +134,22 @@ export function resolveChapterTitleForNode(root: BookNode, id: string): string {
 }
 
 /**
+ * 取某节点最近的卷名（版心 / 页眉 `volumeTitle` 字段）
+ *
+ * 只认 `volume` 节点：卷以下是章 / 节，不能把章名当卷次；无卷的扁平书返回空串。
+ */
+export function resolveVolumeTitleForNode(root: BookNode, id: string): string {
+  const trail = findNodeTrail(root, id);
+  for (let i = trail.length - 1; i >= 0; i -= 1) {
+    const node = trail[i];
+    if (node === undefined || node.type !== NODE_TYPES.VOLUME) continue;
+    const title = resolveNodeTitle(node).trim();
+    if (title !== '') return title;
+  }
+  return '';
+}
+
+/**
  * 该节点是否位于封面子树内
  *
  * 封面页按书籍惯例不标页码 / 页眉页脚（与 BtBookView 的既有判定同义，
@@ -149,6 +169,8 @@ export function isNodeInCover(root: BookNode, id: string): boolean {
 export interface PageChromeIndex {
   /** 块 id → 最近的卷 / 章 / 节 / 标题祖先标题（无命中为空串） */
   chapterTitles: Map<string, string>;
+  /** 块 id → 最近的 `volume` 祖先标题（无卷为空串） */
+  volumeTitles: Map<string, string>;
   /** 位于封面子树内的块 id 集合（封面不标页码 / 页眉页脚） */
   coverBlocks: Set<string>;
 }
@@ -161,23 +183,36 @@ export interface PageChromeIndex {
  */
 export function buildPageChromeIndex(root: BookNode): PageChromeIndex {
   const chapterTitles = new Map<string, string>();
+  const volumeTitles = new Map<string, string>();
   const coverBlocks = new Set<string>();
-  const walk = (node: BookNode, path: string, inherited: string, inCover: boolean): void => {
+  const walk = (
+    node: BookNode,
+    path: string,
+    inherited: string,
+    inheritedVolume: string,
+    inCover: boolean,
+  ): void => {
     const cover = inCover || node.type === NODE_TYPES.COVER;
     let current = inherited;
+    let currentVolume = inheritedVolume;
     if (CHAPTER_LIKE_TYPES.has(node.type)) {
       const title = resolveNodeTitle(node).trim();
       if (title !== '') current = title;
     }
+    if (node.type === NODE_TYPES.VOLUME) {
+      const title = resolveNodeTitle(node).trim();
+      if (title !== '') currentVolume = title;
+    }
     const id = node.id ?? path;
     chapterTitles.set(id, current);
+    volumeTitles.set(id, currentVolume);
     if (cover) coverBlocks.add(id);
     const children = (node.children ?? []).filter((child) => !isTextNode(child));
     for (let i = 0; i < children.length; i += 1) {
       const child = children[i];
-      if (child !== undefined) walk(child, `${path}/${i}`, current, cover);
+      if (child !== undefined) walk(child, `${path}/${i}`, current, currentVolume, cover);
     }
   };
-  walk(root, '', '', false);
-  return { chapterTitles, coverBlocks };
+  walk(root, '', '', '', false);
+  return { chapterTitles, volumeTitles, coverBlocks };
 }

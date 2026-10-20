@@ -226,6 +226,19 @@ EPUB 2（`version: '2.0'`）另输出 `<guide>`：`toc` 指向 `nav.xhtml`、`te
 
 `bt-validate-epub <file.epub> [--json] [--max-section-bytes=<n>]`：解包后复用 `validateEpub`（epubcheck 规则子集）。退出码 `0` 无 error、`1` 存在 error、`2` 用法 / 读取 / 解包失败。CI 在 build 后对合法样本与损坏文件各跑一次（见 [12](12-release-and-ci.md)）。
 
+## 索引与附录（K4 / K2）
+
+- **索引章**：文档含 `index-term` 标记时，`exportEpub` 缺省在书末追加
+  「索引」章（`includeIndex: false` 关闭，`indexTitle` 改标题）。EPUB 无
+  固定页码，条目以词条链接回跳正文锚点，跨文件地址由导出器按
+  「块 id → XHTML 文件」映射生成。
+- **印章**：EPUB 3 内联 SVG 印谱；EPUB 2 自动关闭 SVG
+  （`inlineSealSvg: false`），退化为文字方框印章，不打包位图。
+- **调用方附录**：`appendices: readonly BookNode[]` 可追加任意书末章节
+  （如 `buildCollationSummary` 的校勘汇总表）；其中 `href="#id"` 锚点会被
+  自动改写为 `text/sec-N.xhtml#id` 跨文件地址，未命中的保持原样。
+  附录发生在导出期，不改动原文档。
+
 ## 分卷导出与前置页（E2 / E4）
 
 - `exportEpubVolumes(doc, options)` 返回 `{ name, index, bytes }[]`：按顶层 `volume` 切分，每卷独立 OPF / nav / ncx / spine；卷后散块归入当前卷，首个卷前的封面 / 前置页只随首卷导出。

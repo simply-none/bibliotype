@@ -27,20 +27,41 @@ export function serializePageGutter(
 
   const fields = gutter.fields
     .map((field) => {
-      const text = field === 'none' ? '' : texts[field].trim();
+      const raw = field === 'none' ? '' : (texts[field] ?? '');
+      const text = raw.trim();
       if (text === '') return '';
       return `<div class="bt-page-gutter__field" data-field="${field}">${escapeHtml(text)}</div>`;
     })
     .filter((item) => item !== '');
   if (fields.length === 0) return '';
 
+  /*
+   * 鱼尾按字段序列分段定位（K5）：把可见字段均分为 fishCount+1 段，鱼尾落在
+   * 段与段之间，而不是一律堆到末尾——模板字段顺序变了（如卷次替代篇卷），
+   * 鱼尾仍处在版心的视觉中点 / 三分点。
+   */
   const fishCount = gutter.fishTail === 'double' ? 2 : gutter.fishTail === 'single' ? 1 : 0;
-  const fish = Array.from({ length: fishCount }, () => '<i class="bt-page-gutter__fish"></i>').join(
-    '',
-  );
+  const fishAfter = new Set<number>();
+  let previous = 0;
+  for (let index = 1; index <= fishCount; index += 1) {
+    /* 保证双鱼尾不会落到同一段（字段很少时允许两者都在末尾） */
+    const boundary = Math.max(
+      Math.round((fields.length * index) / (fishCount + 1)),
+      previous + 1,
+    );
+    const clamped = Math.min(boundary, fields.length);
+    fishAfter.add(clamped);
+    previous = clamped;
+  }
+
+  let body = '';
+  fields.forEach((field, index) => {
+    body += field;
+    if (fishAfter.has(index + 1)) body += '<i class="bt-page-gutter__fish"></i>';
+  });
 
   return (
     `<div class="bt-page-gutter" data-side="${gutter.side}" data-mouth="${gutter.mouth}" data-fish="${gutter.fishTail}">` +
-    `${fields.join('')}${fish}</div>`
+    `${body}</div>`
   );
 }

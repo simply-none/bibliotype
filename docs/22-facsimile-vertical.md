@@ -104,7 +104,18 @@ interface FacsimileOptions {
 
 模板令牌由 `resolveFacsimilePreset(id).tokens` **派生**合并（`theme.tokens → preset.tokens → tokenPatch → night`），不写入令牌补丁——因此从仿真切回「古籍直排」不会残留纸色 / 字体 / 框色。Demo 侧把这段规则收在 `apps/demo/src/facsimile-theme.ts` 的纯函数里（`resolveActiveFacsimilePreset` / `resolveFacsimilePresetTokens` / `resolveActiveFontToken`），布局与字体同源派生，便于单测。
 
-## 7. 已知限制
+## 7. 版心字段与卷次自动化（K5）
+
+- 每套模板在 `facsimile-presets.ts` 显式声明 `gutter.fields`（字段序列，
+  取值 `bookTitle` / `volumeTitle` / `chapterTitle` / `pageNumber`），
+  缺省回退 `DEFAULT_GUTTER_FIELDS`（书名 / 篇卷 / 叶次），非仿真路径零变化；
+- 卷次由 `reader` 自动推导：取页首块的最近 `volume` 祖先标题
+  （`resolveVolumeTitleForNode`），调用方也可显式传入 `volumeTitle`；
+- 鱼尾按字段序列**分段定位**：可见字段被均分为「鱼尾数 + 1」段，鱼尾落在
+  段间（双鱼尾不重叠），模板字段顺序变化时鱼尾仍处在版心的视觉中点 / 三分点；
+- `PageGutterTexts.volumeTitle` 为可选字段，旧调用方省略时输出为空串。
+
+## 8. 已知限制
 
 1. **字体**：仓库不打包字体文件，模板只给系统字体栈，缺失回退 `Noto Serif CJK SC` / `serif`；
 2. **版框双边**用 CSS `border-style: double` 绘制（≥3px 才出双线），三段等分，不严格等于「外 2px / 间距 3px / 内 1px」的令牌比例——令牌只决定总厚度；

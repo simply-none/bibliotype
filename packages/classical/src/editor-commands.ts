@@ -25,7 +25,7 @@ import {
   replaceSelectionWithContainer,
   toggleMarkOfType,
 } from '@bibliotype/editor';
-import type { Attrs } from 'prosemirror-model';
+import type { Attrs, Node as PmNode } from 'prosemirror-model';
 import type { Command } from 'prosemirror-state';
 import { CLASSICAL_MARK_TYPES, type ClassicalMarkType } from './mark-types.js';
 import { CLASSICAL_NODE_TYPES } from './node-types.js';
@@ -113,14 +113,151 @@ export function insertHeadNote(): Command {
     insertBlockAfterSelection(state.schema, CLASSICAL_NODE_TYPES.HEAD_NOTE)(state, dispatch, view);
 }
 
-/** 在当前叶块之后插入校勘记 */
+/** 扫描现有校勘记编号，返回下一个可用序号（忽略非数字 marker） */
+function nextCollationMarker(doc: PmNode): number {
+  let maximum = 0;
+  doc.descendants((node) => {
+    if (node.type.name !== CLASSICAL_NODE_TYPES.COLLATION_NOTE) return true;
+    const marker = node.attrs['marker'];
+    if (typeof marker === 'number' && Number.isFinite(marker) && marker > maximum) {
+      maximum = Math.round(marker);
+    }
+    return true;
+  });
+  return maximum + 1;
+}
+
+/** 在当前叶块之后插入校勘记（自动取号，编号在文档内唯一递增） */
 export function insertCollationNote(): Command {
   return (state, dispatch, view) =>
-    insertBlockAfterSelection(state.schema, CLASSICAL_NODE_TYPES.COLLATION_NOTE)(
-      state,
-      dispatch,
-      view,
-    );
+    insertBlockAfterSelection(state.schema, CLASSICAL_NODE_TYPES.COLLATION_NOTE, {
+      marker: nextCollationMarker(state.doc),
+    })(state, dispatch, view);
+}
+
+/**
+ * 按文档顺序重排校勘记编号（1…n）
+ *
+ * 删除 / 移动校勘记后编号会出现空档，本命令一次性压缩；单事务、可撤销。
+ * 已经连续时返回 false（不产生空事务）。
+ */
+export function renumberCollationNotes(): Command {
+  return (state, dispatch) => {
+    const targets: Array<{ pos: number; marker: number }> = [];
+    let index = 0;
+    state.doc.descendants((node, pos) => {
+      if (node.type.name !== CLASSICAL_NODE_TYPES.COLLATION_NOTE) return true;
+      index += 1;
+      if (node.attrs['marker'] !== index) targets.push({ pos, marker: index });
+      return true;
+    });
+    if (targets.length === 0) return false;
+
+    const tr = state.tr;
+    for (const target of targets) {
+      const node = tr.doc.nodeAt(target.pos);
+      if (node === null) continue;
+      tr.setNodeMarkup(target.pos, undefined, { ...node.attrs, marker: target.marker });
+    }
+    dispatch?.(tr);
+    return true;
+  };
+}
+
+/** 在文档中定位带 id 的块 */
+function locateBlock(doc: PmNode, id: string): { pos: number; node: PmNode } | undefined {
+  let found: { pos: number; node: PmNode } | undefined;
+  doc.descendants((node, pos) => {
+    if (found !== undefined) return false;
+    if (!node.isText && node.attrs['id'] === id) {
+      found = { pos, node };
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+/** 已用配对 id 集合 */
+function collectPairIds(doc: PmNode): Set<string> {
+  const used = new Set<string>();
+  doc.descendants((node) => {
+    if (node.type.name === CLASSICAL_NODE_TYPES.COLLATION_MARK) {
+      const pairId = node.attrs['pairId'];
+      if (typeof pairId === 'string' && pairId !== '') used.add(pairId);
+    }
+    return true;
+  });
+  return used;
+}
+
+/** 生成确定性配对 id（`pair-1`…，不读时间） */
+function nextPairId(doc: PmNode): string {
+  const used = collectPairIds(doc);
+  let index = used.size + 1;
+  while (used.has(`pair-${index}`)) index += 1;
+  return `pair-${index}`;
+}
+
+/**
+ * 绑定底本 / 校本段落
+ *
+ * 给两个块内的所有 `collation-mark` 写入同一 `pairId`，并分别标 `role`
+ * （base / variant）；重复配对时先清除旧配对再写新值。单事务、可撤销。
+ *
+ * @param baseBlockId 底本段落块 id
+ * @param variantBlockId 校本段落块 id
+ */
+export function pairCollation(baseBlockId: string, variantBlockId: string): Command {
+  return (state, dispatch) => {
+    if (baseBlockId === variantBlockId) return false;
+    const base = locateBlock(state.doc, baseBlockId);
+    const variant = locateBlock(state.doc, variantBlockId);
+    if (base === undefined || variant === undefined) return false;
+
+    const pairId = nextPairId(state.doc);
+    const tr = state.tr;
+    let changed = false;
+
+    const assign = (target: { pos: number; node: PmNode }, role: 'base' | 'variant'): void => {
+      target.node.descendants((child, offset) => {
+        if (child.type.name !== CLASSICAL_NODE_TYPES.COLLATION_MARK) return true;
+        tr.setNodeMarkup(target.pos + 1 + offset, undefined, {
+          ...child.attrs,
+          pairId,
+          role,
+        });
+        changed = true;
+        return true;
+      });
+    };
+
+    assign(base, 'base');
+    assign(variant, 'variant');
+    if (!changed) return false;
+    dispatch?.(tr);
+    return true;
+  };
+}
+
+/** 解除配对（清除该 pairId 上所有标记的配对与角色） */
+export function unpairCollation(pairId: string): Command {
+  return (state, dispatch) => {
+    const trimmed = pairId.trim();
+    if (trimmed === '') return false;
+    const tr = state.tr;
+    let changed = false;
+    state.doc.descendants((node, pos) => {
+      if (node.type.name !== CLASSICAL_NODE_TYPES.COLLATION_MARK) return true;
+      if (node.attrs['pairId'] !== trimmed) return true;
+      tr.setNodeMarkup(pos, undefined, { ...node.attrs, pairId: null, role: null });
+      changed = true;
+      return true;
+    });
+    if (!changed) return false;
+    dispatch?.(tr);
+    return true;
+  };
 }
 
 /** 在当前叶块之后插入跋文 */

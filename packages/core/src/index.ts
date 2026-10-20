@@ -27,6 +27,18 @@ export type {
 } from './ir/metadata.js';
 export type { BookDocument } from './ir/document.js';
 export { IR_SCHEMA_VERSION, createEmptyDocument, isBookDocument } from './ir/document.js';
+export {
+  buildIndexAppendix,
+  buildIndexEntries,
+  collectIndexTerms,
+  formatIndexRanges,
+} from './ir/index-terms.js';
+export type {
+  BuildIndexAppendixOptions,
+  BuildIndexEntriesOptions,
+  IndexEntry,
+  IndexTermOccurrence,
+} from './ir/index-terms.js';
 
 /* ---------- 锚点（跨能力的位置契约） ---------- */
 export { ANCHOR_TYPES, ANCHOR_PREFIX } from './ir/anchor.js';

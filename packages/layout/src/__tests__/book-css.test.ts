@@ -102,7 +102,7 @@ describe('buildBookCss', () => {
     expect(css).toContain('.bt-inline-note');
     expect(css).toContain('.bt-variant-char');
     expect(css).toContain('.bt-seal');
-    expect(css).toContain('.bt-seal::after');
+    expect(css).toContain('.bt-seal:empty::after');
     expect(css).toContain('content: attr(data-text);');
     expect(css).toContain('.bt-fish-tail');
     expect(css).toContain('.bt-fish-tail::after');

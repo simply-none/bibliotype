@@ -46,6 +46,7 @@ export type {
   PageChromeIndex,
   ResolvedPageChromeFields,
   ResolvePageChromeInput,
+  resolveVolumeTitleForNode,
 } from './page-chrome.js';
 
 /* ---------- 版心（书口） ---------- */

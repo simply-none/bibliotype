@@ -71,6 +71,7 @@ export {
 export type { FragSel, CaretTarget } from './paged-editor/input-router.js';
 
 export { default as BtBookView } from './components/BtBookView.vue';
+export { default as BtCollationCompare } from './components/BtCollationCompare.vue';
 export { default as BtPager } from './components/BtPager.vue';
 export { default as BtToc } from './components/BtToc.vue';
 export { default as BtTocItem } from './components/BtTocItem.vue';

@@ -85,6 +85,6 @@ describe('htmlToBookDocument', () => {
   it('metadata 原样注入，schemaVersion 固定', () => {
     const doc = htmlToBookDocument('<p>正文</p>', schema, metadata);
     expect(doc.metadata).toEqual(metadata);
-    expect(doc.schemaVersion).toBe('0.2.0');
+    expect(doc.schemaVersion).toBe('0.3.0');
   });
 });

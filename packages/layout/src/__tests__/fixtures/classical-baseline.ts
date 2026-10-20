@@ -45,8 +45,12 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-20 六次更新：新增页底注区样式 `.bt-page-notes` / `.bt-page-note` /
  * `.bt-note-continued`（与正文等宽、分隔线、续注标记），样式表全文变化，基线重锁。
+ *
+ * 2026-10-20 八次更新（K4/K5）：新增索引词 `.bt-mark-index-term`（点线下标，仅在
+ * 文档含索引词时命中）；`.bt-seal` 改为「内联 SVG 印谱 + `:empty` 文字兜底」结构
+ * （无印章文档渲染不受影响），样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '6c43324c';
+export const CLASSICAL_CSS_FNV = 'f73062ea';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

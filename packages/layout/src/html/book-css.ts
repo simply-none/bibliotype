@@ -512,18 +512,32 @@ ${scoped('.bt-inline-note')} {
   font-size: 0.85em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
+/* 索引词：点线下标，阅读态可见但不打断行款（打印可选中隐藏，由导出侧决定） */
+${scoped('.bt-mark-index-term')} {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
 ${scoped('.bt-variant-char')} {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
 }
 ${scoped('.bt-seal')} {
   display: inline-block;
+  line-height: 1;
+}
+/* 内联 SVG 印谱：随字号缩放，基线下沉一点与正文对齐 */
+${scoped('.bt-seal > svg')} {
+  display: block;
+  width: 1.6em;
+  height: 1.6em;
+}
+/* 兜底（EPUB2 / 关闭 SVG）：空载体回退为文字方框印章 */
+${scoped('.bt-seal:empty')} {
   padding: 0.1em 0.3em;
   border: 1px solid currentColor;
   border-radius: 2px;
-  line-height: 1;
 }
-${scoped('.bt-seal::after')} {
+${scoped('.bt-seal:empty::after')} {
   content: attr(data-text);
 }
 ${scoped('.bt-fish-tail')} {

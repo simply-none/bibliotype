@@ -353,6 +353,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
         chrome,
         pageIndex: i,
         bookTitle: bookTitle.value,
+        volumeTitle: index?.volumeTitles.get(firstId) ?? '',
         chapterTitle: index?.chapterTitles.get(firstId) ?? '',
         pageNumberText: numberText,
       });
@@ -366,6 +367,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
         ? undefined
         : resolvePageGutterTexts({
             bookTitle: bookTitle.value,
+            volumeTitle: gutterIndex.value?.volumeTitles.get(firstId) ?? '',
             chapterTitle: gutterIndex.value?.chapterTitles.get(firstId) ?? '',
             pageNumberText: numberText,
           });

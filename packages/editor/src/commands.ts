@@ -398,6 +398,48 @@ export function setMarkAttrs(markName: string, patch: Attrs): Command {
   };
 }
 
+/**
+ * 切换索引词标注
+ *
+ * - 非空选区：以选中文本为缺省 `term`，已有同词条标记时取消、否则写入；
+ * - 空选区 / 选中文本为空 / 未指定 term：返回 false（索引词必须可落到非空条目）。
+ *
+ * `sortKey` 缺省为 null，采集时回退到 `term`；需要拼音 / 笔画序时用
+ * `setMarkAttrs(MARK_TYPES.INDEX_TERM, { sortKey })` 手工指定。
+ */
+export function toggleIndexTerm(term?: string): Command {
+  return (state, dispatch) => {
+    const type = state.schema.marks[MARK_TYPES.INDEX_TERM];
+    if (type === undefined) return false;
+    const { from, to, empty } = state.selection;
+    if (empty || from === to) return false;
+
+    const selected = state.doc.textBetween(from, to, ' ').trim();
+    const value = (term ?? selected).trim();
+    if (value === '') return false;
+
+    /* 选区起点可能落在文本前缘（resolve().marks() 为空），故扫描整段文本判断 */
+    let hasSameTerm = false;
+    state.doc.nodesBetween(from, to, (node) => {
+      if (!node.isText) return true;
+      if (node.marks.some((mark) => mark.type === type && mark.attrs['term'] === value)) {
+        hasSameTerm = true;
+        return false;
+      }
+      return true;
+    });
+
+    if (dispatch !== undefined) {
+      const tr = state.tr.removeMark(from, to, type);
+      if (!hasSameTerm) {
+        tr.addMark(from, to, type.create({ term: value, sortKey: null }));
+      }
+      dispatch(tr.scrollIntoView());
+    }
+    return true;
+  };
+}
+
 /* ---------- 命名样式（Word 式 styleId） ---------- */
 
 /**

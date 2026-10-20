@@ -45,7 +45,7 @@ describe('BookEditor', () => {
     expect(doc.root.type).toBe(NODE_TYPES.BOOK);
     // 空内容节点规范化为省略 children 字段
     expect(doc.root.children).toBeUndefined();
-    expect(doc.schemaVersion).toBe('0.2.0');
+    expect(doc.schemaVersion).toBe('0.3.0');
   });
 
   it('loadDocument → getDocument 往返一致', () => {

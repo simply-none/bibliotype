@@ -18,5 +18,15 @@ export {
 } from './theme.js';
 export type { ClassicalThemeToken } from './theme.js';
 
+/* ---------- 校勘汇总表（K2） ---------- */
+export {
+  buildCollationSummary,
+  collectCollationEntries,
+} from './collation-summary.js';
+export type {
+  CollationSummaryEntry,
+  CollationSummaryOptions,
+} from './collation-summary.js';
+
 /* ---------- 插件 ---------- */
 export { createClassicalPlugin, CLASSICAL_PLUGIN_NAME } from './plugin.js';

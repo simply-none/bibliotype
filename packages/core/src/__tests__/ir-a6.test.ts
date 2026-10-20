@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { NODE_TYPES } from '../ir/node-types.js';
-import { createEmptyDocument } from '../ir/document.js';
+import { IR_SCHEMA_VERSION, createEmptyDocument } from '../ir/document.js';
 import type { BookDocument } from '../ir/document.js';
 import { DOCUMENT_ISSUE_CODES, validateDocument } from '../ir/validate.js';
 import { migrateDocument } from '../ir/migrate.js';
@@ -90,13 +90,14 @@ describe('A6 结构校验', () => {
 });
 
 describe('A6 迁移', () => {
-  it('0.1.0 → 0.2.0 单步迁移且旧结构保持合法', () => {
+  it('0.1.0 迁移到当前版本且旧结构保持合法', () => {
     const legacy: BookDocument = { ...createEmptyDocument({ title: '旧书' }), schemaVersion: '0.1.0' };
     const result = migrateDocument(legacy);
-    expect(result.applied).toHaveLength(1);
+    expect(result.applied).toHaveLength(2);
     expect(result.applied[0]?.from).toBe('0.1.0');
-    expect(result.toVersion).toBe('0.2.0');
-    expect(result.document.schemaVersion).toBe('0.2.0');
+    expect(result.applied[1]?.from).toBe('0.2.0');
+    expect(result.toVersion).toBe(IR_SCHEMA_VERSION);
+    expect(result.document.schemaVersion).toBe(IR_SCHEMA_VERSION);
     expect(result.issues.filter((issue) => issue.severity === 'error')).toHaveLength(0);
   });
 });

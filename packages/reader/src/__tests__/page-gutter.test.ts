@@ -69,7 +69,12 @@ describe('resolvePageGutterTexts', () => {
         chapterTitle: '\t学而第一\n',
         pageNumberText: ' 七 ',
       }),
-    ).toEqual({ bookTitle: '论语', chapterTitle: '学而第一', pageNumber: '七' });
+    ).toEqual({
+      bookTitle: '论语',
+      volumeTitle: '',
+      chapterTitle: '学而第一',
+      pageNumber: '七',
+    });
   });
 });
 
@@ -106,6 +111,7 @@ describe('Reader.getPageGutterTexts', () => {
     expect(reader.getPageGutterTexts(0)).toBeUndefined();
     expect(reader.getPageGutterTexts(1)).toEqual({
       bookTitle: '论语',
+      volumeTitle: '卷一',
       chapterTitle: '学而第一',
       pageNumber: '二',
     });

@@ -48,7 +48,17 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   {
     type: CLASSICAL_NODE_TYPES.COLLATION_NOTE,
     namespace: ns,
-    spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS },
+    spec: {
+      group: 'block',
+      content: 'block+',
+      attrs: {
+        ...COMMON_NODE_ATTRS,
+        /** 校勘记编号（独立序列，`insertCollationNote` 自动取号） */
+        marker: { default: null },
+        /** 所在对照配对（与 `collation-mark.pairId` 同值） */
+        pairId: { default: null },
+      },
+    },
   },
   {
     type: CLASSICAL_NODE_TYPES.COLLATION_MARK,
@@ -58,7 +68,14 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       inline: true,
       content: '',
       atom: true,
-      attrs: { ...COMMON_NODE_ATTRS, symbol: { default: null } },
+      attrs: {
+        ...COMMON_NODE_ATTRS,
+        symbol: { default: null },
+        /** 对照配对 id（同一配对的底本 / 校本互指） */
+        pairId: { default: null },
+        /** 底本 / 校本角色（`base` / `variant`） */
+        role: { default: null },
+      },
     },
   },
 
@@ -93,7 +110,16 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       inline: true,
       content: '',
       atom: true,
-      attrs: { ...COMMON_NODE_ATTRS, text: { default: null } },
+      attrs: {
+        ...COMMON_NODE_ATTRS,
+        text: { default: null },
+        /** 朱文 / 白文（缺省朱文） */
+        style: { default: null },
+        /** 方印回文 / 竖排（缺省方印） */
+        layout: { default: null },
+        /** 边框粗细（缺省 thick） */
+        border: { default: null },
+      },
     },
   },
   {

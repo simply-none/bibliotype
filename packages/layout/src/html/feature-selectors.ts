@@ -59,6 +59,7 @@ const FEATURE_SELECTORS: Readonly<Record<FeatureStyleId, string>> = {
   'mark.link': '.bt-mark-link',
   // 注音的实际排版对象是注文（`<rt>`），基字样式由正文字体链决定
   'mark.ruby': 'ruby > rt',
+  'mark.index-term': '.bt-mark-index-term',
 
   /* ---------- 古籍标记 ---------- */
   'mark.proper-name': '.bt-mark-proper-name',

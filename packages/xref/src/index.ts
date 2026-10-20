@@ -27,6 +27,14 @@ export {
   deserializePageIndex,
 } from './build.js';
 
+/* ---------- 索引词（K4） ---------- */
+export {
+  buildIndexAppendix,
+  buildIndexEntriesFromPageIndex,
+  collectIndexTerms,
+  formatIndexRanges,
+} from './index-terms.js';
+
 /* ---------- 登记表 ---------- */
 export { XREF_SCHEMA_VERSION, CrossReferenceRegistry } from './registry.js';
 export type { CrossReferenceSet } from './registry.js';

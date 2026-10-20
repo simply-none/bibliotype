@@ -131,6 +131,8 @@ export const DEFAULT_GUTTER_FIELDS: readonly PageChromeField[] = [
 export interface PageGutterTexts {
   /** 书名 */
   bookTitle: string;
+  /** 卷次（所在 `volume` 的标题；无卷为空串；旧调用方可省略） */
+  volumeTitle?: string;
   /** 篇卷 / 章名 */
   chapterTitle: string;
   /** 叶次（已格式化页码） */

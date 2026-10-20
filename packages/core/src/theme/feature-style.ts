@@ -63,6 +63,7 @@ export const FEATURE_STYLE_IDS = [
   'mark.code',
   'mark.link',
   'mark.ruby',
+  'mark.index-term',
 
   /* ---------- 行内标记：古籍 ---------- */
   'mark.proper-name',
@@ -170,6 +171,7 @@ export const FEATURE_STYLE_META: Readonly<Record<FeatureStyleId, Omit<FeatureSty
   'mark.code': { label: '行内代码', group: 'text' },
   'mark.link': { label: '链接', group: 'text' },
   'mark.ruby': { label: '注音', group: 'text' },
+  'mark.index-term': { label: '索引词', group: 'text' },
 
   'mark.proper-name': { label: '专名号', group: 'mark-classical', classical: true },
   'mark.book-title': { label: '书名号', group: 'mark-classical', classical: true },

@@ -52,7 +52,7 @@ describe('epubToBookDocument', () => {
   it('metadata 原样注入、schemaVersion 固定（确定性红线）', () => {
     const doc = epubToBookDocument(sampleBytes, schema, { title: '导入' });
     expect(doc.metadata).toEqual({ title: '导入' });
-    expect(doc.schemaVersion).toBe('0.2.0');
+    expect(doc.schemaVersion).toBe('0.3.0');
   });
 
   it('空字节 → 抛出指向明确的 RangeError', () => {

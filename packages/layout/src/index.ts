@@ -101,6 +101,10 @@ export {
 } from './facsimile-presets.js';
 export type { FacsimilePreset } from './facsimile-presets.js';
 
+/* ---------- 印章印谱 SVG（K5） ---------- */
+export { renderSealSvg } from './svg/seal.js';
+export type { SealBorder, SealLayout, SealStyle, SealSvgOptions } from './svg/seal.js';
+
 /* ---------- 排版度量签名（决定是否需要重新分页） ---------- */
 export { computeMetricsSignature } from './metrics-signature.js';
 export type { MetricsSignatureInput } from './metrics-signature.js';

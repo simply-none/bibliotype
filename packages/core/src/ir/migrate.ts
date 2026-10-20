@@ -43,8 +43,17 @@ export class MigrationPathError extends Error {
   }
 }
 
-/** 内置迁移步骤（0.1.0 为当前基线，历史步骤按需追加） */
-export const BUILTIN_MIGRATIONS: readonly MigrationStep[] = [];
+/** 内置迁移步骤（0.1.0 → 0.2.0 为 A6 契约升级，后续步骤按需追加） */
+export const BUILTIN_MIGRATIONS: readonly MigrationStep[] = [
+  {
+    from: '0.1.0',
+    to: '0.2.0',
+    description:
+      '0.2.0 引入分栏 / 页眉页脚 / 条件内容：缺省 columns=1 为隐式语义，旧文档无需改写。',
+    // 无需改写：columns 缺省视为 1，页眉页脚与条件内容为可选新增，旧结构天然合法。
+    migrate: (document) => document,
+  },
+];
 
 /** 迁移选项 */
 export interface MigrateOptions {

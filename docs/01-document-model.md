@@ -104,3 +104,10 @@ const paragraph: BookNode = {
 - 编辑器如何读写 IR：[02 编辑器与插件](02-editor-and-plugins.md)
 - 阅读器如何分块消费 IR：[04 阅读器与分页](04-reader-and-pagination.md)
 - 包参考：[`@bibliotype/core`](../packages/core/README.md)
+
+## 结构分栏与条件内容（A6，IR 0.2.0）
+
+- `chapter` / `section` 新增可选 `attrs.columns`（1~3，缺省 1 = 单栏）；分栏数变化由分页器开启新页。
+- 新增节点：`page-header` / `page-footer`（book 直接子节点，各至多一个，覆盖派生页眉页脚）、`condition`（`attrs.when` 受控表达式，内容为块级子树）。
+- 条件表达式：`key=value` / `key!=value`，`&` 连接（AND）；求值函数 `evaluateCondition(when, context)`，**缺省上下文保留内容**，非法表达式保守隐藏并由校验报错。
+- `IR_SCHEMA_VERSION` 升至 `0.2.0`；`BUILTIN_MIGRATIONS` 提供 0.1.0 → 0.2.0（无改写，缺省语义向后兼容）。

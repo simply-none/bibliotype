@@ -15,6 +15,7 @@
  * 纯函数、无副作用；不抛错，问题以 issue 列表返回，由调用方决定拦截或告警。
  */
 import { NODE_TYPES, MARK_TYPES } from './node-types.js';
+import { isValidConditionExpression } from './condition.js';
 import type { BookNode } from './nodes.js';
 import type { NodeId } from './types.js';
 
@@ -257,6 +258,46 @@ export function validateDocument(
       }
     }
 
+    /* A6：分栏数只能是 1~3 的整数（0 / 4+ 请在布局选项里配置） */
+    if (node.type === NODE_TYPES.CHAPTER || node.type === NODE_TYPES.SECTION) {
+      const columns = node.attrs?.columns;
+      if (
+        columns !== undefined &&
+        (typeof columns !== 'number' || !Number.isInteger(columns) || columns < 1 || columns > 3)
+      ) {
+        push(
+          DOCUMENT_ISSUE_CODES.INVALID_ATTR_VALUE,
+          `${path}.attrs.columns`,
+          'columns 必须是 1~3 的整数：超出范围的版式请改用布局选项。',
+          'error',
+          nodeId,
+        );
+      }
+    }
+
+    /* A6：条件内容必须有合法表达式且非空 */
+    if (node.type === NODE_TYPES.CONDITION) {
+      const when = node.attrs?.when;
+      if (typeof when !== 'string' || !isValidConditionExpression(when)) {
+        push(
+          DOCUMENT_ISSUE_CODES.INVALID_ATTR_VALUE,
+          `${path}.attrs.when`,
+          'condition.when 必须是合法表达式（如 platform=epub&role=teacher）或空串。',
+          'error',
+          nodeId,
+        );
+      }
+      if (node.children === undefined || node.children.length === 0) {
+        push(
+          DOCUMENT_ISSUE_CODES.INVALID_STRUCTURE,
+          `${path}.children`,
+          'condition 不能为空：请放入至少一个块节点，或删除该容器。',
+          'error',
+          nodeId,
+        );
+      }
+    }
+
     const isLeafText = node.type === NODE_TYPES.TEXT;
 
     if (node.marks !== undefined) {
@@ -350,6 +391,35 @@ export function validateDocument(
     );
   }
   visit(root, 'root');
+
+  /* A6：页眉页脚必须是 book 直接子节点，且每本书各至多一个 */
+  const chromeCounts = new Map<string, number>();
+  const scanChrome = (node: BookNode, depth: number): void => {
+    if (node.type === NODE_TYPES.PAGE_HEADER || node.type === NODE_TYPES.PAGE_FOOTER) {
+      chromeCounts.set(node.type, (chromeCounts.get(node.type) ?? 0) + 1);
+      if (depth !== 1) {
+        push(
+          DOCUMENT_ISSUE_CODES.INVALID_STRUCTURE,
+          `root.${node.type}`,
+          `${node.type} 必须是 book 的直接子节点（每本书至多一个）。`,
+          'error',
+          typeof node.id === 'string' ? node.id : undefined,
+        );
+      }
+    }
+    for (const child of node.children ?? []) scanChrome(child, depth + 1);
+  };
+  scanChrome(root as unknown as BookNode, 0);
+  for (const [type, count] of chromeCounts) {
+    if (count > 1) {
+      push(
+        DOCUMENT_ISSUE_CODES.INVALID_STRUCTURE,
+        `root.${type}`,
+        `${type} 每本书至多一个，实际 ${count} 个。`,
+        'error',
+      );
+    }
+  }
 
   return finish(issues);
 }

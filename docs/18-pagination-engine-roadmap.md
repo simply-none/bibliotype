@@ -57,3 +57,9 @@
 相关实现：`packages/layout/src/paginator.ts`、`packages/reader/src/document-blocks.ts`、
 `packages/vue/src/pagination-measure.ts`、`packages/vue/src/components/BtEditor.vue`、
 `packages/vue/src/components/BtBookView.vue`。
+
+## 分栏与对页（P1-A 已落地）
+
+- 分页容量按 `pageMainSize × columns` 计算，`columns` 来自章节 / 节的 `attrs.columns`（1~3），栏数变化开新页。
+- 多栏量尺按栏宽实测（页宽扣栏间距后均分），不再回退字符估算。
+- 对页（facing）在 `BtBookView` 渲染层实现；PDF 镜像打印与分栏符的列填充重算仍待后续批次。

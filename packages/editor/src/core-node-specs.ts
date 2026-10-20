@@ -21,6 +21,13 @@ export const STRUCTURE_NODE_ATTRS = {
   title: { default: null },
 } as const;
 
+/** 可分栏的结构节点属性（chapter / section；columns 缺省 1 为单栏） */
+export const SECTION_NODE_ATTRS = {
+  ...STRUCTURE_NODE_ATTRS,
+  /** 分栏数（1~3；缺省 1） */
+  columns: { default: 1 },
+} as const;
+
 /** 注释节点属性（脚注 / 尾注 / 边注共用；marker 为显示注码，refId 为正文引用的回跳锚点） */
 export const NOTE_NODE_ATTRS = {
   ...COMMON_NODE_ATTRS,
@@ -63,8 +70,8 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   { type: NODE_TYPES.COPYRIGHT_PAGE, spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS } },
   { type: NODE_TYPES.BACK_COVER, spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS } },
   { type: NODE_TYPES.VOLUME, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
-  { type: NODE_TYPES.CHAPTER, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
-  { type: NODE_TYPES.SECTION, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
+  { type: NODE_TYPES.CHAPTER, spec: { group: 'block', content: 'block*', attrs: SECTION_NODE_ATTRS } },
+  { type: NODE_TYPES.SECTION, spec: { group: 'block', content: 'block*', attrs: SECTION_NODE_ATTRS } },
   { type: NODE_TYPES.APPENDIX, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
   { type: NODE_TYPES.PREFACE, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
   { type: NODE_TYPES.POSTSCRIPT, spec: { group: 'block', content: 'block*', attrs: STRUCTURE_NODE_ATTRS } },
@@ -232,6 +239,24 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       attrs: { ...COMMON_NODE_ATTRS, variant: { default: null } },
       // hr → 分隔线变体
       parseDOM: [{ tag: 'div.bt-break' }, { tag: 'hr', getAttrs: () => ({ variant: 'hr' }) }],
+    },
+  },
+
+  /* ---------- A6：页眉页脚 / 条件内容 ---------- */
+  {
+    type: NODE_TYPES.PAGE_HEADER,
+    spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS },
+  },
+  {
+    type: NODE_TYPES.PAGE_FOOTER,
+    spec: { group: 'block', content: 'block*', attrs: COMMON_NODE_ATTRS },
+  },
+  {
+    type: NODE_TYPES.CONDITION,
+    spec: {
+      group: 'block',
+      content: 'block+',
+      attrs: { ...COMMON_NODE_ATTRS, when: { default: '' } },
     },
   },
 

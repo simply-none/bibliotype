@@ -49,6 +49,8 @@ export {
   resolveAnchor,
 } from './ir/anchor.js';
 export type { ExportComment } from './ir/export-comment.js';
+export { evaluateCondition, isValidConditionExpression } from './ir/condition.js';
+export type { ConditionContext } from './ir/condition.js';
 
 /* ---------- IR 校验与版本迁移 ---------- */
 export { DOCUMENT_ISSUE_CODES, validateDocument } from './ir/validate.js';

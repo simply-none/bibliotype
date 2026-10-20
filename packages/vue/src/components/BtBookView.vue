@@ -50,6 +50,13 @@ const props = withDefaults(
      * 重排（重新量尺）由宿主负责，本组件只做视觉覆盖 + 手势上抛。
      */
     fontSize?: number;
+    /**
+     * 对页模式（仅 page 模式）：single 单页 / facing 左右双页
+     *
+     * facing 下当前页与相邻页成对显示（偶数页在左），缩放宽按双页计算；
+     * 翻页步长仍为 1，跨过页对时整体换对。
+     */
+    spread?: 'single' | 'facing';
   }>(),
   { fit: 'contain', mode: 'page', ariaLabel: '正文阅读区，可用方向键翻页' },
 );
@@ -82,6 +89,99 @@ const pageNodes = computed<readonly BookNode[]>(() => {
   void pagination.value;
   return props.reader.getPageFragments(currentPage.value);
 });
+
+/** 当前页分栏数（1~3；缺省 1） */
+const currentPageColumns = computed(() => {
+  void pagination.value;
+  return props.reader.getPageColumns(currentPage.value);
+});
+
+/**
+ * 页面正文流的分栏样式
+ *
+ * 分页器已按「页容量 × 栏数」装箱，这里只需让 CSS 把整页内容顺序填入各栏；
+ * `column-fill: auto` 保证先填满第一栏再进下一栏（balancing 会把内容均摊，
+ * 与分页器的行级切分不对应）。
+ */
+function flowStyleOf(columns: number): Record<string, string> | undefined {
+  if (columns <= 1) return undefined;
+  return {
+    columnCount: String(columns),
+    columnGap: 'var(--bt-column-gap)',
+    columnFill: 'auto',
+  };
+}
+
+/* ---------- 对页（facing spread） ---------- */
+
+/** 对页中缝宽度（px）：0 = 两页紧贴，呈真实书册跨页 */
+const SPREAD_GAP = 0;
+
+/** 是否启用对页（仅 page 模式） */
+const spreadEnabled = computed(() => props.spread === 'facing' && props.mode === 'page');
+
+/** 对页总宽（两页 + 中缝） */
+const spreadWidth = computed(() => pageSize.value.width * 2 + SPREAD_GAP);
+
+interface SpreadPage {
+  index: number;
+  html: string;
+  columns: number;
+  header: string;
+  footer: string;
+  notesHtml: string;
+  gutterHtml: string;
+  showPageNumber: boolean;
+  numberText: string;
+}
+
+/** 对页中的两页数据（左页取偶数页；越界页不出现） */
+const spreadPages = computed<SpreadPage[]>(() => {
+  if (!spreadEnabled.value) return [];
+  const count = totalPages.value;
+  if (count === 0) return [];
+  const anchor = currentPage.value % 2 === 0 ? currentPage.value : currentPage.value - 1;
+  const indexes = [anchor, anchor + 1].filter((index) => index >= 0 && index < count);
+  return indexes.map((index) => {
+    const nodes = props.reader.getPageFragments(index).filter((node) => !isTextNode(node));
+    const firstBlock = nodes[0];
+    const chrome = props.reader.getPageChromeTexts(index);
+    const gutter = props.reader.getPageGutterTexts(index);
+    return {
+      index,
+      html: nodes.map((node) => serializeNode(node)).join('\n'),
+      columns: props.reader.getPageColumns(index),
+      header: chrome?.header ?? '',
+      footer: chrome?.footer ?? '',
+      notesHtml: pageNotesHtmlOf(index),
+      gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
+      showPageNumber:
+        chrome === undefined && firstBlock !== undefined && !coverNodes.value.has(firstBlock),
+      numberText: formatPageNumber(index + 1, pageNumberStyle.value),
+    };
+  });
+});
+
+/** 对页舞台尺寸（缩放后的双页版面） */
+const spreadStageStyle = computed(() => ({
+  width: `${spreadWidth.value * scale.value}px`,
+  height: `${pageSize.value.height * scale.value}px`,
+}));
+
+/**
+ * 对页中单页的位置
+ *
+ * `transform: scale()` 不改变布局盒，flex 并排会让右页停在未缩放位置；
+ * 故两页均绝对定位，按缩放后的页宽偏移（左页偶数 = 0，右页奇数 = 1）。
+ */
+function spreadPageStyle(page: SpreadPage) {
+  return {
+    ...scaledPageStyle.value,
+    position: 'absolute' as const,
+    top: '0',
+    left: `${(page.index % 2) * pageSize.value.width * scale.value}px`,
+  };
+}
 
 /** 当前页 HTML 片段（文本叶子不输出） */
 const pageHtml = computed(() =>
@@ -233,7 +333,8 @@ function updateScale(): void {
     scale.value = 1;
     return;
   }
-  const widthRatio = root.clientWidth / pageSize.value.width;
+  const widthRatio =
+    root.clientWidth / (spreadEnabled.value ? spreadWidth.value : pageSize.value.width);
   const heightRatio = root.clientHeight / pageSize.value.height;
   const ratio =
     props.fit === 'width' || root.clientHeight <= 0
@@ -525,6 +626,8 @@ interface RenderedPage {
   header: string;
   /** 页脚文本（空串 = 不渲染；启用页眉页脚时不再单独显示页码） */
   footer: string;
+  /** 本页分栏数（1~3） */
+  columns: number;
 }
 
 /**
@@ -556,6 +659,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
       numberText: formatPageNumber(i + 1, style),
       header: chrome?.header ?? '',
       footer: chrome?.footer ?? '',
+      columns: props.reader.getPageColumns(i),
     });
   }
   return list;
@@ -707,7 +811,7 @@ onBeforeUnmount(() => {
 });
 
 // 缩放策略 / 页面尺寸变化：按当前模式重算对应缩放
-watch([() => props.fit, pageSize], () => {
+watch([() => props.fit, () => props.spread, pageSize], () => {
   if (props.mode === 'scroll') updateScrollScale();
   else updateScale();
 });
@@ -728,10 +832,31 @@ watch([() => props.fit, pageSize], () => {
     @touchmove="onPageTouchMove"
     @touchend="onPageTouchEnd"
   >
-    <div class="bt-book-view__stage" :style="stageStyle">
+    <!-- 对页模式：左右并排渲染当前页对（左页为偶数页），整体按双页宽缩放 -->
+    <div v-if="spreadEnabled" class="bt-book-view__spread" :style="spreadStageStyle">
+      <div v-for="p in spreadPages" :key="p.index" class="bt-reader-page" :style="spreadPageStyle(p)">
+        <div v-if="p.header" class="bt-page-header">{{ p.header }}</div>
+        <div
+          class="bt-reader-page__flow"
+          :class="{ 'is-multicolumn': p.columns > 1 }"
+          :style="flowStyleOf(p.columns)"
+          v-html="p.html"
+        ></div>
+        <div v-if="p.notesHtml" class="bt-page-notes-host" v-html="p.notesHtml"></div>
+        <div v-if="p.gutterHtml" class="bt-page-gutter-host" v-html="p.gutterHtml"></div>
+        <footer v-if="p.footer" class="bt-page-footer">{{ p.footer }}</footer>
+        <footer v-else-if="p.showPageNumber" class="bt-page-number">{{ p.numberText }}</footer>
+      </div>
+    </div>
+    <div v-else class="bt-book-view__stage" :style="stageStyle">
       <div class="bt-reader-page" :style="scaledPageStyle">
         <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>
-        <div class="bt-reader-page__flow" v-html="pageHtml"></div>
+        <div
+          class="bt-reader-page__flow"
+          :class="{ 'is-multicolumn': currentPageColumns > 1 }"
+          :style="flowStyleOf(currentPageColumns)"
+          v-html="pageHtml"
+        ></div>
         <div v-if="pageNotesHtml" class="bt-page-notes-host" v-html="pageNotesHtml"></div>
         <div v-if="gutterHtml" class="bt-page-gutter-host" v-html="gutterHtml"></div>
         <footer v-if="currentChrome?.footer" class="bt-page-footer">{{ currentChrome.footer }}</footer>
@@ -767,7 +892,12 @@ watch([() => props.fit, pageSize], () => {
       >
         <div class="bt-reader-page" :style="scaledPageStyle">
           <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
-          <div class="bt-reader-page__flow" v-html="page.html"></div>
+          <div
+            class="bt-reader-page__flow"
+            :class="{ 'is-multicolumn': page.columns > 1 }"
+            :style="flowStyleOf(page.columns)"
+            v-html="page.html"
+          ></div>
           <div v-if="page.notesHtml" class="bt-page-notes-host" v-html="page.notesHtml"></div>
           <div v-if="page.gutterHtml" class="bt-page-gutter-host" v-html="page.gutterHtml"></div>
           <footer v-if="page.footer" class="bt-page-footer">{{ page.footer }}</footer>
@@ -798,6 +928,18 @@ watch([() => props.fit, pageSize], () => {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+/*
+ * 多栏正文流：分页器已按「页容量 × 栏数」装箱，CSS 只负责顺序填栏。
+ * 子块 `break-inside: avoid` 防止浏览器二次拆分已按行切好的片段。
+ */
+.bt-reader-page__flow.is-multicolumn {
+  column-fill: auto;
+}
+
+.bt-reader-page__flow.is-multicolumn > * {
+  break-inside: avoid;
 }
 
 /* 键盘可聚焦：焦点环只在键盘导航时出现，避免鼠标点击后留框 */
@@ -885,6 +1027,13 @@ watch([() => props.fit, pageSize], () => {
 }
 
 .bt-book-view__stage {
+  position: relative;
+  flex: none;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
+}
+
+/* 对页：容器给出缩放后的双页版面，两页绝对定位在左右半区 */
+.bt-book-view__spread {
   position: relative;
   flex: none;
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);

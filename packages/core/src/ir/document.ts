@@ -9,7 +9,7 @@ import type { BookMetadata } from './metadata.js';
 import { NODE_TYPES } from './node-types.js';
 
 /** IR Schema 版本号（结构不兼容变更时递增，用于迁移） */
-export const IR_SCHEMA_VERSION = '0.1.0';
+export const IR_SCHEMA_VERSION = '0.2.0';
 
 /** 书籍文档 */
 export interface BookDocument {

@@ -7,12 +7,17 @@
  * 产出「块 id → 尺寸」映射，交给 reader.extractBlocks / Reader / BtEditor 采用，
  * 使预览分页与编辑分页线都基于同一份真实尺寸。
  *
- * 适用范围：单栏（横排 / 直排）。横排量「块高与换行」，直排量「块宽（推进含
- * 行款方向）与换列」——主轴随书写方向物理转置（见 mainAxisOf），页边界来自真实
- * 布局盒。多栏（columns>1）下分栏宽度与回流难以逐块隔离度量，仍返回空映射，
- * 回退到字符数估算（保证不劣化、不崩渲染）。
+ * 适用范围：横排 / 直排。横排量「块高与换行」，直排量「块宽（推进含行款
+ * 方向）与换列」——主轴随书写方向物理转置（见 mainAxisOf），页边界来自真实
+ * 布局盒。多栏（columns>1）时按「栏宽」（页宽扣栏间距后均分）量尺，分页容量
+ * 由分页器乘栏数（见 paginate 的分栏分组）。
  */
-import { DEFAULT_THEME, type BookDocument } from '@bibliotype/core';
+import {
+  DEFAULT_THEME,
+  FONT_SIZE_TOKENS,
+  LAYOUT_TOKENS,
+  type BookDocument,
+} from '@bibliotype/core';
 import {
   buildRootStyle,
   DEFAULT_LAYOUT_OPTIONS,
@@ -92,6 +97,22 @@ function mainAxisOf(mode: WritingMode): MeasureAxis {
     rl: mode === WRITING_MODES.VERTICAL_RL,
     cross: vertical ? 'width' : 'height',
   };
+}
+
+/** 栏间距（px）：从主题令牌解析 em / px，缺省 24px */
+function resolveColumnGapPx(
+  tokens: Readonly<Record<string, string | undefined>>,
+  columns: number,
+): number {
+  if (columns <= 1) return 0;
+  const raw = tokens[LAYOUT_TOKENS.COLUMN_GAP] ?? '2.5em';
+  const numeric = Number.parseFloat(raw);
+  if (!Number.isFinite(numeric)) return 24;
+  if (raw.trim().endsWith('em')) {
+    const body = Number.parseFloat(tokens[FONT_SIZE_TOKENS.BODY] ?? '16px');
+    return numeric * (Number.isFinite(body) ? body : 16);
+  }
+  return numeric;
 }
 
 /** 主轴推进坐标（块首缘：横排取上缘 top，直排取行款起始缘——rl 取右缘、lr 取左缘） */
@@ -389,14 +410,20 @@ function renderMeasureSheet(
   if (typeof document === 'undefined') return null;
 
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
-  // 仅单栏做 DOM 实测（横排 / 直排均可，主轴口径随书写方向转置）；多栏回退估算（空映射 → extractBlocks 采用 estimator）
-  if ((options.columns ?? 1) > 1) return null;
 
   const axis = mainAxisOf(options.writingMode);
   const tokens = input.tokens ?? DEFAULT_THEME;
   const box = resolveContentBox(options.pageSize, resolveMargins(tokens));
   // 书页盒 border-box：版框边框侵占内容区，量尺交叉轴尺寸需同步扣除保持同尺
-  const contentMain = (axis.vertical ? box.height : box.width) - resolvePageBorderWidth(tokens) * 2;
+  const rawCross = (axis.vertical ? box.height : box.width) - resolvePageBorderWidth(tokens) * 2;
+  /*
+   * 多栏：正文在「栏宽」内换行，故按栏宽量尺；容量侧由分页器乘栏数。
+   * 栏间距从主题令牌解析（2.5em 之类换算为 px），保证测量与渲染同尺。
+   */
+  const columns = Math.min(3, Math.max(1, Math.round(options.columns ?? 1)));
+  const gap = resolveColumnGapPx(tokens, columns);
+  const contentMain =
+    columns > 1 ? (rawCross - gap * (columns - 1)) / columns : rawCross;
 
   syncMeasureCss(tokens, options, input.fontToken);
   const sheet = ensureSheet();

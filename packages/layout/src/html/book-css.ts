@@ -278,6 +278,12 @@ ${scoped(".bt-break[data-variant='page']")} {
   border: 0;
   border-block-start: 1px dashed #999999;
 }
+/* 分栏符：多栏正文流里强制另起一栏；单栏时 break-before 不生效，退化为细分隔标记 */
+${scoped(".bt-break[data-variant='column']")} {
+  border: 0;
+  border-inline-start: 1px dashed #999999;
+  break-before: column;
+}
 ${scoped('.bt-mark-underline')} {
   text-decoration: underline;
 }

@@ -1037,6 +1037,14 @@ export const PAGE_BREAK_VARIANT = 'page';
  * schema 未注册 break / paragraph，或光标位于文档根（depth=0）时返回 false。
  */
 export function insertPageBreak(): Command {
+  return insertBreakOfVariant(PAGE_BREAK_VARIANT);
+}
+
+/** 分栏符变体值：`break(variant='column')`，渲染侧据此 `break-before: column` */
+export const COLUMN_BREAK_VARIANT = 'column';
+
+/** 插入指定变体的 break 节点（分页 / 分栏共用同一套切分逻辑） */
+function insertBreakOfVariant(variant: string): Command {
   return (state, dispatch) => {
     const breakType = findNodeType(state.schema, NODE_TYPES.BREAK);
     const paragraph = findNodeType(state.schema, NODE_TYPES.PARAGRAPH);
@@ -1047,7 +1055,7 @@ export function insertPageBreak(): Command {
     if ($from.depth === 0) {
       return false;
     }
-    const brk = breakType.createChecked({ variant: PAGE_BREAK_VARIANT });
+    const brk = breakType.createChecked({ variant });
     if (brk === null) {
       return false;
     }
@@ -1078,6 +1086,16 @@ export function insertPageBreak(): Command {
     dispatch?.(tr.scrollIntoView());
     return true;
   };
+}
+
+/**
+ * 插入分栏符
+ *
+ * 单栏文档降级为普通分隔标记：渲染侧只有多栏正文流才把它解释为
+ * `break-before: column`（见 book-css 的 `.bt-break[data-variant='column']`）。
+ */
+export function insertColumnBreak(): Command {
+  return insertBreakOfVariant(COLUMN_BREAK_VARIANT);
 }
 
 /* ---------- 表格（简化模型：无跨行 / 跨列） ---------- */
@@ -1348,5 +1366,70 @@ export function tableDeleteColumn(): Command {
     }
     dispatch?.(tr.scrollIntoView());
     return true;
+  };
+}
+
+/* ---------- A6：页眉 / 页脚 / 条件内容 ---------- */
+
+/**
+ * 在书根写入唯一的页眉 / 页脚（已存在则把光标移入，不重复插入）
+ *
+ * 页眉页脚必须是 book 的直接子节点，故不走 `insertBlockOfType`（会在当前块后插入，
+ * 可能落进章内而触发结构校验错误）。页眉插到书首、页脚追加到书末。
+ */
+function ensureBookChrome(typeName: string, atStart: boolean): Command {
+  return (state, dispatch) => {
+    const type = findNodeType(state.schema, typeName);
+    const paragraph = findNodeType(state.schema, NODE_TYPES.PARAGRAPH);
+    if (type === undefined || paragraph === undefined) {
+      return false;
+    }
+
+    let existingPos = -1;
+    state.doc.forEach((child, offset) => {
+      if (child.type === type) existingPos = offset;
+    });
+    if (existingPos >= 0) {
+      if (dispatch !== undefined) {
+        dispatch(
+          state.tr
+            .setSelection(TextSelection.near(state.tr.doc.resolve(existingPos + 1), 1))
+            .scrollIntoView(),
+        );
+      }
+      return true;
+    }
+
+    const node = type.createChecked(null, paragraph.createChecked());
+    if (dispatch !== undefined) {
+      const pos = atStart ? 0 : state.doc.content.size;
+      dispatch(state.tr.insert(pos, node).scrollIntoView());
+    }
+    return true;
+  };
+}
+
+/** 插入（或定位到）书级页眉 */
+export function insertPageHeader(): Command {
+  return ensureBookChrome(NODE_TYPES.PAGE_HEADER, true);
+}
+
+/** 插入（或定位到）书级页脚 */
+export function insertPageFooter(): Command {
+  return ensureBookChrome(NODE_TYPES.PAGE_FOOTER, false);
+}
+
+/**
+ * 用条件容器包裹当前选区 / 所在块
+ *
+ * @param when 条件表达式（缺省空串 = 无条件，便于先插入再改属性）
+ */
+export function insertCondition(when = ''): Command {
+  return (state, dispatch, view) => {
+    const type = findNodeType(state.schema, NODE_TYPES.CONDITION);
+    if (type === undefined) {
+      return false;
+    }
+    return wrapIn(type, { when })(state, dispatch, view);
   };
 }

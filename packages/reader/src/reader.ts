@@ -446,6 +446,15 @@ export class Reader {
   }
 
   /**
+   * 某页的分栏数（1~3）
+   *
+   * 供渲染侧设置 CSS 多栏；缺省 1 表示单栏（页面结构不变）。
+   */
+  getPageColumns(pageIndex: number): number {
+    return this.pages[pageIndex]?.columns ?? 1;
+  }
+
+  /**
    * 某页注区是否承接上一页溢出的注释（跨页续注）
    *
    * 供渲染侧决定是否在注区顶部输出「续前页」。未开启浮注、首页或无续注时为 false。

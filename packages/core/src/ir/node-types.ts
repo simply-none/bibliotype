@@ -61,6 +61,12 @@ export const NODE_TYPES = {
   MATH_BLOCK: 'math-block',
   /** 分隔线 / 分节符 */
   BREAK: 'break',
+  /** 页眉（book 级至多一个，覆盖派生页眉） */
+  PAGE_HEADER: 'page-header',
+  /** 页脚（book 级至多一个，覆盖派生页脚） */
+  PAGE_FOOTER: 'page-footer',
+  /** 条件内容容器（attrs.when 求值为真时才输出） */
+  CONDITION: 'condition',
 
   /* ---------- 注释节点 ---------- */
 

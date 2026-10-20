@@ -93,6 +93,13 @@ export interface MeasurableBlock {
    * 整条续到下一页页底（跨页续注）。
    */
   floatToBottom?: boolean;
+  /**
+   * 本块所在结构节点的分栏数（1~3，缺省 1）
+   *
+   * 分栏数变化时会开启新页（同一物理页内不混排不同栏数）；分页容量按
+   * `pageMainSize × columns` 计算，渲染侧用 CSS 多栏把整页内容分配到各栏。
+   */
+  columns?: number;
 }
 
 /** 排文主轴：横排按行（row）推进，直排按列（column）推进 */
@@ -144,6 +151,8 @@ export interface PaginatedPage {
    * 仅当上页注区已满、本页是续接页时置真；渲染侧据以在注区顶部输出「续前页」标记。
    */
   notesCarried?: boolean;
+  /** 本页分栏数（>1 时附带；缺省 1 表示单栏，产物结构与旧版一致） */
+  columns?: number;
 }
 
 /** 孤寡行控制 */
@@ -309,9 +318,10 @@ function costOf(block: MeasurableBlock): number {
  *
  * @throws RangeError 当 pageMainSize 非正数或块尺寸为负。
  */
-export function paginate(
+function paginateSingle(
   blocks: readonly MeasurableBlock[],
   options: PaginateOptions,
+  columns = 1,
 ): PaginationResult {
   const { pageMainSize } = options;
   if (pageMainSize <= 0) {
@@ -548,6 +558,7 @@ export function paginate(
       items: page.items,
       blocks: page.items.map((item) => item.block),
       usedMainSize: page.usedMainSize,
+      ...(columns > 1 ? { columns } : {}),
     };
     /* 仅在开启注区时附带注字段，保证未开启时的产物结构完全不变 */
     if (noteArea === undefined) return base;
@@ -559,4 +570,76 @@ export function paginate(
     totalPages: resultPages.length,
     totalBlocks: blocks.length,
   };
+}
+
+/** 单块分栏数（夹在 1~3） */
+function columnsOfBlock(block: MeasurableBlock): number {
+  const raw = block.columns;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 1;
+  return Math.min(3, Math.max(1, Math.round(raw)));
+}
+
+/**
+ * 分页（公开入口，支持分栏）
+ *
+ * 分栏模型：一页可容纳 `pageMainSize × columns` 的正文，渲染侧用 CSS 多栏把
+ * 整页内容分配到各栏。因此这里按「分栏数变化」把块切成若干组，组内以
+ * `pageMainSize × columns` 作为单栏容量调用 `paginateSingle`，再把各组页顺序
+ * 拼接 —— 避免改动单栏装箱核心的容差 / 孤寡行 / 注区逻辑。
+ *
+ * 约束：
+ * - 同一物理页不混排不同栏数（栏数变化即开新页）；
+ * - 分栏模式暂不支持增量续排（`resume` 被忽略），调用方需整篇重排；
+ * - 栏数取 1~3，越界夹紧。
+ */
+export function paginate(
+  blocks: readonly MeasurableBlock[],
+  options: PaginateOptions,
+): PaginationResult {
+  /* 与单栏核心保持一致的参数契约（空 blocks 也要先校验） */
+  if (!(options.pageMainSize > 0)) {
+    throw new RangeError(`pageMainSize 必须为正数：${options.pageMainSize}`);
+  }
+  for (const block of blocks) {
+    if (block.mainSize < 0) {
+      throw new RangeError(`块 "${block.id}" 的 mainSize 不能为负：${block.mainSize}`);
+    }
+  }
+  if (blocks.length === 0) {
+    return { pages: [], totalPages: 0, totalBlocks: 0 };
+  }
+
+  const groups: { columns: number; blocks: MeasurableBlock[] }[] = [];
+  for (const block of blocks) {
+    const columns = columnsOfBlock(block);
+    const last = groups[groups.length - 1];
+    if (last !== undefined && last.columns === columns) {
+      last.blocks.push(block);
+    } else {
+      groups.push({ columns, blocks: [block] });
+    }
+  }
+
+  if (groups.length === 1 && groups[0]!.columns === 1) {
+    return paginateSingle(blocks, options, 1);
+  }
+
+  const pages: PaginatedPage[] = [];
+  for (const group of groups) {
+    const stripped = group.blocks.map((block) => ({ ...block, columns: 1 }));
+    const result = paginateSingle(
+      stripped,
+      {
+        ...options,
+        pageMainSize: options.pageMainSize * group.columns,
+        resume: undefined,
+      },
+      group.columns,
+    );
+    for (const page of result.pages) {
+      pages.push({ ...page, index: pages.length });
+    }
+  }
+
+  return { pages, totalPages: pages.length, totalBlocks: blocks.length };
 }

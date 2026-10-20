@@ -146,3 +146,9 @@ result.issues;       // 迁移后结构校验问题（validate:false 时为空�
 | `text-on-container` 报错 | 手写 IR 时把文本直接挂在 `paragraph` 上 | 改为 `paragraph > text`；编辑往返会自动规范化 |
 | 迁移总说缺步骤 | `schemaVersion` 写成非字符串 / 拼写不一致 | 用 `readSchemaVersion` 打印实际值，再补 step |
 | 校验误报插件节点 | 未传 `knownNodeTypes` | 传入插件注册的类型；`unknownTypesAsWarning` 可临时降级 |
+
+## 0.2.0（A6）
+
+- 新节点：`page-header` / `page-footer` / `condition`，编辑器 `CORE_EDITOR_NODE_SPECS` 已同步登记。
+- 新校验：`columns` 必须为 1~3 整数；页眉页脚必须是 book 直接子节点且各至多一个；`condition.when` 必须为合法表达式且内容非空。
+- 迁移：内置 0.1.0 → 0.2.0（无改写，旧文档 `columns` 缺省视为 1）。

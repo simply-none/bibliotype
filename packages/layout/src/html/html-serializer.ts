@@ -15,10 +15,12 @@
 import {
   MARK_TYPES,
   NODE_TYPES,
+  evaluateCondition,
   isTextNode,
   noteRoleOf,
   type BookMark,
   type BookNode,
+  type ConditionContext,
 } from '@bibliotype/core';
 import { transformVerticalText, type VerticalTextOptions } from '../vertical-text.js';
 
@@ -52,6 +54,12 @@ export interface SerializeNodeOptions {
    * 纯 HTML 出口（站点 / PDF 打印稿）保持关闭，不输出 HTML 规范外的属性。
    */
   epubSemantics?: boolean;
+  /**
+   * 条件内容上下文（`condition.when` 求值用）
+   *
+   * 缺省不传：保留全部条件内容（导出 / 阅读器不注入上下文时不会误删）。
+   */
+  conditionContext?: ConditionContext;
 }
 
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
@@ -81,6 +89,9 @@ const CORE_TAG_MAP: Readonly<Record<string, string>> = {
   [NODE_TYPES.CODE_BLOCK]: 'pre',
   [NODE_TYPES.MATH_BLOCK]: 'div',
   [NODE_TYPES.BREAK]: 'hr',
+  [NODE_TYPES.PAGE_HEADER]: 'header',
+  [NODE_TYPES.PAGE_FOOTER]: 'footer',
+  [NODE_TYPES.CONDITION]: 'div',
 
   /* 注释 */
   [NODE_TYPES.FOOTNOTE]: 'aside',
@@ -456,6 +467,11 @@ function nodeToHtml(node: BookNode, options: SerializeNodeOptions): string {
   }
   if (node.type === NODE_TYPES.BOOK) {
     return serializeChildren(node, options);
+  }
+  /* A6：条件内容按上下文裁剪；缺省上下文保留 */
+  if (node.type === NODE_TYPES.CONDITION) {
+    const when = typeof node.attrs?.when === 'string' ? node.attrs.when : '';
+    if (!evaluateCondition(when, options.conditionContext)) return '';
   }
   return elementToHtml(node, options);
 }

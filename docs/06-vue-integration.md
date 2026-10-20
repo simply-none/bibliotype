@@ -208,3 +208,5 @@ refresh();                                      // 外部 loadDocument 后同步
 | `useDocumentStats` | 300ms 防抖统计 | `{ document, revision?, debounceMs?, options? }` |
 
 `BtBookView` 新增 `fontSize` prop 与 `update:fontSize` 事件：page 模式双指缩放上抛字号（12–32px 夹紧），重排由宿主负责；scroll 模式容器可聚焦，PageUp / PageDown / 空格 / Home / End 滚动一屏。
+
+`BtBookView` 另新增 `spread="single" | "facing"`：facing 下 page 模式并排渲染相邻两页（偶数页在左），缩放按双页宽计算；scroll 模式不受影响。

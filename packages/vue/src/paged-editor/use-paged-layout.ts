@@ -288,7 +288,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     charsPerLine: context.charsPerLine,
   };
 
-  // paged 依赖单栏 DOM 实测（横排 / 直排均可）；多栏 / 无 DOM → 不可用（调用方回退 overlay）
+  // 分页编辑画布仍限单栏（P1-A 的多栏先落地在阅读侧）；多栏 / 无 DOM → 回退 overlay
   if ((options.columns ?? 1) > 1) return empty;
   if (typeof document === 'undefined') return empty;
   if (pageMainSize <= 0) return empty;

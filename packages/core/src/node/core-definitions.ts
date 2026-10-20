@@ -143,6 +143,27 @@ export const CORE_NODE_DEFINITIONS: readonly NodeTypeDefinition[] = [
     isContainer: false,
     description: '文本叶子',
   },
+  {
+    type: NODE_TYPES.PAGE_HEADER,
+    namespace: ns,
+    kind: 'block',
+    isContainer: true,
+    description: '页眉（book 级显式覆盖）',
+  },
+  {
+    type: NODE_TYPES.PAGE_FOOTER,
+    namespace: ns,
+    kind: 'block',
+    isContainer: true,
+    description: '页脚（book 级显式覆盖）',
+  },
+  {
+    type: NODE_TYPES.CONDITION,
+    namespace: ns,
+    kind: 'block',
+    isContainer: true,
+    description: '条件内容容器',
+  },
 ];
 
 /** core 内置的标记类型名（供校验与文档使用） */

@@ -210,6 +210,16 @@ const PAGE_BREAK_VARIANT = 'page';
 /** 当前处理中的叶块标记 */
 interface PendingFlags {
   breakBefore?: boolean;
+  /** 继承自祖先结构节点的分栏数（1~3） */
+  columns?: number;
+}
+
+/** 读取结构节点的分栏数（仅 chapter / section 生效，1~3 夹紧） */
+function structureColumnsOf(node: BookNode): number | undefined {
+  if (node.type !== NODE_TYPES.CHAPTER && node.type !== NODE_TYPES.SECTION) return undefined;
+  const raw = node.attrs?.['columns'];
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  return Math.min(3, Math.max(1, Math.round(raw)));
 }
 
 /**
@@ -288,6 +298,8 @@ export function extractBlocksIndexed(
   const nodeById = new Map<string, BookNode>();
 
   const walk = (node: BookNode, path: string, flags: PendingFlags): void => {
+    /* 分栏数沿结构树继承：chapter / section 的 attrs.columns 覆盖祖先值 */
+    const columns = structureColumnsOf(node) ?? flags.columns;
     if (isLeafBlock(node)) {
       // 空书根不产块；其余叶块（或空容器）产出可测量块
       if (node.type === NODE_TYPES.BOOK) return;
@@ -378,6 +390,7 @@ export function extractBlocksIndexed(
         ...(breakBefore ? { breakBefore: true } : {}),
         ...(isPageBreak ? { breakAfter: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
+        ...(columns !== undefined && columns > 1 ? { columns } : {}),
       });
       return;
     }
@@ -388,6 +401,7 @@ export function extractBlocksIndexed(
     elementChildren.forEach((child, index) => {
       walk(child, `${path}/${index}`, {
         breakBefore: isStructure && first ? true : undefined,
+        ...(columns !== undefined ? { columns } : {}),
       });
       first = false;
     });

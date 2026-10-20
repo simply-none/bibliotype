@@ -41,6 +41,8 @@ writeFileSync('book.epub', bytes);
 | `maxSectionBytes` | 单内容文档未压缩字节上限（缺省 256KiB） |
 | `validate` | 导出前校验开关（缺省 `true`；校验不中断导出） |
 | `onValidation` | 校验结果回调（`ValidationProblem[]`，error 在前） |
+| `endnoteGrouping` | 尾注聚合：`'keep'`（缺省，就地） / `'chapter'`（章末） / `'book'`（书末新增一章） |
+| `endnoteTitle` | 聚合区标题（缺省「注释」；空串不加标题行） |
 
 ```ts
 import { exportEpub } from '@bibliotype/exporter-epub';
@@ -132,6 +134,22 @@ epubcheck 规则子集（外部阅读器视角），产物经 `onValidation` 透
 - 节标题优先取首节点标题（`resolveNodeTitle`），退化为 `metadata.title`；
 - 无 id 的节点由规划器生成锚点（`anchorIds`），使 nav 目录可跳转。
 
+## 尾注聚合（`endnoteGrouping`）
+
+尾注在 IR 里与脚注一样是就地块，导出时可重排：
+
+```ts
+exportEpub(document, { endnoteGrouping: 'chapter' }); // 篇末注：每章末尾收拢
+exportEpub(document, { endnoteGrouping: 'book', endnoteTitle: '注释' }); // 书末注
+```
+
+- `chapter`：各章末尾追加「注释」标题行（level 2）+ 该章尾注；嵌在节内的尾注上提到所属章；不在任何章内的尾注兜底排到书末；
+- `book`：全部尾注抽到书末新增的一章（id 缺省 `endnotes`，冲突追加 `-2`），标题行 level 1；
+- 聚合在导出期完成（`groupEndnotes` 返回新根，**不改动原文档**），节点 id 保持不变，正文 `noteref` 链接照旧可跳；
+- 只处理 `endnote`：脚注（页底）与边注（旁栏）保持就地，抽走会破坏版式。
+
+`groupEndnotes(root, { scope, title?, id? })` 也可单独调用（自定义管线 / 增量处理）。
+
 ## 版本策略
 
 | 特性 | EPUB 3（默认） | EPUB 2（`version: '2.0'`） |
@@ -166,6 +184,7 @@ epubcheck 规则子集（外部阅读器视角），产物经 `onValidation` 透
 | `validateEpub(entries, { version, maxSectionBytes })` / `checkWellFormedXml` | 导出前校验 |
 | `buildNavXhtml` / `buildOpf` / `buildNcx` / `renderXhtmlDocument` | 各文档生成 |
 | `contributorRoleCode` / `normalizeIdentifier` / `isIsbn` | 元数据工具 |
+| `groupEndnotes(root, { scope, title?, id? })` | 尾注聚合（章末 / 书末，返回新根，不改原文档） |
 | `buildContainerXml` / `EPUB_MIMETYPE` | OCF |
 
 ## 已知边界

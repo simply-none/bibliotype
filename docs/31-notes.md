@@ -125,8 +125,17 @@ exportEpub(document);                    // 注释块带 epub:type
 exportEpub(document, { version: '2.0' }); // 不带 epub:type
 ```
 
+尾注可重排（缺省就地，不改原文档）：
+
+```ts
+exportEpub(document, { endnoteGrouping: 'chapter' }); // 篇末注：每章末尾收拢
+exportEpub(document, { endnoteGrouping: 'book', endnoteTitle: '注释' }); // 书末注
+```
+
+聚合由 [`groupEndnotes`](07-export-epub.md#尾注聚合endnotegrouping) 完成，节点 id 不变，正文 `noteref` 链接照旧可跳。
+
 ## 限制与后续
 
 - 目前是**块级注释**：注文排在其在文档中的位置（脚注就近、尾注集中靠作者手排），没有「正文上标 + 页底浮注」的自动分栏排版（能力清单 B5「脚注浮注」仍未做）；
-- 尾注尚未按章聚合到篇末 / 书末（`sections.ts` 无 NOTE 处理），当前与脚注同样就地排版；
+- 尾注聚合只在导出期生效（`endnoteGrouping`），编辑态始终就地显示；
 - 编号只在插入时写入 `attrs.marker`，批量重排（删注后全局重编）需要按 `collectNotes` 结果回写，暂未提供命令。

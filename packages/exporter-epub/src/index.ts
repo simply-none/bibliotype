@@ -4,6 +4,8 @@
 export { EPUB_MIMETYPE, buildContainerXml, exportEpub } from './epub.js';
 export type { EpubExportOptions } from './epub.js';
 export { buildDefaultIdentifier, fnv1a, isIsbn, normalizeIdentifier, resolveIdentifier } from './identifier.js';
+export { groupEndnotes } from './endnotes.js';
+export type { EndnoteGrouping, EndnoteGroupingOptions } from './endnotes.js';
 export {
   DEFAULT_MAX_SECTION_BYTES,
   MAX_NAV_HEADING_LEVEL,

@@ -21,6 +21,7 @@ import { DEFAULT_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import { resolveNodeTitle } from '@bibliotype/reader';
 import { strToU8, zipSync, type ZipOptions } from 'fflate';
+import { groupEndnotes, type EndnoteGrouping } from './endnotes.js';
 import { buildDefaultIdentifier, normalizeIdentifier, resolveIdentifier } from './identifier.js';
 import { MediaCollector, type MediaItem } from './media.js';
 import { buildNavXhtml } from './nav.js';
@@ -66,6 +67,17 @@ export interface EpubExportOptions {
   features?: FeatureStyleSheet;
   /** 命名样式集合（`[data-style-id]` 规则） */
   namedStyles?: NamedStyleSet;
+  /**
+   * 尾注聚合方式（缺省 `'keep'`：尾注就地排版）
+   *
+   * - `chapter`：每章末尾收拢该章尾注（篇末注）；
+   * - `book`：全部尾注集中到书末新增一章（书末注）。
+   *
+   * 正文里的 `noteref` 链接指向尾注节点 id，聚合后依然有效。
+   */
+  endnoteGrouping?: EndnoteGrouping;
+  /** 聚合区标题（缺省「注释」；空串表示不加标题行） */
+  endnoteTitle?: string;
 }
 
 /** 导出 EPUB（返回完整 epub 文件字节，含 zip 容器） */
@@ -92,8 +104,17 @@ export function exportEpub(
      nav.xhtml 两路均保留供 EPUB 3 阅读器渲染，EPUB 2 不挂 EPUB 3 专属 properties。 */
   const epubVersion = options.version ?? '3.0';
 
+  /* ---------- 尾注聚合（导出期重排，不改动原文档） ---------- */
+  const root =
+    options.endnoteGrouping !== undefined && options.endnoteGrouping !== 'keep'
+      ? groupEndnotes(document.root, {
+          scope: options.endnoteGrouping,
+          title: options.endnoteTitle,
+        })
+      : document.root;
+
   /* ---------- 章节规划、锚点与媒体收集 ---------- */
-  const plan = planDocument(document.root);
+  const plan = planDocument(root);
   const media = new MediaCollector();
   const serializeOptions = {
     tagOverrides: options.tagOverrides,
@@ -105,7 +126,7 @@ export function exportEpub(
   };
 
   /* 封面预登记：先于序列化拿到 manifest id（序列化期内图片去重归并到同一条目） */
-  const coverItem = registerCoverImage(document.root, media);
+  const coverItem = registerCoverImage(root, media);
 
   /* ---------- 体积兜底拆分（导入型扁平书的核心修复） ---------- */
   const split = splitSections(plan, {

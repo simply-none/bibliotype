@@ -79,6 +79,8 @@ export const CORE_EDITOR_MARK_SPECS: readonly EditorMarkSpecEntry[] = [
       parseDOM: [
         {
           tag: 'a.bt-mark-noteref',
+          /* 优先级高于 link 的通用 `a` 规则，否则脚注引用会被解析成普通链接 */
+          priority: 60,
           getAttrs: (dom): Record<string, unknown> | false => {
             if (typeof dom === 'string') return false;
             const href = dom.getAttribute('href') ?? '';

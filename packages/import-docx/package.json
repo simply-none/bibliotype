@@ -41,6 +41,8 @@
   "dependencies": {
     "@bibliotype/core": "workspace:*",
     "@bibliotype/import": "workspace:*",
+    "@xmldom/xmldom": "^0.8.6",
+    "fflate": "^0.8.2",
     "mammoth": "^1.13.0",
     "prosemirror-model": "^1.23.0"
   },

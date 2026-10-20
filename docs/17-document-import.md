@@ -128,3 +128,25 @@ const doc = epubToBookDocument(await file.arrayBuffer(), schema, { title: '来�
 | `import-epub` | 浏览器 / Node | `epubToHtml` 同构无 DOM；`epubToBookDocument` 端到端需 DOM |
 
 > Demo 侧 `ImportPanel.vue` 演示了五格式统一入口：`detectImportFormat` 判格式 → 文本类（md / html / txt）走 `importFromText`，docx / epub 走动态 `import()` 懒加载对应叶子包。
+
+## Markdown 全量语法（F6）
+
+| 语法 | 行为 |
+| --- | --- |
+| 嵌套列表 | 缩进（空格或 tab）触发子列表，最多 8 层；超出降级为同级段落 |
+| 松散列表 | 项间空行不结束列表；项内空行 + 缩进续行产生多段落 |
+| GFM 表格 | 表头 + `| --- |` 分隔行；支持 `:--` / `:-:` / `--:` 对齐、`\|` 转义；列数以表头为准，缺列补空、多列截断 |
+| 图片题注 | `![alt](src "题注")` 的 title，或图片下一行整行斜体（`*图一*`），产出 `image` + `caption` |
+| front-matter | 开头 `---` 包裹的 YAML 子集：`title` / `subtitle` / `author(s)` / `language` / `date` / `publisher` / `isbn` / `volumeCount` 等；未知标量进 `metadata.extra` |
+
+front-matter 只在 `markdownToBookDocument` 中解析并剥离，编辑器粘贴 Markdown 不解析；调用方显式 `metadata` 优先（书名为空时才用 front-matter 补位）。
+
+## DOCX 图片 / 样式 / 脚注（F5）
+
+- **图片**：`docxToHtml` 缺省用 `mammoth.images.dataUri` 内联 base64；传 `convertImage` 可改为图床 / 附件钩子（返回空 `src` 即占位）。
+- **命名样式**：`parseDocxStyleInfo` 解包 `word/styles.xml`，把段落样式映射为 `ns-docx-*`（中文名保留、`w:basedOn` → `basedOn`），只映射常用子集：加粗 / 斜体 / 下划线 / 字号 / 颜色 / 首行缩进 / 行距 / 段前段后 / 对齐。
+  - 只返回正文实际引用的样式及其祖先，避免 Word 内置样式污染样式面板。
+  - 段落经 mammoth `styleMap` 输出 `docx-style-*` 类，HTML→IR 时回收为 `rawAttrs.styleId`。
+- **脚注**：`docxToHtml` 把 mammoth 的「上标链接 + 文末列表」归一为 `a.bt-mark-noteref` + `div.bt-footnote`（`data-id` / `data-marker` / `data-ref-id`），再由 `noteref` 标记与 `footnote` 节点的 parseDOM 规则回收。
+- **API**：`docxToBookDocumentWithStyles(...)` 返回 `{ document, namedStyles }`；原 `docxToBookDocument` 签名不变。
+- **依赖**：`import-docx` 复用工作区既有 `fflate` / `@xmldom/xmldom`（非新生态依赖）。

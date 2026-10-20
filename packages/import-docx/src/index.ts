@@ -6,8 +6,13 @@
  */
 
 /* ---------- docx → HTML（mammoth 边界） ---------- */
-export { docxToHtml } from './docx-html.js';
+export { docxToHtml, normalizeDocxFootnotes } from './docx-html.js';
 export type { DocxInput, DocxToHtmlOptions, DocxImageConverter } from './docx-html.js';
 
 /* ---------- docx → BookDocument（组合层） ---------- */
-export { docxToBookDocument } from './from-docx.js';
+export { docxToBookDocument, docxToBookDocumentWithStyles } from './from-docx.js';
+export type { DocxImportResult } from './from-docx.js';
+
+/* ---------- 样式解析 ---------- */
+export { DOCX_STYLE_CLASS_PREFIX, DOCX_STYLE_ID_PREFIX, parseDocxStyleInfo } from './docx-styles.js';
+export type { DocxStyleInfo } from './docx-styles.js';

@@ -328,6 +328,12 @@ importers:
       '@bibliotype/import':
         specifier: workspace:*
         version: link:../import
+      '@xmldom/xmldom':
+        specifier: ^0.8.6
+        version: 0.8.15
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
       mammoth:
         specifier: ^1.13.0
         version: 1.13.0

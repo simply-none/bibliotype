@@ -10,6 +10,8 @@ export { nodesToBookDocument } from './book-document.js';
 
 /* ---------- 文本格式转换 ---------- */
 export { markdownToBookDocument } from './from-markdown.js';
+export { parseFrontMatter } from './front-matter.js';
+export type { FrontMatterParseResult } from './front-matter.js';
 export { htmlToBookDocument } from './from-html.js';
 export { DEFAULT_TXT_CHAPTER_PATTERN, txtToBookDocument } from './from-text.js';
 export type { TxtImportOptions } from './from-text.js';

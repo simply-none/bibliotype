@@ -26,11 +26,47 @@ export interface DocxToHtmlOptions {
   styleMap?: string | string[];
   /**
    * 内嵌图片转换策略（D4）：
-   * - 缺省退化为**空 `src` 占位**（不内联 base64、不阻断正文，符合 D4-a）；
-   * - 传 `mammoth.images.dataUri` 改为 base64 内联（D4-b）；
-   * - 传自定义 `mammoth.images.imgElement(fn)` 实现资源解析钩子（D4-c，TODO 后续接入图床 / 附件）。
+   * - 缺省 **base64 data URI 内联**（F5）：保证导入后图片可直接渲染；
+   * - 传自定义 `mammoth.images.imgElement(fn)` 实现资源解析钩子（图床 / 附件），
+   *   返回空 `src` 即退化为占位（D4-a）。
    */
   convertImage?: DocxImageConverter;
+}
+
+/** Word 脚注引用：`<sup><a href="#footnote-1">1</a></sup>` */
+const FOOTNOTE_REF_RE = /<sup>\s*<a href="#footnote-(\d+)"[^>]*>([\s\S]*?)<\/a>\s*<\/sup>/g;
+
+/** 脚注回跳链接（注文末尾的 `↑`）：归一后由 noteref 负责回跳，直接去掉 */
+const FOOTNOTE_BACKLINK_RE = /<a href="#footnote-ref-\d+"[^>]*>[\s\S]*?<\/a>/g;
+
+/** 文末脚注列表项：`<li id="footnote-1">…</li>` */
+const FOOTNOTE_ITEM_RE = /<li id="footnote-(\d+)">([\s\S]*?)<\/li>/g;
+
+/**
+ * 把 mammoth 的脚注 HTML 归一为库内约定结构
+ *
+ * - 正文引用 → `<a class="bt-mark-noteref" href="#fn-docx-N" id="ref-docx-N">N</a>`，
+ *   由 PM 的 `noteref` mark 规则识别；
+ * - 文末列表项 → `<div class="bt-footnote" data-id="fn-docx-N" data-marker="N" …>`，
+ *   由 `footnote` 节点的 parseDOM 规则识别；
+ * - 清空被搬空的 `<ol>` 与注文里的回跳箭头。
+ *
+ * 只依赖 mammoth 稳定的 HTML 输出，不触碰其内部 AST。
+ */
+export function normalizeDocxFootnotes(html: string): string {
+  let output = html.replace(FOOTNOTE_BACKLINK_RE, '');
+  output = output.replace(
+    FOOTNOTE_REF_RE,
+    (_match, index: string, inner: string) =>
+      `<a class="bt-mark-noteref" href="#fn-docx-${index}" id="ref-docx-${index}">${inner}</a>`,
+  );
+  output = output.replace(
+    FOOTNOTE_ITEM_RE,
+    (_match, index: string, inner: string) =>
+      `<div class="bt-footnote" data-id="fn-docx-${index}" data-marker="${index}" data-ref-id="ref-docx-${index}">${inner}</div>`,
+  );
+  /* 拆掉只包裹脚注 div 的 <ol> 外壳（div 不能合法嵌在 ol 里） */
+  return output.replace(/<ol>\s*(<div class="bt-footnote"[\s\S]*?)<\/ol>\s*/g, '$1');
 }
 
 /** 归一为字节视图，兼容 `ArrayBuffer` 与带自定义 offset / 长度的 `Uint8Array` */
@@ -66,8 +102,8 @@ export async function docxToHtml(input: DocxInput, options: DocxToHtmlOptions = 
   }
 
   const mammothOptions: MammothOptions = {
-    // D4-a：内嵌图片默认退化为空 src 占位，避免把 base64 塞进 IR、并保证正文不被阻断
-    convertImage: options.convertImage ?? mammoth.images.imgElement(() => Promise.resolve({ src: '' })),
+    // F5：缺省内联 base64（data URI）；调用方可用 convertImage 覆盖为资源钩子
+    convertImage: options.convertImage ?? mammoth.images.dataUri,
     ...(options.styleMap !== undefined ? { styleMap: options.styleMap } : {}),
   };
 
@@ -84,5 +120,5 @@ export async function docxToHtml(input: DocxInput, options: DocxToHtmlOptions = 
   if (html.trim() === '') {
     throw new RangeError('docx 解析结果为空：文件可能不含正文，或并非 Word 的 .docx（OOXML）格式。');
   }
-  return html;
+  return normalizeDocxFootnotes(html);
 }

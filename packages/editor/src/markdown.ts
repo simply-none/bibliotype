@@ -6,14 +6,16 @@
  *   因而可被 pmNodeToIr 无损回收为 IR（导入链路复用）；
  * - 零依赖、确定性：不读当前时间、不用随机数，输入决定输出；
  * - 支持子集：标题（# 1~6）、粗体（双星 / 双下划线）、斜体（单星 / 单下划线）、删除线、行内码、
- *   围栏代码块、引用、有序 / 无序列表、链接、图片、分隔线、空行分段。
+ *   围栏代码块、引用、有序 / 无序列表（含嵌套与松散项）、GFM 管道表格、链接、图片（可带图注）、
+ *   分隔线、空行分段。
  *
  * 已知约束（schema 语义决定，非解析器缺陷）：
  * - image 为块级原子节点，故 `![a](s)` 仅识别独占一行的图片；行内图片退化为其 alt 文本；
- * - 列表项内容按单段落处理，不支持嵌套列表 / 松散列表（项间空行会结束该列表）。
+ * - front-matter 不在本层解析（metadata 属文档级，由 `@bibliotype/import` 处理）。
  */
 import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
 import { Fragment, type Mark, type Node as PmNode, type Schema } from 'prosemirror-model';
+import { parseListBlock, parseTableBlock, type MarkdownBlockContext } from './markdown-blocks.js';
 
 /** Markdown 结构特征（纯文本粘贴是否值得按 Markdown 解析的判据集合） */
 const MARKDOWN_SIGNALS: readonly RegExp[] = [
@@ -31,6 +33,9 @@ const MARKDOWN_SIGNALS: readonly RegExp[] = [
   /^[ \t]{0,3}\[\^[^\]\s]+\]:/m, // 脚注定义
   /\[\^[^\]\s]+\]/, // 脚注引用
 ];
+
+/** 列表项行（含缩进；仅用于主循环快速判定，实际解析委托 markdown-blocks） */
+const LIST_MARKER_RE = /^[ \t]*(?:[-*+]|\d+\.)(?:[ \t]+|$)/;
 
 /** 判断纯文本是否含 Markdown 结构特征（含任一信号即视为 Markdown） */
 export function looksLikeMarkdown(text: string): boolean {
@@ -328,6 +333,13 @@ export function markdownToNodes(text: string, schema: Schema): PmNode[] {
           },
         };
 
+  /** 复合块（列表 / 表格）解析上下文：复用脚注上下文，保证引用编号连续 */
+  const blockContext: MarkdownBlockContext = {
+    schema,
+    paragraph: (text) => makeParagraph(schema, text, footnotes),
+    inline: (text) => parseInlineToNodes(text, schema),
+  };
+
   /** 输出本段引用到的注文（紧随引用段落，符合页底注的就近习惯） */
   const flushReferencedNotes = (): void => {
     for (const label of referenced) {
@@ -416,17 +428,42 @@ export function markdownToNodes(text: string, schema: Schema): PmNode[] {
       continue;
     }
 
-    // 独占一行的图片
-    const image = /^[ \t]*!\[([^\]]*)\]\(([^)\s]*)\)[ \t]*$/.exec(line);
+    // 独占一行的图片（可选 title 作为图注）
+    const image = /^[ \t]*!\[([^\]]*)\]\(([^)\s]*)(?:[ \t]+["']([^"']*)["'])?\)[ \t]*$/.exec(line);
     if (image !== null) {
       flushParagraph();
       const imageType = schema.nodes[NODE_TYPES.IMAGE];
+      const captionType = schema.nodes[NODE_TYPES.CAPTION];
       const src = image[2] ?? '';
       if (imageType !== undefined && src.length > 0) {
         blocks.push(imageType.create({ src, alt: image[1] ?? null }));
+
+        /* 图注：优先用 title，其次取紧随其后的整行斜体（`*图一*` / `_图一_`） */
+        let captionText = (image[3] ?? '').trim();
+        if (captionText === '') {
+          const captionMatch = /^[ \t]*[*_]([^*_\n]+)[*_][ \t]*$/.exec(lines[idx + 1] ?? '');
+          if (captionMatch !== null) {
+            captionText = (captionMatch[1] ?? '').trim();
+            idx += 1;
+          }
+        }
+        if (captionText !== '' && captionType !== undefined) {
+          blocks.push(captionType.create(null, parseInlineToNodes(captionText, schema)));
+        }
       }
       idx += 1;
       continue;
+    }
+
+    // GFM 管道表格（表头行 + 分隔行）
+    if (line.includes('|')) {
+      const table = parseTableBlock(lines, idx, blockContext);
+      if (table !== undefined) {
+        flushParagraph();
+        blocks.push(table.node);
+        idx = table.next;
+        continue;
+      }
     }
 
     // 引用块（连续 > 行，内容递归解析）
@@ -446,37 +483,15 @@ export function markdownToNodes(text: string, schema: Schema): PmNode[] {
       continue;
     }
 
-    // 列表（有序 / 无序；切换类型或空行结束）
-    const bullet = /^[ \t]*[-*+][ \t]+(.*)$/.exec(line);
-    const ordered = /^[ \t]*\d+\.[ \t]+(.*)$/.exec(line);
-    if (bullet !== null || ordered !== null) {
-      flushParagraph();
-      const isOrdered = ordered !== null;
-      const itemRe = isOrdered ? /^[ \t]*\d+\.[ \t]+(.*)$/ : /^[ \t]*[-*+][ \t]+(.*)$/;
-      const otherRe = isOrdered ? /^[ \t]*[-*+][ \t]+/ : /^[ \t]*\d+\.[ \t]+/;
-      const items: string[] = [];
-      while (idx < lines.length) {
-        const current = lines[idx] ?? '';
-        const mm = itemRe.exec(current);
-        if (mm === null || otherRe.test(current)) {
-          break;
-        }
-        items.push(mm[1] ?? '');
-        idx += 1;
+    // 列表（有序 / 无序，支持缩进嵌套与松散项）
+    if (LIST_MARKER_RE.test(line)) {
+      const list = parseListBlock(lines, idx, blockContext);
+      if (list !== undefined) {
+        flushParagraph();
+        blocks.push(list.node);
+        idx = list.next;
+        continue;
       }
-      const listType = schema.nodes[NODE_TYPES.LIST];
-      const itemNodeType = schema.nodes[NODE_TYPES.LIST_ITEM];
-      if (listType !== undefined && itemNodeType !== undefined) {
-        const liNodes = items.map((content) => {
-          const paragraph = makeParagraph(schema, content);
-          const children = paragraph !== undefined ? [paragraph] : undefined;
-          return itemNodeType.createChecked(null, children) ?? itemNodeType.create(null);
-        });
-        if (liNodes.length > 0) {
-          blocks.push(listType.createChecked({ ordered: isOrdered }, liNodes) ?? listType.create(null));
-        }
-      }
-      continue;
     }
 
     // 空行：分段

@@ -84,7 +84,20 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       group: 'block',
       content: 'inline*',
       attrs: COMMON_NODE_ATTRS,
-      parseDOM: [{ tag: 'div.bt-paragraph' }, { tag: 'p' }],
+      parseDOM: [
+        { tag: 'div.bt-paragraph' },
+        {
+          /* DOCX 导入：mammoth styleMap 输出 `docx-style-<id>`，回收为命名样式 */
+          tag: 'p',
+          getAttrs: (dom): Record<string, unknown> | false => {
+            if (typeof dom === 'string') return false;
+            const match = /(?:^|\s)docx-style-([A-Za-z0-9_-]+)/.exec(
+              dom.getAttribute('class') ?? '',
+            );
+            return match === null ? {} : { rawAttrs: { styleId: `ns-docx-${match[1]}` } };
+          },
+        },
+      ],
     },
   },
   {
@@ -262,7 +275,29 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
 
   /* ---------- 注释节点 ---------- */
   // 注码（attrs.marker）是注释块的显示序号：缺省 null 表示未编号，插入命令按文档现状自动分配
-  { type: NODE_TYPES.FOOTNOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
+  {
+    type: NODE_TYPES.FOOTNOTE,
+    spec: {
+      group: 'block',
+      content: 'block+',
+      attrs: NOTE_NODE_ATTRS,
+      /* 导入归一化产物：<div class="bt-footnote" data-id data-marker data-ref-id> */
+      parseDOM: [
+        {
+          tag: 'div.bt-footnote',
+          getAttrs: (dom): Record<string, unknown> | false => {
+            if (typeof dom === 'string') return false;
+            const id = dom.getAttribute('data-id');
+            const refId = dom.getAttribute('data-ref-id');
+            const markerText = dom.getAttribute('data-marker');
+            const marker =
+              markerText !== null && /^\d+$/.test(markerText) ? Number(markerText) : null;
+            return { ...(id === null ? {} : { id }), marker, refId };
+          },
+        },
+      ],
+    },
+  },
   { type: NODE_TYPES.ENDNOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
   { type: NODE_TYPES.MARGIN_NOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
 

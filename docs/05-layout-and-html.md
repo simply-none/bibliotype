@@ -13,7 +13,7 @@ interface LayoutOptions {
   pageSize: PageSize;                       // { name, width, height }（px，96dpi）
   columns: number;                          // 分栏数 1~3
   pageNumberStyle: PageNumberStyle;         // 'decimal' | 'chinese' | 'roman'
-  combineUpright: CombineUprightOptions;    // 直排数字/英文策略（D3）
+  combineUpright: CombineUprightOptions;    // 直排数字/英文策略（D3，含长数字串汉字分组）
   facsimile?: FacsimileOptions;             // 古籍仿真版式（缺省 undefined = 不启用）
 }
 ```
@@ -70,7 +70,41 @@ combineUprightCss({ maxDigits: 0, latinStrategy: 'rotate' }); // undefined（禁
 ```
 
 `CombineUprightOptions`：`maxDigits`（合并位数上限，默认 4；≤0 禁用）、
-`latinStrategy`（`rotate` 侧转 / `combine` 并入字格）。
+`latinStrategy`（`rotate` 侧转 / `combine` 并入字格）、`longDigits`（超长数字串
+`sideways` 侧转 / `kanji` 转汉字数字直排，缺省侧转）。
+
+## 竖排文字形态（B7）
+
+竖排下标点与引号的横排字形位置错位（句号跑到左下、引号横躺），须换用 Unicode
+竖排形态；数字可选「汉字数字直排」分组。全部为纯函数，且**逐字符一一对应**，
+不改字符数，可直接作用于已分页 / 已实测文本（不破坏 `lineOffsets` / 字符区间）。
+
+```ts
+import {
+  toVerticalPunctuation, toKanjiDigits, toFullwidthDigits,
+  transformVerticalText, needsVerticalTextTransform, VERTICAL_PUNCTUATION_FORMS,
+} from '@bibliotype/layout';
+
+toVerticalPunctuation('子曰：「学而时习之。」');  // 子曰︓﹁学而时习之︒﹂
+toKanjiDigits('1850');                        // 一八五〇
+transformVerticalText('1850年', { digits: 'kanji' });  // 一八五〇年（标点同时转换）
+```
+
+| 项 | 说明 |
+| --- | --- |
+| `VERTICAL_PUNCTUATION_FORMS` | 横排 → 竖排形态表：`。︒` `、︑` `，︐` `：︓` `；︔` `！︕` `？︖` `（︵` `）︶` `〔︹` `〕︺` `…︙`；引号书名号 `「﹁` `」﹂` `『﹃` `』﹄` `【﹇` `】﹈` `《︽` `》︾` `〈︿` `〉﹀` |
+| `transformVerticalText(text, { punctuation?, digits? })` | 标点缺省转换；`digits: 'kanji' \| 'fullwidth' \| 'none'`（缺省 `none`） |
+| `needsVerticalTextTransform(text, options?)` | 是否需要转换（渲染层跳空遍历） |
+
+序列化器提供同名开关（缺省不转换，交给浏览器 OpenType `vert` 特性）：
+
+```ts
+serializeNode(node, { verticalText: { digits: 'kanji' } });  // 导出管线逐字一致
+```
+
+`exporter-pdf` 的 `PrintDocumentOptions.verticalText` 透传到两条渲染路径（`auto` 流式 /
+`paged` 逐页）；代码块逐字输出，不受转换影响。直排正文亦可直接用
+`segmentForVertical(text, { longDigits: 'kanji' })` 得到汉字数字分段。
 
 ## 样式构建（内联声明）
 

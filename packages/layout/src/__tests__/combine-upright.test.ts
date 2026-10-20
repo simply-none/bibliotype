@@ -70,6 +70,24 @@ describe('segmentForVertical', () => {
     expect(segments.map((s) => s.text).join('')).toBe('共 12 items');
   });
 
+  it('longDigits=kanji：超长数字串转汉字数字直排（数字分组）', () => {
+    const segments = segmentForVertical('编号1234567890', {
+      longDigits: 'kanji',
+    });
+    expect(segments[1]).toMatchObject({
+      kind: SEGMENT_KINDS.NATIVE,
+      text: '一二三四五六七八九〇',
+      upright: 'as-is',
+    });
+    // 短数字串仍合并，不受分组策略影响
+    const short = segmentForVertical('贞观2026年', { longDigits: 'kanji' });
+    expect(short[1]).toMatchObject({
+      kind: SEGMENT_KINDS.DIGITS,
+      text: '2026',
+      upright: 'combine',
+    });
+  });
+
   it('空文本返回空数组', () => {
     expect(segmentForVertical('')).toEqual([]);
   });

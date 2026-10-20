@@ -22,6 +22,7 @@ import {
   resolvePageMainSize,
   resolveBottomSlack,
   type LayoutOptions,
+  type VerticalTextOptions,
 } from '@bibliotype/layout';
 import {
   buildBookCss,
@@ -95,6 +96,13 @@ export interface PrintDocumentOptions {
    * （与屏幕预览 / 编辑分页同源口径）。
    */
   bodySizes?: ReadonlyMap<string, number>;
+  /**
+   * 竖排文字形态（透传序列化器，B7）
+   *
+   * 显式开启后标点换竖排形态（`︒` `︑` `﹁`），数字可选汉字 / 全角；
+   * 缺省不转换（交给浏览器 `vert` 特性）。仅直排书刊建议开启。
+   */
+  verticalText?: VerticalTextOptions;
   /** 节点类型 → 标签覆盖（透传序列化器，用于插件节点定制） */
   tagOverrides?: Readonly<Record<string, string>>;
   /**
@@ -156,6 +164,7 @@ function renderFlowBody(book: BookDocument, options: PrintDocumentOptions): stri
   const content = serializeNode(book.root, {
     tagOverrides: options.tagOverrides,
     rewriteSrc: options.rewriteSrc,
+    verticalText: options.verticalText,
   });
   return `<main class="bt-book">\n${content}\n</main>`;
 }
@@ -198,6 +207,7 @@ function renderPagedBody(
           serializeNode(node, {
             tagOverrides: options.tagOverrides,
             rewriteSrc: options.rewriteSrc,
+            verticalText: options.verticalText,
           }),
         )
         .join('\n');

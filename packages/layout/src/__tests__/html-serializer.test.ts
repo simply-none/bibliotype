@@ -356,3 +356,33 @@ describe('注引用', () => {
     );
   });
 });
+
+describe('竖排文字形态', () => {
+  it('verticalText：标点换竖排形态 + 数字汉字分组', () => {
+    const node: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [{ type: 'text', text: '子曰：「学而时习之。」1850年' }],
+    };
+    expect(serializeNode(node, { verticalText: { digits: 'kanji' } })).toBe(
+      '<p class="bt-paragraph">子曰︓﹁学而时习之︒﹂一八五〇年</p>',
+    );
+  });
+
+  it('缺省不转换（交给浏览器 vert 特性）', () => {
+    const node: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [{ type: 'text', text: '子曰：「1850」。' }],
+    };
+    expect(serializeNode(node)).toBe('<p class="bt-paragraph">子曰：「1850」。</p>');
+  });
+
+  it('代码块逐字输出，不受竖排转换影响', () => {
+    const node: BookNode = {
+      type: NODE_TYPES.CODE_BLOCK,
+      children: [{ type: 'text', text: 'print("。1850")' }],
+    };
+    expect(serializeNode(node, { verticalText: { digits: 'kanji' } })).toContain(
+      '。1850',
+    );
+  });
+});

@@ -8,7 +8,9 @@
  * - 全角字符与汉字：原样直排。
  *
  * 本模块为纯函数，产出「分段策略」，供样式构建器 / 渲染层消费。
+ * 超长数字串可选「汉字数字直排」（`longDigits: 'kanji'`，B7 数字分组）。
  */
+import { toKanjiDigits } from './vertical-text.js';
 
 /** 分段类型 */
 export const SEGMENT_KINDS = {
@@ -31,12 +33,20 @@ export interface CombineUprightOptions {
   maxDigits: number;
   /** 拉丁词策略：rotate 侧转（默认）/ combine 并入字格 */
   latinStrategy: 'rotate' | 'combine';
+  /**
+   * 超长数字串策略：sideways 侧转顺排（缺省）/ kanji 转汉字数字直排
+   *
+   * `kanji` 即「数字分组」可选口径：1850 → 一八五〇（逐字符一一对应，
+   * 不改字符数），适合古籍 / 港台竖排正文。
+   */
+  longDigits?: 'sideways' | 'kanji';
 }
 
 /** 默认合并选项 */
 export const DEFAULT_COMBINE_OPTIONS: CombineUprightOptions = {
   maxDigits: 4,
   latinStrategy: 'rotate',
+  longDigits: 'sideways',
 };
 
 /** 文本分段结果 */
@@ -61,9 +71,10 @@ const SPACE_RE = /\s+/;
  */
 export function segmentForVertical(
   text: string,
-  options: CombineUprightOptions = DEFAULT_COMBINE_OPTIONS,
+  options: Partial<CombineUprightOptions> = {},
 ): TextSegment[] {
   if (text.length === 0) return [];
+  const resolved: CombineUprightOptions = { ...DEFAULT_COMBINE_OPTIONS, ...options };
 
   const segments: TextSegment[] = [];
   let cursor = 0;
@@ -83,11 +94,21 @@ export function segmentForVertical(
     if (digitsMatch && digitsMatch.index === 0) {
       flushNative();
       const digits = digitsMatch[0];
-      segments.push({
-        kind: SEGMENT_KINDS.DIGITS,
-        text: digits,
-        upright: digits.length <= options.maxDigits ? 'combine' : 'sideways',
-      });
+      const tooLong = digits.length > resolved.maxDigits;
+      if (tooLong && resolved.longDigits === 'kanji') {
+        // 数字分组：转汉字数字后按原生字符直排（逐字符 1:1，字符数不变）
+        segments.push({
+          kind: SEGMENT_KINDS.NATIVE,
+          text: toKanjiDigits(digits),
+          upright: 'as-is',
+        });
+      } else {
+        segments.push({
+          kind: SEGMENT_KINDS.DIGITS,
+          text: digits,
+          upright: tooLong ? 'sideways' : 'combine',
+        });
+      }
       cursor += digits.length;
       continue;
     }
@@ -99,7 +120,7 @@ export function segmentForVertical(
       segments.push({
         kind: SEGMENT_KINDS.LATIN,
         text: word,
-        upright: options.latinStrategy === 'combine' ? 'combine' : 'sideways',
+        upright: resolved.latinStrategy === 'combine' ? 'combine' : 'sideways',
       });
       cursor += word.length;
       continue;
@@ -132,11 +153,12 @@ export function segmentForVertical(
  * @returns 如 "digits 4"；当禁用合并（maxDigits <= 0）时返回 undefined。
  */
 export function combineUprightCss(
-  options: CombineUprightOptions = DEFAULT_COMBINE_OPTIONS,
+  options: Partial<CombineUprightOptions> = {},
 ): string | undefined {
-  if (options.maxDigits <= 0) return undefined;
-  if (options.latinStrategy === 'combine') return 'all';
-  return `digits ${options.maxDigits}`;
+  const resolved: CombineUprightOptions = { ...DEFAULT_COMBINE_OPTIONS, ...options };
+  if (resolved.maxDigits <= 0) return undefined;
+  if (resolved.latinStrategy === 'combine') return 'all';
+  return `digits ${resolved.maxDigits}`;
 }
 
 /** 判断文本是否包含需要直排特殊处理的字符（数字/拉丁） */

@@ -24,6 +24,19 @@ export type {
   TextSegment,
 } from './combine-upright.js';
 
+/* ---------- 竖排文字细节（B7） ---------- */
+export {
+  VERTICAL_PUNCTUATION_FORMS,
+  VERTICAL_DIGIT_STYLES,
+  verticalPunctuationOf,
+  toVerticalPunctuation,
+  toKanjiDigits,
+  toFullwidthDigits,
+  transformVerticalText,
+  needsVerticalTextTransform,
+} from './vertical-text.js';
+export type { VerticalDigitStyle, VerticalTextOptions } from './vertical-text.js';
+
 /* ---------- 布局配置 ---------- */
 export {
   PAGE_NUMBER_STYLES,

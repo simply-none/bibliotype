@@ -20,6 +20,7 @@ import {
   type BookMark,
   type BookNode,
 } from '@bibliotype/core';
+import { transformVerticalText, type VerticalTextOptions } from '../vertical-text.js';
 
 /** 序列化选项 */
 export interface SerializeNodeOptions {
@@ -27,6 +28,15 @@ export interface SerializeNodeOptions {
   tagOverrides?: Readonly<Record<string, string>>;
   /** 节点 → 锚点 id 注入（仅对无 id 节点生效，如 EPUB 自动锚点） */
   anchorIds?: ReadonlyMap<BookNode, string>;
+  /**
+   * 竖排文字形态（B7）：标点 / 引号换成竖排形态（`︒` `︑` `﹁` `﹂`），
+   * 数字可选汉字（`1850` → `一八五〇`）或全角。
+   *
+   * 缺省不转换（交给浏览器 OpenType `vert` 特性）；导出管线（PDF / EPUB）或
+   * 需要「所见即所得」逐字控制的场景可显式开启。转换逐字符一一对应，
+   * 不改变字符偏移 / 锚点，代码块内容不受影响。
+   */
+  verticalText?: VerticalTextOptions;
   /**
    * 图片 src 改写回调（EPUB 导出用：把 data URI / 本地路径改写为包内相对路径）
    *
@@ -440,7 +450,9 @@ function serializeNoteContent(
 /** 节点分发（文本叶子 / 透明根 / 元素） */
 function nodeToHtml(node: BookNode, options: SerializeNodeOptions): string {
   if (isTextNode(node)) {
-    return applyMarks(escapeHtml(node.text ?? ''), node.marks, options);
+    const raw = node.text ?? '';
+    const text = options.verticalText === undefined ? raw : transformVerticalText(raw, options.verticalText);
+    return applyMarks(escapeHtml(text), node.marks, options);
   }
   if (node.type === NODE_TYPES.BOOK) {
     return serializeChildren(node, options);

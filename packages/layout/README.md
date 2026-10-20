@@ -69,6 +69,7 @@ const { pages, totalPages } = paginate(
 import { serializeNode, escapeHtml, buildBookCss } from '@bibliotype/layout/html';
 
 const html = serializeNode(node);   // IR 节点 → 语义 HTML（缺元素子节点时用 span，否则 div）
+// 竖排书刊可显式替换标点 / 数字：serializeNode(node, { verticalText: { digits: 'kanji' } })
 const css = buildBookCss({
   tokens: DEFAULT_THEME,
   options: layout,
@@ -101,7 +102,8 @@ const grid = resolveFacsimileGrid(layout, preset.tokens);
 | --- | --- |
 | 书写方向 | `WRITING_MODES`、`TEXT_ORIENTATIONS`、`isVerticalMode` |
 | 页面尺寸 | `PAGE_SIZES`、`createPageSize`、`resolveContentBox` |
-| 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`、`combineUprightCss`、`needsCombineUpright` |
+| 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`（`longDigits: 'kanji'` 数字分组）、`combineUprightCss`、`needsCombineUpright` |
+| 竖排细节 | `VERTICAL_PUNCTUATION_FORMS`、`verticalPunctuationOf`、`toVerticalPunctuation`、`toKanjiDigits`、`toFullwidthDigits`、`transformVerticalText`、`needsVerticalTextTransform` |
 | 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`FACSIMILE_BASE_LAYOUT`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
 | 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |

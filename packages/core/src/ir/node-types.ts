@@ -104,6 +104,15 @@ export const MARK_TYPES = {
   RUBY: 'ruby',
   /** 高亮 */
   HIGHLIGHT: 'highlight',
+  /**
+   * 注引用（正文上标 → 注释块）
+   *
+   * 作为**标记**而非节点：注引用只承载「指向哪个注释」这一层关系，
+   * 不构成结构，天然随文字移动 / 删除，也避免行内原子节点在分页与文本抽取里
+   * 另开特例。attrs：`targetId`（注释块 id）、`refId`（本条引用的锚点 id，
+   * 供注文末的回跳链接使用）。
+   */
+  NOTE_REF: 'noteref',
 } as const;
 
 /** 标记类型联合（由 MARK_TYPES 推导） */

@@ -68,6 +68,7 @@ export {
   insertFigure,
   insertHorizontalRule,
   insertNote,
+  insertNoteRef,
   insertFootnote,
   insertEndnote,
   insertMarginNote,
@@ -88,7 +89,12 @@ export {
   getBlockStyleId,
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
-export type { FigureOptions, TableCellAlign, InsertNoteOptions } from './commands.js';
+export type {
+  FigureOptions,
+  TableCellAlign,
+  InsertNoteOptions,
+  InsertNoteRefOptions,
+} from './commands.js';
 
 /* ---------- 目录生成 / 刷新 ---------- */
 export { insertToc, collectTocEntries, buildTocNode } from './toc.js';

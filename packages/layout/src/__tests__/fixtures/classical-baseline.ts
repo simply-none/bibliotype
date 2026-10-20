@@ -33,8 +33,11 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-20 三次更新：新增目录链接规则 `.bt-toc .bt-mark-link`（目录条目链接跟随目录版式），
  * 样式表全文变化，基线重锁。
+ *
+ * 2026-10-20 四次更新：新增注引用 `.bt-mark-noteref` 与注文回跳 `.bt-note-backref` 两条规则，
+ * 样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '50ea8cf9';
+export const CLASSICAL_CSS_FNV = 'ca77fe18';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

@@ -214,6 +214,13 @@ ${scoped('.bt-note-marker')} {
   font-size: 0.9em;
   letter-spacing: 0.02em;
 }
+/* 注文末回跳链接（点击回到正文引用处） */
+${scoped('.bt-note-backref')} {
+  margin-inline-start: 0.35em;
+  font-size: 0.85em;
+  text-decoration: none;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
 ${scoped('.bt-table')} {
   border-collapse: collapse;
   /* 逻辑外边距：横排为上下、直排为左右，表格与相邻块沿书写方向留白 */
@@ -287,6 +294,14 @@ ${scoped('.bt-mark-link')} {
 ${scoped('.bt-toc .bt-mark-link')} {
   color: inherit;
   text-decoration: none;
+}
+/* 注引用：正文上标，跟随文字颜色（不做成蓝色链接）；直排下 super 会落到字符上方一侧 */
+${scoped('.bt-mark-noteref')} {
+  font-size: 0.75em;
+  line-height: 0;
+  vertical-align: super;
+  text-decoration: none;
+  color: inherit;
 }
 ${scoped('.bt-math-block')} {
   margin: 1em 0;

@@ -92,7 +92,8 @@ off();
 | `insertRuby(reading, text?)` | 注音：选区加 `ruby` 标记，或插入带注音文字 |
 | `insertFigure({ src, alt, caption })` | 图片 + 图注块组，光标落入图注 |
 | `insertHorizontalRule()` / `insertPageBreak()` | 分隔线 `break(variant='hr')` / 分页符 `break(variant='page')` |
-| `insertFootnote` / `insertEndnote` / `insertMarginNote` / `insertNote` | 脚注 / 尾注 / 边注，按同类现存数量自动编号（见 [31 注释](31-notes.md)） |
+| `insertFootnote` / `insertEndnote` / `insertMarginNote` / `insertNote` | 脚注 / 尾注 / 边注，按同类现存数量自动编号，缺省同时写正文上标引用（见 [31 注释](31-notes.md)） |
+| `insertNoteRef({ targetId })` | 为已有注释补一条正文上标引用（`noteref` 标记，双向跳转） |
 | `insertToc(options?)` | 生成 / 刷新目录页（见下节） |
 
 ### 目录生成 / 刷新（`insertToc`）

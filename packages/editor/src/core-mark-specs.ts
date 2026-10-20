@@ -66,5 +66,28 @@ export const CORE_EDITOR_MARK_SPECS: readonly EditorMarkSpecEntry[] = [
       attrs: { ...COMMON_MARK_ATTRS, text: { default: null } },
     },
   },
+  // 注引用：正文上标指向注释块（targetId），refId 为回跳锚点；不向后续输入延续
+  {
+    type: MARK_TYPES.NOTE_REF,
+    spec: {
+      inclusive: false,
+      attrs: {
+        ...COMMON_MARK_ATTRS,
+        targetId: { default: null },
+        refId: { default: null },
+      },
+      parseDOM: [
+        {
+          tag: 'a.bt-mark-noteref',
+          getAttrs: (dom): Record<string, unknown> | false => {
+            if (typeof dom === 'string') return false;
+            const href = dom.getAttribute('href') ?? '';
+            const targetId = href.startsWith('#') ? href.slice(1) : null;
+            return { targetId, refId: dom.getAttribute('id') };
+          },
+        },
+      ],
+    },
+  },
   { type: MARK_TYPES.HIGHLIGHT, spec: { attrs: COMMON_MARK_ATTRS } },
 ];

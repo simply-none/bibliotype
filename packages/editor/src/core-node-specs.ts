@@ -21,10 +21,11 @@ export const STRUCTURE_NODE_ATTRS = {
   title: { default: null },
 } as const;
 
-/** 注释节点属性（脚注 / 尾注 / 边注共用；marker 为显示注码） */
+/** 注释节点属性（脚注 / 尾注 / 边注共用；marker 为显示注码，refId 为正文引用的回跳锚点） */
 export const NOTE_NODE_ATTRS = {
   ...COMMON_NODE_ATTRS,
   marker: { default: null },
+  refId: { default: null },
 } as const;
 
 /**

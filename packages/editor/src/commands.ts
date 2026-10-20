@@ -816,6 +816,38 @@ export interface InsertNoteOptions {
   marker?: string;
   /** 自动编号的注码样式（`arabic` / `circled` / `chinese`，缺省阿拉伯数字） */
   labelStyle?: NoteLabelStyle;
+  /**
+   * 是否同时在正文插入上标注引用（缺省 `true`）
+   *
+   * 引用与注释块靠 `targetId` / `refId` 成对关联，导出为
+   * `<a epub:type="noteref" href="#note-…">` 与注文末的回跳链接。
+   * 光标不在文本块内（如选中图片块）时自动跳过引用，只插注释块。
+   */
+  withRef?: boolean;
+}
+
+/** 收集文档内已用的节点 id（生成注释 / 引用锚点前查重） */
+function collectUsedIds(doc: PmNode): Set<string> {
+  const used = new Set<string>();
+  doc.descendants((node) => {
+    const id = node.attrs['id'];
+    if (typeof id === 'string' && id !== '') used.add(id);
+    return true;
+  });
+  return used;
+}
+
+/** 取一个未被占用的 id（冲突时追加 `-2`、`-3`…） */
+function uniqueId(used: Set<string>, base: string): string {
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  let suffix = 2;
+  while (used.has(`${base}-${suffix}`)) suffix += 1;
+  const id = `${base}-${suffix}`;
+  used.add(id);
+  return id;
 }
 
 /** 统计文档内指定类型的注释块数量（自动编号用） */
@@ -829,6 +861,29 @@ function countNoteBlocks(doc: PmNode, typeName: string): number {
   return count;
 }
 
+/** 统计正文中已有的注引用数量 */
+function countNoteRefs(doc: PmNode, markName: string): number {
+  let count = 0;
+  doc.descendants((node) => {
+    if (node.isText && node.marks.some((mark) => mark.type.name === markName)) count += 1;
+    return true;
+  });
+  return count;
+}
+
+/** 目标注释块的显示注码（找不到返回 undefined） */
+function markerOfNote(doc: PmNode, noteId: string): string | undefined {
+  let marker: string | undefined;
+  doc.descendants((node) => {
+    if (marker !== undefined) return false;
+    if (node.attrs['id'] !== noteId) return true;
+    const raw = node.attrs['marker'];
+    if (typeof raw === 'string' && raw !== '') marker = raw;
+    return false;
+  });
+  return marker;
+}
+
 /**
  * 在当前叶块之后插入注释块（脚注 / 尾注 / 边注通用）
  *
@@ -836,6 +891,8 @@ function countNoteBlocks(doc: PmNode, typeName: string): number {
  *   把它区分为页底注 / 尾注 / 旁栏；
  * - 编号：按文档内**同类现存注释数量**自动递增（脚注与尾注各自独立编号），
  *   显式传 `marker` 则尊重作者手写注码；
+ * - 引用：缺省在光标处写入上标注引用（`noteref` 标记），正文与注文靠
+ *   `targetId` / `refId` 双向跳转；`withRef: false` 可只插注文；
  * - 光标落入注文段落内，插入后可直接输入；
  * - `typeName` 不是注释节点、schema 未注册该节点或段落节点时返回 false。
  */
@@ -849,26 +906,92 @@ export function insertNote(typeName: string, options: InsertNoteOptions = {}): C
     const { $to } = state.selection;
     if ($to.depth === 0) return false;
 
+    const index = countNoteBlocks(state.doc, typeName) + 1;
     const marker =
-      options.marker ??
-      formatNoteLabel(
-        countNoteBlocks(state.doc, typeName) + 1,
-        options.labelStyle ?? NOTE_LABEL_STYLES.ARABIC,
-      );
+      options.marker ?? formatNoteLabel(index, options.labelStyle ?? NOTE_LABEL_STYLES.ARABIC);
+    const used = collectUsedIds(state.doc);
+    const noteId = uniqueId(used, `note-${typeName}-${index}`);
+    const refId = uniqueId(used, `ref-${typeName}-${index}`);
+
+    const refMarkType = state.schema.marks[MARK_TYPES.NOTE_REF];
+    /* 引用只在「光标位于文本块内且标记已注册」时成立；否则注文不写 refId，
+       避免导出时出现指向不存在锚点的回跳链接 */
+    const withRef =
+      options.withRef !== false && refMarkType !== undefined && $to.parent.isTextblock;
+
     const text = options.text ?? '';
     const content = paragraph.create(null, text === '' ? null : state.schema.text(text));
-    const note = type.createChecked({ marker }, content);
+    const note = type.createChecked(
+      withRef ? { marker, id: noteId, refId } : { marker, id: noteId },
+      content,
+    );
 
     /* 光标正在注文内时，新注释插在该注释之后：注释不嵌套，否则注文里出现注文 */
-    let insertPos = $to.after($to.depth);
+    let blockPos = $to.after($to.depth);
     for (let depth = $to.depth; depth > 0; depth -= 1) {
       if (isNoteNodeType($to.node(depth).type.name)) {
-        insertPos = $to.after(depth);
+        blockPos = $to.after(depth);
         break;
       }
     }
-    const tr = state.tr.insert(insertPos, note);
+
+    const tr = state.tr;
+    if (withRef) {
+      const refText = state.schema.text(
+        marker,
+        [refMarkType!.create({ targetId: noteId, refId })],
+      );
+      /* 用 insert 而非 replaceSelectionWith：后者在空选区会按光标处 marks 重写
+         文本的 marks，把刚建的 noteref 标记冲掉（实测） */
+      tr.insert(state.selection.empty ? state.selection.from : $to.pos, refText);
+    }
+
+    const insertPos = tr.mapping.map(blockPos);
+    tr.insert(insertPos, note);
     tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** 单独插入注引用（正文上标 → 已有注释块）选项 */
+export interface InsertNoteRefOptions {
+  /** 目标注释块 id（`attrs.id`） */
+  targetId: string;
+  /** 显示注码（缺省取目标注释块的 `attrs.marker`，再缺省按已有引用数推导） */
+  marker?: string;
+  /** 回跳锚点 id（缺省按已有引用数生成 `ref-<n>`） */
+  refId?: string;
+}
+
+/**
+ * 在光标处插入指向已有注释块的上标注引用
+ *
+ * 适用于「注文已存在、正文后来才补引用」的修订场景（{@link insertNote} 是
+ * 注释与引用一起插入）。选区非空时插在选区末尾，不替换已选文字；
+ * 光标不在文本块内、schema 未注册 `noteref` 标记时返回 false。
+ */
+export function insertNoteRef(options: InsertNoteRefOptions): Command {
+  return (state, dispatch) => {
+    const markType = state.schema.marks[MARK_TYPES.NOTE_REF];
+    if (markType === undefined) return false;
+    const { $to } = state.selection;
+    if (!$to.parent.isTextblock) return false;
+
+    const used = collectUsedIds(state.doc);
+    const marker =
+      options.marker ??
+      markerOfNote(state.doc, options.targetId) ??
+      formatNoteLabel(countNoteRefs(state.doc, MARK_TYPES.NOTE_REF) + 1);
+    const refId =
+      options.refId ?? uniqueId(used, `ref-${countNoteRefs(state.doc, MARK_TYPES.NOTE_REF) + 1}`);
+
+    const refText = state.schema.text(
+      marker,
+      [markType.create({ targetId: options.targetId, refId })],
+    );
+    const tr = state.tr;
+    tr.insert(state.selection.empty ? state.selection.from : $to.pos, refText);
     dispatch?.(tr.scrollIntoView());
     return true;
   };

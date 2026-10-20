@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  MARK_TYPES,
   NODE_TYPES,
   NOTE_LABEL_STYLES,
   createEmptyDocument,
@@ -11,7 +12,13 @@ import {
 } from '@bibliotype/core';
 import type { Command } from 'prosemirror-state';
 import { TextSelection } from 'prosemirror-state';
-import { insertEndnote, insertFootnote, insertMarginNote, insertNote } from '../commands.js';
+import {
+  insertEndnote,
+  insertFootnote,
+  insertMarginNote,
+  insertNote,
+  insertNoteRef,
+} from '../commands.js';
 import { buildEditorSchema } from '../default-schema.js';
 import { BookEditor } from '../editor.js';
 import { createBookEditorPlugins } from '../plugins.js';
@@ -69,6 +76,40 @@ function irText(node: BookNode): string {
   return (node.children ?? []).map(irText).join('');
 }
 
+/** 收集 IR 里指定标记实例的 attrs（文档先序） */
+function irMarks(editor: BookEditor, markType: string): Array<Record<string, unknown> | undefined> {
+  const found: Array<Record<string, unknown> | undefined> = [];
+  const walk = (node: BookNode): void => {
+    if (node.type === NODE_TYPES.TEXT) {
+      for (const mark of node.marks ?? []) {
+        if (mark.type === markType) found.push(mark.attrs);
+      }
+      return;
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(editor.getDocument().root);
+  return found;
+}
+
+/** 光标置于第 index 个文本节点末尾（0 起，按文档先序） */
+function caretAtTextEnd(editor: BookEditor, index: number): void {
+  let seen = -1;
+  let pos = 0;
+  editor.editorState.doc.descendants((node, nodePos) => {
+    if (node.isText) {
+      seen += 1;
+      if (seen === index) {
+        pos = nodePos + node.nodeSize;
+        return false;
+      }
+    }
+    return true;
+  });
+  const state = editor.editorState;
+  editor.dispatch(state.tr.setSelection(TextSelection.create(state.doc, pos)));
+}
+
 describe('注释插入命令', () => {
   it('insertFootnote：段后插入脚注块，自动注码 1，光标进入注文', () => {
     const editor = createEditor();
@@ -83,7 +124,14 @@ describe('注释插入命令', () => {
     ]);
     const footnote = blocks[1];
     expect(footnote?.attrs?.['marker']).toBe('1');
+    expect(footnote?.id).toBe('note-footnote-1');
+    expect(footnote?.attrs?.['refId']).toBe('ref-footnote-1');
     expect(irText(footnote!)).toBe('注文');
+    /* 正文插入上标注引用，与注释块成对关联 */
+    expect(irText(blocks[0]!)).toBe('子曰：学而时习之。1');
+    const refs = irMarks(editor, MARK_TYPES.NOTE_REF);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ targetId: 'note-footnote-1', refId: 'ref-footnote-1' });
     /* 光标落在注文段落内（深度 = 章 > 脚注 > 段落） */
     expect(editor.editorState.selection.$from.depth).toBeGreaterThanOrEqual(3);
   });
@@ -126,6 +174,38 @@ describe('注释插入命令', () => {
     caretAtEnd(editor);
     expect(run(editor, insertMarginNote({ text: '旁批' }))).toBe(true);
     expect(chapterBlocks(editor)[1]?.type).toBe(NODE_TYPES.MARGIN_NOTE);
+  });
+
+  it('withRef: false 只插注文，不写正文引用', () => {
+    const editor = createEditor();
+    caretAtEnd(editor);
+    expect(run(editor, insertFootnote({ text: '注文', withRef: false }))).toBe(true);
+
+    expect(irText(chapterBlocks(editor)[0]!)).toBe('子曰：学而时习之。');
+    expect(irMarks(editor, MARK_TYPES.NOTE_REF)).toHaveLength(0);
+  });
+
+  it('insertNoteRef：为已有注释补引，注码取注文，refId 递增不重复', () => {
+    const editor = createEditor();
+    caretAtEnd(editor);
+    run(editor, insertFootnote({ text: '注文', withRef: false }));
+    caretAtTextEnd(editor, 0);
+
+    expect(run(editor, insertNoteRef({ targetId: 'note-footnote-1' }))).toBe(true);
+    expect(irText(chapterBlocks(editor)[0]!)).toBe('子曰：学而时习之。1');
+
+    const refs = irMarks(editor, MARK_TYPES.NOTE_REF);
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ targetId: 'note-footnote-1', refId: 'ref-1' });
+
+    /* 再补一条引用：refId 递增且不重复（同位置插入，文档顺序不保证） */
+    caretAtTextEnd(editor, 0);
+    run(editor, insertNoteRef({ targetId: 'note-footnote-1', marker: '*' }));
+    const next = irMarks(editor, MARK_TYPES.NOTE_REF);
+    expect(next).toHaveLength(2);
+    expect(next.map((mark) => mark?.['refId']).sort()).toEqual(['ref-1', 'ref-2']);
+    expect(next.every((mark) => mark?.['targetId'] === 'note-footnote-1')).toBe(true);
+    expect(irText(chapterBlocks(editor)[0]!)).toMatch(/^子曰：学而时习之。[1*]{2}$/);
   });
 
   it('非注释类型 / 光标在文档根时不可用', () => {

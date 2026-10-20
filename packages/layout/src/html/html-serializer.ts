@@ -298,11 +298,11 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
     return `<img${idAttr}${classAttr} src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${extras} />${rest}`;
   }
 
-  /* 注释块：注码提为独立 span（老引擎也能显示），marker 不再重复输出为 data-* */
+  /* 注释块：注码提为独立 span（老引擎也能显示），marker / refId 不再重复输出为 data-* */
   const noteRole = noteRoleOf(node.type);
   const extras = dataAttrs(
     attrs,
-    noteRole === undefined ? whitelist : [...whitelist, 'marker'],
+    noteRole === undefined ? whitelist : [...whitelist, 'marker', 'refId'],
   );
 
   if (noteRole !== undefined) {
@@ -314,7 +314,12 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
     const markerHtml =
       marker === '' ? '' : `<span class="bt-note-marker">${escapeHtml(marker)}</span>`;
     const epubType = options.epubSemantics === true ? ` epub:type="${noteRole}"` : '';
-    return `<${tag}${idAttr}${classAttr}${epubType}${extras}>${serializeNoteContent(node, markerHtml, options)}</${tag}>`;
+    const rawRef = attrs?.refId;
+    const backref =
+      typeof rawRef === 'string' && rawRef !== ''
+        ? `<a class="bt-note-backref" href="#${escapeHtml(rawRef)}">↩</a>`
+        : '';
+    return `<${tag}${idAttr}${classAttr}${epubType}${extras}>${serializeNoteContent(node, markerHtml, options)}${backref}</${tag}>`;
   }
 
   if (VOID_TAGS.has(tag)) {
@@ -337,18 +342,22 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
 }
 
 /** 标记包裹（marks[0] 为最内层，自内向外逐层包裹） */
-function applyMarks(html: string, marks: readonly BookMark[] | undefined): string {
+function applyMarks(
+  html: string,
+  marks: readonly BookMark[] | undefined,
+  options: SerializeNodeOptions,
+): string {
   if (marks === undefined || marks.length === 0) return html;
   let result = html;
   for (let i = 0; i < marks.length; i += 1) {
     const mark = marks[i];
-    if (mark !== undefined) result = wrapMark(mark, result);
+    if (mark !== undefined) result = wrapMark(mark, result, options);
   }
   return result;
 }
 
 /** 单个标记 → HTML 包裹 */
-function wrapMark(mark: BookMark, inner: string): string {
+function wrapMark(mark: BookMark, inner: string, options: SerializeNodeOptions): string {
   const attrs = mark.attrs;
 
   switch (mark.type) {
@@ -377,6 +386,14 @@ function wrapMark(mark: BookMark, inner: string): string {
         ? `<rt>${escapeHtml(attrs.text)}</rt>`
         : '';
       return `<ruby>${inner}${rt}</ruby>`;
+    }
+    case MARK_TYPES.NOTE_REF: {
+      const targetId = typeof attrs?.targetId === 'string' ? attrs.targetId : '';
+      const refId = typeof attrs?.refId === 'string' ? attrs.refId : '';
+      const idAttr = refId !== '' ? ` id="${escapeHtml(refId)}"` : '';
+      const epubType = options.epubSemantics === true ? ' epub:type="noteref"' : '';
+      const href = targetId !== '' ? ` href="#${escapeHtml(targetId)}"` : '';
+      return `<a${idAttr} class="bt-mark-noteref"${href}${epubType}>${inner}</a>`;
     }
     default: {
       const extras = dataAttrs(attrs, []);
@@ -423,7 +440,7 @@ function serializeNoteContent(
 /** 节点分发（文本叶子 / 透明根 / 元素） */
 function nodeToHtml(node: BookNode, options: SerializeNodeOptions): string {
   if (isTextNode(node)) {
-    return applyMarks(escapeHtml(node.text ?? ''), node.marks);
+    return applyMarks(escapeHtml(node.text ?? ''), node.marks, options);
   }
   if (node.type === NODE_TYPES.BOOK) {
     return serializeChildren(node, options);

@@ -316,3 +316,43 @@ describe('目录块', () => {
     );
   });
 });
+
+describe('注引用', () => {
+  const refParagraph: BookNode = {
+    type: NODE_TYPES.PARAGRAPH,
+    children: [
+      { type: 'text', text: '子曰' },
+      {
+        type: 'text',
+        text: '1',
+        marks: [
+          { type: MARK_TYPES.NOTE_REF, attrs: { targetId: 'note-footnote-1', refId: 'ref-1' } },
+        ],
+      },
+    ],
+  };
+
+  it('正文引用 → a + href，epubSemantics 时带 epub:type="noteref"', () => {
+    expect(serializeNode(refParagraph)).toBe(
+      '<p class="bt-paragraph">子曰' +
+        '<a id="ref-1" class="bt-mark-noteref" href="#note-footnote-1">1</a></p>',
+    );
+    expect(serializeNode(refParagraph, { epubSemantics: true })).toContain(
+      '<a id="ref-1" class="bt-mark-noteref" href="#note-footnote-1" epub:type="noteref">1</a>',
+    );
+  });
+
+  it('注文 refId → 回跳链接；refId 不再输出 data-*', () => {
+    const note: BookNode = {
+      type: NODE_TYPES.FOOTNOTE,
+      id: 'note-footnote-1',
+      attrs: { marker: '1', refId: 'ref-1' },
+      children: [{ type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '注文' }] }],
+    };
+    expect(serializeNode(note)).toBe(
+      '<aside id="note-footnote-1" class="bt-footnote"><p class="bt-paragraph">' +
+        '<span class="bt-note-marker">1</span>注文</p>' +
+        '<a class="bt-note-backref" href="#ref-1">↩</a></aside>',
+    );
+  });
+});

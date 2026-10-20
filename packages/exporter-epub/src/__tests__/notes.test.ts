@@ -2,7 +2,7 @@
  * 注释块导出语义：EPUB 3 输出 `epub:type`，EPUB 2 不输出。
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
+import { MARK_TYPES, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { strFromU8, unzipSync } from 'fflate';
 import { exportEpub } from '../epub.js';
 
@@ -19,12 +19,21 @@ function sampleDoc(): BookDocument {
         {
           type: NODE_TYPES.PARAGRAPH,
           id: 'p-1',
-          children: [{ type: NODE_TYPES.TEXT, text: '子曰：学而时习之。' }],
+          children: [
+            { type: NODE_TYPES.TEXT, text: '子曰：学而时习之。' },
+            {
+              type: NODE_TYPES.TEXT,
+              text: '1',
+              marks: [
+                { type: MARK_TYPES.NOTE_REF, attrs: { targetId: 'fn-1', refId: 'ref-1' } },
+              ],
+            },
+          ],
         },
         {
           type: NODE_TYPES.FOOTNOTE,
           id: 'fn-1',
-          attrs: { marker: '1' },
+          attrs: { marker: '1', refId: 'ref-1' },
           children: [
             {
               type: NODE_TYPES.PARAGRAPH,
@@ -66,8 +75,13 @@ describe('EPUB 注释块', () => {
     expect(body).toContain('<aside id="fn-1" class="bt-footnote" epub:type="footnote">');
     expect(body).toContain('<aside id="en-1" class="bt-endnote" epub:type="endnote">');
     expect(body).toContain('<span class="bt-note-marker">1</span>习，鸟数飞也。');
+    /* 正文引用与注文回跳成对输出 */
+    expect(body).toContain(
+      '<a id="ref-1" class="bt-mark-noteref" href="#fn-1" epub:type="noteref">1</a>',
+    );
+    expect(body).toContain('<a class="bt-note-backref" href="#ref-1">↩</a>');
     /* 注文未混入正文段落 */
-    expect(body).toContain('<p id="p-1" class="bt-paragraph">子曰：学而时习之。</p>');
+    expect(body).toContain('<p id="p-1" class="bt-paragraph">子曰：学而时习之。');
   });
 
   it('EPUB 2 不输出 epub:type（老引擎不认该属性）', () => {
@@ -79,5 +93,8 @@ describe('EPUB 注释块', () => {
     expect(body).toContain('class="bt-footnote"');
     expect(body).not.toContain('epub:type="footnote"');
     expect(body).not.toContain('epub:type="endnote"');
+    /* 引用仍是可点击链接，只是不带 EPUB 3 语义属性 */
+    expect(body).toContain('<a id="ref-1" class="bt-mark-noteref" href="#fn-1">1</a>');
+    expect(body).not.toContain('epub:type="noteref"');
   });
 });

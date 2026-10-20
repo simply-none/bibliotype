@@ -55,6 +55,7 @@ import {
   resolvePageCrossSize,
   resolvePageMainSize,
   resolveBottomSlack,
+  type BlockAxis,
   type LayoutOptions,
 } from '@bibliotype/layout';
 import {
@@ -333,11 +334,13 @@ const blockSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
 const blockLineOffsets = shallowRef<ReadonlyMap<string, number[]>>(new Map());
 const blockLineSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
 const blockBodySizes = shallowRef<ReadonlyMap<string, number>>(new Map());
+/** 量尺解析出的排文主轴（直排 column），透传给 Reader 的块 axis 标注 */
+const blockAxis = shallowRef<BlockAxis>('row');
 
 /** 重测当前 Reader 文档的块尺寸 / 行边界 / 真实行高并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
 function remeasure(): void {
   const doc = reader.value.document ?? lunyuDocument;
-  const { sizes, lineOffsets, lineSizes, bodySizes } = measurePagination({
+  const { sizes, lineOffsets, lineSizes, bodySizes, axis } = measurePagination({
     doc,
     options: effectiveLayout.value,
     tokens: tokens.value,
@@ -348,12 +351,14 @@ function remeasure(): void {
   blockLineOffsets.value = lineOffsets;
   blockLineSizes.value = lineSizes;
   blockBodySizes.value = bodySizes;
+  blockAxis.value = axis;
   reader.value.repaginate({
     layout: effectiveLayout.value,
     blockSizes: sizes,
     lineOffsets,
     lineSizes,
     bodySizes,
+    axis,
     measure: typographyMeasure(),
     pageMainSize: pageMainSize.value,
     bottomSlack: bottomSlack.value,
@@ -392,6 +397,7 @@ function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocum
     lineOffsets: blockLineOffsets.value,
     lineSizes: blockLineSizes.value,
     bodySizes: blockBodySizes.value,
+    axis: blockAxis.value,
   });
   r.loadDocument(document);
   readerEpoch.value += 1;

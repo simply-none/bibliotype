@@ -2,7 +2,13 @@
  * 分页器测试
  */
 import { describe, expect, it } from 'vitest';
-import { paginate, type MeasurableBlock } from '../paginator.js';
+import {
+  blockAxisOf,
+  paginate,
+  type BlockAxis,
+  type MeasurableBlock,
+  type PaginationResult,
+} from '../paginator.js';
 
 const block = (
   id: string,
@@ -425,6 +431,29 @@ describe('paginate（页底溢出 bottomSlack：末行可伸入下边距）', ()
       resume: { prefix: full.pages.slice(0, 1), startIndex: 1 },
     });
     expect(shape(resumed.pages)).toEqual(shape(full.pages));
+  });
+});
+
+describe('主轴契约（row / column）', () => {
+  it('blockAxisOf 缺省按横排，显式 column 透传', () => {
+    expect(blockAxisOf({ id: 'a', mainSize: 10 })).toBe('row');
+    expect(blockAxisOf({ id: 'b', mainSize: 10, axis: 'column' })).toBe('column');
+  });
+
+  it('分页算术与主轴无关：同一组块 row / column 结果一致', () => {
+    const build = (axis: BlockAxis): MeasurableBlock[] => [
+      { id: 'p1', mainSize: 100, splittable: true, lineSize: 20, axis },
+      { id: 'p2', mainSize: 40, axis },
+    ];
+    const shape = (result: PaginationResult): string[][] =>
+      result.pages.map((page) =>
+        page.items.map((item) => `${item.block.id}:${item.fromLine}/${item.lineCount}`),
+      );
+    const row = paginate(build('row'), { pageMainSize: 70 });
+    const column = paginate(build('column'), { pageMainSize: 70 });
+    expect(shape(column)).toEqual(shape(row));
+    // 直排块保留 axis 标注，供切片 / 渲染按同一主轴解释 lineSize（列宽）
+    expect(column.pages[0]?.items[0]?.block.axis).toBe('column');
   });
 });
 

@@ -35,12 +35,17 @@
 - **Phase 3 预览同源**：`extractBlocks` 为正文段落输出 `splittable` + `lineSize`；
   `pagination-measure` 量尺输出扩展 `{ advance, lineSize }`；`BtBookView` 片段以
   裁剪窗口渲染（固定高 + overflow hidden + `translateY(-fromLine * lineSize)`），不拆 IR / DOM。
+  直排 / 横排统一以**主轴**为口径：`MeasurePaginationResult.axis`（`'row' | 'column'`）随书写
+  方向解析，`extractBlocks` 据此给可拆块标注 `MeasurableBlock.axis`，`Reader` / `buildPagedLayout`
+  原样透传；分页算术只认沿主轴的尺寸，故与方向无关。
 - **Phase 4 编辑态像素级对齐**：`BtEditor` 与预览共用同一 paginate 结果（含片段），
   页边界允许落在段落中间，续页片段首行按行网格对齐到下一张纸内容区首行。
 
 ## 暂缓项
 
-- 直排（vertical-rl）行级拆分 = 列级拆分（量尺目前对直排回退估算，维持块级行为）；
+- ~~直排（vertical-rl）行级拆分 = 列级拆分~~ **已落地**：量尺对直排按主轴实测列推进、
+  `document-blocks` 标注 `axis: 'column'`、`MeasurePaginationResult.axis` 透传 `Reader` /
+  `buildPagedLayout`；剩余为真实像素回归（happy-dom 无法验证布局盒，需浏览器用例）；
 - 多栏（columns > 1）分页、脚注浮注、对页（recto / verso）与奇偶页眉；
 - PDF 导出管线评估（Paged.js / Vivliostyle / 打印 CSS），与编辑态解耦；
 - ruby 注音导致行高不均时的实测行盒精修（当前按均匀行高算术）。

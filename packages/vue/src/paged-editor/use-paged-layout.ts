@@ -17,11 +17,13 @@ import { onScopeDispose, ref, shallowRef, watch, type Ref } from 'vue';
 import { DEFAULT_THEME, type BookDocument, type BookNode } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
+  isVerticalMode,
   mergeLayoutOptions,
   paginate,
   resolvePageMainSize,
   resolveBottomSlack,
   sliceNodeByCharRange,
+  type BlockAxis,
   type LayoutOptions,
   type MeasurableBlock,
   type PageItem,
@@ -101,6 +103,8 @@ export interface BuildPagedInput {
 export interface BuildPagedResult {
   /** 是否可用（单栏且量到有效分页——横排 / 直排均可；多栏 / 无 DOM 时调用方回退 overlay） */
   usable: boolean;
+  /** 排文主轴（直排 `'column'`；块上 `axis` 标注与本字段同源） */
+  axis: BlockAxis;
   /** 生效的每页主轴尺寸（px） */
   pageMainSize: number;
   /** 生效的页底溢出（px，参与本轮装箱容量） */
@@ -259,8 +263,11 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   const pageMainSize = input.pageMainSize ?? resolvePageMainSize(options, tokens);
   const bottomSlack =
     input.bottomSlack ?? resolveBottomSlack(options, tokens, context.lineSize);
+  // 主轴口径随书写方向（直排按列推进）；块上的 axis 标注与量尺 / 分页同源
+  const axis: BlockAxis = isVerticalMode(options.writingMode) ? 'column' : 'row';
   const empty: BuildPagedResult = {
     usable: false,
+    axis,
     pageMainSize,
     bottomSlack,
     pages: [],
@@ -294,6 +301,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     lineOffsets: incremental ? prev.lineOffsets : undefined,
     lineSizes: incremental ? prev.lineSizes : undefined,
     bodySizes: incremental ? prev.bodySizes : undefined,
+    axis,
   });
 
   // 定点判定探针：新块序列全部命中旧尺寸缓存 = 无结构性变化（纯文本编辑）
@@ -347,6 +355,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     lineOffsets,
     lineSizes,
     bodySizes,
+    axis,
   });
   const blocks = indexed.blocks;
   if (blocks.length === 0) return empty;
@@ -434,6 +443,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
 
   return {
     usable: pages.length > 0,
+    axis,
     pageMainSize,
     bottomSlack,
     pages,

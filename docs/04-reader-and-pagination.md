@@ -126,6 +126,7 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 - **表格是复合原子块**：`table` 整体成块（`COMPOSITE_ATOMIC_TYPES`），不再逐层下钻到 `table-row` / `table-cell`；
   否则块序列只剩单元格段落，序列化会丢失 `<table>` 包裹、页面上表现为空白（详见 [21 表格编辑](21-table-editing.md)）；
 - **h1 / h2 标题另起页**：章 / 节级标题（`attrs.level` ≤ `HEADING_BREAK_BEFORE_MAX_LEVEL`，缺省 2）仿纸质书从新页页首起排，标记 `breakBefore`；h3~h6 不强制另起页。该标记与结构容器首块标记、分页符标记正交，主轴方向由调用方按书写方向传尺寸，**横排与直排同逻辑**；
+- **主轴标注 `axis`**：`extractBlocks(doc, { axis: 'column' })` 给可拆块标 `axis: 'column'`（直排），横排缺省 `'row'`；`lineSize` 在直排下即列宽。分页算术只认沿主轴的尺寸，故方向不影响装箱结果；
 - 标题块标记 `keepWithNext`（与下段同页）。
 
 ## 分页规则（layout.paginate）
@@ -135,7 +136,7 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 | 贪心装箱 | 块沿主轴累加，超页换页 |
 | `breakBefore` / `breakAfter` | 强制换页（章首 / 卷末 / h1·h2 标题；横排与直排同逻辑，由 `extractBlocks` 产出 `breakBefore`） |
 | `keepWithNext` | 与下一块同页；放不下则整体换页（下一块强制换页时不连坐；下块可拆时仅要求头部 minFirst 行同页） |
-| 行级拆分（`splittable` + `lineSize`） | 装不下的正文段落在行处断开跨页续排，页输出 `items: PageItem[]`（`fromLine` / `lineCount`）；未拆分时 `lineCount=0` 按整块渲染，`blocks` 字段向后兼容 |
+| 行级拆分（`splittable` + `lineSize`） | 装不下的正文段落在行处断开跨页续排（直排即「列」处断开，`axis='column'`、`lineSize` 为列宽），页输出 `items: PageItem[]`（`fromLine` / `lineCount`）；未拆分时 `lineCount=0` 按整块渲染，`blocks` 字段向后兼容 |
 | 孤寡行控制（`widowControl`） | 拆分后首页片段 ≥ minFirst 行、末页片段 ≥ minLast 行（默认 2 / 2），不满足则让行或整体换页 |
 | 超大块 | 可拆者按每页容纳行数连续跨页；不可拆者独占一页（避免死循环） |
 | 表格 | 复合原子块：不标 `splittable`，整块占位；超大表独占一页，不拆行 / 单元格 |

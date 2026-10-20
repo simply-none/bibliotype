@@ -66,6 +66,23 @@ export interface MeasurableBlock {
    * 附带），重复计入会使每页虚耗一份间距、页底留出空白。不给时行为与旧口径一致。
    */
   bodyMainSize?: number;
+  /**
+   * 排文主轴（缺省 `'row'`）
+   *
+   * `'row'` = 横排：块沿页高方向推进、行内文字沿宽度换行；
+   * `'column'` = 直排：块沿页宽方向推进、行内文字沿高度换列。
+   * 尺寸口径始终是「沿主轴」，故分页算术与方向无关；本字段把量尺 / 分页 /
+   * 切片三方的主轴口径显式化，避免下游把直排的 `lineSize`（列宽）误作行高。
+   */
+  axis?: BlockAxis;
+}
+
+/** 排文主轴：横排按行（row）推进，直排按列（column）推进 */
+export type BlockAxis = 'row' | 'column';
+
+/** 取块的主轴口径（缺省横排） */
+export function blockAxisOf(block: MeasurableBlock): BlockAxis {
+  return block.axis ?? 'row';
 }
 
 /** 页内条目：一个块片段（未拆分时即整块） */

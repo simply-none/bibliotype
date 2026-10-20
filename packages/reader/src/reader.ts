@@ -22,6 +22,7 @@ import {
   resolvePageMainSize,
   resolveBottomSlack,
   sliceNodeByCharRange,
+  type BlockAxis,
   type LayoutOptions,
   type MeasurableBlock,
   type PageGutterTexts,
@@ -92,6 +93,8 @@ export interface RepaginateOptions {
    * （见 extractBlocks 的 bodySizes 说明）。
    */
   bodySizes?: ReadonlyMap<string, number> | null;
+  /** 排文主轴；传 null 清空回退横排（undefined 保持当前值） */
+  axis?: BlockAxis | null;
 }
 
 /** Reader 配置 */
@@ -125,6 +128,12 @@ export interface ReaderOptions {
   lineSizes?: ReadonlyMap<string, number>;
   /** 块 id → 块体高（px，DOM 实测，不含外边距）；供 paginate 按体高判页 */
   bodySizes?: ReadonlyMap<string, number>;
+  /**
+   * 排文主轴（直排传 `'column'`，缺省 `'row'`）
+   *
+   * 只影响块上的 `axis` 标注与下游对 `lineSize` 的解释，不影响分页算术。
+   */
+  axis?: BlockAxis;
   /**
    * 主题令牌值表（缺省 DEFAULT_THEME）
    *
@@ -167,6 +176,8 @@ export class Reader {
   private lineSizes: ReadonlyMap<string, number> | undefined;
   /** 块 id → 块体高（px，DOM 实测，不含外边距） */
   private bodySizes: ReadonlyMap<string, number> | undefined;
+  /** 排文主轴（直排为 column）：透传给 extractBlocks，仅供下游解释 lineSize 语义 */
+  private axis: BlockAxis | undefined;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
@@ -188,7 +199,13 @@ export class Reader {
     this.lineOffsets = options.lineOffsets;
     this.lineSizes = options.lineSizes;
     this.bodySizes = options.bodySizes;
+    this.axis = options.axis;
     this.events = options.events ?? createEventBus();
+  }
+
+  /** 排文主轴（直排为 `'column'`；缺省 `'row'`） */
+  get blockAxis(): BlockAxis {
+    return this.axis ?? 'row';
   }
 
   /* ---------------- 文档与重排 ---------------- */
@@ -243,6 +260,9 @@ export class Reader {
     if (overrides.bodySizes !== undefined) {
       this.bodySizes = overrides.bodySizes ?? undefined;
     }
+    if (overrides.axis !== undefined) {
+      this.axis = overrides.axis ?? undefined;
+    }
 
     this.blocks = extractBlocks(this.doc, {
       estimator: this.estimator,
@@ -251,6 +271,7 @@ export class Reader {
       lineOffsets: this.lineOffsets,
       lineSizes: this.lineSizes,
       bodySizes: this.bodySizes,
+      axis: this.axis,
     });
     const result = paginate(this.blocks, {
       pageMainSize: this.pageMainSize,

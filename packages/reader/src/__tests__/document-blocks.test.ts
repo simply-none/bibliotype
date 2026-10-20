@@ -213,6 +213,20 @@ describe('extractBlocks', () => {
     expect(blocks.find((b) => b.id === 'p-2')?.lineSize).toBe(42);
   });
 
+  it('axis：直排给可拆块标注 column，横排缺省不标注且尺寸不变', () => {
+    const vertical = extractBlocks(sampleDoc(), { axis: 'column' });
+    expect(vertical.find((b) => b.id === 'p-1')?.axis).toBe('column');
+    // 不可拆块（标题）不带主轴标注：它不参与行级切片
+    expect(vertical.find((b) => b.id === 'h-1')?.axis).toBeUndefined();
+
+    const horizontal = extractBlocks(sampleDoc(), { axis: 'row' });
+    expect(horizontal.every((b) => b.axis === undefined)).toBe(true);
+    // 主轴只作契约标注，不改变块序列与尺寸
+    expect(vertical.map((b) => [b.id, b.mainSize, b.lineSize])).toEqual(
+      horizontal.map((b) => [b.id, b.mainSize, b.lineSize]),
+    );
+  });
+
   it('无 id 节点使用稳定的路径 id', () => {
     const doc = createEmptyDocument({ title: '无 id' });
     doc.root.children = [

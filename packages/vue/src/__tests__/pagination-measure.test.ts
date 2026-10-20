@@ -95,6 +95,32 @@ describe('measurePagination', () => {
     expect(multiColumn.lineOffsets.size).toBe(0);
   });
 
+  it('axis：横排 row / 直排 column，多栏回退时仍按书写方向给出', () => {
+    const horizontal = measurePagination({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    expect(horizontal.axis).toBe('row');
+    disposeMeasureSheet();
+
+    const vertical = measurePagination({ doc: sampleDoc(), options: CLASSICAL_LAYOUT_OPTIONS });
+    expect(vertical.axis).toBe('column');
+    disposeMeasureSheet();
+
+    const multiColumn = measurePagination({
+      doc: sampleDoc(),
+      options: { ...CLASSICAL_LAYOUT_OPTIONS, columns: 2 },
+    });
+    expect(multiColumn.axis).toBe('column');
+    expect(multiColumn.sizes.size).toBe(0);
+  });
+
+  it('axis 与 extractBlocks 同源：直排块标注 column', () => {
+    const { axis } = measurePagination({ doc: sampleDoc(), options: CLASSICAL_LAYOUT_OPTIONS });
+    const { blocks } = extractBlocksIndexed(sampleDoc(), { axis });
+    expect(blocks.filter((block) => block.splittable).every((block) => block.axis === 'column')).toBe(
+      true,
+    );
+    disposeMeasureSheet();
+  });
+
   it('sizes 与 measureBlockSizes 同源（委托一致）', () => {
     const pagination = measurePagination({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
     const legacy = measureBlockSizes({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });

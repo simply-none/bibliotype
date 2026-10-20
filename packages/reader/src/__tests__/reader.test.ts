@@ -357,6 +357,22 @@ describe('Reader 重排', () => {
     expect(measured.totalPages).toBe(3);
   });
 
+  it('axis 透传：直排标 column，清空回退 row，分页结果不变', () => {
+    const estimator = fixedEstimator({ 'h-1': 30, 'p-1': 60, 'p-2': 60, 'p-3': 100 });
+    const row = new Reader({ pageMainSize: 100, estimator });
+    row.loadDocument(sampleDoc());
+    const vertical = new Reader({ pageMainSize: 100, estimator, axis: 'column' });
+    vertical.loadDocument(sampleDoc());
+
+    expect(row.blockAxis).toBe('row');
+    expect(vertical.blockAxis).toBe('column');
+    // 主轴只是尺寸语义标注，不改变装箱结果
+    expect(vertical.totalPages).toBe(row.totalPages);
+
+    vertical.repaginate({ axis: null });
+    expect(vertical.blockAxis).toBe('row');
+  });
+
   it('空文档分页为 0 页且进度为 0', () => {
     const reader = createReader();
     reader.loadDocument(createEmptyDocument({ title: '空书' }));

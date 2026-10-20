@@ -22,6 +22,7 @@ import {
   resolveContentBox,
   resolvePageBorderWidth,
   resolvePageMarginBox,
+  type BlockAxis,
   type LayoutOptions,
   type StyleDeclaration,
   type WritingMode,
@@ -372,6 +373,13 @@ function renderMeasureSheet(
 
 /** 分页量尺结果：块推进尺寸 + 每行起始字符偏移 + 真实行高 + 块体高 */
 export interface MeasurePaginationResult {
+  /**
+   * 排文主轴（直排 `'column'` / 横排 `'row'`）
+   *
+   * 与 `sizes` / `lineSizes` 同源解析：调用方把它透传给 `extractBlocks` 的
+   * `axis`，块上的主轴标注即与实测口径一致（多栏回退时也照常给出）。
+   */
+  axis: BlockAxis;
   /** 块 id → 主轴推进尺寸(px)（到下一块上缘，含块间折叠外边距） */
   sizes: ReadonlyMap<string, number>;
   /** 块 id → 每行起始字符偏移[]（仅多行块产出） */
@@ -402,11 +410,24 @@ export function measurePagination(input: MeasureBlockSizesInput): MeasurePaginat
   return result;
 }
 
+/** 由布局选项解析块主轴（直排 → column；多栏回退时同样适用） */
+function resolveBlockAxis(input: MeasureBlockSizesInput): BlockAxis {
+  const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
+  return isVerticalMode(options.writingMode) ? 'column' : 'row';
+}
+
 /** 量尺主体（埋点在外层，便于把整段 DOM 实测算作一次测量） */
 function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginationResult {
+  const blockAxis = resolveBlockAxis(input);
   const sheet = renderMeasureSheet(input);
   if (sheet === null)
-    return { sizes: new Map(), lineOffsets: new Map(), lineSizes: new Map(), bodySizes: new Map() };
+    return {
+      axis: blockAxis,
+      sizes: new Map(),
+      lineOffsets: new Map(),
+      lineSizes: new Map(),
+      bodySizes: new Map(),
+    };
   const { blocks, rendered, targetedOnly, axis } = sheet;
 
   const sizes = new Map<string, number>();
@@ -453,7 +474,7 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
       if (body > 0) lineSizes.set(id, body / offsets.length);
     }
   }
-  return { sizes, lineOffsets, lineSizes, bodySizes };
+  return { axis: blockAxis, sizes, lineOffsets, lineSizes, bodySizes };
 }
 
 /**

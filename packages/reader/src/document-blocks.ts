@@ -12,7 +12,7 @@
  * - 尺寸估算可插拔（默认按文本长度 × 每行字符数估算行数）。
  */
 import { NODE_TYPES, isTextNode, type BookDocument, type BookNode } from '@bibliotype/core';
-import type { MeasurableBlock } from '@bibliotype/layout';
+import type { BlockAxis, MeasurableBlock } from '@bibliotype/layout';
 
 /** 结构容器类型（其首个叶块另起页） */
 const STRUCTURE_TYPES: ReadonlySet<string> = new Set([
@@ -180,6 +180,14 @@ export interface ExtractBlocksOptions {
    * 消除每页虚耗一份间距带来的页底空白（标题 UA 外边距 / 段后距可达半行～一行）。
    */
   bodySizes?: ReadonlyMap<string, number>;
+  /**
+   * 排文主轴（缺省 `'row'`）
+   *
+   * 直排（`'column'`）时给可拆块打上 `axis: 'column'` 标记，向分页 / 切片环节
+   * 显式声明「lineSize 是列宽、行数是列数」，避免下游按横排行高口径解释。
+   * 分页算术本身与方向无关（尺寸一律沿主轴），故不影响分页结果。
+   */
+  axis?: BlockAxis;
 }
 
 /**
@@ -261,6 +269,7 @@ export function extractBlocksIndexed(
   const lineOffsets = options.lineOffsets;
   const lineSizes = options.lineSizes;
   const bodySizes = options.bodySizes;
+  const axis = options.axis;
   const context: BlockMeasureContext = {
     ...DEFAULT_MEASURE_CONTEXT,
     ...options.context,
@@ -334,6 +343,7 @@ export function extractBlocksIndexed(
           ? {
               splittable: true,
               lineSize,
+              ...(axis === 'column' ? { axis } : {}),
               ...(hasMeasured && lines > 1 ? { lineCount: lines } : {}),
             }
           : {}),

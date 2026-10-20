@@ -13,14 +13,21 @@ const { currentPage, totalPages, pageNumberText, prev, next } = useReaderBinding
 </script>
 
 <template>
-  <div class="bt-pager">
-    <button type="button" class="bt-pager__button" :disabled="currentPage <= 0" @click="prev()">
-      上一页
-    </button>
-    <span class="bt-pager__status">{{ pageNumberText }} / 共 {{ totalPages }} 页</span>
+  <div class="bt-pager" role="group" aria-label="翻页">
     <button
       type="button"
       class="bt-pager__button"
+      aria-label="上一页"
+      :disabled="currentPage <= 0"
+      @click="prev()"
+    >
+      上一页
+    </button>
+    <span class="bt-pager__status" aria-live="polite">{{ pageNumberText }} / 共 {{ totalPages }} 页</span>
+    <button
+      type="button"
+      class="bt-pager__button"
+      aria-label="下一页"
       :disabled="currentPage >= totalPages - 1"
       @click="next()"
     >

@@ -287,6 +287,72 @@ describe('BtPager', () => {
   });
 });
 
+describe('BtBookView 键盘与触屏翻页', () => {
+  it('方向键 / PageDown / 空格翻页，首页向上不越界', async () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader } });
+    const root = wrapper.find('.bt-book-view--paged');
+
+    await root.trigger('keydown', { key: 'ArrowRight' });
+    expect(reader.currentPage).toBe(1);
+    await root.trigger('keydown', { key: 'PageDown' });
+    expect(reader.currentPage).toBe(2);
+    await root.trigger('keydown', { key: 'ArrowLeft' });
+    expect(reader.currentPage).toBe(1);
+    await root.trigger('keydown', { key: ' ' });
+    expect(reader.currentPage).toBe(2);
+  });
+
+  it('Home / End 跳首末页', async () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader } });
+    const root = wrapper.find('.bt-book-view--paged');
+
+    await root.trigger('keydown', { key: 'End' });
+    expect(reader.currentPage).toBe(2);
+    await root.trigger('keydown', { key: 'Home' });
+    expect(reader.currentPage).toBe(0);
+  });
+
+  it('带修饰键的组合不拦截翻页', async () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader } });
+    const root = wrapper.find('.bt-book-view--paged');
+
+    await root.trigger('keydown', { key: 'ArrowRight', ctrlKey: true });
+    expect(reader.currentPage).toBe(0);
+  });
+
+  it('横排左滑下一页、右滑上一页；纵向滑动不翻页', async () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader } });
+    const root = wrapper.find('.bt-book-view--paged');
+
+    await root.trigger('touchstart', { touches: [{ clientX: 240, clientY: 100 }] });
+    await root.trigger('touchend', { changedTouches: [{ clientX: 120, clientY: 104 }] });
+    expect(reader.currentPage).toBe(1);
+
+    await root.trigger('touchstart', { touches: [{ clientX: 120, clientY: 100 }] });
+    await root.trigger('touchend', { changedTouches: [{ clientX: 240, clientY: 100 }] });
+    expect(reader.currentPage).toBe(0);
+
+    await root.trigger('touchstart', { touches: [{ clientX: 200, clientY: 100 }] });
+    await root.trigger('touchend', { changedTouches: [{ clientX: 200, clientY: 240 }] });
+    expect(reader.currentPage).toBe(0);
+  });
+
+  it('阅读区可聚焦并提供页码播报', () => {
+    const reader = createReader();
+    const wrapper = mount(BtBookView, { props: { reader } });
+    const root = wrapper.find('.bt-book-view--paged');
+
+    expect(root.attributes('tabindex')).toBe('0');
+    expect(root.attributes('role')).toBe('document');
+    expect(root.attributes('aria-label')).toContain('方向键翻页');
+    expect(wrapper.find('[aria-live="polite"]').text()).toContain('1 / 共 3 页');
+  });
+});
+
 describe('BtToc', () => {
   it('渲染层级目录，点击跳转并抛出 select 事件', async () => {
     const reader = createReader();

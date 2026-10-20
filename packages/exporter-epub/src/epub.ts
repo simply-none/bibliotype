@@ -78,6 +78,13 @@ export interface EpubExportOptions {
   endnoteGrouping?: EndnoteGrouping;
   /** 聚合区标题（缺省「注释」；空串表示不加标题行） */
   endnoteTitle?: string;
+  /**
+   * 翻页方向（缺省按书写模式推导：直排 `vertical-rl` → `'rtl'`，其余 `'ltr'`）
+   *
+   * 仅 `'rtl'` 会写进 `<spine page-progression-direction>`；`'ltr'` 是 EPUB 缺省值，
+   * 不输出属性以保持既有产物稳定。
+   */
+  pageDirection?: 'ltr' | 'rtl';
 }
 
 /** 导出 EPUB（返回完整 epub 文件字节，含 zip 容器） */
@@ -103,6 +110,10 @@ export function exportEpub(
   /* 默认 EPUB 3.0（现代阅读器主流）；显式传 '2.0' 走 RMSDK 兼容路径。
      nav.xhtml 两路均保留供 EPUB 3 阅读器渲染，EPUB 2 不挂 EPUB 3 专属 properties。 */
   const epubVersion = options.version ?? '3.0';
+
+  /* 翻页方向：直排（vertical-rl）默认从右往左翻，横排从左往右 */
+  const pageDirection =
+    options.pageDirection ?? (layout.writingMode === 'vertical-rl' ? 'rtl' : 'ltr');
 
   /* ---------- 尾注聚合（导出期重排，不改动原文档） ---------- */
   const root =
@@ -216,6 +227,17 @@ export function exportEpub(
     version: epubVersion,
     ncxId: 'ncx',
     coverItemId: coverItem?.id,
+    pageProgressionDirection: pageDirection,
+    /* guide 仅 EPUB 2 输出（EPUB 3 已用 nav + landmarks 取代，写了只会多一条弃用告警） */
+    guide:
+      epubVersion === '2.0'
+        ? [
+            { type: 'toc', href: 'nav.xhtml', title: '目录' },
+            ...(split.sections[0] !== undefined
+              ? [{ type: 'text', href: split.sections[0].file, title: '正文' }]
+              : []),
+          ]
+        : undefined,
   });
 
   /* ---------- 打包（mimetype 首条目且 STORE，OCF 要求） ---------- */

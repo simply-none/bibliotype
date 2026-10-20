@@ -75,6 +75,14 @@ export interface MeasurableBlock {
    * 切片三方的主轴口径显式化，避免下游把直排的 `lineSize`（列宽）误作行高。
    */
   axis?: BlockAxis;
+  /**
+   * 是否为页底浮注（脚注）
+   *
+   * 置 true 且开启 `PaginateOptions.noteArea` 时，本块不进正文流：它落在所在页的
+   * 页底注区，正文容量相应扣减（页底注区动态收缩正文）。注区超出页面上限时
+   * 整条续到下一页页底（跨页续注）。
+   */
+  floatToBottom?: boolean;
 }
 
 /** 排文主轴：横排按行（row）推进，直排按列（column）推进 */
@@ -111,6 +119,15 @@ export interface PaginatedPage {
    * 页内实际占主轴 = 本值 − 末片段的尾部块间距；可用余量据此判断是否为页底空白。
    */
   usedMainSize: number;
+  /**
+   * 本页页底注（仅开启 `noteArea` 且块标 `floatToBottom` 时出现）
+   *
+   * 页底注不占正文的 `items` / `usedMainSize`：渲染侧把它们排在版心底部的注区，
+   * 并用 `noteMainSize` 判断注区高度（正文容量已为此扣减）。
+   */
+  notes?: PageItem[];
+  /** 本页页底注区占用的主轴尺寸（px，缺省 0） */
+  noteMainSize?: number;
 }
 
 /** 孤寡行控制 */
@@ -135,6 +152,13 @@ export interface PaginateOptions {
   /** 孤寡行控制（缺省 2 / 2） */
   widowControl?: WidowControl;
   /**
+   * 页底注区（脚注浮注，缺省不开启）
+   *
+   * 开启后，标了 `floatToBottom` 的块不进正文流，而是落在所在页的页底注区；
+   * 正文可用主轴 = 页面容量 − 注区高度，即注区动态收缩正文。
+   */
+  noteArea?: NoteAreaOptions;
+  /**
    * 续排起点（增量分页）：从 `startIndex` 块起继续分页，`prefix` 页原样保留
    *
    * 只用于「前面的块尺寸未变、仅第 startIndex 块及之后受影响」的场景：
@@ -152,6 +176,12 @@ export interface PaginateResume {
   prefix: readonly PaginatedPage[];
   /** 从该块索引起继续分页（该块从新页页首起排） */
   startIndex: number;
+}
+
+/** 页底注区选项 */
+export interface NoteAreaOptions {
+  /** 注区最多占页面可用主轴的多少（0~1，缺省 0.4；单条注超过时仍独占一页，不死循环） */
+  maxRatio?: number;
 }
 
 /** 分页统计 */
@@ -245,6 +275,10 @@ export function paginate(
      * 因此按块体高取代价（见 costOf）。
      */
     usedMainSize: number;
+    /** 页底注区条目 */
+    notes: PageItem[];
+    /** 页底注区占用的主轴尺寸 */
+    noteSize: number;
   }
   // 增量续排：前缀页原样复用（只由前面的块决定，与后续块无关），从 startIndex 起从新页续排
   const startIndex =
@@ -254,14 +288,44 @@ export function paginate(
   const pages: MutablePage[] = (options.resume?.prefix ?? []).map((page) => ({
     items: [...page.items],
     usedMainSize: page.usedMainSize,
+    notes: [...(page.notes ?? [])],
+    noteSize: page.noteMainSize ?? 0,
   }));
-  let cur: MutablePage = { items: [], usedMainSize: 0 };
+  let cur: MutablePage = { items: [], usedMainSize: 0, notes: [], noteSize: 0 };
   let pendingBreak = false;
 
   function startPage(): MutablePage {
-    const page: MutablePage = { items: [], usedMainSize: 0 };
+    const page: MutablePage = { items: [], usedMainSize: 0, notes: [], noteSize: 0 };
     pages.push(page);
     return page;
+  }
+
+  /* 页底注区：上限 = 页面容量 × maxRatio（缺省 0.4，夹在 5%~100%） */
+  const noteArea = options.noteArea;
+  const noteLimit =
+    noteArea === undefined
+      ? 0
+      : capacity * Math.min(1, Math.max(0.05, noteArea.maxRatio ?? 0.4));
+
+  /** 本页正文可用容量（扣掉页底注区：注区越高，正文越短） */
+  function bodyCapacity(): number {
+    return noteArea === undefined ? capacity : Math.max(0, capacity - cur.noteSize);
+  }
+
+  /**
+   * 放置一条页底注
+   *
+   * 注区满（超过页面上限）或本页正文已排到无法共存时，注文整条续到下一页页底；
+   * 单条注自身超过上限时仍独占一页（避免死循环），交由渲染侧截断 / 拆条。
+   */
+  function placeNote(block: MeasurableBlock): void {
+    const size = costOf(block);
+    const overflow =
+      cur.noteSize > 0 &&
+      (cur.noteSize + size > noteLimit || cur.usedMainSize + size > capacity);
+    if (overflow) cur = startPage();
+    cur.notes.push({ block, fromLine: 0, lineCount: 0, mainSize: size });
+    cur.noteSize += size;
   }
   if (startIndex < blocks.length) cur = startPage();
 
@@ -278,7 +342,10 @@ export function paginate(
     // 放置标题后，下一段在本页可容纳的行数；模拟 placeSplittable 的取行约束：
     // 头部合规行数取不足（minFirst / minLast 不满足）时下一段会整体换页，
     // 此时改要求整段随标题同页，避免标题违反 keepWithNext 孤悬页尾
-    const availLines = linesWithin(capacity - (cur.usedMainSize + block.mainSize), lineSize);
+    const availLines = linesWithin(
+      bodyCapacity() - (cur.usedMainSize + block.mainSize),
+      lineSize,
+    );
     if (availLines < totalLines) {
       const leftover = totalLines - availLines;
       const take = leftover < minLast ? totalLines - minLast : availLines;
@@ -295,7 +362,7 @@ export function paginate(
     const required = keep
       ? block.mainSize + headSizeOf(block, next as MeasurableBlock)
       : costOf(block);
-    if (!fits(cur.usedMainSize, required, capacity) && cur.items.length > 0) {
+    if (!fits(cur.usedMainSize, required, bodyCapacity()) && cur.items.length > 0) {
       cur = startPage();
     }
     // 空页也必须放置（超大块独占一页，避免死循环）；入账仍用推进量（含块尾间距）
@@ -317,7 +384,7 @@ export function paginate(
     while (remaining > 0) {
       // 页内剩余空间取未入账值：上一块的推进量入账已附带本片段上方的折叠间距，
       // 换页后的空页则无此负担（usedMainSize = 0），两种情形口径一致
-      const avail = capacity - cur.usedMainSize;
+      const avail = bodyCapacity() - cur.usedMainSize;
       let availLines = linesWithin(avail, lineSize);
       if (availLines <= 0) {
         if (cur.items.length > 0) {
@@ -372,11 +439,18 @@ export function paginate(
 
   for (let i = startIndex; i < blocks.length; i += 1) {
     const block = blocks[i] as MeasurableBlock;
-    const onFreshPage = cur.items.length === 0;
+    const onFreshPage = cur.items.length === 0 && cur.notes.length === 0;
     if (!onFreshPage && (pendingBreak || block.breakBefore === true)) {
       cur = startPage();
     }
     pendingBreak = false;
+
+    /* 页底浮注：不进正文流，落到本页注区（容量随之收缩） */
+    if (noteArea !== undefined && block.floatToBottom === true) {
+      placeNote(block);
+      if (block.breakAfter === true) pendingBreak = true;
+      continue;
+    }
 
     if (isSplittable(block)) {
       placeSplittable(block);
@@ -389,12 +463,17 @@ export function paginate(
     }
   }
 
-  const resultPages: PaginatedPage[] = pages.map((page, index) => ({
-    index,
-    items: page.items,
-    blocks: page.items.map((item) => item.block),
-    usedMainSize: page.usedMainSize,
-  }));
+  const resultPages: PaginatedPage[] = pages.map((page, index) => {
+    const base: PaginatedPage = {
+      index,
+      items: page.items,
+      blocks: page.items.map((item) => item.block),
+      usedMainSize: page.usedMainSize,
+    };
+    /* 仅在开启注区时附带注字段，保证未开启时的产物结构完全不变 */
+    if (noteArea === undefined) return base;
+    return { ...base, notes: page.notes, noteMainSize: page.noteSize };
+  });
 
   return {
     pages: resultPages,

@@ -127,3 +127,79 @@ describe('markdownToFragment', () => {
     expect(fragment.childCount).toBeGreaterThan(0);
   });
 });
+
+describe('Markdown 脚注语法', () => {
+  it('引用转上标 noteref，定义转紧跟段落的脚注块', () => {
+    const blocks = markdownToNodes('子曰[^1]。\n\n[^1]: 习，鸟数飞也。', schema);
+
+    expect(blocks.map((b) => b.type.name)).toEqual([
+      NODE_TYPES.PARAGRAPH,
+      NODE_TYPES.FOOTNOTE,
+    ]);
+    const runs = inlineOf(blocks[0] ?? schema.node(NODE_TYPES.PARAGRAPH, null));
+    expect(runs.map((r) => r.text)).toEqual(['子曰', '1', '。']);
+    const ref = blocks[0]?.child(1);
+    expect(ref?.marks.map((m) => m.type.name)).toContain('noteref');
+    expect(ref?.marks[0]?.attrs).toMatchObject({
+      targetId: 'note-footnote-1',
+      refId: 'ref-footnote-1',
+    });
+
+    const note = blocks[1];
+    expect(note?.attrs).toMatchObject({
+      marker: '1',
+      id: 'note-footnote-1',
+      refId: 'ref-footnote-1',
+    });
+    expect(note?.textContent).toBe('习，鸟数飞也。');
+  });
+
+  it('同一标签多次引用各有锚点，注文只插一次', () => {
+    const blocks = markdownToNodes('甲[^a]乙[^a]。\n\n[^a]: 注文', schema);
+    const refs: string[] = [];
+    blocks[0]?.forEach((child) => {
+      if (child.marks.some((m) => m.type.name === 'noteref')) {
+        const attrs = child.marks.find((m) => m.type.name === 'noteref')?.attrs;
+        refs.push(String(attrs?.['refId']));
+      }
+    });
+
+    expect(refs).toEqual(['ref-footnote-1', 'ref-footnote-1-2']);
+    expect(blocks.filter((b) => b.type.name === NODE_TYPES.FOOTNOTE)).toHaveLength(1);
+  });
+
+  it('未定义的引用按字面文本保留，不产生空注', () => {
+    const blocks = markdownToNodes('见[^x]。', schema);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.textContent).toBe('见[^x]。');
+    expect(blocks.filter((b) => b.type.name === NODE_TYPES.FOOTNOTE)).toHaveLength(0);
+  });
+
+  it('折行的定义并入同一条注文', () => {
+    const blocks = markdownToNodes('正文[^1]\n\n[^1]: 第一行\n    第二行', schema);
+    const note = blocks.find((b) => b.type.name === NODE_TYPES.FOOTNOTE);
+    expect(note?.textContent).toBe('第一行 第二行');
+  });
+
+  it('未被引用的定义落到文末，不静默丢内容', () => {
+    const blocks = markdownToNodes('正文\n\n[^9]: 孤注', schema);
+    expect(blocks.map((b) => b.type.name)).toEqual([
+      NODE_TYPES.PARAGRAPH,
+      NODE_TYPES.FOOTNOTE,
+    ]);
+    expect(blocks[1]?.attrs?.['marker']).toBe('1');
+    expect(blocks[1]?.textContent).toBe('孤注');
+  });
+
+  it('围栏代码块内的定义行不当脚注解析', () => {
+    const blocks = markdownToNodes('```\n[^1]: 代码里的行\n```', schema);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.type.name).toBe(NODE_TYPES.CODE_BLOCK);
+    expect(blocks[0]?.textContent).toContain('[^1]: 代码里的行');
+  });
+
+  it('含脚注引用的文本判为 Markdown', () => {
+    expect(looksLikeMarkdown('正文[^1]')).toBe(true);
+    expect(looksLikeMarkdown('[^1]: 注文')).toBe(true);
+  });
+});

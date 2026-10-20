@@ -43,6 +43,7 @@ writeFileSync('book.epub', bytes);
 | `onValidation` | 校验结果回调（`ValidationProblem[]`，error 在前） |
 | `endnoteGrouping` | 尾注聚合：`'keep'`（缺省，就地） / `'chapter'`（章末） / `'book'`（书末新增一章） |
 | `endnoteTitle` | 聚合区标题（缺省「注释」；空串不加标题行） |
+| `pageDirection` | 翻页方向：缺省按书写模式推导（直排 `vertical-rl` → `'rtl'`，其余 `'ltr'`）；仅 `'rtl'` 写进 `<spine page-progression-direction>` |
 
 ```ts
 import { exportEpub } from '@bibliotype/exporter-epub';
@@ -149,6 +150,22 @@ exportEpub(document, { endnoteGrouping: 'book', endnoteTitle: '注释' }); // �
 - 只处理 `endnote`：脚注（页底）与边注（旁栏）保持就地，抽走会破坏版式。
 
 `groupEndnotes(root, { scope, title?, id? })` 也可单独调用（自定义管线 / 增量处理）。
+
+## 翻页方向（`pageDirection`）
+
+直排书在阅读器里必须从右往左翻，否则双页视图与滑动方向与阅读习惯相反：
+
+```ts
+exportEpub(document, { layout: CLASSICAL_LAYOUT_OPTIONS }); // 自动 page-progression-direction="rtl"
+exportEpub(document);                                        // 横排缺省 ltr，不输出属性
+exportEpub(document, { pageDirection: 'rtl' });              // 横排版式也可强制 rtl
+```
+
+- 缺省按 `layout.writingMode === 'vertical-rl'` 推导；
+- `'ltr'` 是 EPUB 缺省值，不输出属性以保持既有产物稳定。
+
+EPUB 2（`version: '2.0'`）另输出 `<guide>`：`toc` 指向 `nav.xhtml`、`text` 指向首个内容文档，
+供不认 nav 的老阅读器找入口；EPUB 3 不输出（已由 nav / landmarks 取代）。
 
 ## 版本策略
 

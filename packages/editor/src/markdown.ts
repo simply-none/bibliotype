@@ -28,6 +28,8 @@ const MARKDOWN_SIGNALS: readonly RegExp[] = [
   /`[^`\n]+`/, // 行内码
   /\[[^\]]*\]\([^)\s]+\)/, // 链接
   /!\[[^\]]*\]\([^)\s]+\)/, // 图片
+  /^[ \t]{0,3}\[\^[^\]\s]+\]:/m, // 脚注定义
+  /\[\^[^\]\s]+\]/, // 脚注引用
 ];
 
 /** 判断纯文本是否含 Markdown 结构特征（含任一信号即视为 Markdown） */
@@ -55,17 +57,95 @@ function withMark(base: readonly Mark[], extra: Mark | undefined): readonly Mark
   return [...base, extra];
 }
 
+/** 脚注定义（按出现顺序编号） */
+interface FootnoteDefinition {
+  /** 定义标签（`[^label]` 里的 label） */
+  label: string;
+  /** 注文（多行已合并） */
+  text: string;
+  /** 1 起序号（显示注码） */
+  index: number;
+  /** 注释块 id */
+  id: string;
+}
+
+/** 行内脚注引用上下文（由块级解析器按段落提供） */
+export interface FootnoteRefContext {
+  /** 标签 → 定义 */
+  definitions: ReadonlyMap<string, FootnoteDefinition>;
+  /** 记录一次引用并返回该引用的唯一锚点 id；未定义标签返回 undefined */
+  useRef: (label: string) => string | undefined;
+}
+
+/** 脚注定义行：`[^label]: 注文`（允许至多 3 个前导空格） */
+const FOOTNOTE_DEF_RE = /^[ \t]{0,3}\[\^([^\]\s]+)\]:[ \t]*(.*)$/;
+
+/**
+ * 收集脚注定义并返回应跳过的行号
+ *
+ * 连续缩进行（2 空格或 Tab 起）并入上一条定义，用于折行的长注文。
+ */
+function collectFootnoteDefinitions(lines: readonly string[]): {
+  definitions: Map<string, FootnoteDefinition>;
+  consumed: Set<number>;
+} {
+  const definitions = new Map<string, FootnoteDefinition>();
+  const consumed = new Set<number>();
+  let order = 0;
+
+  let inFence = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    /* 围栏代码块内的 `[^x]:` 是代码，不是脚注定义 */
+    if (/^[ \t]*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+
+    const match = FOOTNOTE_DEF_RE.exec(line);
+    if (match === null) continue;
+    const label = match[1] ?? '';
+    if (definitions.has(label)) {
+      /* 重复定义：保留首条，后面的按普通段落处理（不静默吞内容） */
+      continue;
+    }
+    const parts: string[] = [];
+    const firstLine = (match[2] ?? '').trim();
+    if (firstLine !== '') parts.push(firstLine);
+    consumed.add(i);
+    let j = i + 1;
+    while (j < lines.length && /^(?:[ \t]{2,}|\t)\S/.test(lines[j] ?? '')) {
+      parts.push((lines[j] ?? '').trim());
+      consumed.add(j);
+      j += 1;
+    }
+    order += 1;
+    definitions.set(label, {
+      label,
+      text: parts.join(' '),
+      index: order,
+      id: `note-footnote-${order}`,
+    });
+    i = j - 1;
+  }
+
+  return { definitions, consumed };
+}
+
 /**
  * 解析行内 Markdown 为 PM 行内节点序列
  *
  * @param raw 行内文本
  * @param schema 编辑器 schema
  * @param base 继承的外层标记（嵌套构造时传入）
+ * @param footnotes 脚注引用上下文（缺省时 `[^label]` 按字面文本保留）
  */
 export function parseInlineToNodes(
   raw: string,
   schema: Schema,
   base: readonly Mark[] = [],
+  footnotes?: FootnoteRefContext,
 ): PmNode[] {
   const out: PmNode[] = [];
   let plain = '';
@@ -98,26 +178,56 @@ export function parseInlineToNodes(
       i += m[0].length;
       continue;
     }
+    // 脚注引用 [^label]：需有定义上下文，未定义的标签按字面文本保留
+    if (footnotes !== undefined && (m = /^\[\^([^\]\s]+)\]/.exec(rest)) !== null) {
+      const label = m[1] ?? '';
+      const definition = footnotes.definitions.get(label);
+      const refId = footnotes.useRef(label);
+      if (definition !== undefined && refId !== undefined) {
+        flush();
+        const mark = makeMark(schema, MARK_TYPES.NOTE_REF, {
+          targetId: definition.id,
+          refId,
+        });
+        out.push(schema.text(String(definition.index), withMark(base, mark)));
+        i += m[0].length;
+        continue;
+      }
+    }
     // 链接：内层继承 link(href) 标记
     if ((m = /^\[([^\]]*)\]\(([^)\s]*)\)/.exec(rest)) !== null) {
       flush();
       const href = m[2] ?? '';
       const linkMark = makeMark(schema, MARK_TYPES.LINK, href.length > 0 ? { href } : undefined);
-      out.push(...parseInlineToNodes(m[1] ?? '', schema, withMark(base, linkMark)));
+      out.push(...parseInlineToNodes(m[1] ?? '', schema, withMark(base, linkMark), footnotes));
       i += m[0].length;
       continue;
     }
     // 粗体 **x** / __x__
     if ((m = /^\*\*([\s\S]+?)\*\*/.exec(rest)) !== null || (m = /^__([\s\S]+?)__/.exec(rest)) !== null) {
       flush();
-      out.push(...parseInlineToNodes(m[1] ?? '', schema, withMark(base, makeMark(schema, MARK_TYPES.STRONG))));
+      out.push(
+        ...parseInlineToNodes(
+          m[1] ?? '',
+          schema,
+          withMark(base, makeMark(schema, MARK_TYPES.STRONG)),
+          footnotes,
+        ),
+      );
       i += m[0].length;
       continue;
     }
     // 斜体 *x* / _x_
     if ((m = /^\*([^*\n]+)\*/.exec(rest)) !== null || (m = /^_([^_\n]+)_/.exec(rest)) !== null) {
       flush();
-      out.push(...parseInlineToNodes(m[1] ?? '', schema, withMark(base, makeMark(schema, MARK_TYPES.EMPHASIS))));
+      out.push(
+        ...parseInlineToNodes(
+          m[1] ?? '',
+          schema,
+          withMark(base, makeMark(schema, MARK_TYPES.EMPHASIS)),
+          footnotes,
+        ),
+      );
       i += m[0].length;
       continue;
     }
@@ -125,7 +235,12 @@ export function parseInlineToNodes(
     if ((m = /^~~([\s\S]+?)~~/.exec(rest)) !== null) {
       flush();
       out.push(
-        ...parseInlineToNodes(m[1] ?? '', schema, withMark(base, makeMark(schema, MARK_TYPES.STRIKETHROUGH))),
+        ...parseInlineToNodes(
+          m[1] ?? '',
+          schema,
+          withMark(base, makeMark(schema, MARK_TYPES.STRIKETHROUGH)),
+          footnotes,
+        ),
       );
       i += m[0].length;
       continue;
@@ -139,13 +254,37 @@ export function parseInlineToNodes(
 }
 
 /** 构造段落（行内为空时返回空段落，保留可编辑落点） */
-function makeParagraph(schema: Schema, inlineText: string): PmNode | undefined {
+function makeParagraph(
+  schema: Schema,
+  inlineText: string,
+  footnotes?: FootnoteRefContext,
+): PmNode | undefined {
   const paragraph = schema.nodes[NODE_TYPES.PARAGRAPH];
   if (paragraph === undefined) {
     return undefined;
   }
-  const inline = parseInlineToNodes(inlineText, schema);
+  const inline = parseInlineToNodes(inlineText, schema, [], footnotes);
   return paragraph.create(null, inline.length > 0 ? inline : undefined);
+}
+
+/** 构造脚注块（注文段落 + 注码 / id / 回跳锚点） */
+function makeNoteBlock(
+  schema: Schema,
+  definition: FootnoteDefinition,
+  refId: string | undefined,
+): PmNode | undefined {
+  const type = schema.nodes[NODE_TYPES.FOOTNOTE];
+  if (type === undefined) return undefined;
+  const paragraph = makeParagraph(schema, definition.text);
+  if (paragraph === undefined) return undefined;
+  return type.create(
+    {
+      marker: String(definition.index),
+      id: definition.id,
+      ...(refId === undefined ? {} : { refId }),
+    },
+    paragraph,
+  );
 }
 
 /**
@@ -156,8 +295,51 @@ function makeParagraph(schema: Schema, inlineText: string): PmNode | undefined {
  */
 export function markdownToNodes(text: string, schema: Schema): PmNode[] {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
+  const { definitions, consumed } = collectFootnoteDefinitions(lines);
   const blocks: PmNode[] = [];
   const paraBuffer: string[] = [];
+
+  /** 当前段落引用到的脚注标签（按出现顺序） */
+  let referenced: string[] = [];
+  /** 每个标签的引用次数（同一标签多次引用要各自唯一锚点） */
+  const refCounts = new Map<string, number>();
+  /** 标签 → 首次引用的锚点 id（注文回跳指它） */
+  const firstRefIds = new Map<string, string>();
+  /** 已输出的注文（避免重复段落重复插入） */
+  const emittedNotes = new Set<string>();
+
+  const footnotes: FootnoteRefContext | undefined =
+    definitions.size === 0
+      ? undefined
+      : {
+          definitions,
+          useRef: (label) => {
+            const definition = definitions.get(label);
+            if (definition === undefined) return undefined;
+            const count = (refCounts.get(label) ?? 0) + 1;
+            refCounts.set(label, count);
+            const refId =
+              count === 1
+                ? `ref-footnote-${definition.index}`
+                : `ref-footnote-${definition.index}-${count}`;
+            if (count === 1) firstRefIds.set(label, refId);
+            if (!referenced.includes(label)) referenced.push(label);
+            return refId;
+          },
+        };
+
+  /** 输出本段引用到的注文（紧随引用段落，符合页底注的就近习惯） */
+  const flushReferencedNotes = (): void => {
+    for (const label of referenced) {
+      if (emittedNotes.has(label)) continue;
+      const definition = definitions.get(label);
+      if (definition === undefined) continue;
+      emittedNotes.add(label);
+      const note = makeNoteBlock(schema, definition, firstRefIds.get(label));
+      if (note !== undefined) blocks.push(note);
+    }
+    referenced = [];
+  };
 
   const flushParagraph = (): void => {
     if (paraBuffer.length === 0) {
@@ -165,16 +347,23 @@ export function markdownToNodes(text: string, schema: Schema): PmNode[] {
     }
     const joined = paraBuffer.join(' ').trim();
     paraBuffer.length = 0;
+    referenced = [];
     if (joined.length > 0) {
-      const paragraph = makeParagraph(schema, joined);
+      const paragraph = makeParagraph(schema, joined, footnotes);
       if (paragraph !== undefined) {
         blocks.push(paragraph);
+        flushReferencedNotes();
       }
     }
   };
 
   let idx = 0;
   while (idx < lines.length) {
+    /* 脚注定义行已由预扫描收走，正文循环跳过 */
+    if (consumed.has(idx)) {
+      idx += 1;
+      continue;
+    }
     const line = lines[idx] ?? '';
 
     // 围栏代码块
@@ -302,6 +491,17 @@ export function markdownToNodes(text: string, schema: Schema): PmNode[] {
     idx += 1;
   }
   flushParagraph();
+
+  /* 未被引用的定义也落到文末，避免静默丢内容 */
+  if (footnotes !== undefined) {
+    for (const [label, definition] of definitions) {
+      if (emittedNotes.has(label)) continue;
+      emittedNotes.add(label);
+      const note = makeNoteBlock(schema, definition, firstRefIds.get(label));
+      if (note !== undefined) blocks.push(note);
+    }
+  }
+
   return blocks;
 }
 

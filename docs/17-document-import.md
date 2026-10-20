@@ -69,6 +69,21 @@ const doc = txtToBookDocument(text, schema, { title: '诗集' }, {
 - TXT 为纯文本，不解析 Markdown 标记（需要加粗 / 标题层级请先转 Markdown 再导入）；
 - `importFromText` 第 5 个参数是 `TxtImportOptions`，其它格式忽略。
 
+### Markdown 脚注语法
+
+```md
+子曰：学而时习之[^1]。
+
+[^1]: 习，鸟数飞也。
+```
+
+- 引用 `[^label]` → 正文上标文本 + `noteref` 标记（`targetId` 指向注文块、`refId` 为回跳锚点），
+  与编辑器 `insertFootnote` 的产物同构；
+- 定义 `[^label]: 注文`（紧随其后的缩进行并入同一条注文，供折行长注）；
+- 注文块插在**首次引用所在段落之后**，多段重复引用同一标签时只插一次，后续引用用 `ref-footnote-1-2` 之类的独立锚点；
+- 未被引用的定义落到文末，未定义的引用按字面文本保留（不吞内容）；
+- 围栏代码块里的 `[^x]:` 视为代码，不解析。
+
 ## docx 导入 `@bibliotype/import-docx`（mammoth）
 
 `.docx` → HTML（mammoth）→ 复用 `import` 的 HTML 通路 → `BookDocument`。`mammoth` 为外部重依赖，隔离在本叶子包；**浏览器与 Node 通用**（内部按环境提供 `arrayBuffer` / `buffer` 双通道）。建议使用侧按需 `import()` 动态加载以控包体。

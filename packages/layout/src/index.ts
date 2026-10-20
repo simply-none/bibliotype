@@ -114,6 +114,7 @@ export { paginate, blockAxisOf } from './paginator.js';
 export type {
   BlockAxis,
   MeasurableBlock,
+  NoteAreaOptions,
   PageItem,
   PaginatedPage,
   PaginateOptions,

@@ -25,7 +25,7 @@ export type {
 export { buildNavXhtml } from './nav.js';
 export type { NavXhtmlInput } from './nav.js';
 export { buildOpf, contributorRoleCode, normalizeModified } from './opf.js';
-export type { OpfInput, OpfManifestItem } from './opf.js';
+export type { OpfGuideReference, OpfInput, OpfManifestItem } from './opf.js';
 export { buildNcx } from './ncx.js';
 export type { NcxInput } from './ncx.js';
 export { renderXhtmlDocument } from './xhtml.js';

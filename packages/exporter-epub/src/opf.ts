@@ -40,6 +40,26 @@ export interface OpfInput {
   ncxId?: string;
   /** EPUB 2 封面 manifest item id（输出 `<meta name="cover">`；EPUB 3 用 manifest properties） */
   coverItemId?: string;
+  /**
+   * 翻页方向（缺省 `'ltr'`，不输出属性）
+   *
+   * 直排书（`writing-mode: vertical-rl`）在阅读器里必须从右往左翻，
+   * 否则双页视图 / 滑动方向与世界阅读习惯相反；`'rtl'` 时输出
+   * `<spine page-progression-direction="rtl">`。
+   */
+  pageProgressionDirection?: 'ltr' | 'rtl';
+  /** EPUB 2 `<guide>` 结构导航（EPUB 3 阅读器忽略，向后兼容用） */
+  guide?: readonly OpfGuideReference[];
+}
+
+/** `<guide>` 条目（EPUB 2 结构导航） */
+export interface OpfGuideReference {
+  /** 引用类型：`toc` / `text` / `cover` 等 */
+  type: string;
+  /** 相对 OPF 的路径 */
+  href: string;
+  /** 显示标题 */
+  title?: string;
 }
 
 /**
@@ -149,10 +169,25 @@ export function buildOpf(input: OpfInput): string {
   /* spine */
   const spineLines = input.spine.map((id) => `    <itemref idref="${escapeXml(id)}"/>`);
 
+  /* 翻页方向：缺省 ltr 不输出属性（避免无谓改动既有产物），仅直排书输出 rtl */
+  const progression =
+    input.pageProgressionDirection === 'rtl'
+      ? ' page-progression-direction="rtl"'
+      : '';
   const spineTag =
     input.ncxId !== undefined
-      ? `<spine toc="${escapeXml(input.ncxId)}">`
-      : '<spine>';
+      ? `<spine toc="${escapeXml(input.ncxId)}"${progression}>`
+      : `<spine${progression}>`;
+
+  /* guide：EPUB 2 阅读器按 type 找目录 / 正文入口；EPUB 3 阅读器忽略 */
+  const guideLines = (input.guide ?? []).map((ref) => {
+    const title = ref.title !== undefined ? ` title="${escapeXml(ref.title)}"` : '';
+    return `    <reference type="${escapeXml(ref.type)}" href="${escapeXml(ref.href)}"${title}/>`;
+  });
+  const guideBlock =
+    guideLines.length === 0
+      ? ''
+      : `  <guide>\n${guideLines.join('\n')}\n  </guide>\n`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="${escapeXml(version)}" unique-identifier="pub-id" xml:lang="${lang}">
@@ -165,6 +200,6 @@ ${manifestLines.join('\n')}
   ${spineTag}
 ${spineLines.join('\n')}
   </spine>
-</package>
+${guideBlock}</package>
 `;
 }

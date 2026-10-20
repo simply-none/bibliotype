@@ -81,6 +81,16 @@ export {
 } from './ir/notes.js';
 export type { NoteRole, NoteLabelStyle, NoteEntry, CollectNotesOptions } from './ir/notes.js';
 
+/* ---------- 术语一致性 ---------- */
+export { checkGlossary, validateGlossary } from './ir/glossary.js';
+export type {
+  GlossaryTerm,
+  GlossaryTermUsage,
+  GlossaryVariantUsage,
+  GlossaryCheckOptions,
+  GlossaryReport,
+} from './ir/glossary.js';
+
 /* ---------- 文档统计与词表检查 ---------- */
 export {
   DEFAULT_READING_CHARS_PER_MINUTE,

@@ -106,6 +106,30 @@ const blocks: MeasurableBlock[] = [{ id: 'p-1', mainSize: 120, keepWithNext: tru
 const { pages, totalPages, totalBlocks } = paginate(blocks, { pageMainSize: 640 });
 ```
 
+### 页底注区（脚注浮注）
+
+块标 `floatToBottom: true` 且开启 `noteArea` 时，脚注不进正文流，而是落在所在页的页底注区：
+
+```ts
+const { pages } = paginate(
+  [
+    { id: 'p-1', mainSize: 200 },
+    { id: 'fn-1', mainSize: 60, floatToBottom: true }, // 脚注
+    { id: 'p-2', mainSize: 250 },
+  ],
+  { pageMainSize: 600, noteArea: { maxRatio: 0.4 } },
+);
+
+pages[0]?.items;        // 正文片段（p-1、p-2），不含脚注
+pages[0]?.notes;        // 页底注片段（fn-1）
+pages[0]?.noteMainSize; // 注区占高 60 → 正文容量降为 540
+```
+
+- 正文可用容量 = 页面容量 − 本页注区高度，即**注区动态收缩正文**（注文越高，正文越短）；
+- 注区上限 = 容量 × `maxRatio`（缺省 0.4）；超出上限时注文**整条续到下一页页底**（跨页续注）；
+- 单条注超过上限也独占一页（不死循环），由渲染侧截断 / 拆条；
+- 未开启 `noteArea` 时行为与旧版完全一致（页对象不出现 `notes` / `noteMainSize`）。
+
 ## HTML 序列化（`@bibliotype/layout/html`）
 
 子入口与主入口分离：测量 / 分页场景不引入 HTML 输出代码。

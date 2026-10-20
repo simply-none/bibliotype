@@ -58,6 +58,33 @@ matches[0]?.excerpt;  // 「……即使……」上下文摘录
 - 词表由调用方提供，语义（错别字 / 敏感词 / 术语）通过 `kind` 原样回传，库内不做内置词库；
 - 返回的 `anchor` 与 [23 锚点](23-ir-validation-and-migration.md) 同一契约，可直接交给 `@bibliotype/annotation` 建高亮 / 批注，或用于「跳到下一处」。
 
+## 术语一致性 `checkGlossary`
+
+在 `checkWordList` 之上按术语分组统计：规范写法与异写分别计量，异写命中带锚点与建议。
+
+```ts
+import { checkGlossary, validateGlossary } from '@bibliotype/core';
+
+const glossary = [
+  { preferred: '本纪', variants: ['本记'], note: '史部统一用「纪」' },
+  { preferred: '笺注', variants: ['笺註'] },
+];
+
+validateGlossary(glossary); // [] 表示表本身没问题（空写法 / 重复 / 异写等于规范写法会报出）
+
+const report = checkGlossary(document, glossary, { notes: true });
+report.issues;              // 全部异写命中（nodeId + offset + anchor + suggestion）
+report.terms[0]?.preferredCount; // 规范写法出现次数
+report.terms[0]?.variants;       // [{ term: '本记', count: 2, first }]
+report.terms[0]?.consistent;     // 是否已统一（无异写命中）
+report.terms[1]?.unused;         // 全文未出现
+report.inconsistentCount;        // 存在异写的术语数
+```
+
+- 匹配口径与 `checkWordList` 一致（文本块内字面匹配，默认含注释）；`includeUnused: false` 可剔除未出现术语；
+- 同一异写被多个术语声明时按各自条目计数（术语表应避免这种写法，`validateGlossary` 会提示重复定义）；
+- 报告不直接改稿：锚点交给编辑器 / 批注层做「逐处确认」。
+
 ## 与写作辅助的边界
 
-`countDocumentStats` 只回答「多少字、多久读完、哪一章最长」；术语一致性、错别字修正策略、批量替换交互属于上层：编辑器侧用 `findTextMatches` / `replaceAll`（见 [02 编辑器与插件](02-editor-and-plugins.md)），标注侧用脚注锚点落批注。
+`countDocumentStats` 只回答「多少字、多久读完、哪一章最长」；错别字修正策略、批量替换交互属于上层：编辑器侧用 `findTextMatches` / `replaceAll`（见 [02 编辑器与插件](02-editor-and-plugins.md)），标注侧用脚注锚点落批注。

@@ -41,11 +41,15 @@ const props = withDefaults(
     fit?: 'width' | 'contain' | 'none';
     /** 阅读模式：page 单页翻页（默认） / scroll 连续滚动多页 */
     mode?: 'page' | 'scroll';
+    /** 阅读区无障碍名称（读屏用） */
+    ariaLabel?: string;
   }>(),
-  { fit: 'contain', mode: 'page' },
+  { fit: 'contain', mode: 'page', ariaLabel: '正文阅读区，可用方向键翻页' },
 );
 
-const { layout, pagination, pageNumberText, currentPage } = useReaderBinding(props.reader);
+const { layout, pagination, pageNumberText, currentPage, totalPages } = useReaderBinding(
+  props.reader,
+);
 const tokens = computed<Readonly<Record<string, string | undefined>>>(
   () => props.tokens ?? DEFAULT_THEME,
 );
@@ -267,6 +271,63 @@ const WHEEL_PAGE_THRESHOLD = 120;
 const WHEEL_PAGE_COOLDOWN = 320;
 let wheelAcc = 0;
 let wheelLockAt = 0;
+
+/**
+ * 单页模式键盘翻页
+ *
+ * 舞台可聚焦（`tabindex="0"`），方向键 / PageUp PageDown / 空格 / Home End 映射为翻页；
+ * 带修饰键的组合（复制、切换标签等）不拦截。与滚轮同一方向约定：向右 / 向下 = 前进。
+ */
+const KEY_FORWARD = new Set(['ArrowRight', 'ArrowDown', 'PageDown', ' ']);
+const KEY_BACKWARD = new Set(['ArrowLeft', 'ArrowUp', 'PageUp']);
+function onPageKeydown(event: KeyboardEvent): void {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+  let handled = false;
+  if (event.key === 'Home') {
+    handled = props.reader.goToPage(0);
+  } else if (event.key === 'End') {
+    handled = props.reader.goToPage(props.reader.totalPages - 1);
+  } else if (KEY_FORWARD.has(event.key)) {
+    handled = props.reader.nextPage();
+  } else if (KEY_BACKWARD.has(event.key)) {
+    handled = props.reader.prevPage();
+  }
+  if (handled) event.preventDefault();
+}
+
+/** 触屏滑动起点（px） */
+let touchStartX = 0;
+let touchStartY = 0;
+/** 触屏滑动判定阈值（px，小于此值视为点按 / 抖动） */
+const TOUCH_SWIPE_THRESHOLD = 40;
+
+function onPageTouchStart(event: TouchEvent): void {
+  const touch = event.touches[0];
+  if (touch === undefined) return;
+  touchStartX = touch.clientX;
+  touchStartY = touch.clientY;
+}
+
+/**
+ * 单页模式触屏滑动翻页
+ *
+ * - 横排：左滑 = 下一页（手指把纸往左推）；
+ * - 直排（vertical-rl）：右滑 = 下一页（行款自右向左）；
+ * - 纵向位移大于横向时视为滚动意图，不翻页；不足阈值视为点按。
+ */
+function onPageTouchEnd(event: TouchEvent): void {
+  const touch = event.changedTouches[0];
+  if (touch === undefined) return;
+  const dx = touch.clientX - touchStartX;
+  const dy = touch.clientY - touchStartY;
+  if (Math.abs(dx) < TOUCH_SWIPE_THRESHOLD || Math.abs(dx) <= Math.abs(dy)) return;
+  const forward = verticalWriting.value ? dx > 0 : dx < 0;
+  if (forward) {
+    props.reader.nextPage();
+  } else {
+    props.reader.prevPage();
+  }
+}
 
 /**
  * 单页模式下的鼠标滚轮：舞台 overflow hidden、滚轮无原生可滚区，故映射为翻页。
@@ -541,8 +602,19 @@ watch([() => props.fit, pageSize], () => {
 </script>
 
 <template>
-  <!-- 单页模式：一次渲染当前页，等比缩放居中；滚轮 = 翻页 -->
-  <div v-if="mode === 'page'" ref="rootRef" class="bt-book-view" @wheel="onPageWheel">
+  <!-- 单页模式：一次渲染当前页，等比缩放居中；滚轮 / 键盘 / 触屏滑动 = 翻页 -->
+  <div
+    v-if="mode === 'page'"
+    ref="rootRef"
+    class="bt-book-view bt-book-view--paged"
+    role="document"
+    tabindex="0"
+    :aria-label="ariaLabel"
+    @wheel="onPageWheel"
+    @keydown="onPageKeydown"
+    @touchstart.passive="onPageTouchStart"
+    @touchend="onPageTouchEnd"
+  >
     <div class="bt-book-view__stage" :style="stageStyle">
       <div class="bt-reader-page" :style="scaledPageStyle">
         <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>
@@ -555,6 +627,8 @@ watch([() => props.fit, pageSize], () => {
         >{{ pageNumberText }}</footer>
       </div>
     </div>
+    <!-- 页码播报：视觉隐藏，读屏在翻页后朗读当前页 -->
+    <span class="bt-sr-only" aria-live="polite">{{ pageNumberText }} / 共 {{ totalPages }} 页</span>
   </div>
 
   <!-- 连续滚动模式：窗口化渲染可见页，滚动 ↔ 页态双向同步（直排时沿水平自右向左） -->
@@ -606,6 +680,29 @@ watch([() => props.fit, pageSize], () => {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+/* 键盘可聚焦：焦点环只在键盘导航时出现，避免鼠标点击后留框 */
+.bt-book-view--paged:focus {
+  outline: none;
+}
+
+.bt-book-view--paged:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* 仅读屏可见（页码播报等） */
+.bt-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .bt-book-view--scroll {

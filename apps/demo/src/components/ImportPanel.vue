@@ -2,8 +2,8 @@
 /**
  * 文档导入面板（Demo 层）
  *
- * 选择 Markdown / HTML / docx / epub 文件 → detectImportFormat 判格式 → 转 BookDocument → emit('imported')。
- * - 文本类（md / html）：复用静态引入的 @bibliotype/import（importFromText）；
+ * 选择 Markdown / HTML / TXT / docx / epub 文件 → detectImportFormat 判格式 → 转 BookDocument → emit('imported')。
+ * - 文本类（md / html / txt）：复用静态引入的 @bibliotype/import（importFromText）；
  * - 二进制类（docx / epub）：**按需动态 `import()`** @bibliotype/import-docx / import-epub，
  *   使 mammoth / fflate 等重依赖不进入首屏包体，仅在选中对应格式时才加载；
  * - schema 用与编辑器同款的古典 schema（IR 为纯数据，节点 / 标记集合一致即可安全载入）；
@@ -38,7 +38,7 @@ async function onFileChange(event: Event): Promise<void> {
 
   const format = detectImportFormat(file.name);
   if (format === 'unknown') {
-    status.value = '无法识别文件格式，请选择 .md / .html / .docx / .epub 文件。';
+    status.value = '无法识别文件格式，请选择 .md / .html / .txt / .docx / .epub 文件。';
     return;
   }
 
@@ -47,7 +47,7 @@ async function onFileChange(event: Event): Promise<void> {
     const title = titleFromName(file.name);
     const metadata = { title };
     let doc: BookDocument;
-    if (format === 'markdown' || format === 'html') {
+    if (format === 'markdown' || format === 'html' || format === 'text') {
       const text = await file.text();
       doc = importFromText(text, format, schema, metadata);
     } else if (format === 'docx') {
@@ -79,14 +79,14 @@ async function onFileChange(event: Event): Promise<void> {
       <input
         type="file"
         class="panel__file-input"
-        accept=".md,.markdown,.mdown,.mdwn,.html,.htm,.xhtml,.docx,.epub"
+        accept=".md,.markdown,.mdown,.mdwn,.html,.htm,.xhtml,.txt,.text,.docx,.epub"
         :disabled="busy"
         @change="onFileChange"
       />
-      <span>{{ busy ? '导入中…' : '＋ 选择文件（md / html / docx / epub）' }}</span>
+      <span>{{ busy ? '导入中…' : '＋ 选择文件（md / html / txt / docx / epub）' }}</span>
     </label>
 
-    <p class="panel__hint">支持 .md / .html / .docx / .epub；docx、epub 按需动态加载对应导入包。</p>
+    <p class="panel__hint">支持 .md / .html / .txt / .docx / .epub；docx、epub 按需动态加载对应导入包。</p>
     <p v-if="status" class="panel__status">{{ status }}</p>
   </section>
 </template>

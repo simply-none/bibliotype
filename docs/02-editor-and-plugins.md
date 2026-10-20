@@ -88,6 +88,10 @@ off();
 | `setHeadingLevel(level)` / `setParagraph()` | 标题级别 / 转回正文 |
 | `toggleQuote` / `toggleBulletList` | 引文块 / 无序列表 |
 | `insertBlockAfterSelection` | 在选区后插入块 |
+| `insertMathBlock(tex)` / `insertMathInline(tex)` | 公式块 / 行内公式（源码存 `attrs.tex`） |
+| `insertRuby(reading, text?)` | 注音：选区加 `ruby` 标记，或插入带注音文字 |
+| `insertFigure({ src, alt, caption })` | 图片 + 图注块组，光标落入图注 |
+| `insertHorizontalRule()` / `insertPageBreak()` | 分隔线 `break(variant='hr')` / 分页符 `break(variant='page')` |
 
 ### 默认键位（`createBookEditorKeymap`）
 
@@ -122,6 +126,29 @@ matchInputRule('# ');   // { kind: 'heading', prefixLength: 2, headingLevel: 1 }
 - 选项 `headings` / `quote` / `lists` / `codeBlock` / `horizontalRule`，缺省全开；
 - 只处理空选区（光标）且光标位于文本块内：带前缀（`请# `）或非块首不触发；
 - 判定逻辑是纯函数 `matchInputRule`，`applyInputRules` 可单独复用于自定义输入管线。
+
+## 查找替换（编辑态）
+
+```ts
+import { findNextMatch, findTextMatches, replaceAll, replaceMatch } from '@bibliotype/editor';
+
+const matches = findTextMatches(doc, '第\\d+章', { regex: true, limit: 100 });
+const next = findNextMatch(doc, '学而', state.selection.from, { caseSensitive: true });
+replaceMatch(matches[0]!, '新文本');   // 「替换当前」
+replaceAll('第\\d+章', '第X章', { regex: true });   // 「全部替换」
+```
+
+| 选项（`EditorSearchOptions`） | 说明 |
+| --- | --- |
+| `caseSensitive` | 大小写敏感（默认 false） |
+| `regex` | 按正则解释查询串（默认字面匹配；非法正则返回空结果，不抛错） |
+| `wholeWord` | 整词匹配，仅在查询首 / 尾为拉丁字母或数字时启用词边界；CJK 保持子串匹配 |
+| `range` | 文档坐标范围限定（匹配区间须整体落入） |
+| `limit` | 结果上限（默认不限） |
+
+- 匹配逐 text 节点扫描，不跨节点 / 标记边界；
+- 替换沿用匹配起点处的 marks，自后向前批量替换以免坐标漂移；
+- `buildSearchRegExp` / `escapeRegExp` 可单独取用。
 
 ## IR ⇄ ProseMirror 转换细节
 

@@ -43,7 +43,7 @@
 | [14 常见问题与故障排查](14-faq.md) | 经典问题排查路径（注文样式 / 点击跳转 / 样式作用域 / Node 环境） | 全仓 |
 | [15 SSR 与 Node 同构](15-ssr-and-node.md) | 各模块环境要求对照与替代方案 | 全仓 |
 | [16 测试指南](16-testing.md) | 测试组织、vitest 运行、环境注入 | 全仓 |
-| [17 文档导入](17-document-import.md) | Markdown / HTML / docx / epub → BookDocument | `import` / `import-docx` / `import-epub` |
+| [17 文档导入](17-document-import.md) | Markdown / HTML / TXT / docx / epub → BookDocument | `import` / `import-docx` / `import-epub` |
 | [18 纸书排版引擎路线图](18-pagination-engine-roadmap.md) | 行级拆分 / 孤寡行 / 预览编辑同源的阶段计划与引擎调研 | `layout` / `reader` / `vue` |
 | [19 编辑工具条使用说明](19-editor-toolbar-usage.md) | 44 个按钮的前提 / 落点 / 命令 / 限制，说明分层的归属约定与「点了没反应」速查 | `apps/demo` / `editor` / `classical` |
 | [20 选区替换为](20-selection-replace.md) | 选中文字转换为双行注 / 眉批 / 夹注等容器；浮动菜单、文本前后切分、id 去重、边界与降级 | `editor` / `classical` / `vue` / `apps/demo` |
@@ -56,6 +56,7 @@
 | [27 文本转换](27-text-conversion.md) | 繁简 / 异体字转换、命中记录、OpenCC 接入、反向表 | `@bibliotype/textconvert` |
 | [28 静态站点导出](28-site-export.md) | 目录页 + 分节页 + 样式 + 搜索索引，纯函数导出 | `@bibliotype/exporter-site` |
 | [29 远端存储适配器](29-adapter-http.md) | REST 文档 / 资产端点契约、错误语义、fetch 注入 | `@bibliotype/adapter-http` |
+| [30 文档统计与词表检查](30-document-stats.md) | 字数 / 词数 / 阅读时长 / 章节分布、错别字与敏感词检查 | `@bibliotype/core` |
 
 ## 架构总览
 

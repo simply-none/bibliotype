@@ -12,8 +12,14 @@ import {
   insertAtomicNode,
   insertBlockAfterSelection,
   insertCodeBlock,
+  insertFigure,
+  insertHorizontalRule,
   insertImage,
+  insertMathBlock,
+  insertMathInline,
   insertPageBreak,
+  insertRuby,
+  HORIZONTAL_RULE_VARIANT,
   PAGE_BREAK_VARIANT,
   insertTable,
   redoCommand,
@@ -576,5 +582,76 @@ describe('编辑插件与键位', () => {
     const editor = createEditor();
     editor.loadDocument(sampleDoc());
     expect(editor.getDocument()).toEqual(sampleDoc());
+  });
+});
+
+describe('内容命令补全（公式 / 注音 / 图组 / 分隔线）', () => {
+  it('insertMathBlock：块后插入公式块并携带 tex', () => {
+    const editor = createEditor();
+    placeCaretInFirstText(editor, 0);
+    expect(run(editor, insertMathBlock('E = mc^2'))).toBe(true);
+    const blocks = firstLeafBlock(editor);
+    expect(blocks?.[1]?.type).toBe(NODE_TYPES.MATH_BLOCK);
+    expect(blocks?.[1]?.attrs).toMatchObject({ tex: 'E = mc^2' });
+  });
+
+  it('insertMathInline：行内插入公式节点', () => {
+    const editor = createEditor();
+    placeCaretInFirstText(editor, 2);
+    expect(run(editor, insertMathInline('a+b'))).toBe(true);
+    const paragraph = firstLeafBlock(editor)?.[0];
+    const inline = paragraph?.children?.find((child) => child.type === NODE_TYPES.MATH_INLINE);
+    expect(inline?.attrs).toMatchObject({ tex: 'a+b' });
+  });
+
+  it('insertRuby：选区加注音 / 插入带注音文字 / 空光标无文本不生效', () => {
+    const editor = createEditor();
+    const { from } = firstTextRange(editor);
+    const state = editor.editorState;
+    editor.dispatch(
+      state.tr.setSelection(TextSelection.create(state.doc, from + 2, from + 4)),
+    );
+    expect(run(editor, insertRuby('zǐ yuē'))).toBe(true);
+    const marks = collectTextMarks(editor.editorState.doc).filter(
+      (mark) => mark.type.name === MARK_TYPES.RUBY,
+    );
+    expect(marks[0]?.attrs['text']).toBe('zǐ yuē');
+
+    // 空光标 + 给定文字：直接插入带注音的文字
+    const editor2 = createEditor();
+    placeCaretInFirstText(editor2, 0);
+    expect(run(editor2, insertRuby('xué', '学'))).toBe(true);
+    expect(irText(firstLeafBlock(editor2)?.[0])).toContain('学');
+
+    // 空光标且无文字：无从注音
+    const editor3 = createEditor();
+    placeCaretInFirstText(editor3, 0);
+    expect(run(editor3, insertRuby('xué'))).toBe(false);
+  });
+
+  it('insertFigure：插入图片 + 图注两块组，光标落入图注', () => {
+    const editor = createEditor();
+    placeCaretInFirstText(editor, 0);
+    expect(run(editor, insertFigure({ src: 'a.png', alt: '图', caption: '图一' }))).toBe(true);
+    const blocks = firstLeafBlock(editor);
+    expect(blocks?.[1]?.type).toBe(NODE_TYPES.IMAGE);
+    expect(blocks?.[1]?.attrs).toMatchObject({ src: 'a.png', alt: '图' });
+    expect(blocks?.[2]?.type).toBe(NODE_TYPES.CAPTION);
+    expect(irText(blocks?.[2])).toBe('图一');
+    // 光标落在图注内
+    expect(editor.editorState.selection.$from.parent.type.name).toBe(NODE_TYPES.CAPTION);
+  });
+
+  it('insertHorizontalRule：末块分隔线后补空段落，可继续输入', () => {
+    const editor = createEditor();
+    placeCaretInFirstText(editor, 0);
+    expect(run(editor, insertHorizontalRule())).toBe(true);
+    const blocks = firstLeafBlock(editor);
+    expect(blocks?.[1]?.type).toBe(NODE_TYPES.BREAK);
+    expect(blocks?.[1]?.attrs).toMatchObject({ variant: HORIZONTAL_RULE_VARIANT });
+    expect(blocks?.[2]?.type).toBe(NODE_TYPES.PARAGRAPH);
+
+    editor.dispatch(editor.createTransaction().insertText('新段'));
+    expect(irText(firstLeafBlock(editor)?.[2])).toBe('新段');
   });
 });

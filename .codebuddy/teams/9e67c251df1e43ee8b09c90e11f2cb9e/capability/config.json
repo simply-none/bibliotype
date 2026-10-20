@@ -1,0 +1,18 @@
+{
+  "name": "capability",
+  "mainConversationId": "9e67c251df1e43ee8b09c90e11f2cb9e",
+  "workspacePath": "c:/cod/note_npm",
+  "createdAt": "2026-10-20T02:59:31.238Z",
+  "options": {
+    "workspacePath": "c:/cod/note_npm"
+  },
+  "members": [
+    {
+      "memberId": "inventory@capability",
+      "name": "inventory",
+      "role": "盘点能力清单落地状态",
+      "sessionId": "9137d46cade94076a85852d52a30a615",
+      "status": "running"
+    }
+  ]
+}

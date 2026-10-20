@@ -1,0 +1,20 @@
+[
+  {
+    "id": "msg-1792465524184-dly8vx",
+    "from": "team-lead",
+    "to": "inventory",
+    "type": "message",
+    "content": "进度如何？如果已完成核对，请直接发回状态表（每行 `条目 | done/partial/missing | 证据`）；若还在进行，先回已确认的条目，剩余稍后补。",
+    "timestamp": "2026-10-20T03:05:24.184Z",
+    "read": true
+  },
+  {
+    "id": "shutdown-1792465747851",
+    "from": "team-lead",
+    "to": "inventory",
+    "type": "shutdown_request",
+    "content": "{\"type\":\"shutdown_request\",\"request_id\":\"shutdown-1792465747851\",\"timeout_ms\":60000,\"reason\":\"我已按自查结果完成清单勾选，不再需要盘点结果，请结束任务。\",\"from\":\"team-lead\",\"timestamp\":\"2026-10-20T03:09:07.851Z\"}",
+    "timestamp": "2026-10-20T03:09:07.851Z",
+    "read": true
+  }
+]

@@ -61,6 +61,13 @@ export {
   insertAtomicNode,
   insertImage,
   insertCodeBlock,
+  insertMathBlock,
+  insertMathInline,
+  insertRuby,
+  insertFigure,
+  insertHorizontalRule,
+  PLACEHOLDER_IMAGE_SRC,
+  HORIZONTAL_RULE_VARIANT,
   insertPageBreak,
   PAGE_BREAK_VARIANT,
   insertTable,
@@ -74,6 +81,7 @@ export {
   getBlockStyleId,
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
+export type { FigureOptions } from './commands.js';
 
 /* ---------- 选区转换为容器（「替换为」） ---------- */
 export { replaceSelectionWithContainer } from './selection-convert.js';
@@ -81,12 +89,16 @@ export type { ReplaceContainerOptions, ReplaceIdOwner } from './selection-conver
 
 /* ---------- 编辑态查找替换 ---------- */
 export {
+  escapeRegExp,
+  buildSearchRegExp,
   findTextMatches,
+  findNextMatch,
   selectRange,
   replaceSelectionWith,
+  replaceMatch,
   replaceAll,
 } from './search.js';
-export type { TextMatch } from './search.js';
+export type { TextMatch, EditorSearchOptions } from './search.js';
 
 /* ---------- 插件与键位 ---------- */
 export { createBookEditorKeymap, createBookEditorPlugins } from './plugins.js';

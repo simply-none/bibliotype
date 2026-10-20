@@ -646,6 +646,10 @@ export function insertAtomicNode(typeName: string, attrs?: Attrs): Command {
 
 /* ---------- 常用内容插入（在通用插入工厂上预置属性与光标行为） ---------- */
 
+/** 图片占位地址（1×1 透明 GIF，避免空 src 导出死链） */
+export const PLACEHOLDER_IMAGE_SRC =
+  'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
 /**
  * 在光标 / 选区处插入图片
  *
@@ -655,9 +659,123 @@ export function insertAtomicNode(typeName: string, attrs?: Attrs): Command {
  */
 export function insertImage(attrs: { src?: string; alt?: string } = {}): Command {
   return insertAtomicNode(NODE_TYPES.IMAGE, {
-    src: attrs.src ?? 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
+    src: attrs.src ?? PLACEHOLDER_IMAGE_SRC,
     alt: attrs.alt ?? '',
   });
+}
+
+/** 插入公式块（KaTeX / MathML 源码存于 `attrs.tex`，渲染由上层决定） */
+export function insertMathBlock(tex = ''): Command {
+  return insertBlockOfType(NODE_TYPES.MATH_BLOCK, { tex }, false);
+}
+
+/** 在光标 / 选区处插入行内公式（`attrs.tex`） */
+export function insertMathInline(tex = ''): Command {
+  return insertAtomicNode(NODE_TYPES.MATH_INLINE, { tex });
+}
+
+/**
+ * 注音（ruby）：给选中文字加注音，或插入带注音的新文字
+ *
+ * - 选区非空且未给 `text`：对选区加 `ruby` 标记（注文存 `mark.attrs.text`）；
+ * - 给定 `text`：用 `text` 替换选区（空选区即插入）并带上 ruby 标记；
+ * - 空选区且未给 `text`：无内容可注音，返回 false。
+ */
+export function insertRuby(reading: string, text?: string): Command {
+  return (state, dispatch) => {
+    const rubyType = state.schema.marks[MARK_TYPES.RUBY];
+    if (rubyType === undefined) {
+      return false;
+    }
+    const mark = rubyType.create({ text: reading });
+    const { from, to, empty } = state.selection;
+    if (text === undefined && empty) {
+      return false;
+    }
+    const tr = state.tr;
+    if (text === undefined) {
+      tr.addMark(from, to, mark);
+    } else {
+      tr.replaceWith(from, to, state.schema.text(text, [mark]));
+      tr.setSelection(TextSelection.create(tr.doc, from + text.length));
+    }
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** 图组插入选项 */
+export interface FigureOptions {
+  /** 图片地址（缺省透明占位） */
+  src?: string;
+  /** 替代文本 */
+  alt?: string;
+  /** 图注文字（缺省空图注，光标进入图注等待输入） */
+  caption?: string;
+}
+
+/**
+ * 在当前叶块之后插入「图片 + 图注」块组
+ *
+ * 图注是独立的 `caption` 块（便于导出时生成 `<figcaption>`），光标落入图注内。
+ */
+export function insertFigure(options: FigureOptions = {}): Command {
+  return (state, dispatch) => {
+    const imageType = findNodeType(state.schema, NODE_TYPES.IMAGE);
+    const captionType = findNodeType(state.schema, NODE_TYPES.CAPTION);
+    if (imageType === undefined || captionType === undefined) {
+      return false;
+    }
+    const { $to } = state.selection;
+    if ($to.depth === 0) {
+      return false;
+    }
+    const image = imageType.create({
+      src: options.src ?? PLACEHOLDER_IMAGE_SRC,
+      alt: options.alt ?? '',
+    });
+    const captionText = options.caption ?? '';
+    const caption = captionType.create(
+      null,
+      captionText === '' ? null : state.schema.text(captionText),
+    );
+    const insertPos = $to.after($to.depth);
+    const tr = state.tr.insert(insertPos, Fragment.fromArray([image, caption]));
+    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + image.nodeSize + 1)));
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** 分隔线变体值：`break(variant='hr')` */
+export const HORIZONTAL_RULE_VARIANT = 'hr';
+
+/**
+ * 在当前叶块之后插入分隔线（`break(variant='hr')`）
+ *
+ * 分隔线是独立块；位于末块时补一个空段落承接光标，否则光标落到后继块首。
+ */
+export function insertHorizontalRule(): Command {
+  return (state, dispatch) => {
+    const breakType = findNodeType(state.schema, NODE_TYPES.BREAK);
+    const paragraphType = findNodeType(state.schema, NODE_TYPES.PARAGRAPH);
+    if (breakType === undefined || paragraphType === undefined) {
+      return false;
+    }
+    const { $to } = state.selection;
+    if ($to.depth === 0) {
+      return false;
+    }
+    const hr = breakType.create({ variant: HORIZONTAL_RULE_VARIANT });
+    const insertPos = $to.after($to.depth);
+    const tr = state.tr.insert(insertPos, hr);
+    if (tr.doc.resolve(insertPos + hr.nodeSize).nodeAfter === null) {
+      tr.insert(insertPos + hr.nodeSize, paragraphType.create());
+    }
+    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + hr.nodeSize + 1), 1));
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
 }
 
 /** 在当前叶块之后插入代码块（language 缺省纯文本），光标进入块内 */

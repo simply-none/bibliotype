@@ -5,7 +5,15 @@ import { describe, expect, it } from 'vitest';
 import { NODE_TYPES, type BookDocument } from '@bibliotype/core';
 import type { Transaction } from 'prosemirror-state';
 import { BookEditor } from '../editor.js';
-import { findTextMatches, replaceAll, replaceSelectionWith, selectRange } from '../search.js';
+import {
+  buildSearchRegExp,
+  findNextMatch,
+  findTextMatches,
+  replaceAll,
+  replaceMatch,
+  replaceSelectionWith,
+  selectRange,
+} from '../search.js';
 
 /** 载入若干段落文本，构造编辑器（每段一个 paragraph） */
 function editorWithParagraphs(texts: readonly string[]): BookEditor {
@@ -73,6 +81,49 @@ describe('findTextMatches', () => {
   });
 });
 
+describe('findTextMatches（增强）', () => {
+  it('正则模式：按模式命中，非法正则返回空', () => {
+    const editor = editorWithParagraphs(['第1章 学而', '第2章 为政']);
+    expect(findTextMatches(editor.editorState.doc, '第\\d章', { regex: true })).toHaveLength(2);
+    expect(findTextMatches(editor.editorState.doc, '第[章', { regex: true })).toHaveLength(0);
+    expect(() => buildSearchRegExp('第[章', { regex: true })).toThrow(SyntaxError);
+  });
+
+  it('整词匹配只跳过拉丁词内匹配', () => {
+    const editor = editorWithParagraphs(['cat category cat.', '学而学而']);
+    expect(findTextMatches(editor.editorState.doc, 'cat')).toHaveLength(3);
+    expect(findTextMatches(editor.editorState.doc, 'cat', { wholeWord: true })).toHaveLength(2);
+    // 中文无词边界，整词开关不影响子串匹配
+    expect(
+      findTextMatches(editor.editorState.doc, '学而', { wholeWord: true }),
+    ).toHaveLength(2);
+  });
+
+  it('范围限定与结果上限', () => {
+    const editor = editorWithParagraphs(['学而时习之', '学而篇第一', '学而第三']);
+    const doc = editor.editorState.doc;
+    const all = findTextMatches(doc, '学而');
+    expect(all).toHaveLength(3);
+
+    const scoped = findTextMatches(doc, '学而', {
+      range: { from: all[1]!.from, to: all[2]!.from + 10 },
+    });
+    expect(scoped).toHaveLength(2);
+    expect(findTextMatches(doc, '学而', { limit: 2 })).toHaveLength(2);
+  });
+
+  it('findNextMatch 支持前进 / 后退循环', () => {
+    const editor = editorWithParagraphs(['学而时习之', '学而篇第一']);
+    const doc = editor.editorState.doc;
+    const first = findNextMatch(doc, '学而', 0);
+    expect(first).toBeDefined();
+    const second = findNextMatch(doc, '学而', first!.from + 1);
+    expect(second!.from).toBeGreaterThan(first!.from);
+    expect(findNextMatch(doc, '学而', second!.from + 1)).toBeUndefined();
+    expect(findNextMatch(doc, '学而', second!.from, undefined, true)).toEqual(first);
+  });
+});
+
 describe('selectRange', () => {
   it('选中文档中给定区间', () => {
     const editor = editorWithParagraphs(['子曰：学而时习之。']);
@@ -117,5 +168,30 @@ describe('replaceAll', () => {
     const editor = editorWithParagraphs(['子曰']);
     expect(run(editor, replaceAll('诗', 'X'))).toBe(false);
     expect(run(editor, replaceAll('', 'X'))).toBe(false);
+  });
+
+  it('正则 / 整词选项透传到查找', () => {
+    const editor = editorWithParagraphs(['第1章 学而', '第2章 为政']);
+    expect(run(editor, replaceAll('第\\d章', '#', { regex: true }))).toBe(true);
+    expect(plainText(editor)).toBe('# 学而 / # 为政');
+
+    const latin = editorWithParagraphs(['cat category']);
+    expect(run(latin, replaceAll('cat', 'dog', { wholeWord: true }))).toBe(true);
+    expect(plainText(latin)).toBe('dog category');
+  });
+});
+
+describe('replaceMatch', () => {
+  it('只替换指定的一处匹配', () => {
+    const editor = editorWithParagraphs(['学而时习之', '学而篇第一']);
+    const matches = findTextMatches(editor.editorState.doc, '学而');
+    expect(run(editor, replaceMatch(matches[1]!, 'X'))).toBe(true);
+    expect(plainText(editor)).toBe('学而时习之 / X篇第一');
+  });
+
+  it('非法区间不生效', () => {
+    const editor = editorWithParagraphs(['学而']);
+    expect(run(editor, replaceMatch({ from: 5, to: 5 }, 'X'))).toBe(false);
+    expect(run(editor, replaceMatch({ from: 0, to: 9999 }, 'X'))).toBe(false);
   });
 });

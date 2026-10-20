@@ -67,6 +67,25 @@ export {
 } from './ir/migrate.js';
 export type { MigrationStep, MigrateOptions, MigrateResult, RawBookDocument } from './ir/migrate.js';
 
+/* ---------- 文档统计与词表检查 ---------- */
+export {
+  DEFAULT_READING_CHARS_PER_MINUTE,
+  countDocumentStats,
+  checkWordList,
+  isStructureNode,
+  structureLevelOf,
+} from './ir/document-stats.js';
+export type {
+  DocumentStats,
+  DocumentStatsOptions,
+  NoteCountingMode,
+  NoteCounts,
+  StructureStats,
+  WordListEntry,
+  WordListMatch,
+  WordListCheckOptions,
+} from './ir/document-stats.js';
+
 /* ---------- 事件 ---------- */
 export type { BibliotypeEventMap, BibliotypeEventName } from './events/event-map.js';
 export type { EventHandler, Unsubscribe } from './events/event-bus.js';

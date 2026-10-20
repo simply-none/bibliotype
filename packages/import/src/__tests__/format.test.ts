@@ -2,6 +2,7 @@
  * 格式检测与文本分发测试（纯函数，node 环境）
  */
 import { buildEditorSchema } from '@bibliotype/editor';
+import { NODE_TYPES } from '@bibliotype/core';
 import { describe, expect, it } from 'vitest';
 import { detectImportFormat, importFromText } from '../format.js';
 
@@ -14,6 +15,7 @@ describe('detectImportFormat', () => {
     expect(detectImportFormat('chapter.markdown')).toBe('markdown');
     expect(detectImportFormat('page.html')).toBe('html');
     expect(detectImportFormat('legacy.htm')).toBe('html');
+    expect(detectImportFormat('novel.txt')).toBe('text');
     expect(detectImportFormat('doc.docx')).toBe('docx');
     expect(detectImportFormat('book.epub')).toBe('epub');
   });
@@ -21,6 +23,7 @@ describe('detectImportFormat', () => {
   it('按 MIME 识别（忽略参数）', () => {
     expect(detectImportFormat('text/markdown')).toBe('markdown');
     expect(detectImportFormat('text/html; charset=utf-8')).toBe('html');
+    expect(detectImportFormat('text/plain; charset=utf-8')).toBe('text');
     expect(detectImportFormat('application/epub+zip')).toBe('epub');
     expect(
       detectImportFormat('application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
@@ -39,6 +42,13 @@ describe('importFromText', () => {
     const doc = importFromText('# 标题\n\n正文', 'markdown', schema, metadata);
     expect(doc.root.type).toBe('book');
     expect((doc.root.children ?? []).length).toBeGreaterThan(0);
+  });
+
+  it('text 路由到纯文本转换（支持章节选项）', () => {
+    const doc = importFromText('第一章 学而\n\n子曰。', 'text', schema, metadata);
+    expect(doc.root.children?.[0]?.type).toBe(NODE_TYPES.CHAPTER);
+    const custom = importFromText('甲。\n\n乙。', 'text', schema, metadata, { idPrefix: 'x' });
+    expect(custom.root.children?.[0]?.id).toBe('x-p-1');
   });
 
   it('docx / epub / unknown 抛明确错误（指向对应包）', () => {

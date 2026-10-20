@@ -1,6 +1,6 @@
 # 17 文档导入
 
-> 涉及包：`@bibliotype/import`（Markdown / HTML）、`@bibliotype/import-docx`（docx）、`@bibliotype/import-epub`（epub）　·　相关：[01 数据模型](01-document-model.md)、[02 编辑器与插件](02-editor-and-plugins.md)、[07 EPUB 导出](07-export-epub.md)
+> 涉及包：`@bibliotype/import`（Markdown / HTML / TXT）、`@bibliotype/import-docx`（docx）、`@bibliotype/import-epub`（epub）　·　相关：[01 数据模型](01-document-model.md)、[02 编辑器与插件](02-editor-and-plugins.md)、[07 EPUB 导出](07-export-epub.md)
 
 把外部文档转成 **`BookDocument`（IR）**，与编辑器 / 阅读 / 导出共用同一数据模型。按「是否需要外部重依赖」分层：零依赖的文本类（Markdown / HTML）在基础包 `@bibliotype/import`，重格式（docx / epub）各拆独立叶子包，避免污染公共包并支持按需 `import()`。
 
@@ -9,13 +9,14 @@
 - `schema` —— ProseMirror `Schema`，通常用与编辑器同款构造（如 demo 的 `buildClassicalEditorSchema()`）；IR 为纯数据，节点 / 标记集合一致即可安全载入 `BookEditor` / `Reader`。
 - `metadata` —— `BookMetadata`，**一律由调用方注入**（含 `title` 及可选 `createdAt` / `updatedAt`）；包内不读当前时间，保证产出确定性（红线 §四.6）。
 
-## 基础导入 `@bibliotype/import`（Markdown / HTML，零外部重依赖）
+## 基础导入 `@bibliotype/import`（Markdown / HTML / TXT，零外部重依赖）
 
 ```ts
 import { buildBookSchema } from '@bibliotype/editor'; // 或你的 schema 构造
 import {
   markdownToBookDocument,
   htmlToBookDocument,
+  txtToBookDocument,
   detectImportFormat,
   importFromText,
 } from '@bibliotype/import';
@@ -28,7 +29,10 @@ const doc = markdownToBookDocument('# 学而\n\n子曰：学而时习之。', sc
 /* HTML → BookDocument（浏览器用全局 DOM；Node 可注入已解析的 container 元素） */
 const doc2 = htmlToBookDocument('<h1>为政</h1><p>子曰……</p>', schema, { title: '为政' });
 
-/* 按文件名 / MIME 判格式后分发（仅 markdown / html；docx / epub 抛错指向对应包） */
+/* TXT → BookDocument（空行分段 + 第X章 / 卷X 起章） */
+const doc4 = txtToBookDocument('第一章 学而\n\n子曰：学而时习之。', schema, { title: '论语' });
+
+/* 按文件名 / MIME 判格式后分发（markdown / html / text；docx / epub 抛错指向对应包） */
 const format = detectImportFormat('note.md'); // 'markdown'
 const doc3 = importFromText('# 标题', format, schema, { title: '标题' });
 ```
@@ -38,8 +42,32 @@ const doc3 = importFromText('# 标题', format, schema, { title: '标题' });
 | `nodesToBookDocument` | `(nodes: PmNode[], schema, metadata) => BookDocument` | 块节点合成合法 `book` 根 → IR（低层组装） |
 | `markdownToBookDocument` | `(md: string, schema, metadata) => BookDocument` | 复用 `editor.markdownToNodes` |
 | `htmlToBookDocument` | `(html: string, schema, metadata, container?) => BookDocument` | `DOMParser.fromSchema` 解析片段；可注入 `container` |
-| `detectImportFormat` | `(nameOrMime: string) => ImportFormat` | `'markdown' \| 'html' \| 'docx' \| 'epub' \| 'unknown'` |
-| `importFromText` | `(text, format, schema, metadata) => BookDocument` | 文本类分发；重格式抛错指向对应叶子包 |
+| `txtToBookDocument` | `(text, schema, metadata, options?) => BookDocument` | 空行分段、`第X章` / `卷X` 起章、hard-wrap 合并、确定性 id |
+| `detectImportFormat` | `(nameOrMime: string) => ImportFormat` | `'markdown' \| 'html' \| 'text' \| 'docx' \| 'epub' \| 'unknown'` |
+| `importFromText` | `(text, format, schema, metadata, options?) => BookDocument` | 文本类分发（`options` 仅 TXT 使用）；重格式抛错指向对应叶子包 |
+
+### 纯文本（TXT）规则
+
+| 行为 | 规则 |
+| --- | --- |
+| 分段 | 空行分段；段内硬换行合并（中文直接拼接，西文相邻字母 / 数字补一个空格） |
+| 起章 | 行首命中 `第X章 / 回 / 节 / 卷 / 部 / 篇` 或 `卷X`（`DEFAULT_TXT_CHAPTER_PATTERN`） |
+| 章前内容 | 首个章节标记之前的文字自成无标题章，不丢内容 |
+| 无章节标记 | 段落直接挂在 `book` 根下，不虚构章节点 |
+| id | `idPrefix`（默认 `txt`）+ 序号，如 `txt-chapter-1` / `txt-p-1`；同输入结果稳定 |
+
+自定义示例：
+
+```ts
+const doc = txtToBookDocument(text, schema, { title: '诗集' }, {
+  chapterPattern: /^【[一二三四五六七八九十]+】/,   // 【一】起章
+  chapterType: 'volume',                            // 拆到卷级
+  idPrefix: 'poem',
+});
+```
+
+- TXT 为纯文本，不解析 Markdown 标记（需要加粗 / 标题层级请先转 Markdown 再导入）；
+- `importFromText` 第 5 个参数是 `TxtImportOptions`，其它格式忽略。
 
 ## docx 导入 `@bibliotype/import-docx`（mammoth）
 
@@ -84,4 +112,4 @@ const doc = epubToBookDocument(await file.arrayBuffer(), schema, { title: '来�
 | `import-docx` | 浏览器 / Node | mammoth 双通道输入；异步 |
 | `import-epub` | 浏览器 / Node | `epubToHtml` 同构无 DOM；`epubToBookDocument` 端到端需 DOM |
 
-> Demo 侧 `ImportPanel.vue` 演示了四格式统一入口：`detectImportFormat` 判格式 → 文本类走 `importFromText`，docx / epub 走动态 `import()` 懒加载对应叶子包。
+> Demo 侧 `ImportPanel.vue` 演示了五格式统一入口：`detectImportFormat` 判格式 → 文本类（md / html / txt）走 `importFromText`，docx / epub 走动态 `import()` 懒加载对应叶子包。

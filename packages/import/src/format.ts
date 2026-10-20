@@ -2,16 +2,17 @@
  * 导入格式检测与文本格式分发
  *
  * 定位：面向使用侧的「按格式路由」入口——从文件名 / MIME 判定格式，
- * 并把**文本类**格式（markdown / html）路由到本包对应转换；
+ * 并把**文本类**格式（markdown / html / txt）路由到本包对应转换；
  * **二进制**格式（docx / epub）不在本包实现，给出明确指向（重依赖隔离在对应叶子包）。
  */
 import type { BookDocument, BookMetadata } from '@bibliotype/core';
 import type { Schema } from 'prosemirror-model';
 import { htmlToBookDocument } from './from-html.js';
 import { markdownToBookDocument } from './from-markdown.js';
+import { txtToBookDocument, type TxtImportOptions } from './from-text.js';
 
 /** 可识别的导入格式 */
-export type ImportFormat = 'markdown' | 'html' | 'docx' | 'epub' | 'unknown';
+export type ImportFormat = 'markdown' | 'html' | 'text' | 'docx' | 'epub' | 'unknown';
 
 /** 扩展名 → 格式（小写、不含点） */
 const EXT_FORMATS: Record<string, ImportFormat> = {
@@ -22,6 +23,8 @@ const EXT_FORMATS: Record<string, ImportFormat> = {
   html: 'html',
   htm: 'html',
   xhtml: 'html',
+  txt: 'text',
+  text: 'text',
   docx: 'docx',
   epub: 'epub',
 };
@@ -32,6 +35,7 @@ const MIME_FORMATS: Record<string, ImportFormat> = {
   'text/x-markdown': 'markdown',
   'text/html': 'html',
   'application/xhtml+xml': 'html',
+  'text/plain': 'text',
   'application/epub+zip': 'epub',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
 };
@@ -59,12 +63,13 @@ export function detectImportFormat(nameOrMime: string): ImportFormat {
 }
 
 /**
- * 从文本内容导入为 BookDocument（仅 markdown / html）
+ * 从文本内容导入为 BookDocument（markdown / html / text）
  *
  * @param text 文本内容
  * @param format 目标格式（由 `detectImportFormat` 或调用方给出）
  * @param schema 编辑器 schema
  * @param metadata 书目元数据（由调用方注入）
+ * @param options 纯文本章节规则（仅 `text` 格式使用）
  * @throws docx / epub 走二进制入口，指向对应包；`unknown` 无法处理
  */
 export function importFromText(
@@ -72,12 +77,15 @@ export function importFromText(
   format: ImportFormat,
   schema: Schema,
   metadata: BookMetadata,
+  options: TxtImportOptions = {},
 ): BookDocument {
   switch (format) {
     case 'markdown':
       return markdownToBookDocument(text, schema, metadata);
     case 'html':
       return htmlToBookDocument(text, schema, metadata);
+    case 'text':
+      return txtToBookDocument(text, schema, metadata, options);
     case 'docx':
       throw new RangeError('docx 为二进制格式，请使用 @bibliotype/import-docx 的 docxToBookDocument。');
     case 'epub':

@@ -47,6 +47,33 @@ describe('htmlToBookDocument', () => {
     expect(collectText(paragraph)).toBe('这是重点');
   });
 
+  it('表格：thead/th 识别为表头行，colspan / rowspan / 对齐不丢', () => {
+    const doc = htmlToBookDocument(
+      '<table><thead><tr><th>名称</th><th>值</th></tr></thead>' +
+        '<tbody><tr><td colspan="2" rowspan="3" data-align="center">合并</td></tr></tbody></table>',
+      schema,
+      metadata,
+    );
+    const table = (doc.root.children ?? [])[0] as BookNode;
+    expect(table.type).toBe(NODE_TYPES.TABLE);
+    const rows = table.children ?? [];
+    expect(rows[0]?.attrs?.['header']).toBe(true);
+    const merged = rows[1]?.children?.[0];
+    expect(merged?.attrs).toMatchObject({ colspan: 2, rowspan: 3, align: 'center' });
+    expect(collectText(merged as BookNode)).toBe('合并');
+  });
+
+  it('表格：无 thead 时按 th 是否存在判定表头', () => {
+    const doc = htmlToBookDocument(
+      '<table><tr><th>甲</th></tr><tr><td>乙</td></tr></table>',
+      schema,
+      metadata,
+    );
+    const rows = ((doc.root.children ?? [])[0] as BookNode).children ?? [];
+    expect(rows[0]?.attrs?.['header']).toBe(true);
+    expect(rows[1]?.attrs?.['header']).toBeUndefined();
+  });
+
   it('注入 container 时忽略 html 字符串（Node / epub 复用路径）', () => {
     const container = document.createElement('div');
     container.innerHTML = '<p>注入容器</p>';

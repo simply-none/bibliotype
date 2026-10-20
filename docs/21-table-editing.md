@@ -20,9 +20,19 @@ table (block)
 ```
 
 - 节点名：`table` / `table-row` / `table-cell`，均带通用 attrs（含稳定 `id`、`rawAttrs`）。
-- **简化模型**：没有 `colspan` / `rowspan` / 表头（`th`）属性；单元格内可放任意块，但工具条只提供空段落。
+- 表格属性（默认值在 IR 中省略）：
+
+| 节点 | 属性 | 含义 |
+| --- | --- | --- |
+| `table-row` | `header`（默认 false） | 表头行：导出 `<thead>`，单元格转 `<th>`，阅读态加粗 / 浅底 |
+| `table-cell` | `colspan`（默认 1） | 横向跨列数，导出原生 `colspan` |
+| `table-cell` | `rowspan`（默认 1） | 纵向跨行数，导出原生 `rowspan` |
+| `table-cell` | `align`（默认 null） | 对齐：`left` / `center` / `right`，导出 `data-align` 由样式表渲染 |
+
 - 编辑命令：`insertTable(rows, cols)`、`tableAddRow()`、`tableAddColumn()`、
-  `tableDeleteRow()`、`tableDeleteColumn()`（后四者要求光标在单元格内）。
+  `tableDeleteRow()`、`tableDeleteColumn()`、`toggleTableHeaderRow()`、`setTableCellAlign(align)`。
+- **合并单元格命令未提供**：`colspan` / `rowspan` 由 HTML / Word / EPUB 导入带入，编辑态保真保存、
+  渲染与导出；在编辑态手动合并 / 拆分留待后续（需重排整行单元格，避免网格与跨列属性不一致）。
 
 ---
 
@@ -78,7 +88,9 @@ table-cell  → <td class="bt-table-cell">…</td>
 ```
 
 - 仍保留 `bt-*` class、`data-*` 属性与 `data-bt-id`（分页参考线按块定位要用）；
-- `parseDOM` 同步接受 `table` / `tr` / `td` / `th`（粘贴与 HTML 回填）；
+- `parseDOM` 同步接受 `table` / `tr` / `td` / `th`（粘贴与 HTML 回填），并读取 `colspan` / `rowspan` /
+  `align`（或 `data-align` / 内联 `text-align`）与 `<thead>` / `<th>` 表头语义；
+- 单元格的 `colspan` / `rowspan` 输出为**原生属性**，浏览器才会建立跨行跨列布局；
 - 编辑器注入的 book CSS 会给 `.bt-table-cell` 加边框 / 内边距 / 最小尺寸，空表也不会塌成一条线。
 
 ---
@@ -98,6 +110,29 @@ table-cell  → <td class="bt-table-cell">…</td>
 光标 / 输入仍受片段桥（`selection-bridge`）限制，复杂表格编辑建议切到连续画布。这是已知限制，
 不是渲染回归。
 
+### HTML 输出（阅读 / EPUB / 站点 / PDF 共用）
+
+```html
+<table id="t-1" class="bt-table">
+  <thead>
+    <tr id="r-1" class="bt-table-row" data-header="true">
+      <th id="c-1" class="bt-table-cell" colspan="2">表头</th>
+      <th id="c-2" class="bt-table-cell">值</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr id="r-2" class="bt-table-row">
+      <td id="c-3" class="bt-table-cell" rowspan="2" data-align="center">合并</td>
+      <td id="c-4" class="bt-table-cell">普通</td>
+    </tr>
+  </tbody>
+</table>
+```
+
+- 只有**开头连续**的 `header: true` 行才进 `<thead>`；无表头行的表格输出与旧版完全一致（不额外包 `tbody`）；
+- `colspan` / `rowspan` 为原生属性，`align` 走 `data-align`（book CSS 提供 left / center / right 与表头底色）；
+- 默认值（false / 1 / 1 / null）不输出属性。
+
 ---
 
 ## 五、直排（竖排）
@@ -115,6 +150,9 @@ table-cell  → <td class="bt-table-cell">…</td>
 | 层 | 用例 |
 | --- | --- |
 | `packages/editor/src/__tests__/commands.test.ts` | 表格节点 `toDOM` 为 `table` / `tr` / `td`，带 `bt-*` class 与 `tbody` |
+| `packages/editor/src/__tests__/table-attrs.test.ts` | 跨行跨列 / 表头 / 对齐 IR ⇄ PM 往返；表头切换与对齐命令；表格外命令返回 false |
+| `packages/import/src/__tests__/from-html.test.ts` | `<thead>` / `<th>` 识别为表头行；`colspan` / `rowspan` / `data-align` 导入不丢 |
+| `packages/layout/src/__tests__/table-html.test.ts` | `thead` / `th` / 原生跨行跨列 / `data-align` 输出；无表头与默认值不改变旧输出 |
 | `packages/vue/src/__tests__/editor.test.ts` | 挂载 `BtEditor` 后经插槽 `binding.execute` 插入表格，画布实际出现 `table.bt-table` / `tr` / `td` |
 | `packages/reader/src/__tests__/document-blocks.test.ts` | 表格整体成块、不下钻到单元格、不标 `splittable` |
 | `packages/vue/src/__tests__/table-size-picker.test.ts` | 网格点击 / 精确输入夹紧 / Esc / 外部点击 / 触发器切换 |

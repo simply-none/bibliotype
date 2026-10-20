@@ -1035,6 +1035,69 @@ export function tableDeleteRow(): Command {
   };
 }
 
+/** 单元格对齐取值（null = 清除，回到样式表默认） */
+export type TableCellAlign = 'left' | 'center' | 'right';
+
+/**
+ * 切换当前行的表头语义
+ *
+ * 表头是**行级**属性（`table-row.header`）：置位后导出为 `<thead>` + `<th>`，
+ * 阅读态加粗 / 底色，并在 HTML 导入时被识别。光标须位于单元格内。
+ */
+export function toggleTableHeaderRow(): Command {
+  return (state, dispatch) => {
+    const ctx = tableContext(state);
+    if (ctx === null) {
+      return false;
+    }
+    const header = ctx.row.attrs['header'] === true;
+    dispatch?.(
+      state.tr
+        .setNodeMarkup(ctx.rowPos, undefined, { ...ctx.row.attrs, header: !header })
+        .scrollIntoView(),
+    );
+    return true;
+  };
+}
+
+/**
+ * 设置单元格对齐（`table-cell.align`）
+ *
+ * 作用对象为选区端点所在的单元格（光标即所在格；跨格选区取首尾两格）。
+ * 导出为 `data-align`，样式表按 `.bt-table-cell[data-align=...]` 渲染；
+ * 传 null 清除对齐回到样式表默认。不在表格内返回 false。
+ */
+export function setTableCellAlign(align: TableCellAlign | null): Command {
+  return (state, dispatch) => {
+    const cellType = findNodeType(state.schema, NODE_TYPES.TABLE_CELL);
+    if (cellType === undefined) {
+      return false;
+    }
+    const cells = new Map<number, PmNode>();
+    const collect = ($pos: EditorState['selection']['$from']): void => {
+      for (let depth = $pos.depth; depth > 0; depth -= 1) {
+        if ($pos.node(depth).type === cellType) {
+          cells.set($pos.before(depth), $pos.node(depth));
+          return;
+        }
+      }
+    };
+    collect(state.selection.$from);
+    if (!state.selection.empty) {
+      collect(state.selection.$to);
+    }
+    if (cells.size === 0) {
+      return false;
+    }
+    const tr = state.tr;
+    for (const [pos, cell] of cells) {
+      tr.setNodeMarkup(pos, undefined, { ...cell.attrs, align });
+    }
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
 /**
  * 删除当前列（末列时删除整个表格；自下而上删除保持前方位置有效）
  *

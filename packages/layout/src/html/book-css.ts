@@ -225,6 +225,23 @@ ${scoped('.bt-table-cell')} {
   min-inline-size: 2em;
   min-block-size: 1.6em;
 }
+/* 单元格对齐：序列化器输出 data-align（不写废弃的 align 属性） */
+${scoped(".bt-table-cell[data-align='center']")} {
+  text-align: center;
+}
+${scoped(".bt-table-cell[data-align='right']")} {
+  text-align: right;
+}
+${scoped(".bt-table-cell[data-align='left']")} {
+  text-align: left;
+}
+/* 表头行：<thead> 内单元格为 th，缺少 UA 样式时仍保持加粗 / 底色 */
+${scoped('.bt-table-row[data-header="true"]')} {
+  font-weight: 600;
+  /* 老引擎兜底 + color-mix（与注记边框同一策略） */
+  background: #f3f2ef;
+  background: color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 8%, transparent);
+}
 ${scoped('.bt-image')} {
   max-width: 100%;
 }

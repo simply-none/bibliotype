@@ -22,8 +22,13 @@ export const CLASSICAL_BASELINE_CONTAINER = '.bt-reader-page';
 /** 基线样式表的正文字体令牌键 */
 export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
 
-/** 基线 CSS 全文的 FNV-1a 哈希（长度 13746） */
-export const CLASSICAL_CSS_FNV = 'a87376d4';
+/**
+ * 基线 CSS 全文的 FNV-1a 哈希
+ *
+ * 2026-10-20 更新：表格新增「单元格对齐 / 表头行」两条规则（无表头的古典文档
+ * 渲染不受影响，但样式表全文变化），基线随之重锁。
+ */
+export const CLASSICAL_CSS_FNV = 'a6b2920e';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

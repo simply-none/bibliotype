@@ -108,6 +108,21 @@ function semanticDomShape(
   }
 }
 
+/**
+ * 表格单元格的原生 DOM 属性
+ *
+ * `colspan` / `rowspan` 必须落在原生属性上浏览器才会建立跨行跨列布局；
+ * `data-colspan` / `data-rowspan` 仅作数据镜像，这里从输出中剔除避免重复。
+ */
+function tableCellNativeAttrs(node: PmNode): Record<string, string> {
+  const result: Record<string, string> = {};
+  const colspan = Number(node.attrs['colspan']);
+  if (Number.isFinite(colspan) && colspan > 1) result['colspan'] = String(colspan);
+  const rowspan = Number(node.attrs['rowspan']);
+  if (Number.isFinite(rowspan) && rowspan > 1) result['rowspan'] = String(rowspan);
+  return result;
+}
+
 /** 为缺省 toDOM / parseDOM 的节点规格生成默认 DOM 表现（解锁视图渲染） */
 function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
   // text 节点由 ProseMirror 直接渲染为文本，无需 DOM 表现
@@ -125,6 +140,11 @@ function withDefaultNodeDom(type: string, spec: NodeSpec): NodeSpec {
         class: className,
         ...domDataAttrs(spec.attrs, node.attrs),
       };
+      if (type === NODE_TYPES.TABLE_CELL) {
+        Object.assign(domAttrs, tableCellNativeAttrs(node));
+        delete domAttrs['data-colspan'];
+        delete domAttrs['data-rowspan'];
+      }
       // 稳定 id 落到 data-bt-id（供编辑画布分页参考线按块定位）
       const id = node.attrs.id;
       if (typeof id === 'string' && id !== '') {

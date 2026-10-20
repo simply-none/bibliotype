@@ -21,6 +21,32 @@ export const STRUCTURE_NODE_ATTRS = {
   title: { default: null },
 } as const;
 
+/**
+ * 读取 `<td>` / `<th>` 的跨行跨列与对齐
+ *
+ * - 跨行跨列按 HTML 原生属性读取，非正 / 非法值归一为 1（默认值会在 PM → IR 时省略）；
+ * - 对齐兼容 `data-align`（本库导出约定）、`align`（历史 HTML）与内联 `text-align`；
+ * - 仅接受 left / center / right，其余（如 justify）交给样式表处理。
+ */
+function cellAttrsFromDom(dom: string | HTMLElement): Record<string, unknown> | false {
+  if (typeof dom === 'string') {
+    return false;
+  }
+  const readSpan = (name: string): number => {
+    const raw = Number.parseInt(dom.getAttribute(name) ?? '', 10);
+    return Number.isFinite(raw) && raw > 1 ? raw : 1;
+  };
+  const rawAlign = dom.getAttribute('data-align') ?? dom.getAttribute('align') ?? '';
+  const styleAlign =
+    /text-align\s*:\s*(left|center|right)/i.exec(dom.getAttribute('style') ?? '')?.[1] ?? '';
+  const align = (rawAlign || styleAlign).toLowerCase();
+  return {
+    colspan: readSpan('colspan'),
+    rowspan: readSpan('rowspan'),
+    align: align === 'left' || align === 'center' || align === 'right' ? align : null,
+  };
+}
+
 /** core 标准节点规格 */
 export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   /* ---------- 根与结构节点 ---------- */
@@ -116,8 +142,57 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   },
   { type: NODE_TYPES.CAPTION, spec: { group: 'block', content: 'inline*', attrs: COMMON_NODE_ATTRS } },
   { type: NODE_TYPES.TABLE, spec: { group: 'block', content: 'table_row+', attrs: COMMON_NODE_ATTRS } },
-  { type: NODE_TYPES.TABLE_ROW, spec: { group: 'table_row', content: 'table_cell+', attrs: COMMON_NODE_ATTRS } },
-  { type: NODE_TYPES.TABLE_CELL, spec: { group: 'table_cell', content: 'block+', attrs: COMMON_NODE_ATTRS } },
+  {
+    type: NODE_TYPES.TABLE_ROW,
+    spec: {
+      group: 'table_row',
+      content: 'table_cell+',
+      attrs: { ...COMMON_NODE_ATTRS, header: { default: false } },
+      parseDOM: [
+        { tag: 'div.bt-table-row' },
+        {
+          tag: 'tr',
+          getAttrs: (dom): Record<string, unknown> | false => {
+            if (typeof dom === 'string') return false;
+            const parent = dom.parentElement;
+            const inThead = parent !== null && parent.tagName.toLowerCase() === 'thead';
+            const hasTh = dom.querySelector('th') !== null;
+            const flagged = dom.getAttribute('data-header') === 'true';
+            return { header: inThead || hasTh || flagged };
+          },
+        },
+      ],
+    },
+  },
+  {
+    type: NODE_TYPES.TABLE_CELL,
+    spec: {
+      group: 'table_cell',
+      content: 'block+',
+      attrs: {
+        ...COMMON_NODE_ATTRS,
+        /** 横向跨列数（默认 1；来自 HTML colspan，编辑态暂不提供合并命令） */
+        colspan: { default: 1 },
+        /** 纵向跨行数（默认 1；来自 HTML rowspan） */
+        rowspan: { default: 1 },
+        /** 单元格对齐（left / center / right；null 表示随样式表） */
+        align: { default: null },
+      },
+      parseDOM: [
+        {
+          tag: 'td',
+          getAttrs: (dom): Record<string, unknown> | false =>
+            cellAttrsFromDom(dom),
+        },
+        {
+          tag: 'th',
+          getAttrs: (dom): Record<string, unknown> | false =>
+            cellAttrsFromDom(dom),
+        },
+        { tag: 'div.bt-table-cell' },
+      ],
+    },
+  },
   {
     type: NODE_TYPES.CODE_BLOCK,
     spec: {

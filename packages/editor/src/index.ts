@@ -75,13 +75,15 @@ export {
   tableAddColumn,
   tableDeleteRow,
   tableDeleteColumn,
+  toggleTableHeaderRow,
+  setTableCellAlign,
   setNodeAttrs,
   setMarkAttrs,
   setBlockStyleId,
   getBlockStyleId,
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
-export type { FigureOptions } from './commands.js';
+export type { FigureOptions, TableCellAlign } from './commands.js';
 
 /* ---------- 选区转换为容器（「替换为」） ---------- */
 export { replaceSelectionWithContainer } from './selection-convert.js';

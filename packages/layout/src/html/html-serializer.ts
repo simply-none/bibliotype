@@ -188,6 +188,81 @@ function dataAttrs(
   return result;
 }
 
+/** 单元格 colspan / rowspan 原生属性串（仅 > 1 输出，保持默认单元格输出不变） */
+function cellSpanAttrs(attrs: BookNode['attrs']): string {
+  let result = '';
+  for (const name of ['colspan', 'rowspan'] as const) {
+    const raw = attrs?.[name];
+    const value =
+      typeof raw === 'number' ? Math.round(raw) : Number.parseInt(String(raw ?? ''), 10);
+    if (Number.isFinite(value) && value > 1) result += ` ${name}="${value}"`;
+  }
+  return result;
+}
+
+/** 表格单元格 → HTML（表头行输出 `th`，跨行跨列走原生属性） */
+function tableCellToHtml(
+  cell: BookNode,
+  headerRow: boolean,
+  options: SerializeNodeOptions,
+): string {
+  const tag = headerRow ? 'th' : 'td';
+  const id = options.anchorIds?.get(cell) ?? cell.id;
+  const idAttr = id !== undefined && id !== '' ? ` id="${escapeHtml(id)}"` : '';
+  const attrs = cell.attrs;
+  const spans = cellSpanAttrs(attrs);
+  // colspan / rowspan 已输出为原生属性，其余（align / styleId / 扩展属性）仍走 data-*
+  const extras = dataAttrs(attrs, ['colspan', 'rowspan']);
+  return `<${tag}${idAttr} class="bt-table-cell"${spans}${extras}>${serializeChildren(cell, options)}</${tag}>`;
+}
+
+/** 表格行 → HTML（表头行标记 data-header，供 CSS 加粗 / 底色） */
+function tableRowToHtml(row: BookNode, headerRow: boolean, options: SerializeNodeOptions): string {
+  const id = options.anchorIds?.get(row) ?? row.id;
+  const idAttr = id !== undefined && id !== '' ? ` id="${escapeHtml(id)}"` : '';
+  const extras = dataAttrs(row.attrs, ['header']);
+  const headerAttr = headerRow || row.attrs?.['header'] === true ? ' data-header="true"' : '';
+  const cells = elementChildren(row)
+    .filter((child) => child.type === NODE_TYPES.TABLE_CELL)
+    .map((cell) => tableCellToHtml(cell, headerRow, options))
+    .join('');
+  return `<tr${idAttr} class="bt-table-row"${headerAttr}${extras}>${cells}</tr>`;
+}
+
+/**
+ * 表格 → HTML
+ *
+ * - 开头的连续 `header: true` 行归入 `<thead>`（单元格输出 `th`），其余进 `<tbody>`；
+ * - **无表头行时保持旧输出**（不包 tbody），避免既有 EPUB / 快照产物发生无意义变化；
+ * - 跨行跨列写 `colspan` / `rowspan`，对齐写 `data-align`（CSS 负责渲染）。
+ */
+function tableToHtml(table: BookNode, options: SerializeNodeOptions): string {
+  const id = options.anchorIds?.get(table) ?? table.id;
+  const idAttr = id !== undefined && id !== '' ? ` id="${escapeHtml(id)}"` : '';
+  const extras = dataAttrs(table.attrs, []);
+  const rows = elementChildren(table).filter((child) => child.type === NODE_TYPES.TABLE_ROW);
+
+  let headerCount = 0;
+  while (headerCount < rows.length && rows[headerCount]?.attrs?.['header'] === true) {
+    headerCount += 1;
+  }
+
+  const headerHtml = rows
+    .slice(0, headerCount)
+    .map((row) => tableRowToHtml(row, true, options))
+    .join('');
+  const bodyHtml = rows
+    .slice(headerCount)
+    .map((row) => tableRowToHtml(row, false, options))
+    .join('');
+
+  const inner =
+    headerCount > 0
+      ? `<thead>${headerHtml}</thead>${bodyHtml !== '' ? `<tbody>${bodyHtml}</tbody>` : ''}`
+      : bodyHtml;
+  return `<table${idAttr} class="bt-table"${extras}>${inner}</table>`;
+}
+
 /** 元素节点 → HTML（id / class / 属性 / 特例标签 / 子内容） */
 function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
   const tag = resolveTag(node, options);
@@ -197,6 +272,11 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
   const idAttr = id !== undefined && id !== '' ? ` id="${escapeHtml(id)}"` : '';
   const classAttr = ` class="bt-${escapeHtml(node.type)}"`;
   const whitelist = ATTR_WHITELIST[node.type] ?? [];
+
+  /* 表格：需要按表头行分组 thead/tbody 并把表头单元格输出为 th */
+  if (node.type === NODE_TYPES.TABLE) {
+    return tableToHtml(node, options);
+  }
 
   /* 图片：src / alt 透传为原生属性（无值时输出空串占位） */
   if (node.type === NODE_TYPES.IMAGE) {

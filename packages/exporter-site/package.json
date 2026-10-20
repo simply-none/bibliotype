@@ -1,0 +1,50 @@
+{
+  "name": "@bibliotype/exporter-site",
+  "version": "0.1.0",
+  "description": "静态站点导出（多页 HTML + 目录 + 搜索索引）- bibliotype 导出包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/exporter-site"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/exporter-site#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean"
+  },
+  "dependencies": {
+    "@bibliotype/core": "workspace:*",
+    "@bibliotype/layout": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

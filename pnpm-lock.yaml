@@ -82,6 +82,22 @@ importers:
         specifier: ^2.1.10
         version: 2.2.12(typescript@5.9.3)
 
+  packages/adapter-http:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(happy-dom@15.11.7)
+
   packages/adapter-indexeddb:
     dependencies:
       '@bibliotype/core':
@@ -91,6 +107,22 @@ importers:
       fake-indexeddb:
         specifier: ^6.0.0
         version: 6.2.5
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(happy-dom@15.11.7)
+
+  packages/annotation:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
       tsup:
         specifier: ^8.3.0
         version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
@@ -241,6 +273,25 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(happy-dom@15.11.7)
 
+  packages/exporter-site:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bibliotype/layout':
+        specifier: workspace:*
+        version: link:../layout
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(happy-dom@15.11.7)
+
   packages/import:
     dependencies:
       '@bibliotype/core':
@@ -369,6 +420,30 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(happy-dom@15.11.7)
 
+  packages/textconvert:
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(happy-dom@15.11.7)
+
+  packages/typography-cjk:
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(happy-dom@15.11.7)
+
   packages/vue:
     dependencies:
       '@bibliotype/core':
@@ -423,6 +498,22 @@ importers:
       vue-tsc:
         specifier: ^2.1.10
         version: 2.2.12(typescript@5.9.3)
+
+  packages/xref:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(happy-dom@15.11.7)
 
 packages:
 

@@ -100,10 +100,38 @@ instance.events.on('page:change', ({ pageIndex, totalPages }) => {
 | 主题令牌 | `FONT_TOKENS` / `FONT_SIZE_TOKENS` / `LAYOUT_TOKENS` / `COLOR_TOKENS`、`DEFAULT_THEME`、`createThemeAccessor` |
 | 核心实例 | `createBibliotype`（`BibliotypeInstance` / `CoreInstanceOptions`） |
 | 存储契约 | `StorageAdapter`、`StoredDocument`、`DocumentSummary`、`SaveOptions` |
+| 资产契约 | `AssetStore` / `AssetPayload` / `AssetRef` / `AssetKind`、`ASSET_KINDS`、`toAssetRef` / `hashAssetBytes` / `isAssetStore` |
+| 锚点 | `Anchor` / `BlockAnchor` / `TextAnchor`、`ANCHOR_TYPES`、`createBlockAnchor` / `createTextAnchor`、`serializeAnchor` / `parseAnchor`、`resolveAnchor` / `clampAnchor`、`locateNode` / `nodePlainText` |
+| 校验与迁移 | `validateDocument` / `DOCUMENT_ISSUE_CODES`、`DocumentIssue` / `ValidationResult`、`migrateDocument` / `MigrationStep` / `MigrationPathError`、`readSchemaVersion` / `LEGACY_SCHEMA_VERSION` / `BUILTIN_MIGRATIONS` |
+
+## 锚点（跨能力的位置契约）
+
+```ts
+import { createTextAnchor, resolveAnchor, serializeAnchor } from '@bibliotype/core';
+
+const anchor = createTextAnchor('p-1', 3, 4);
+serializeAnchor(anchor);                    // 'bt:text:p-1:3:4'
+resolveAnchor(document.root, anchor);       // { node, text: '习之，不', clamped: false }
+```
+
+页码会随版式漂移，节点 id 不会。阅读位置、批注、脚注 ref、交叉引用、协同光标都基于该契约。
+
+## 校验与迁移
+
+```ts
+import { validateDocument, migrateDocument } from '@bibliotype/core';
+
+validateDocument(document, { knownNodeTypes: ['double-note'] }).errors;
+migrateDocument(raw, { steps: [{ from: '0.0.0', to: '0.1.0', migrate: (doc) => doc }] });
+```
+
+- `validateDocument`：节点类型 / 标记 / 形态 / 属性 / id 唯一性，问题带 `path` 与 `nodeId`；
+- `migrateDocument`：逐级迁移，缺环抛 `MigrationPathError`，迁移后自动校验。
 
 ## 相关
 
 - 功能参考：[docs/01-document-model.md](../../docs/01-document-model.md)
+- 校验 / 迁移 / 锚点：[docs/23-ir-validation-and-migration.md](../../docs/23-ir-validation-and-migration.md)
 - 主题与令牌：[docs/11-theme-tokens.md](../../docs/11-theme-tokens.md)
 - 存储适配器：[docs/10-storage-adapters.md](../../docs/10-storage-adapters.md)
 - 仓库主页：[bibliotype](../../README.md)

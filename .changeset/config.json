@@ -16,7 +16,13 @@
       "@bibliotype/exporter-pdf",
       "@bibliotype/import",
       "@bibliotype/import-docx",
-      "@bibliotype/import-epub"
+      "@bibliotype/import-epub",
+      "@bibliotype/annotation",
+      "@bibliotype/typography-cjk",
+      "@bibliotype/xref",
+      "@bibliotype/textconvert",
+      "@bibliotype/adapter-http",
+      "@bibliotype/exporter-site"
     ]
   ],
   "linked": [],

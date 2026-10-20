@@ -8,7 +8,7 @@
 
 ```text
 bibliotype/
- ├── packages/*        10 个公开包（@bibliotype/*，全部发布）
+ ├── packages/*        19 个公开包（@bibliotype/*，全部发布）
  ├── apps/demo         示例应用（private，不发布）
  ├── scripts/version.mjs   日期版本脚本（发版核心）
  ├── .changeset/       变更说明（config.json + 待消费的 md）
@@ -74,7 +74,7 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 
 ### .changeset 配置要点
 
-`fixed` 组包含全部 10 个公开包（与版本列车对齐）；`access: public`；
+`fixed` 组包含全部 19 个公开包（与版本列车对齐）；`access: public`；
 `baseBranch: master`；`privatePackages.version/tag: false`（apps/demo 不参与）。
 
 ### 发版后检查清单

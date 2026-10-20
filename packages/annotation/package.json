@@ -1,0 +1,49 @@
+{
+  "name": "@bibliotype/annotation",
+  "version": "0.1.0",
+  "description": "批注 / 高亮 / 书签 / 评论模型与存储 - bibliotype 标注包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/annotation"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/annotation#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean"
+  },
+  "dependencies": {
+    "@bibliotype/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -13,8 +13,10 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 - **古籍仿真直排**：版框 / 界行 / 版心（书口·鱼尾）与六种木刻抄本版式模板（宋刻浙本、明嘉靖本、清武英殿本、汲古阁本、朱丝栏抄本、巾箱本），与既有古籍直排并列、互不影响；
 - **阅读器**：内容块抽取 → 贪心分页 → 翻页 / 目录 / 全文搜索 / 中文与罗马页码；
 - **版式与样式**：主题令牌 → CSS 变量 / 书册样式表（buildBookCss），渲染与导出同源；
-- **导出**：EPUB 3（零后端、浏览器与 Node 同构）与 PDF（打印文档 + `window.print` 辅助）；
-- **协同与存储**：Yjs 协同会话（IR ⇄ Y.Doc），IndexedDB / 内存存储适配器；
+- **导出**：EPUB 3（零后端、浏览器与 Node 同构）、PDF（打印文档 + 宿主适配器直出）与静态站点（多页 HTML + 搜索索引）；
+- **协同与存储**：Yjs 协同会话（IR ⇄ Y.Doc），IndexedDB / 内存 / 远端 REST 适配器，资产端口；
+- **位置与标注**：统一锚点契约（节点 id + 字符偏移）承载阅读位置、书签、高亮、笔记与评论；
+- **中文精排**：禁则避头尾、标点挤压、中西文混排间距；两遍排版交叉引用（参见第 X 页）；繁简 / 异体字转换；
 - **Vue 3 封装**：useReader / useEditorBinding 组合式 API 与 BtBookView / BtPager / BtToc / BtEditor 组件。
 
 ## 包一览
@@ -31,6 +33,12 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 | [`@bibliotype/adapter-indexeddb`](packages/adapter-indexeddb/README.md) | IndexedDB / 内存存储适配器（core StorageAdapter 实现） |
 | [`@bibliotype/exporter-epub`](packages/exporter-epub/README.md) | EPUB 3 导出（IR → 语义 XHTML + OPF/nav 打包） |
 | [`@bibliotype/exporter-pdf`](packages/exporter-pdf/README.md) | PDF（打印）导出（@page 尺寸 / 预分页固定页） |
+| [`@bibliotype/exporter-site`](packages/exporter-site/README.md) | 静态站点导出（多页 HTML + 目录 + 搜索索引） |
+| [`@bibliotype/adapter-http`](packages/adapter-http/README.md) | 远端存储适配器（REST 文档 + 资产） |
+| [`@bibliotype/annotation`](packages/annotation/README.md) | 标注（高亮 / 书签 / 笔记 / 评论，基于 core 锚点） |
+| [`@bibliotype/typography-cjk`](packages/typography-cjk/README.md) | 中文排印（禁则 / 标点挤压 / 中西文混排，零依赖） |
+| [`@bibliotype/xref`](packages/xref/README.md) | 交叉引用（两遍排版页码索引与占位替换） |
+| [`@bibliotype/textconvert`](packages/textconvert/README.md) | 繁简 / 异体字转换（内置表 + OpenCC 适配） |
 | `@bibliotype/demo`（`apps/demo`，私有） | 《论语》全链路示例：分页阅读 / 目录 / 直排切换 / 编辑 / 导出 |
 
 包依赖关系（自下而上）：
@@ -39,7 +47,9 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 core → layout → reader → exporter-pdf / exporter-epub
 core → editor → classical（节点与命令扩展）
 core + editor + layout + reader → vue → apps/demo
-core → collab / adapter-indexeddb
+core → collab / adapter-indexeddb / adapter-http
+core → annotation / typography-cjk / textconvert
+core + layout → xref / exporter-site
 ```
 
 ## 快速开始
@@ -120,6 +130,13 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [20 选区替换为](docs/20-selection-replace.md) | 选中文字转换为双行注 / 眉批 / 夹注等容器；浮动菜单与文本前后切分规则 |
 | [21 表格编辑](docs/21-table-editing.md) | Word / WPS 式行列网格插入、语义 DOM、表格整体成块与直排支持 |
 | [22 古籍仿真直排](docs/22-facsimile-vertical.md) | 版框 / 界行 / 版心书口、六种古籍版式模板与「古籍直排」隔离设计 |
+| [23 IR 校验、迁移与锚点](docs/23-ir-validation-and-migration.md) | 锚点契约、结构校验、schemaVersion 逐级迁移 |
+| [24 标注](docs/24-annotation.md) | 高亮 / 书签 / 笔记 / 评论模型、容器、持久化与孤儿处理 |
+| [25 中文排印](docs/25-cjk-typography.md) | 禁则避头尾、标点挤压、中西文混排间距、CSS 声明 |
+| [26 交叉引用](docs/26-cross-reference.md) | 两遍排版页码索引、「参见第 X 页」占位替换与标签登记 |
+| [27 文本转换](docs/27-text-conversion.md) | 繁简 / 异体字转换、命中记录、OpenCC 接入、反向表 |
+| [28 静态站点导出](docs/28-site-export.md) | 目录页 + 分节页 + 样式 + 搜索索引，纯函数导出 |
+| [29 远端存储适配器](docs/29-adapter-http.md) | REST 文档 / 资产端点契约、错误语义、fetch 注入 |
 
 参与贡献见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 

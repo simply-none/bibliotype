@@ -14,7 +14,11 @@
 | 做阅读器与版式 | [01](01-document-model.md) → [04 阅读与分页](04-reader-and-pagination.md) → [05 版式与 HTML](05-layout-and-html.md) → [11 主题令牌](11-theme-tokens.md) → [22 古籍仿真直排](22-facsimile-vertical.md) |
 | 做导出 | [05](05-layout-and-html.md) → [07 EPUB](07-export-epub.md) → [08 PDF 与打印](08-export-pdf.md) |
 | 做文档导入 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [17 文档导入](17-document-import.md) |
-| 做协同与存储 | [01](01-document-model.md) → [09 协同](09-collab.md) → [10 存储](10-storage-adapters.md) |
+| 做协同与存储 | [01](01-document-model.md) → [09 协同](09-collab.md) → [10 存储](10-storage-adapters.md) → [29 远端适配器](29-adapter-http.md) |
+| 做标注与位置恢复 | [23 锚点](23-ir-validation-and-migration.md) → [24 标注](24-annotation.md) |
+| 做中文精排 | [25 中文排印](25-cjk-typography.md) → [04 阅读与分页](04-reader-and-pagination.md) → [18 排版引擎路线图](18-pagination-engine-roadmap.md) |
+| 做交叉引用 / 站点发布 | [26 交叉引用](26-cross-reference.md) → [28 静态站点](28-site-export.md) |
+| 做繁简 / 异体字 | [27 文本转换](27-text-conversion.md) |
 | 工程维护与发布 | [12 工程化与发布](12-release-and-ci.md) → [16 测试指南](16-testing.md) |
 | 排查线上问题 | [14 常见问题与故障排查](14-faq.md) |
 | SSR / Node 部署 | [15 SSR 与 Node 同构](15-ssr-and-node.md) → [06 Vue 集成](06-vue-integration.md) |
@@ -45,6 +49,13 @@
 | [20 选区替换为](20-selection-replace.md) | 选中文字转换为双行注 / 眉批 / 夹注等容器；浮动菜单、文本前后切分、id 去重、边界与降级 | `editor` / `classical` / `vue` / `apps/demo` |
 | [21 表格编辑](21-table-editing.md) | Word / WPS 式行列网格插入、语义 DOM、表格整体成块、直排支持与限制 | `editor` / `reader` / `layout` / `vue` / `apps/demo` |
 | [22 古籍仿真直排](22-facsimile-vertical.md) | 版框 / 界行 / 版心（书口）与六种古籍版式模板；与「古籍直排」并列的隔离设计 | `layout` / `reader` / `vue` / `exporter-pdf` / `apps/demo` |
+| [23 IR 校验、迁移与锚点](23-ir-validation-and-migration.md) | 锚点契约、结构校验、schemaVersion 逐级迁移 | `@bibliotype/core` |
+| [24 标注](24-annotation.md) | 高亮 / 书签 / 笔记 / 评论模型、容器、持久化与孤儿处理 | `@bibliotype/annotation` |
+| [25 中文排印](25-cjk-typography.md) | 禁则避头尾、标点挤压、中西文混排间距、CSS 声明 | `@bibliotype/typography-cjk` |
+| [26 交叉引用](26-cross-reference.md) | 两遍排版页码索引、「参见第 X 页」占位替换与标签登记 | `@bibliotype/xref` |
+| [27 文本转换](27-text-conversion.md) | 繁简 / 异体字转换、命中记录、OpenCC 接入、反向表 | `@bibliotype/textconvert` |
+| [28 静态站点导出](28-site-export.md) | 目录页 + 分节页 + 样式 + 搜索索引，纯函数导出 | `@bibliotype/exporter-site` |
+| [29 远端存储适配器](29-adapter-http.md) | REST 文档 / 资产端点契约、错误语义、fetch 注入 | `@bibliotype/adapter-http` |
 
 ## 架构总览
 
@@ -60,7 +71,13 @@ apps/demo                          ← 集成示例（Vue 3 + Vite）
  ├── @bibliotype/classical         ← 古籍节点 / 主题 / 编辑命令（插件 + ./editor 子入口）
  ├── @bibliotype/collab            ← 协同（IR ⇄ Y.Doc）
  ├── @bibliotype/adapter-indexeddb ← 存储实现（IndexedDB / 内存）
- └── @bibliotype/exporter-epub / exporter-pdf ← 导出（依赖 core / layout / reader）
+ ├── @bibliotype/adapter-http      ← 存储实现（远端 REST + 资产）
+ ├── @bibliotype/annotation        ← 标注（高亮 / 书签 / 笔记 / 评论，基于 core 锚点）
+ ├── @bibliotype/typography-cjk    ← 中文排印（禁则 / 挤压 / 混排，零依赖）
+ ├── @bibliotype/xref              ← 交叉引用（两遍排版页码索引）
+ ├── @bibliotype/textconvert       ← 繁简 / 异体字转换
+ ├── @bibliotype/exporter-epub / exporter-pdf ← 导出（依赖 core / layout / reader）
+ └── @bibliotype/exporter-site     ← 静态站点导出（依赖 core / layout）
 ```
 
 核心数据流（编辑与阅读共用一条链路）：

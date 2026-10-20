@@ -1,0 +1,49 @@
+{
+  "name": "@bibliotype/xref",
+  "version": "0.1.0",
+  "description": "两遍排版页码索引与交叉引用（参见第 X 页 / 引得）- bibliotype 引用包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/xref"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/xref#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean"
+  },
+  "dependencies": {
+    "@bibliotype/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

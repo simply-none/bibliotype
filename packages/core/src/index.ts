@@ -28,6 +28,45 @@ export type {
 export type { BookDocument } from './ir/document.js';
 export { IR_SCHEMA_VERSION, createEmptyDocument, isBookDocument } from './ir/document.js';
 
+/* ---------- 锚点（跨能力的位置契约） ---------- */
+export { ANCHOR_TYPES, ANCHOR_PREFIX } from './ir/anchor.js';
+export type {
+  AnchorType,
+  BlockAnchor,
+  TextAnchor,
+  Anchor,
+  ResolvedAnchor,
+} from './ir/anchor.js';
+export {
+  createBlockAnchor,
+  createTextAnchor,
+  isAnchor,
+  serializeAnchor,
+  parseAnchor,
+  nodePlainText,
+  locateNode,
+  clampAnchor,
+  resolveAnchor,
+} from './ir/anchor.js';
+
+/* ---------- IR 校验与版本迁移 ---------- */
+export { DOCUMENT_ISSUE_CODES, validateDocument } from './ir/validate.js';
+export type {
+  DocumentIssue,
+  DocumentIssueCode,
+  DocumentIssueSeverity,
+  ValidateOptions,
+  ValidationResult,
+} from './ir/validate.js';
+export {
+  LEGACY_SCHEMA_VERSION,
+  BUILTIN_MIGRATIONS,
+  MigrationPathError,
+  readSchemaVersion,
+  migrateDocument,
+} from './ir/migrate.js';
+export type { MigrationStep, MigrateOptions, MigrateResult, RawBookDocument } from './ir/migrate.js';
+
 /* ---------- 事件 ---------- */
 export type { BibliotypeEventMap, BibliotypeEventName } from './events/event-map.js';
 export type { EventHandler, Unsubscribe } from './events/event-bus.js';
@@ -110,3 +149,19 @@ export type {
   DocumentSummary,
   SaveOptions,
 } from './storage/types.js';
+
+/* ---------- 资产存储端口 ---------- */
+export type {
+  AssetKind,
+  AssetPayload,
+  AssetRef,
+  AssetStore,
+  PutAssetOptions,
+} from './storage/asset.js';
+export {
+  ASSET_KINDS,
+  resolveAssetKind,
+  hashAssetBytes,
+  toAssetRef,
+  isAssetStore,
+} from './storage/asset.js';

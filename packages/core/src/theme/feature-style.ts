@@ -382,6 +382,13 @@ export interface NamedStyle {
   name: string;
   /** 依据的功能（决定「修改」面板显示哪一组参数、以及默认目标节点类型） */
   featureId: FeatureStyleId;
+  /**
+   * 依据的命名样式 id（Word 式「基于」）
+   *
+   * 声明按「祖先在前、后代覆盖」合并；CSS 不支持跨规则继承，故渲染侧必须
+   * 先经 `resolveNamedStyleDeclarations` 扁平化。缺省表示不继承。
+   */
+  basedOn?: string;
   /** 声明（覆盖该功能样式与令牌基准） */
   declarations: FeatureDeclarations;
 }

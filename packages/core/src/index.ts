@@ -164,6 +164,18 @@ export type {
   NamedStyleSet,
 } from './theme/feature-style.js';
 
+/* ---------- 命名样式继承链 ---------- */
+export {
+  NAMED_STYLE_ISSUE_CODES,
+  resolveNamedStyleChain,
+  resolveNamedStyleDeclarations,
+  validateNamedStyleSet,
+} from './theme/named-style-resolve.js';
+export type {
+  NamedStyleIssue,
+  NamedStyleIssueCode,
+} from './theme/named-style-resolve.js';
+
 /* ---------- 样式设置快照与存储契约 ---------- */
 export {
   PAGE_CHROME_FIELDS,

@@ -21,6 +21,7 @@ import {
   FONT_SIZE_TOKENS,
   FONT_TOKENS,
   LAYOUT_TOKENS,
+  resolveNamedStyleChain,
   type FeatureStyleId,
 } from '@bibliotype/core';
 import {
@@ -402,6 +403,17 @@ const presetMessage = ref('');
 /* ---------- 命名样式 ---------- */
 
 const styleName = ref('');
+
+/**
+ * 「依据」候选：排除自身，以及以自身为祖先的样式（选中会造成继承环）。
+ */
+function basedOnCandidates(styleId: string) {
+  const set = props.api.namedStyles.value;
+  return set.styles.filter((candidate) => {
+    if (candidate.id === styleId) return false;
+    return !resolveNamedStyleChain(set, candidate.id).some((item) => item.id === styleId);
+  });
+}
 
 /** 以当前功能（含其覆盖声明）为模板创建命名样式 */
 function onCreateNamedStyle(): void {
@@ -1014,6 +1026,17 @@ async function onSave(): Promise<void> {
                   @change="api.renameNamedStyle(style.id, ($event.target as HTMLInputElement).value)"
                 />
                 <span class="panel__preset-meta">{{ FEATURE_STYLE_META[style.featureId].label }}</span>
+                <select
+                  class="panel__input panel__preset-meta"
+                  :value="style.basedOn ?? ''"
+                  :title="style.basedOn ? '依据其他命名样式，声明按链合并' : '不继承其他命名样式'"
+                  @change="api.setNamedStyleBasedOn(style.id, ($event.target as HTMLSelectElement).value || null)"
+                >
+                  <option value="">无依据</option>
+                  <option v-for="candidate in basedOnCandidates(style.id)" :key="candidate.id" :value="candidate.id">
+                    依据：{{ candidate.name }}
+                  </option>
+                </select>
                 <button type="button" class="panel__mini" @click="api.deleteNamedStyle(style.id)">删除</button>
               </li>
               <li v-if="api.namedStyles.value.styles.length === 0" class="panel__empty">还没有命名样式</li>

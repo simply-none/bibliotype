@@ -1421,6 +1421,7 @@ onBeforeUnmount(() => {
         <EditorToolbar
           :binding="inspectorBinding"
           :readonly="editorReadonly"
+          :named-styles="namedStyles.styles"
           @toggle-readonly="styleApi.patchEditingDirect({ readonly: !editing.readonly })"
           @reset="resetSample"
         />
@@ -1492,6 +1493,7 @@ onBeforeUnmount(() => {
                 v-if="!verticalRail"
                 :binding="captureSlotBinding(slotProps)"
                 :readonly="editorReadonly"
+                :named-styles="namedStyles.styles"
                 @toggle-readonly="styleApi.patchEditingDirect({ readonly: !editing.readonly })"
                 @reset="resetSample"
               />

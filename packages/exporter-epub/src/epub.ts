@@ -27,7 +27,7 @@ import { MediaCollector, type MediaItem } from './media.js';
 import { buildNavXhtml } from './nav.js';
 import { buildOpf, normalizeModified, type OpfManifestItem } from './opf.js';
 import { buildNcx } from './ncx.js';
-import { buildNavItems, planDocument, splitSections } from './sections.js';
+import { buildNavItems, frontMatterEpubType, planDocument, splitSections } from './sections.js';
 import { renderXhtmlDocument } from './xhtml.js';
 import { validateEpub, type ValidationProblem } from './validate.js';
 
@@ -195,6 +195,7 @@ export function exportEpub(
       body,
       cssHref: '../style.css',
       flavor: epubVersion === '2.0' ? 'xhtml11' : 'xhtml5',
+      bodyType: frontMatterEpubType(first?.type),
     });
 
     textEntries[`OEBPS/${section.file}`] = [strToU8(xhtml), { mtime }];

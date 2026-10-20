@@ -480,13 +480,18 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
 
   /* ---------- 命名样式 ---------- */
 
-  /** 新建命名样式（基于某功能的当前声明） */
-  function createNamedStyle(name: string, featureId: FeatureStyleId): NamedStyle {
+  /** 新建命名样式（基于某功能的当前声明，可选指定依据样式） */
+  function createNamedStyle(
+    name: string,
+    featureId: FeatureStyleId,
+    basedOn?: string,
+  ): NamedStyle {
     const body = panelBody();
     const style: NamedStyle = {
       id: createNamedStyleId(),
       name,
       featureId,
+      ...(basedOn === undefined || basedOn === '' ? {} : { basedOn }),
       declarations: { ...(body.features[featureId] ?? {}) },
     };
     body.namedStyles = { version: 1, styles: [...body.namedStyles.styles, style] };
@@ -525,12 +530,38 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     scheduleSave();
   }
 
-  /** 删除 */
+  /** 设置命名样式的依据（null / 空串 = 断开继承） */
+  function setNamedStyleBasedOn(id: string, basedOn: string | null): void {
+    const body = panelBody();
+    body.namedStyles = {
+      version: 1,
+      styles: body.namedStyles.styles.map((style) => {
+        if (style.id !== id) return style;
+        if (basedOn === null || basedOn === '' || basedOn === id) {
+          const next = { ...style };
+          delete next.basedOn;
+          return next;
+        }
+        return { ...style, basedOn };
+      }),
+    };
+    touchDraft();
+    scheduleSave();
+  }
+
+  /** 删除（同时断开其他样式对它的依据引用，避免悬空 id） */
   function deleteNamedStyle(id: string): void {
     const body = panelBody();
     body.namedStyles = {
       version: 1,
-      styles: body.namedStyles.styles.filter((style) => style.id !== id),
+      styles: body.namedStyles.styles
+        .filter((style) => style.id !== id)
+        .map((style) => {
+          if (style.basedOn !== id) return style;
+          const next = { ...style };
+          delete next.basedOn;
+          return next;
+        }),
     };
     touchDraft();
     scheduleSave();
@@ -677,6 +708,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     createNamedStyle,
     renameNamedStyle,
     setNamedStyleDeclaration,
+    setNamedStyleBasedOn,
     deleteNamedStyle,
     /* 预设 */
     refreshPresets,

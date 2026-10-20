@@ -23,6 +23,8 @@ export interface XhtmlDocumentInput {
   cssHref?: string;
   /** 文档壳风格：'xhtml5'（EPUB 3，缺省）/ 'xhtml11'（EPUB 2） */
   flavor?: 'xhtml5' | 'xhtml11';
+  /** body 的 EPUB 结构语义（如封面 `cover`、书名页 `titlepage`；缺省不输出） */
+  bodyType?: string;
 }
 
 /** 生成完整的 XHTML 文档（EPUB 内容文档） */
@@ -34,6 +36,10 @@ export function renderXhtmlDocument(input: XhtmlDocumentInput): string {
     cssHref !== undefined
       ? `\n  <link rel="stylesheet" type="text/css" href="${escapeXml(cssHref)}" />`
       : '';
+  const bodyTypeAttr =
+    input.bodyType === undefined || input.bodyType === ''
+      ? ''
+      : ` epub:type="${escapeXml(input.bodyType)}"`;
 
   if (flavor === 'xhtml11') {
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -43,7 +49,7 @@ export function renderXhtmlDocument(input: XhtmlDocumentInput): string {
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
   <title>${escapeXml(title)}</title>${cssLink}
 </head>
-<body>
+<body${bodyTypeAttr}>
 ${body}
 </body>
 </html>
@@ -57,7 +63,7 @@ ${body}
   <meta charset="utf-8"/>
   <title>${escapeXml(title)}</title>${cssLink}
 </head>
-<body>
+<body${bodyTypeAttr}>
 ${body}
 </body>
 </html>

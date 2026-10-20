@@ -181,10 +181,13 @@ function normalizeNamedStyles(value: unknown): NamedStyleSet {
     const declarations = normalizeFeatureSheet({ [featureId]: record.declarations })[
       featureId as keyof FeatureStyleSheet
     ];
+    const basedOn = typeof record.basedOn === 'string' ? record.basedOn.trim() : '';
     styles.push({
       id,
       name,
       featureId: featureId as NamedStyleSet['styles'][number]['featureId'],
+      /* 自引用在保存层直接丢弃（校验层仍会上报，避免坏数据进 CSS） */
+      ...(basedOn !== '' && basedOn !== id ? { basedOn } : {}),
       declarations: declarations ?? {},
     });
   }

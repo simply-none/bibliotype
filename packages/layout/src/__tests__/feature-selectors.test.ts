@@ -99,6 +99,40 @@ describe('buildFeatureCss', () => {
     expect(css).not.toContain('[data-style-id="empty"]');
     expect(css).toContain('[data-style-id="a\\"b"]');
   });
+
+  it('命名样式按 basedOn 链扁平输出（只写依据也能继承）', () => {
+    const namedStyles: NamedStyleSet = {
+      version: 1,
+      styles: [
+        {
+          id: 'base',
+          name: '基准',
+          featureId: 'block.paragraph',
+          declarations: { color: 'red', 'font-size': '15px' },
+        },
+        {
+          id: 'child',
+          name: '子样式',
+          featureId: 'block.paragraph',
+          basedOn: 'base',
+          declarations: { color: 'blue' },
+        },
+        {
+          id: 'empty-child',
+          name: '仅依据',
+          featureId: 'block.paragraph',
+          basedOn: 'base',
+          declarations: {},
+        },
+      ],
+    };
+    const css = buildFeatureCss({}, { namedStyles });
+    const childRule = css.slice(css.indexOf('[data-style-id="child"]'));
+    expect(childRule).toContain('color: blue;');
+    expect(childRule).toContain('font-size: 15px;');
+    /* 只写 basedOn、自身声明为空的样式也必须产出规则 */
+    expect(css).toContain('[data-style-id="empty-child"]');
+  });
 });
 
 describe('translateSideDeclarations', () => {

@@ -131,6 +131,15 @@ buildBookCss({ tokens, options: layoutOptions });  // 文本场景：:root 变�
 其中只有两个字体族令牌进入度量签名（影响字宽），颜色 / 线宽 / 纸纹属纯绘制、不触发重排。
 见 [22 古籍仿真直排](22-facsimile-vertical.md)。
 
+## 命名样式继承与扁平化（C10）
+
+- `NamedStyle.basedOn` 指向另一命名样式 id，声明按「祖先在前、后代覆盖」合并；`basedOn` 存在主题层，不写入 IR 节点。
+- `resolveNamedStyleChain(set, id)` 返回根 → 叶链（UI 展示依据来源）；`resolveNamedStyleDeclarations(set, id)` 返回合并后的扁平声明。
+- 断链 / 成环不抛异常：返回已收集部分；`validateNamedStyleSet(set)` 以 `duplicate-id` / `self-reference` / `missing-based-on` / `circular-based-on` 上报。
+- `buildFeatureCss` 对每条命名样式先扁平化再输出 `[data-style-id]`，因此「只写 basedOn、自身无声明」的样式也能命中。
+- 持久化：`normalizeStyleSnapshot` 保留 `basedOn`，自引用在落盘层直接丢弃。
+- 已知边界：仓库无 `exporter-docx`，本层不做 Word `styles.xml` 映射。
+
 ## 相关
 
 - 令牌消费方：[05 版式与 HTML](05-layout-and-html.md)（buildBookCss / buildRootStyle）

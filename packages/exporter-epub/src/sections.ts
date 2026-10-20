@@ -34,6 +34,32 @@ export const SECTION_TYPES: ReadonlySet<string> = new Set([
   NODE_TYPES.TOC,
 ]);
 
+/**
+ * 前置页类型（各成独立 XHTML，但**不进目录**）
+ *
+ * 封面 / 书名页 / 版权页 / 封底是书的前后件：单独成文件便于阅读器按页加载与
+ * 打印；但它们不是正文章节，进目录会污染导航。
+ */
+export const FRONT_MATTER_TYPES: ReadonlySet<string> = new Set([
+  NODE_TYPES.COVER,
+  NODE_TYPES.TITLE_PAGE,
+  NODE_TYPES.COPYRIGHT_PAGE,
+  NODE_TYPES.BACK_COVER,
+]);
+
+/** 前置页 → EPUB 结构语义（`body epub:type`；封底不标注） */
+const FRONT_MATTER_EPUB_TYPES: Readonly<Record<string, string>> = {
+  [NODE_TYPES.COVER]: 'cover',
+  [NODE_TYPES.TITLE_PAGE]: 'titlepage',
+  [NODE_TYPES.COPYRIGHT_PAGE]: 'copyright-page',
+};
+
+/** 取前置页的 EPUB 语义类型（非前置页返回 undefined） */
+export function frontMatterEpubType(nodeType: string | undefined): string | undefined {
+  if (nodeType === undefined) return undefined;
+  return FRONT_MATTER_EPUB_TYPES[nodeType];
+}
+
 /** 结构节点缺省导航标签（无标题时回退） */
 const FALLBACK_LABELS: Readonly<Record<string, string>> = {
   [NODE_TYPES.VOLUME]: '卷',
@@ -246,7 +272,7 @@ export function planDocument(root: BookNode): DocumentPlan {
   };
 
   for (const child of elements) {
-    if (SECTION_TYPES.has(child.type)) {
+    if (SECTION_TYPES.has(child.type) || FRONT_MATTER_TYPES.has(child.type)) {
       flushPending();
       sections.push({ file: `text/sec-${sections.length}.xhtml`, nodes: [child] });
     } else {

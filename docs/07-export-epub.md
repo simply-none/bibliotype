@@ -225,3 +225,11 @@ EPUB 2（`version: '2.0'`）另输出 `<guide>`：`toc` 指向 `nav.xhtml`、`te
 ## 校验命令行（E9）
 
 `bt-validate-epub <file.epub> [--json] [--max-section-bytes=<n>]`：解包后复用 `validateEpub`（epubcheck 规则子集）。退出码 `0` 无 error、`1` 存在 error、`2` 用法 / 读取 / 解包失败。CI 在 build 后对合法样本与损坏文件各跑一次（见 [12](12-release-and-ci.md)）。
+
+## 分卷导出与前置页（E2 / E4）
+
+- `exportEpubVolumes(doc, options)` 返回 `{ name, index, bytes }[]`：按顶层 `volume` 切分，每卷独立 OPF / nav / ncx / spine；卷后散块归入当前卷，首个卷前的封面 / 前置页只随首卷导出。
+- 卷名取 `volume` 标题（缺省「卷 N」），书名写作「原书名·卷名」；各卷 `dc:identifier` 由基础标识符 + 卷序号确定性散列，重复导出一致。
+- 无 `volume` 节点时返回单卷，字节与 `exportEpub` 完全一致；`exportEpub` 签名不变。
+- 前置页（封面 / 书名页 / 版权页 / 封底）各成独立 XHTML（`FRONT_MATTER_TYPES`），spine 顺序保持原文档顺序，且不进 nav / ncx 目录；`body` 输出 `epub:type="cover" / "titlepage" / "copyright-page"`，封底不标注。
+- 既有 EPUB 的文件数会因前置页独立而增加；正文序列化未变。

@@ -9,6 +9,7 @@
  * - 标题标签为 `h1 ~ h6` 且 class 恒为 `bt-heading` —— **分级样式必须靠标签选择器**
  *   （`h2.bt-heading`），只用 `.bt-heading` 无法区分级别。
  */
+import { resolveNamedStyleDeclarations } from '@bibliotype/core';
 import type { FeatureStyleId, FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import type { StyleDeclaration } from '../style-builder.js';
 
@@ -236,10 +237,16 @@ export function collectFeatureRules(
 
   if (namedStyles !== undefined) {
     for (const style of namedStyles.styles) {
-      if (Object.keys(style.declarations).length === 0) continue;
+      /*
+       * CSS 无跨规则继承：这里必须把 basedOn 链扁平成一条声明。
+       * 空声明（含「只写 basedOn、自身无声明」的子样式）解析后可能非空，
+       * 故不能用 style.declarations 的键数提前跳过。
+       */
+      const declarations = resolveNamedStyleDeclarations(namedStyles, style.id);
+      if (Object.keys(declarations).length === 0) continue;
       rules.push({
         selector: `${containerSelector} [data-style-id="${escapeSelectorValue(style.id)}"]`,
-        declarations: style.declarations,
+        declarations,
       });
     }
   }

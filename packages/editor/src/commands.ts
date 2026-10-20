@@ -445,6 +445,105 @@ export function setBlockStyleId(styleId: string | null): Command {
   };
 }
 
+/**
+ * 批量套用命名样式
+ *
+ * 行为：
+ * - 空选区 → 只作用于光标所在的可样式块；
+ * - 非空选区 → 作用于选区内所有可样式文本块（段落 / 标题 / 引文等）；
+ * - 单事务、可撤销；全部目标已是该样式时返回 false（不产生空事务）。
+ *
+ * `styleId` 仍写入 `rawAttrs`，不写 schema 正式属性（保持导入无损往返）。
+ */
+export function applyNamedStyle(styleId: string): Command {
+  return (state, dispatch) => {
+    const id = styleId.trim();
+    if (id === '') return false;
+
+    const { from, to, empty, $from } = state.selection;
+    const targets: { pos: number; node: PmNode }[] = [];
+    if (empty) {
+      for (let depth = $from.depth; depth > 0; depth -= 1) {
+        const node = $from.node(depth);
+        if (!STYLEABLE_BLOCK_TYPES.has(node.type.name)) continue;
+        targets.push({ pos: $from.before(depth), node });
+        break;
+      }
+    } else {
+      state.doc.nodesBetween(from, to, (node, pos) => {
+        if (!node.isTextblock) return true;
+        if (STYLEABLE_BLOCK_TYPES.has(node.type.name)) targets.push({ pos, node });
+        return false;
+      });
+    }
+    if (targets.length === 0) return false;
+
+    const tr = state.tr;
+    let changed = false;
+    for (const { pos, node } of targets) {
+      const raw = node.attrs[RAW_ATTRS_ATTR];
+      const current =
+        typeof raw === 'object' && raw !== null
+          ? (raw as Record<string, unknown>).styleId
+          : undefined;
+      if (current === id) continue;
+      tr.setNodeMarkup(
+        pos,
+        undefined,
+        mergeAttrsPatch(node.attrs, node.type.spec.attrs, { styleId: id }),
+      );
+      changed = true;
+    }
+    if (!changed) return false;
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/**
+ * 清除选区格式
+ *
+ * 同时移除：
+ * - 行内 marks（强调 / 链接 / 注音 / 高亮等）；
+ * - 可样式块的命名样式 `styleId`。
+ *
+ * 保留块结构、节点 id 与块级 attrs（对齐 / 角色等），单事务、可撤销；
+ * 空选区或无任何可清除内容时返回 false。
+ */
+export function clearFormat(): Command {
+  return (state, dispatch) => {
+    const { from, to, empty } = state.selection;
+    if (empty) return false;
+
+    const targets: { pos: number; node: PmNode }[] = [];
+    state.doc.nodesBetween(from, to, (node, pos) => {
+      if (!node.isTextblock) return true;
+      if (STYLEABLE_BLOCK_TYPES.has(node.type.name)) targets.push({ pos, node });
+      return false;
+    });
+
+    const tr = state.tr.removeMark(from, to);
+    let changed = tr.docChanged;
+    for (const { pos, node } of targets) {
+      const raw = node.attrs[RAW_ATTRS_ATTR];
+      const styleId =
+        typeof raw === 'object' && raw !== null
+          ? (raw as Record<string, unknown>).styleId
+          : undefined;
+      if (typeof styleId !== 'string' || styleId === '') continue;
+      tr.setNodeMarkup(
+        pos,
+        undefined,
+        mergeAttrsPatch(node.attrs, node.type.spec.attrs, { styleId: null }),
+      );
+      changed = true;
+    }
+    if (!changed) return false;
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
 /** 读光标所在块的命名样式 id（无则 null） */
 export function getBlockStyleId(state: EditorState): string | null {
   const { $from } = state.selection;

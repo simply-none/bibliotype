@@ -92,6 +92,8 @@ export {
   setMarkAttrs,
   setBlockStyleId,
   getBlockStyleId,
+  applyNamedStyle,
+  clearFormat,
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
 export { mergeCells, splitCell } from './table-merge.js';

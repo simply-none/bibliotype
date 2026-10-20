@@ -28,7 +28,7 @@
  * `requireSelection=true`，空光标不执行（避免误清空待输入标记）。
  */
 import { computed, ref } from 'vue';
-import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
+import { MARK_TYPES, NODE_TYPES, type NamedStyle } from '@bibliotype/core';
 import {
   BtSelectionReplaceMenu,
   BtTableSizePicker,
@@ -52,6 +52,8 @@ import {
   undoCommand,
   unsetLink,
   splitCell,
+  applyNamedStyle,
+  clearFormat,
 } from '@bibliotype/editor';
 import { CLASSICAL_MARK_TYPES } from '@bibliotype/classical';
 import {
@@ -80,7 +82,12 @@ import ToolbarUsageTip from './ToolbarUsageTip.vue';
 import { REPLACE_TARGET_GROUPS } from './replace-targets.js';
 import type { ToolbarUsage } from './toolbar-usage.js';
 
-const props = defineProps<{ binding: EditorBinding; readonly?: boolean }>();
+const props = defineProps<{
+  binding: EditorBinding;
+  readonly?: boolean;
+  /** 命名样式（工具条提供批量套用入口；缺省不显示） */
+  namedStyles?: readonly NamedStyle[];
+}>();
 const emit = defineEmits<{ reset: []; 'toggle-readonly': [] }>();
 
 /** 查找替换面板开关（仅编辑态工具条内部状态） */
@@ -770,11 +777,43 @@ const insertActions: readonly ToolbarAction[] = [
  * 第二行：古籍标记 + 块插入（低频专题）+ 右端实用区。
  * 组间以分隔线区分，行内按钮去边框（ghost 制式，激活才现底色）。
  */
-const TOOLBAR_ROWS: ReadonlyArray<{ key: string; actions: readonly ToolbarAction[] }> = [
-  { key: 'doc', actions: [...historyActions, ...blockActions, ...inlineActions] },
-  { key: 'classical', actions: classicalActions },
-  { key: 'insert', actions: insertActions },
-];
+/** 命名样式批量套用 + 清除格式（样式列表变化时自动更新） */
+const styleActions = computed<ToolbarAction[]>(() => {
+  const actions: ToolbarAction[] = (props.namedStyles ?? []).map((style) => ({
+    label: style.name,
+    run: () => execute(applyNamedStyle(style.id)),
+    title: `套用命名样式「${style.name}」到选区`,
+    usage: {
+      use: `把「${style.name}」套用到选区内所有文本块（空光标只作用于当前块）`,
+      where: '写入块的 rawAttrs.styleId，序列化为 data-style-id',
+      limit: style.basedOn ? '声明按依据链合并' : '不继承其他命名样式',
+    },
+  }));
+  actions.push({
+    label: '清除格式',
+    run: () => execute(clearFormat()),
+    disabled: () => props.binding.editor.editorState.selection.empty,
+    title: '清除选区的行内标记与命名样式',
+    usage: {
+      use: '移除粗体 / 斜体 / 链接 / 注音等标记，并清掉命名样式',
+      require: '非空选区',
+      where: '就地生效，保留块结构与节点 id',
+      limit: '不清除对齐 / 角色等块级 attrs',
+    },
+  });
+  return actions;
+});
+
+const TOOLBAR_ROWS = computed<ReadonlyArray<{ key: string; actions: readonly ToolbarAction[] }>>(
+  () => [
+    {
+      key: 'doc',
+      actions: [...historyActions, ...blockActions, ...inlineActions, ...styleActions.value],
+    },
+    { key: 'classical', actions: classicalActions },
+    { key: 'insert', actions: insertActions },
+  ],
+);
 
 /**
  * 右端三个手写按钮的悬浮说明

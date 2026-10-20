@@ -94,6 +94,8 @@ export interface SerializeOptions {
   tagOverrides?: Readonly<Record<string, string>>;
   anchorIds?: ReadonlyMap<BookNode, string>;
   rewriteSrc?: (src: string) => string | undefined;
+  /** 输出 EPUB 3 结构语义属性（注释块的 epub:type） */
+  epubSemantics?: boolean;
 }
 
 /** 拆分结果（含体积超限的告警，由校验器转换为 ERROR/WARNING） */

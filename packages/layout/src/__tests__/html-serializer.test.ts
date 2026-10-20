@@ -238,3 +238,49 @@ describe('兜底与扩展', () => {
     ).toBe('<div class="bt-fish-tail" data-style="双鱼尾"></div>');
   });
 });
+
+describe('注释块', () => {
+  const footnote: BookNode = {
+    type: NODE_TYPES.FOOTNOTE,
+    id: 'fn-1',
+    attrs: { marker: '1' },
+    children: [{ type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '注文' }] }],
+  };
+
+  it('注码注入首个段落内部，与注文同起一行；marker 不再重复输出 data-*', () => {
+    expect(serializeNode(footnote)).toBe(
+      '<aside id="fn-1" class="bt-footnote"><p class="bt-paragraph">' +
+        '<span class="bt-note-marker">1</span>注文</p></aside>',
+    );
+  });
+
+  it('epubSemantics 开启时按角色输出 epub:type（缺省关闭）', () => {
+    const endnote: BookNode = {
+      type: NODE_TYPES.ENDNOTE,
+      attrs: { marker: '2' },
+      children: [{ type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '尾注' }] }],
+    };
+    const marginNote: BookNode = {
+      type: NODE_TYPES.MARGIN_NOTE,
+      attrs: { marker: '3' },
+      children: [{ type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '旁批' }] }],
+    };
+    const options = { epubSemantics: true };
+
+    expect(serializeNode(endnote, options)).toContain('<aside class="bt-endnote" epub:type="endnote">');
+    expect(serializeNode(marginNote, options)).toContain(
+      '<aside class="bt-margin-note" epub:type="sidebar">',
+    );
+    /* 纯 HTML 出口（站点 / PDF）不带 EPUB 专属属性 */
+    expect(serializeNode(endnote)).not.toContain('epub:type');
+  });
+
+  it('无注码时只输出块本身，空注释保留外壳', () => {
+    expect(
+      serializeNode({ type: NODE_TYPES.FOOTNOTE, children: [{ type: NODE_TYPES.PARAGRAPH }] }),
+    ).toBe('<aside class="bt-footnote"><p class="bt-paragraph"></p></aside>');
+    expect(serializeNode({ type: NODE_TYPES.FOOTNOTE, attrs: { marker: '5' } })).toBe(
+      '<aside class="bt-footnote"><span class="bt-note-marker">5</span></aside>',
+    );
+  });
+});

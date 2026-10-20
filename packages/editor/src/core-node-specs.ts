@@ -21,6 +21,12 @@ export const STRUCTURE_NODE_ATTRS = {
   title: { default: null },
 } as const;
 
+/** 注释节点属性（脚注 / 尾注 / 边注共用；marker 为显示注码） */
+export const NOTE_NODE_ATTRS = {
+  ...COMMON_NODE_ATTRS,
+  marker: { default: null },
+} as const;
+
 /**
  * 读取 `<td>` / `<th>` 的跨行跨列与对齐
  *
@@ -229,9 +235,10 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   },
 
   /* ---------- 注释节点 ---------- */
-  { type: NODE_TYPES.FOOTNOTE, spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS } },
-  { type: NODE_TYPES.ENDNOTE, spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS } },
-  { type: NODE_TYPES.MARGIN_NOTE, spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS } },
+  // 注码（attrs.marker）是注释块的显示序号：缺省 null 表示未编号，插入命令按文档现状自动分配
+  { type: NODE_TYPES.FOOTNOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
+  { type: NODE_TYPES.ENDNOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
+  { type: NODE_TYPES.MARGIN_NOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
 
   /* ---------- 行内节点 ---------- */
   // text 节点规格由 ProseMirror 特殊处理，仅需归入 inline group

@@ -99,6 +99,9 @@ export function exportEpub(
     tagOverrides: options.tagOverrides,
     anchorIds: plan.anchors,
     rewriteSrc: (src: string): string => media.rewrite(src),
+    /* 注释块补 epub:type（footnote / endnote / sidebar）：EPUB 3 阅读器据此
+       收进注释系统；EPUB 2 引擎不认该属性，关闭以免输出无意义标记。 */
+    epubSemantics: epubVersion === '3.0',
   };
 
   /* 封面预登记：先于序列化拿到 manifest id（序列化期内图片去重归并到同一条目） */

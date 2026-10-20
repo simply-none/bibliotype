@@ -27,8 +27,11 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-20 更新：表格新增「单元格对齐 / 表头行」两条规则（无表头的古典文档
  * 渲染不受影响，但样式表全文变化），基线随之重锁。
+ *
+ * 2026-10-20 二次更新：新增注释注码规则 `.bt-note-marker`（仅在文档含注码时命中），
+ * 样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = 'a6b2920e';
+export const CLASSICAL_CSS_FNV = '1eb55d30';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

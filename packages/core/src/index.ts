@@ -67,6 +67,20 @@ export {
 } from './ir/migrate.js';
 export type { MigrationStep, MigrateOptions, MigrateResult, RawBookDocument } from './ir/migrate.js';
 
+/* ---------- 注释节点（脚注 / 尾注 / 边注） ---------- */
+export {
+  NOTE_ROLES,
+  NOTE_NODE_TYPES,
+  NOTE_LABEL_STYLES,
+  isNoteNodeType,
+  isNoteNode,
+  noteRoleOf,
+  formatNoteLabel,
+  collectNotes,
+  nextNoteIndex,
+} from './ir/notes.js';
+export type { NoteRole, NoteLabelStyle, NoteEntry, CollectNotesOptions } from './ir/notes.js';
+
 /* ---------- 文档统计与词表检查 ---------- */
 export {
   DEFAULT_READING_CHARS_PER_MINUTE,

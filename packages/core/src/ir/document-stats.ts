@@ -12,6 +12,7 @@
  */
 import { isTextNode } from './nodes.js';
 import type { BookNode } from './nodes.js';
+import { isNoteNodeType } from './notes.js';
 import { NODE_TYPES } from './node-types.js';
 import { createTextAnchor } from './anchor.js';
 import type { TextAnchor } from './anchor.js';
@@ -19,13 +20,6 @@ import type { BookDocument } from './document.js';
 
 /** 缺省阅读速度（字 / 分钟） */
 export const DEFAULT_READING_CHARS_PER_MINUTE = 400;
-
-/** 注释节点类型集合 */
-const NOTE_NODE_TYPES: ReadonlySet<string> = new Set([
-  NODE_TYPES.FOOTNOTE,
-  NODE_TYPES.ENDNOTE,
-  NODE_TYPES.MARGIN_NOTE,
-]);
 
 /** 结构节点层级（数值越小层级越高；未列出的按叶级结构处理） */
 const STRUCTURE_LEVELS: Readonly<Record<string, number>> = {
@@ -187,7 +181,7 @@ function collectCharacters(
     const text = node.text ?? '';
     return { body: countCharacters(text, countPunctuation), note: 0 };
   }
-  if (NOTE_NODE_TYPES.has(node.type)) {
+  if (isNoteNodeType(node.type)) {
     const noteChars = countCharacters(plainTextOf(node), countPunctuation);
     return { body: mode === 'include' ? noteChars : 0, note: noteChars };
   }
@@ -391,7 +385,7 @@ function walkWordList(
   if (isTextNode(node)) {
     return;
   }
-  if (!options.notes && NOTE_NODE_TYPES.has(node.type)) {
+  if (!options.notes && isNoteNodeType(node.type)) {
     return;
   }
   if (isTextBlock(node)) {

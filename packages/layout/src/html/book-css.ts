@@ -207,6 +207,13 @@ ${scoped('.bt-margin-note')} {
   display: block;
   margin: 0.5em 0;
 }
+/* 注码：与注文首行同起（序列化器已把 span 注入首个段落内），
+ * 用 logical 外边距保证直排下间距落在正确方向 */
+${scoped('.bt-note-marker')} {
+  margin-inline-end: 0.4em;
+  font-size: 0.9em;
+  letter-spacing: 0.02em;
+}
 ${scoped('.bt-table')} {
   border-collapse: collapse;
   /* 逻辑外边距：横排为上下、直排为左右，表格与相邻块沿书写方向留白 */

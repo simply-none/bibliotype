@@ -18,6 +18,7 @@
 | 做标注与位置恢复 | [23 锚点](23-ir-validation-and-migration.md) → [24 标注](24-annotation.md) |
 | 做中文精排 | [25 中文排印](25-cjk-typography.md) → [04 阅读与分页](04-reader-and-pagination.md) → [18 排版引擎路线图](18-pagination-engine-roadmap.md) |
 | 做交叉引用 / 站点发布 | [26 交叉引用](26-cross-reference.md) → [28 静态站点](28-site-export.md) |
+| 做注释（脚注 / 尾注 / 边注） | [01](01-document-model.md) → [31 注释](31-notes.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [07 EPUB](07-export-epub.md) |
 | 做繁简 / 异体字 | [27 文本转换](27-text-conversion.md) |
 | 工程维护与发布 | [12 工程化与发布](12-release-and-ci.md) → [16 测试指南](16-testing.md) |
 | 排查线上问题 | [14 常见问题与故障排查](14-faq.md) |
@@ -57,6 +58,7 @@
 | [28 静态站点导出](28-site-export.md) | 目录页 + 分节页 + 样式 + 搜索索引，纯函数导出 | `@bibliotype/exporter-site` |
 | [29 远端存储适配器](29-adapter-http.md) | REST 文档 / 资产端点契约、错误语义、fetch 注入 | `@bibliotype/adapter-http` |
 | [30 文档统计与词表检查](30-document-stats.md) | 字数 / 词数 / 阅读时长 / 章节分布、错别字与敏感词检查 | `@bibliotype/core` |
+| [31 注释](31-notes.md) | 脚注 / 尾注 / 边注的类型归属、注码与编号、插入命令、`epub:type` 输出 | `core` / `editor` / `layout` / `exporter-epub` |
 
 ## 架构总览
 

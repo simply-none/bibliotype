@@ -16,6 +16,7 @@ import {
   MARK_TYPES,
   NODE_TYPES,
   isTextNode,
+  noteRoleOf,
   type BookMark,
   type BookNode,
 } from '@bibliotype/core';
@@ -33,6 +34,14 @@ export interface SerializeNodeOptions {
    * 可在转义前完成「收集媒体 + 改写引用」。返回非 string 时按原样透传。
    */
   rewriteSrc?: (src: string) => string | undefined;
+  /**
+   * 输出 EPUB 3 结构语义属性（`epub:type`）
+   *
+   * 仅 EPUB 导出开启：注释块随之带 `footnote` / `endnote` / `sidebar`，
+   * 阅读器据此把注文收进注释系统（页底 / 篇末 / 旁栏），而不是当正文段落读。
+   * 纯 HTML 出口（站点 / PDF 打印稿）保持关闭，不输出 HTML 规范外的属性。
+   */
+  epubSemantics?: boolean;
 }
 
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
@@ -289,7 +298,24 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
     return `<img${idAttr}${classAttr} src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${extras} />${rest}`;
   }
 
-  const extras = dataAttrs(attrs, whitelist);
+  /* 注释块：注码提为独立 span（老引擎也能显示），marker 不再重复输出为 data-* */
+  const noteRole = noteRoleOf(node.type);
+  const extras = dataAttrs(
+    attrs,
+    noteRole === undefined ? whitelist : [...whitelist, 'marker'],
+  );
+
+  if (noteRole !== undefined) {
+    const rawMarker = attrs?.marker;
+    const marker =
+      typeof rawMarker === 'string' || typeof rawMarker === 'number'
+        ? String(rawMarker)
+        : '';
+    const markerHtml =
+      marker === '' ? '' : `<span class="bt-note-marker">${escapeHtml(marker)}</span>`;
+    const epubType = options.epubSemantics === true ? ` epub:type="${noteRole}"` : '';
+    return `<${tag}${idAttr}${classAttr}${epubType}${extras}>${serializeNoteContent(node, markerHtml, options)}</${tag}>`;
+  }
 
   if (VOID_TAGS.has(tag)) {
     return `<${tag}${idAttr}${classAttr}${extras} />`;
@@ -362,6 +388,36 @@ function wrapMark(mark: BookMark, inner: string): string {
 /** 子节点序列化拼接 */
 function serializeChildren(node: BookNode, options: SerializeNodeOptions): string {
   return (node.children ?? []).map((child) => nodeToHtml(child, options)).join('');
+}
+
+/**
+ * 注释块内容序列化（注码与注文同起一行）
+ *
+ * 注码若与注文段落平级输出，块级段落会另起一行，注码独自占一行——
+ * 阅读器里表现为「1」后面空一行才见注文。故把注码 span 注入**首个块的开始标签之后**，
+ * 让 `<p>` 内首行是「1 注文…」，与纸书页底注的排法一致。
+ */
+function serializeNoteContent(
+  note: BookNode,
+  markerHtml: string,
+  options: SerializeNodeOptions,
+): string {
+  const children = note.children ?? [];
+  const rendered = children.map((child) => nodeToHtml(child, options));
+  if (markerHtml === '' || rendered.length === 0) {
+    return rendered.join('') + (markerHtml === '' ? '' : markerHtml);
+  }
+  const first = children[0];
+  const firstHtml = rendered[0] ?? '';
+  if (first === undefined || isTextNode(first)) {
+    rendered[0] = `${markerHtml}${firstHtml}`;
+    return rendered.join('');
+  }
+  /* 取首个开始标签（如 `<p class="bt-paragraph">`）并紧随其后插入注码 */
+  const open = /^<[^>]*>/.exec(firstHtml)?.[0];
+  rendered[0] =
+    open !== undefined ? `${open}${markerHtml}${firstHtml.slice(open.length)}` : `${markerHtml}${firstHtml}`;
+  return rendered.join('');
 }
 
 /** 节点分发（文本叶子 / 透明根 / 元素） */

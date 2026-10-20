@@ -7,7 +7,14 @@
  * 所有命令均为纯函数（Command），由视图层或编辑状态机执行；
  * 节点类型名通过 NODE_TYPES 对齐，schema 未注册对应节点时命令返回 false。
  */
-import { MARK_TYPES, NODE_TYPES } from '@bibliotype/core';
+import {
+  MARK_TYPES,
+  NODE_TYPES,
+  NOTE_LABEL_STYLES,
+  formatNoteLabel,
+  isNoteNodeType,
+  type NoteLabelStyle,
+} from '@bibliotype/core';
 import { lift, setBlockType, toggleMark, wrapIn } from 'prosemirror-commands';
 import { redo, undo } from 'prosemirror-history';
 import { Fragment } from 'prosemirror-model';
@@ -797,6 +804,89 @@ export function insertCodeBlock(language?: string): Command {
     dispatch?.(tr.scrollIntoView());
     return true;
   };
+}
+
+/* ---------- 注释（脚注 / 尾注 / 边注） ---------- */
+
+/** 插入注释选项 */
+export interface InsertNoteOptions {
+  /** 注文（缺省空段落，光标进入注文内等待输入） */
+  text?: string;
+  /** 显示注码（缺省按文档内同类注释数量自动编号） */
+  marker?: string;
+  /** 自动编号的注码样式（`arabic` / `circled` / `chinese`，缺省阿拉伯数字） */
+  labelStyle?: NoteLabelStyle;
+}
+
+/** 统计文档内指定类型的注释块数量（自动编号用） */
+function countNoteBlocks(doc: PmNode, typeName: string): number {
+  let count = 0;
+  doc.descendants((node) => {
+    if (node.type.name !== typeName) return true;
+    count += 1;
+    return false; // 注释内不再嵌套注释
+  });
+  return count;
+}
+
+/**
+ * 在当前叶块之后插入注释块（脚注 / 尾注 / 边注通用）
+ *
+ * - 位置：紧随光标所在块之后，读者一眼能看到注文，导出侧再按 `epub:type`
+ *   把它区分为页底注 / 尾注 / 旁栏；
+ * - 编号：按文档内**同类现存注释数量**自动递增（脚注与尾注各自独立编号），
+ *   显式传 `marker` 则尊重作者手写注码；
+ * - 光标落入注文段落内，插入后可直接输入；
+ * - `typeName` 不是注释节点、schema 未注册该节点或段落节点时返回 false。
+ */
+export function insertNote(typeName: string, options: InsertNoteOptions = {}): Command {
+  return (state, dispatch) => {
+    if (!isNoteNodeType(typeName)) return false;
+    const type = findNodeType(state.schema, typeName);
+    const paragraph = findNodeType(state.schema, NODE_TYPES.PARAGRAPH);
+    if (type === undefined || paragraph === undefined) return false;
+
+    const { $to } = state.selection;
+    if ($to.depth === 0) return false;
+
+    const marker =
+      options.marker ??
+      formatNoteLabel(
+        countNoteBlocks(state.doc, typeName) + 1,
+        options.labelStyle ?? NOTE_LABEL_STYLES.ARABIC,
+      );
+    const text = options.text ?? '';
+    const content = paragraph.create(null, text === '' ? null : state.schema.text(text));
+    const note = type.createChecked({ marker }, content);
+
+    /* 光标正在注文内时，新注释插在该注释之后：注释不嵌套，否则注文里出现注文 */
+    let insertPos = $to.after($to.depth);
+    for (let depth = $to.depth; depth > 0; depth -= 1) {
+      if (isNoteNodeType($to.node(depth).type.name)) {
+        insertPos = $to.after(depth);
+        break;
+      }
+    }
+    const tr = state.tr.insert(insertPos, note);
+    tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** 插入脚注（页底注语义，导出为 `epub:type="footnote"`） */
+export function insertFootnote(options: InsertNoteOptions = {}): Command {
+  return insertNote(NODE_TYPES.FOOTNOTE, options);
+}
+
+/** 插入尾注（篇末 / 书末注语义，导出为 `epub:type="endnote"`） */
+export function insertEndnote(options: InsertNoteOptions = {}): Command {
+  return insertNote(NODE_TYPES.ENDNOTE, options);
+}
+
+/** 插入边注（版心外侧旁注语义，导出为 `epub:type="sidebar"`） */
+export function insertMarginNote(options: InsertNoteOptions = {}): Command {
+  return insertNote(NODE_TYPES.MARGIN_NOTE, options);
 }
 
 /* ---------- 分页符（「下一页」） ---------- */

@@ -21,6 +21,7 @@ export {
   CORE_EDITOR_NODE_SPECS,
   COMMON_NODE_ATTRS,
   STRUCTURE_NODE_ATTRS,
+  NOTE_NODE_ATTRS,
 } from './core-node-specs.js';
 export { CORE_EDITOR_MARK_SPECS, COMMON_MARK_ATTRS } from './core-mark-specs.js';
 export {
@@ -66,6 +67,10 @@ export {
   insertRuby,
   insertFigure,
   insertHorizontalRule,
+  insertNote,
+  insertFootnote,
+  insertEndnote,
+  insertMarginNote,
   PLACEHOLDER_IMAGE_SRC,
   HORIZONTAL_RULE_VARIANT,
   insertPageBreak,
@@ -83,7 +88,7 @@ export {
   getBlockStyleId,
   STRUCTURE_BLOCK_TYPE_NAMES,
 } from './commands.js';
-export type { FigureOptions, TableCellAlign } from './commands.js';
+export type { FigureOptions, TableCellAlign, InsertNoteOptions } from './commands.js';
 
 /* ---------- 选区转换为容器（「替换为」） ---------- */
 export { replaceSelectionWithContainer } from './selection-convert.js';

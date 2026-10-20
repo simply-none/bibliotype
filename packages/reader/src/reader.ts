@@ -23,6 +23,7 @@ import {
   sliceNodeByCharRange,
   type LayoutOptions,
   type MeasurableBlock,
+  type PageGutterTexts,
   type PaginatedPage,
 } from '@bibliotype/layout';
 import {
@@ -44,6 +45,7 @@ import {
   resolvePageChromeTexts,
   type PageChromeTexts,
 } from './page-chrome.js';
+import { resolvePageGutterTexts } from './page-gutter.js';
 
 /** 重排参数 */
 export interface RepaginateOptions {
@@ -458,6 +460,30 @@ export class Reader {
     return resolvePageChromeTexts({
       chrome,
       pageIndex,
+      bookTitle: this.doc.metadata.title,
+      chapterTitle: this.getPageChapterTitle(pageIndex),
+      pageNumberText: formatPageNumber(pageIndex + 1, style),
+    });
+  }
+
+  /**
+   * 版心（书口）竖写文本（按 `layout.facsimile.gutter` 解析）
+   *
+   * 返回 `undefined` 表示**不渲染版心**：未启用古籍仿真版式 / 未配置版心 /
+   * 该页是封面 / 页序非法。与 `getPageChromeTexts` 并列且互不影响——
+   * 未启用仿真版式的文档（含「古籍直排」）恒为 `undefined`。
+   */
+  getPageGutterTexts(pageIndex: number = this.pageIndex): PageGutterTexts | undefined {
+    const gutter = this.options.facsimile?.gutter;
+    if (this.doc === undefined || gutter === undefined) {
+      return undefined;
+    }
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= this.pages.length) {
+      return undefined;
+    }
+    if (this.isCoverPage(pageIndex)) return undefined;
+    const style = this.options.pageNumberStyle as PageNumberStyle;
+    return resolvePageGutterTexts({
       bookTitle: this.doc.metadata.title,
       chapterTitle: this.getPageChapterTitle(pageIndex),
       pageNumberText: formatPageNumber(pageIndex + 1, style),

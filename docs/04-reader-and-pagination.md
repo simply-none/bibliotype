@@ -143,6 +143,16 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 
 不传 `splittable` / `lineSize` / `widowControl` 时，行为与块原子版完全一致；行级拆分能力的消费方接入见 [18 纸书排版引擎路线图](18-pagination-engine-roadmap.md)（Phase 3 / 4）。
 
+### 与古籍仿真版式的关系
+
+`resolvePageMainSize` / `resolvePageCrossSize` 会按需扣除版框与版心：
+
+- **古籍直排 / 现代横排**（无 `facsimile`）：扣除 `page-border` 边框，口径与既往一致；
+- **古籍仿真直排**（`facsimile` 非空）：版框画在页边距内、**不扣除**（与 `page-border` 成对失效），只从直排主轴扣除版心带宽 `facsimile.gutter.size`；
+- 版心带宽与两个仿真字体族令牌进入 `computeMetricsSignature`，改框色 / 界行色 / 纸色不会触发重排。
+
+详见 [22 古籍仿真直排](22-facsimile-vertical.md)。
+
 ## 相关
 
 - 包参考：[`@bibliotype/reader`](../packages/reader/README.md)

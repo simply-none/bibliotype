@@ -56,6 +56,7 @@ off();
 | `outline` | 目录树（`OutlineItem[]`） |
 | `allBlocks` / `pagination` / `getPageBlocks(i)` | 分页前块序列 / 分页结果 / 某页的块 |
 | `getPageNodes(i)` | 某页的 IR 节点（块 id 经 `findNodeById` 还原） |
+| `getPageGutterTexts(i)` | 版心（书口）竖写文本：书名 / 篇卷 / 叶次；未启用仿真版式或封面页返回 `undefined` |
 | `formatCurrentPageNumber()` | 当前页展示页码 |
 | `search(query, options?)` | 全文搜索（`limit` 默认 50、`contextLength` 默认 12） |
 | `nextPage()` / `prevPage()` / `goToPage(i)` / `goToNode(id)` | 导航（越界 / 未命中返回 false） |
@@ -66,7 +67,9 @@ off();
   `collectNodeText`、`defaultEstimator`、`DEFAULT_MEASURE_CONTEXT`；
 - **块定位**：`findNodeById(root, id)`（深度优先按稳定 id 查找）；
 - **目录**：`extractOutline`、`resolveNodeTitle`、`countOutlineItems`、`OUTLINE_STRUCTURE_TYPES`；
-- **页码**：`formatPageNumber(n, style)`、`toChineseNumeral(n)`、`toRomanNumeral(n)`。
+- **页码**：`formatPageNumber(n, style)`、`toChineseNumeral(n)`、`toRomanNumeral(n)`；
+- **版心**：`resolvePageGutterTexts({ bookTitle, chapterTitle, pageNumberText })`（去空白后交给
+  `@bibliotype/layout/html` 的 `serializePageGutter` 序列化，三端同源）。
 
 ## 工作机制
 

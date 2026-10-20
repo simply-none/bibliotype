@@ -32,6 +32,7 @@ export {
   DEFAULT_BOTTOM_SLACK,
   DEFAULT_LAYOUT_OPTIONS,
   CLASSICAL_LAYOUT_OPTIONS,
+  FACSIMILE_BASE_LAYOUT,
   mergeLayoutOptions,
 } from './layout-options.js';
 export type {
@@ -41,6 +42,51 @@ export type {
   BottomSlackOptions,
   LayoutOptions,
 } from './layout-options.js';
+
+/* ---------- 古籍仿真版式（与「古籍直排」并列，缺省不启用） ---------- */
+export {
+  FACSIMILE_FRAMES,
+  FACSIMILE_RULES,
+  GUTTER_SIDES,
+  GUTTER_MOUTHS,
+  GUTTER_FISH_TAILS,
+  FACSIMILE_FONT_TOKENS,
+  DEFAULT_GUTTER_FIELDS,
+  DEFAULT_FACSIMILE_OPTIONS,
+  isFacsimileEnabled,
+} from './facsimile.js';
+export type {
+  FacsimileFrame,
+  FacsimileRule,
+  FacsimileOptions,
+  FacsimileGutterOptions,
+  FacsimileFontToken,
+  GutterSide,
+  GutterMouth,
+  GutterFishTail,
+  PageGutterTexts,
+} from './facsimile.js';
+
+/* ---------- 古籍仿真几何与行款 ---------- */
+export {
+  resolveFacsimileFrameThickness,
+  resolveFacsimileGutterSize,
+  resolveLinePitch,
+  resolveFacsimileGrid,
+  resolveFrameInsets,
+  resolveRuleInsets,
+  resolveFacsimileCssVariables,
+} from './facsimile-geometry.js';
+export type { FacsimileFrameThickness, FacsimileGrid } from './facsimile-geometry.js';
+
+/* ---------- 古籍仿真版式模板 ---------- */
+export {
+  FACSIMILE_PRESETS,
+  DEFAULT_FACSIMILE_PRESET_ID,
+  resolveFacsimilePreset,
+  applyFacsimilePreset,
+} from './facsimile-presets.js';
+export type { FacsimilePreset } from './facsimile-presets.js';
 
 /* ---------- 排版度量签名（决定是否需要重新分页） ---------- */
 export { computeMetricsSignature } from './metrics-signature.js';

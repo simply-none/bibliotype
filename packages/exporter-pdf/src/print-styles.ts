@@ -10,7 +10,11 @@
  * 与 buildBookCss 叠加使用（变量层与节点类样式来自后者）。
  */
 import { COLOR_TOKENS, FONT_SIZE_TOKENS, LAYOUT_TOKENS } from '@bibliotype/core';
-import type { LayoutOptions } from '@bibliotype/layout';
+import {
+  resolveFacsimileGutterSize,
+  resolvePageMarginBox,
+  type LayoutOptions,
+} from '@bibliotype/layout';
 
 /** 打印模式 */
 export type PrintMode = 'auto' | 'paged';
@@ -74,12 +78,28 @@ export function buildPrintCss(input: PrintCssOptions): string {
               ? ''
               : `  --bt-page-footer-size: ${Math.max(0, chrome.footerSize)}px;\n`
           }`;
+    /*
+     * 版心（书口）占位：与 buildRootStyle 的内缩同源（页边距 + 带宽）。
+     * 未启用仿真版式时 gutterSize 为 0 → 不输出声明，古典 / 现代打印稿
+     * 的 CSS 与改造前逐字符一致。
+     */
+    const gutterSize = resolveFacsimileGutterSize(options);
+    const gutterSide = options.facsimile?.gutter?.side;
+    const gutterPadding =
+      gutterSize > 0 && gutterSide !== undefined
+        ? (() => {
+            const box = resolvePageMarginBox(tokens);
+            return gutterSide === 'left'
+              ? `  padding-left: ${box.left + gutterSize}px;\n`
+              : `  padding-right: ${box.right + gutterSize}px;\n`;
+          })()
+        : '';
     rules.push(`.bt-page {
   box-sizing: border-box;
   width: ${page.width}px;
   height: ${page.height}px;
   padding: ${margin};
-  overflow: hidden;
+${gutterPadding}  overflow: hidden;
   position: relative;
 ${chromeVars}  break-after: page;
 }

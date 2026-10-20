@@ -75,6 +75,25 @@ const css = buildBookCss({
 });
 ```
 
+### 古籍仿真直排（版框 / 界行 / 版心）
+
+```ts
+import {
+  FACSIMILE_PRESETS, resolveFacsimilePreset, applyFacsimilePreset,
+  resolveFacsimileGrid, isFacsimileEnabled,
+} from '@bibliotype/layout';
+
+const preset = FACSIMILE_PRESETS[0];                 // 宋刻浙本（默认）
+const layout = applyFacsimilePreset(baseLayout, preset);
+const grid = resolveFacsimileGrid(layout, preset.tokens);
+// grid.linesPerHalfLeaf / charsPerColumn → 每半页 10 行 × 27 字
+```
+
+- 与「古籍直排」**并列**：`LayoutOptions.facsimile` 缺省 `undefined`，未启用时
+  样式表 / 版心尺寸 / 度量签名与既往完全一致；
+- 只有版心带宽进主轴扣减，版框与界行画在页边距内（不侵占版心）；
+- 六个模板：`song-zhe` / `ming-jiajing` / `qing-dianben` / `jiguge` / `zhushilan` / `jinxiang`。
+
 ## API 概览
 
 | 分组 | 导出 |
@@ -82,10 +101,11 @@ const css = buildBookCss({
 | 书写方向 | `WRITING_MODES`、`TEXT_ORIENTATIONS`、`isVerticalMode` |
 | 页面尺寸 | `PAGE_SIZES`、`createPageSize`、`resolveContentBox` |
 | 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`、`combineUprightCss`、`needsCombineUpright` |
-| 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
+| 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`FACSIMILE_BASE_LAYOUT`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
+| 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |
 | 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |
-| `./html` | `serializeNode`、`escapeHtml`、`buildBookCss`、`declarationToCss` |
+| `./html` | `serializeNode`、`escapeHtml`、`buildBookCss`、`declarationToCss`、`serializePageGutter` |
 
 ## 相关
 

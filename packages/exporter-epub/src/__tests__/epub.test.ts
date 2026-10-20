@@ -15,7 +15,7 @@ import {
   type BookDocument,
   type BookNode,
 } from '@bibliotype/core';
-import { CLASSICAL_LAYOUT_OPTIONS } from '@bibliotype/layout';
+import { CLASSICAL_LAYOUT_OPTIONS, FACSIMILE_PRESETS } from '@bibliotype/layout';
 import { escapeXml, serializeNode, stripInvalidXmlChars } from '@bibliotype/layout/html';
 import { strFromU8, unzipSync } from 'fflate';
 import { EPUB_MIMETYPE, buildContainerXml, exportEpub } from '../epub.js';
@@ -854,5 +854,37 @@ describe('边界与标识符', () => {
     const first = buildDefaultIdentifier(sampleDoc());
     expect(first).toMatch(/^urn:bibliotype:[0-9a-f]{8}$/);
     expect(buildDefaultIdentifier(sampleDoc())).toBe(first);
+  });
+});
+
+describe('古籍仿真布局：EPUB 不加装饰', () => {
+  it('reflow 无固定分页：样式表不含版框 / 界行 / 版心与仿真变量', () => {
+    const preset = FACSIMILE_PRESETS[0];
+    expect(preset).toBeDefined();
+    const files = readEntries(
+      exportEpub(sampleDoc(), {
+        modified: FIXED_MODIFIED,
+        layout: preset?.layout,
+        tokens: preset?.tokens,
+        fontToken: preset?.fontToken,
+      }),
+    );
+    const css = files['OEBPS/style.css'] ?? '';
+    expect(css.length).toBeGreaterThan(0);
+    expect(css).not.toContain('--bt-fs-');
+    expect(css).not.toContain('bt-page-gutter');
+    expect(css).not.toContain('repeating-linear-gradient');
+    expect(css).not.toContain('.bt-page::before');
+    /* 仿真版式仍是直排：书写方向与字体照常生效 */
+    expect(css).toContain('writing-mode: vertical-rl');
+  });
+
+  it('古典布局（对照）：同样不含仿真痕迹', () => {
+    const files = readEntries(
+      exportEpub(sampleDoc(), { modified: FIXED_MODIFIED, layout: CLASSICAL_LAYOUT_OPTIONS }),
+    );
+    const css = files['OEBPS/style.css'] ?? '';
+    expect(css).not.toContain('--bt-fs-');
+    expect(css).not.toContain('bt-page-gutter');
   });
 });

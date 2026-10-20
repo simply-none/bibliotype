@@ -21,7 +21,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { DEFAULT_THEME, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, isVerticalMode } from '@bibliotype/layout';
-import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
+import { buildBookCss, serializeNode, serializePageGutter } from '@bibliotype/layout/html';
 import { formatPageNumber, type PageNumberStyle, type Reader } from '@bibliotype/reader';
 import { useReaderBinding } from '../use-reader.js';
 
@@ -120,6 +120,26 @@ const currentChrome = computed(() => {
   return props.reader.getPageChromeTexts(currentPage.value);
 });
 
+/**
+ * 古籍仿真装饰图层的开关（双闸门第一道）
+ *
+ * 只有布局里真的带 `facsimile` 才开启；`buildBookCss` 内部还有第二道
+ * （`pageDecoration && facsimile && 直排`），因此「古籍直排」样式表不变。
+ */
+const pageDecoration = computed(() => layout.value.facsimile !== undefined);
+
+/** 版心空文本（reader 返回 undefined 时的占位，序列化会因字段为空输出空串） */
+const EMPTY_GUTTER_TEXTS = { bookTitle: '', chapterTitle: '', pageNumber: '' } as const;
+
+/** 当前页版心（书口）HTML；未启用仿真版式或封面页为空串 */
+const gutterHtml = computed(() => {
+  void pagination.value;
+  return serializePageGutter(
+    props.reader.getPageGutterTexts(currentPage.value) ?? EMPTY_GUTTER_TEXTS,
+    layout.value.facsimile,
+  );
+});
+
 /** 页框样式（固定尺寸 + 页边距 + 排版规则） */
 const pageStyle = computed(() => ({
   ...buildPageStyle(pageSize.value, tokens.value),
@@ -147,6 +167,7 @@ function syncBookStyle(): void {
     containerSelector: '.bt-reader-page',
     features: props.features,
     namedStyles: props.namedStyles,
+    pageDecoration: pageDecoration.value,
   });
   const next = css + PAGE_START_RULE;
   let element = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
@@ -324,6 +345,8 @@ interface RenderedPage {
   /** 本页沿主轴的起始偏移（横排 = 距顶，直排 = 距右缘） */
   mainPos: number;
   html: string;
+  /** 版心（书口）HTML（空串 = 不渲染；未启用仿真版式时恒为空） */
+  gutterHtml: string;
   showPageNumber: boolean;
   numberText: string;
   /** 页眉文本（空串 = 不渲染） */
@@ -348,10 +371,12 @@ const renderedPages = computed<RenderedPage[]>(() => {
     const blockNodes = nodes.filter((node) => !isTextNode(node));
     const firstBlock = blockNodes[0];
     const chrome = props.reader.getPageChromeTexts(i);
+    const gutter = props.reader.getPageGutterTexts(i);
     list.push({
       index: i,
       mainPos: SCROLL_PADDING + i * step,
       html: blockNodes.map((node) => serializeNode(node)).join('\n'),
+      gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
       // 启用页眉页脚后，页码归属页脚字段；未启用才走老的「页脚仅页码」
       showPageNumber:
         chrome === undefined && firstBlock !== undefined && !coverNodes.value.has(firstBlock),
@@ -522,6 +547,7 @@ watch([() => props.fit, pageSize], () => {
       <div class="bt-reader-page" :style="scaledPageStyle">
         <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>
         <div class="bt-reader-page__flow" v-html="pageHtml"></div>
+        <div v-if="gutterHtml" class="bt-page-gutter-host" v-html="gutterHtml"></div>
         <footer v-if="currentChrome?.footer" class="bt-page-footer">{{ currentChrome.footer }}</footer>
         <footer
           v-else-if="currentChrome === undefined && showPageNumber"
@@ -551,6 +577,7 @@ watch([() => props.fit, pageSize], () => {
         <div class="bt-reader-page" :style="scaledPageStyle">
           <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
           <div class="bt-reader-page__flow" v-html="page.html"></div>
+          <div v-if="page.gutterHtml" class="bt-page-gutter-host" v-html="page.gutterHtml"></div>
           <footer v-if="page.footer" class="bt-page-footer">{{ page.footer }}</footer>
           <footer v-else-if="page.showPageNumber" class="bt-page-number">{{ page.numberText }}</footer>
         </div>

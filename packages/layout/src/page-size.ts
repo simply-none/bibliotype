@@ -4,6 +4,7 @@
  * 尺寸单位统一为 CSS px（96dpi 基准）。
  * 直排页面不交换宽高（古籍版式通常为竖长条页面）。
  */
+import { LAYOUT_TOKENS } from '@bibliotype/core';
 
 /** 页面尺寸 */
 export interface PageSize {
@@ -88,4 +89,49 @@ export function resolveContentBox(
     throw new RangeError(`页边距超出页面尺寸：${page.name}`);
   }
   return { width, height };
+}
+
+/**
+ * 解析页边距令牌为四边盒（px）
+ *
+ * 支持 CSS `padding` 简写的 1~4 值形态（与 `buildPageStyle` 透传给 CSS 的语义
+ * 一致，均为物理边）：
+ * - 1 值 `a`：四边均 `a`；
+ * - 2 值 `a b`：上下 `a`、左右 `b`；
+ * - 3 值 `a b c`：上 `a`、左右 `b`、下 `c`；
+ * - 4 值 `a b c d`：上 `a`、右 `b`、下 `c`、左 `d`。
+ *
+ * 仅支持 px：非 px 单位（em / % 等）会使「分页主轴 = 页宽/高 − 边距」与 CSS
+ * 实际版心错位（`buildPageStyle` 原样透传，浏览器按 em 计算 padding），导致
+ * 系统性溢出裁切，故显式拒绝而非静默按数字截取。令牌缺省时四边均 0
+ * （与 `buildPageStyle` 缺省不内缩的渲染语义一致）。
+ *
+ * 放在本模块（而非样式构建器）是因为它只解析「页面几何」，且供分页度量
+ * 与仿真几何共用，避免样式构建器与仿真几何互相依赖成环。
+ *
+ * @param tokens 主题令牌值表
+ * @throws RangeError 当令牌含非 px 单位值。
+ */
+export function resolvePageMarginBox(
+  tokens: Readonly<Record<string, string | undefined>>,
+): PageMarginBox {
+  const raw = tokens[LAYOUT_TOKENS.PAGE_MARGIN];
+  if (raw === undefined || raw.trim() === '') return { top: 0, right: 0, bottom: 0, left: 0 };
+  const values = raw
+    .trim()
+    .split(/\s+/)
+    .map((part) => {
+      const match = /^(-?\d+(?:\.\d+)?)px$/.exec(part);
+      if (match === null) {
+        throw new RangeError(`page-margin 令牌仅支持 px 单位（如 "48px 56px"），收到："${raw}"`);
+      }
+      return Number(match[1]);
+    });
+  const [v0, v1, v2, v3] = values;
+  // CSS 简写逐边展开（缺省回退到已给定的对边 / 同轴值）
+  const top = v0 ?? 0;
+  const right = v1 ?? top;
+  const bottom = v2 ?? top;
+  const left = v3 ?? right;
+  return { top, right, bottom, left };
 }

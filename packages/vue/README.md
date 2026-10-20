@@ -94,6 +94,15 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 
 在组件 / `effectScope` 内调用组合式 API 时，scope 销毁会自动解绑事件与视图。
 
+### 古籍仿真直排
+
+`BtBookView` 与 `PagedCanvas` 在布局带 `facsimile`（见 `@bibliotype/layout`）时自动：
+开启 `buildBookCss` 的 `pageDecoration`（版框 / 界行图层），并按页注入
+`reader.getPageGutterTexts()` 序列化出的版心（书口）。
+
+未带 `facsimile` 的布局（现代横排 / 古籍直排）不传该开关，样式表与行为逐字符不变；
+`BtEditor` 的连续画布刻意不开启装饰，避免绝对定位图层干扰点选。
+
 ## 相关
 
 - 功能参考：[docs/06-vue-integration.md](../../docs/06-vue-integration.md)

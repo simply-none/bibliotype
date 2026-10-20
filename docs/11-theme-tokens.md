@@ -117,6 +117,19 @@ buildBookCss({ tokens, options: layoutOptions });  // 文本场景：:root 变�
 `text-combine-upright` / `text-combine-limit`），`buildCssVariables` 会将其一并
 输出为 `--bt-*` 变量，样式构建器按需消费。见 [03 古籍排版](03-classical-layout.md)。
 
+古籍仿真直排另用 8 个扩展键（不扩 `ThemeToken` 联合，仅在模板令牌与样式层消费）：
+
+| 扩展令牌 | 说明 |
+| --- | --- |
+| `page-frame-color` / `page-frame-width` | 版框颜色与线宽 |
+| `page-frame-inner-gap` / `page-frame-inner-width` | 双边间距与内框线宽 |
+| `page-rule-color` | 界行颜色（乌丝栏 / 朱丝栏） |
+| `gutter-color` | 版心文字与鱼尾颜色 |
+| `font-family-classical-song` / `-fangsong` | 宋体 / 仿宋族（`FACSIMILE_FONT_TOKENS`） |
+
+其中只有两个字体族令牌进入度量签名（影响字宽），颜色与线宽属纯绘制、不触发重排。
+见 [22 古籍仿真直排](22-facsimile-vertical.md)。
+
 ## 相关
 
 - 令牌消费方：[05 版式与 HTML](05-layout-and-html.md)（buildBookCss / buildRootStyle）

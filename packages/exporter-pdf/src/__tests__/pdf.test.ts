@@ -6,8 +6,17 @@
  * 浏览器打印辅助（打印流程与清理），以及空书边界。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
-import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
+import {
+  DEFAULT_THEME,
+  NODE_TYPES,
+  createEmptyDocument,
+  type BookDocument,
+} from '@bibliotype/core';
+import {
+  CLASSICAL_LAYOUT_OPTIONS,
+  DEFAULT_LAYOUT_OPTIONS,
+  FACSIMILE_PRESETS,
+} from '@bibliotype/layout';
 import { type BlockSizeEstimator } from '@bibliotype/reader';
 import { findNodeById } from '../index.js';
 import { renderPrintHtml } from '../print-document.js';
@@ -273,6 +282,51 @@ describe('renderPrintHtml：paged 模式（预分页）', () => {
     const body = pages.join('');
     expect((body.match(/A/g) ?? []).length).toBe(26);
     expect((body.match(/C/g) ?? []).length).toBe(26);
+  });
+});
+
+describe('古籍仿真直排：打印与预览同源', () => {
+  const preset = FACSIMILE_PRESETS[0] as NonNullable<(typeof FACSIMILE_PRESETS)[0]>;
+  const layout = preset.layout;
+  const tokens = { ...DEFAULT_THEME, ...preset.tokens };
+
+  it('paged 模式输出版框 / 界行 / 版心，页边距含版心带宽', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout,
+      tokens,
+      fontToken: preset.fontToken,
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(html).toContain('.bt-page::before');
+    expect(html).toContain('.bt-page::after');
+    expect(html).toContain('class="bt-page-gutter"');
+    /* 页边距左 90 + 版心带宽 34 */
+    expect(html).toContain('padding-left: 124px;');
+  });
+
+  it('auto 模式不加装饰（交给打印引擎重排流式版面）', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'auto',
+      layout,
+      tokens,
+      fontToken: preset.fontToken,
+    });
+    expect(html).not.toContain('.bt-page::before');
+    expect(html).not.toContain('bt-page-gutter');
+    expect(html).not.toContain('--bt-fs-');
+  });
+
+  it('古典布局打印产物不含任何仿真痕迹', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout: CLASSICAL_LAYOUT_OPTIONS,
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(html).not.toContain('bt-page-gutter');
+    expect(html).not.toContain('--bt-fs-');
   });
 });
 

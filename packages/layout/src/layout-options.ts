@@ -9,6 +9,7 @@ import {
   DEFAULT_COMBINE_OPTIONS,
   type CombineUprightOptions,
 } from './combine-upright.js';
+import type { FacsimileOptions } from './facsimile.js';
 
 /** 页码样式 */
 export const PAGE_NUMBER_STYLES = {
@@ -111,6 +112,14 @@ export interface LayoutOptions {
    * 分页可用容量 = 版心高 + 本值（截断到不压页码带）。传 `{ px: 0 }` 关闭。
    */
   bottomSlack?: BottomSlackOptions;
+  /**
+   * 古籍仿真版式（版框 / 界行 / 版心）
+   *
+   * 缺省 `undefined` = 未启用：现代横排与「古籍直排」走改造前的原路径，
+   * CSS、版心尺寸与度量签名逐字符/逐数值不变。启用后仅版心带宽参与分页，
+   * 版框与界行属于绘制层、不侵占版心（见 facsimile-geometry）。
+   */
+  facsimile?: FacsimileOptions;
 }
 
 /** 默认布局（现代书籍：横排、A5、单栏、阿拉伯页码） */
@@ -125,6 +134,22 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
 
 /** 古籍默认布局（直排右起、16 开、单栏、中文页码） */
 export const CLASSICAL_LAYOUT_OPTIONS: LayoutOptions = {
+  writingMode: WRITING_MODES.VERTICAL_RL,
+  pageSize: PAGE_SIZES.FOLIO_16,
+  columns: 1,
+  pageNumberStyle: PAGE_NUMBER_STYLES.CHINESE,
+  combineUpright: DEFAULT_COMBINE_OPTIONS,
+  bottomSlack: DEFAULT_BOTTOM_SLACK,
+};
+
+/**
+ * 古籍仿真直排的基础布局（版式模板的公共基线）
+ *
+ * 与 `CLASSICAL_LAYOUT_OPTIONS` 的差异仅在 `columns: 1` 的显式约束与「仿真
+ * 版式另由模板填充 `facsimile` 字段」——本常量**不写** `facsimile`，避免
+ * 任何默认值意外把古典路径拖进仿真分支。
+ */
+export const FACSIMILE_BASE_LAYOUT: LayoutOptions = {
   writingMode: WRITING_MODES.VERTICAL_RL,
   pageSize: PAGE_SIZES.FOLIO_16,
   columns: 1,

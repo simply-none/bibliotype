@@ -47,9 +47,12 @@ import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 import {
   CLASSICAL_LAYOUT_OPTIONS,
   DEFAULT_LAYOUT_OPTIONS,
+  FACSIMILE_BASE_LAYOUT,
+  FACSIMILE_PRESETS,
   computeMetricsSignature,
   isVerticalMode,
   mergeLayoutOptions,
+  resolveFacsimilePreset,
   resolvePageCrossSize,
   resolvePageMainSize,
   resolveBottomSlack,
@@ -90,7 +93,7 @@ import { lunyuDocument } from './data/lunyu.js';
 
 /* ---------------- 主题定义 ---------------- */
 
-type ThemeKey = 'modern' | 'classical';
+type ThemeKey = 'modern' | 'classical' | 'facsimile';
 
 interface ThemeConfig {
   /** 工具栏展示名 */
@@ -123,15 +126,31 @@ const CLASSICAL_THEME: ThemeConfig = {
   fontToken: FONT_TOKENS.CLASSICAL_BODY,
 };
 
+/**
+ * 古籍仿真直排：与「古籍直排」并列的第三档主题
+ *
+ * 布局基准取第一个模板（进入即展示第一种模板的样式），令牌与字体由
+ * `layout.facsimile.preset` 派生（见下方 facsimilePreset），因此切模板
+ * 不会污染令牌补丁，切回「古籍直排」也不残留仿真纸色 / 框色。
+ */
+const FACSIMILE_THEME: ThemeConfig = {
+  label: '古籍仿真直排',
+  layout: FACSIMILE_PRESETS[0]?.layout ?? FACSIMILE_BASE_LAYOUT,
+  tokens: { ...DEFAULT_THEME },
+  fontToken: FONT_TOKENS.CLASSICAL_BODY,
+};
+
 const THEMES: Record<ThemeKey, ThemeConfig> = {
   modern: MODERN_THEME,
   classical: CLASSICAL_THEME,
+  facsimile: FACSIMILE_THEME,
 };
 
 /** 工具栏按钮列表（key 显式携带，避免模板内索引推断） */
 const THEME_ENTRIES: ReadonlyArray<{ key: ThemeKey; config: ThemeConfig }> = [
   { key: 'modern', config: MODERN_THEME },
   { key: 'classical', config: CLASSICAL_THEME },
+  { key: 'facsimile', config: FACSIMILE_THEME },
 ];
 
 const themeKey = ref<ThemeKey>('modern');
@@ -191,6 +210,21 @@ const effectiveLayout = computed<LayoutOptions>(() =>
   mergeLayoutOptions(theme.value.layout, layoutPatch.value),
 );
 
+/** 当前仿真模板（由 `layout.facsimile.preset` 派生；未启用仿真版式时为 undefined） */
+const facsimilePreset = computed(() =>
+  resolveFacsimilePreset(effectiveLayout.value.facsimile?.preset),
+);
+
+/** 仿真模板令牌覆盖：只派生、不写入令牌补丁（切主题即消失，不污染古典） */
+const facsimilePresetTokens = computed<Readonly<Record<string, string>>>(
+  () => facsimilePreset.value?.tokens ?? {},
+);
+
+/** 生效正文字体令牌键：仿真模板优先，其余仍取主题默认 */
+const activeFontToken = computed(
+  () => facsimilePreset.value?.fontToken ?? theme.value.fontToken,
+);
+
 /**
  * 界面外壳是否转为「左侧竖向设置列」
  *
@@ -216,9 +250,15 @@ const NIGHT_COLORS: Readonly<Record<string, string>> = {
   [COLOR_TOKENS.ACCENT]: '#c99a5b',
 };
 
-/** 当前生效令牌：主题基础 + 面板补丁 + 夜间覆盖 */
+/**
+ * 当前生效令牌：主题基础 → 仿真模板 → 面板补丁 → 夜间覆盖
+ *
+ * 仿真模板夹在主题与补丁之间：模板给的是「版式基准」，用户的单点微调
+ * （tokenPatch）仍然优先；模板令牌不进补丁，因此切主题不会残留。
+ */
 const tokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
   ...theme.value.tokens,
+  ...facsimilePresetTokens.value,
   ...tokenPatch.value,
   ...(night.value ? NIGHT_COLORS : {}),
 }));
@@ -299,7 +339,7 @@ function remeasure(): void {
     doc,
     options: effectiveLayout.value,
     tokens: tokens.value,
-    fontToken: theme.value.fontToken,
+    fontToken: activeFontToken.value,
     measure: typographyMeasure(),
   });
   blockSizes.value = sizes;
@@ -569,7 +609,14 @@ function readSettingsSnapshot(): SettingsSnapshot | null {
     const raw = window.localStorage.getItem(SETTINGS_KEY);
     if (raw === null) return null;
     const parsed = JSON.parse(raw) as Partial<SettingsSnapshot>;
-    if (parsed.themeKey !== 'modern' && parsed.themeKey !== 'classical') return null;
+    /* 三档主题；旧快照 / 未知值一律回落 null（再走默认主题） */
+    if (
+      parsed.themeKey !== 'modern' &&
+      parsed.themeKey !== 'classical' &&
+      parsed.themeKey !== 'facsimile'
+    ) {
+      return null;
+    }
     return {
       themeKey: parsed.themeKey,
       night: parsed.night === true,
@@ -805,7 +852,7 @@ function download(filename: string, blob: Blob): void {
 
 /** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得；含已保存的编辑内容） */
 function onExportEpub(): void {
-  const { fontToken } = theme.value;
+  const fontToken = activeFontToken.value;
   const layout = effectiveLayout.value;
   const book = reader.value.document ?? lunyuDocument;
   /* 导出前校验（epubcheck 规则子集）：error 级问题在此汇总提示，
@@ -888,7 +935,7 @@ function getElectronPdfBridge(): ElectronPdfBridge | undefined {
  * 分页模式（pdfPagedMode）：逐页（paged，与屏幕预览逐页同源）/ 连续（auto，更快）。
  */
 async function onExportPdf(): Promise<void> {
-  const { fontToken } = theme.value;
+  const fontToken = activeFontToken.value;
   const book = reader.value.document ?? lunyuDocument;
   const base = {
     layout: effectiveLayout.value,
@@ -1381,7 +1428,7 @@ onBeforeUnmount(() => {
             :key="`${themeKey}-${readerEpoch}`"
             :reader="reader"
             :tokens="tokens"
-            :font-token="theme.fontToken"
+            :font-token="activeFontToken"
             :features="features"
             :named-styles="namedStyles"
             :mode="viewMode"
@@ -1393,7 +1440,7 @@ onBeforeUnmount(() => {
             :editor="bookEditor"
             :tokens="tokens"
             :options="effectiveLayout"
-            :font-token="theme.fontToken"
+            :font-token="activeFontToken"
             :features="features"
             :named-styles="namedStyles"
             :pagination="editing.pagination"

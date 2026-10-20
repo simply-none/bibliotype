@@ -13,9 +13,19 @@ import {
   LAYOUT_TOKENS,
 } from '@bibliotype/core';
 import type { BottomSlackOptions, LayoutOptions } from './layout-options.js';
-import { resolveContentBox, type PageMarginBox, type PageSize } from './page-size.js';
+import {
+  resolveContentBox,
+  resolvePageMarginBox,
+  type PageMarginBox,
+  type PageSize,
+} from './page-size.js';
 import { TEXT_ORIENTATIONS, isVerticalMode } from './writing-mode.js';
 import { combineUprightCss } from './combine-upright.js';
+import { isFacsimileEnabled } from './facsimile.js';
+import {
+  resolveFacsimileFrameThickness,
+  resolveFacsimileGutterSize,
+} from './facsimile-geometry.js';
 
 /** CSS 声明对象（属性名 → 值） */
 export type StyleDeclaration = Record<string, string>;
@@ -63,8 +73,14 @@ export function buildRootStyle(input: BuildRootStyleInput): StyleDeclaration {
   setIfPresent(style, 'color', tokens[COLOR_TOKENS.TEXT]);
   setIfPresent(style, 'background-color', tokens[COLOR_TOKENS.BACKGROUND]);
 
-  /* 版框（扩展令牌 page-border，如 '1px solid #8c5a2b'；古籍主题可选） */
-  setIfPresent(style, 'border', tokens['page-border']);
+  /*
+   * 版框（扩展令牌 page-border，如 '1px solid #8c5a2b'；古籍主题可选）。
+   * 古籍仿真版式自带版框图层（画在页边距内、不侵占版心），此时 page-border
+   * 与它的版心扣减**成对失效**，避免双框叠加与口径不一致。
+   */
+  if (!isFacsimileEnabled(options)) {
+    setIfPresent(style, 'border', tokens['page-border']);
+  }
 
   /* 书写方向与直排策略 */
   style['writing-mode'] = options.writingMode;
@@ -81,6 +97,23 @@ export function buildRootStyle(input: BuildRootStyleInput): StyleDeclaration {
   if (options.columns > 1) {
     style['column-count'] = String(options.columns);
     setIfPresent(style, 'column-gap', tokens[LAYOUT_TOKENS.COLUMN_GAP]);
+  }
+
+  /*
+   * 版心（书口）占位：直排下版心带宽从版心主轴（页宽）扣除，渲染侧必须同步
+   * 内缩同样的量，否则正文会压进版心带。与 resolvePageMainSize 的扣减同源——
+   * 两处口径必须一致，改一处必须改另一处。
+   */
+  if (isFacsimileEnabled(options) && vertical) {
+    const gutter = options.facsimile?.gutter;
+    if (gutter !== undefined && gutter.size > 0) {
+      const margins = resolvePageMarginBox(tokens);
+      if (gutter.side === 'left') {
+        style['padding-left'] = `${margins.left + gutter.size}px`;
+      } else {
+        style['padding-right'] = `${margins.right + gutter.size}px`;
+      }
+    }
   }
 
   /*
@@ -135,46 +168,12 @@ export function resolvePageBorderWidth(
   return match === null ? 0 : Number(match[1]);
 }
 
-/**
- * 解析页边距令牌为四边盒（px）
- *
- * 支持 CSS `padding` 简写的 1~4 值形态（与 `buildPageStyle` 透传给 CSS 的语义
- * 一致，均为物理边）：
- * - 1 值 `a`：四边均 `a`；
- * - 2 值 `a b`：上下 `a`、左右 `b`；
- * - 3 值 `a b c`：上 `a`、左右 `b`、下 `c`；
- * - 4 值 `a b c d`：上 `a`、右 `b`、下 `c`、左 `d`。
- *
- * 仅支持 px：非 px 单位（em / % 等）会使「分页主轴 = 页宽/高 − 边距」与 CSS
- * 实际版心错位（`buildPageStyle` 原样透传，浏览器按 em 计算 padding），导致
- * 系统性溢出裁切，故显式拒绝而非静默按数字截取。令牌缺省时四边均 0
- * （与 `buildPageStyle` 缺省不内缩的渲染语义一致）。
- *
- * @throws RangeError 当令牌含非 px 单位值。
+/*
+ * 页边距四边盒的解析已下移到 `page-size.ts`（纯页面几何，供分页度量与
+ * 仿真几何共用，避免样式构建器与仿真几何互相依赖成环）；此处保持同名
+ * 再导出，公开 API 与调用方不受影响。
  */
-export function resolvePageMarginBox(
-  tokens: Readonly<Record<string, string | undefined>>,
-): PageMarginBox {
-  const raw = tokens[LAYOUT_TOKENS.PAGE_MARGIN];
-  if (raw === undefined || raw.trim() === '') return { top: 0, right: 0, bottom: 0, left: 0 };
-  const values = raw
-    .trim()
-    .split(/\s+/)
-    .map((part) => {
-      const match = /^(-?\d+(?:\.\d+)?)px$/.exec(part);
-      if (match === null) {
-        throw new RangeError(`page-margin 令牌仅支持 px 单位（如 "48px 56px"），收到："${raw}"`);
-      }
-      return Number(match[1]);
-    });
-  const [v0, v1, v2, v3] = values;
-  // CSS 简写逐边展开（缺省回退到已给定的对边 / 同轴值）
-  const top = v0 ?? 0;
-  const right = v1 ?? top;
-  const bottom = v2 ?? top;
-  const left = v3 ?? right;
-  return { top, right, bottom, left };
-}
+export { resolvePageMarginBox };
 
 /**
  * 解析页边距令牌（旧口径：`[上下, 左右]` 两值）
@@ -202,10 +201,17 @@ export function resolvePageMainSize(
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
   const box = resolveContentBox(options.pageSize, resolvePageMarginBox(tokens));
-  // 版框边框侵占 border-box 内容区（两侧各一份）
-  const border = resolvePageBorderWidth(tokens) * 2;
+  const facsimile = isFacsimileEnabled(options);
+  /*
+   * 版框边框侵占 border-box 内容区（两侧各一份）。古籍仿真版的版框画在
+   * 页边距内、不侵占版心，且与 page-border 成对失效（见 buildRootStyle），
+   * 故此处同步不计扣减，保持两端口径一致。
+   */
+  const border = facsimile ? 0 : resolvePageBorderWidth(tokens) * 2;
   const vertical = isVerticalMode(options.writingMode);
   const main = vertical ? box.width : box.height;
+  /* 版心带宽只从直排主轴（页宽）扣除；横排不渲染版心，不扣 */
+  const gutter = vertical ? resolveFacsimileGutterSize(options) : 0;
   /*
    * 页眉 / 页脚占位：横排下页眉页脚位于页面上下沿，直接侵占主轴（页高）；
    * 直排下主轴是页宽（列数），页眉页脚侵占的是**交叉轴**（每列字数），
@@ -217,7 +223,7 @@ export function resolvePageMainSize(
       ? 0
       : (chrome.header === 'none' ? 0 : Math.max(0, chrome.headerSize)) +
         (chrome.footer === 'none' ? 0 : Math.max(0, chrome.footerSize));
-  return Math.max(1, main - border - chromeMain);
+  return Math.max(1, main - border - chromeMain - gutter);
 }
 
 /**
@@ -282,7 +288,8 @@ export function resolvePageCrossSize(
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
   const box = resolveContentBox(options.pageSize, resolvePageMarginBox(tokens));
-  const border = resolvePageBorderWidth(tokens) * 2;
+  /* 同 resolvePageMainSize：仿真版框画在页边距内，与 page-border 成对不扣 */
+  const border = isFacsimileEnabled(options) ? 0 : resolvePageBorderWidth(tokens) * 2;
   const vertical = isVerticalMode(options.writingMode);
   const cross = vertical ? box.height : box.width;
   const chrome = options.pageChrome;

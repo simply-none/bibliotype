@@ -48,6 +48,10 @@ export type {
   ResolvePageChromeInput,
 } from './page-chrome.js';
 
+/* ---------- 版心（书口） ---------- */
+export { resolvePageGutterTexts } from './page-gutter.js';
+export type { ResolvePageGutterInput } from './page-gutter.js';
+
 /* ---------- 页码 ---------- */
 export {
   toChineseNumeral,

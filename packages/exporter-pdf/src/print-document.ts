@@ -23,7 +23,12 @@ import {
   resolveBottomSlack,
   type LayoutOptions,
 } from '@bibliotype/layout';
-import { buildBookCss, escapeHtml, serializeNode } from '@bibliotype/layout/html';
+import {
+  buildBookCss,
+  escapeHtml,
+  serializeNode,
+  serializePageGutter,
+} from '@bibliotype/layout/html';
 import {
   Reader,
   defaultEstimator,
@@ -115,6 +120,10 @@ export function renderPrintHtml(
     fontToken: options.fontToken,
     features: options.features,
     namedStyles: options.namedStyles,
+    /* 装饰图层只在「预分页」打印稿生效：auto 模式交给打印引擎重排，不适用 */
+    pageDecoration: mode === 'paged' && layout.facsimile !== undefined,
+    /* 书册根规则仍挂 body（既有口径不变），装饰逐页挂 .bt-page */
+    decorationSelector: mode === 'paged' ? '.bt-page' : undefined,
   })}\n${buildPrintCss({ options: layout, tokens, mode })}`;
 
   const body =
@@ -191,6 +200,12 @@ function renderPagedBody(
        * `chrome === undefined` 表示未启用（或封面页）→ 回退老的「页脚仅页码」。
        */
       const chrome = reader.getPageChromeTexts(page.index);
+      /* 版心（书口）：与阅读视图 / 编辑分页同源；封面与未启用仿真版式时为空 */
+      const gutterTexts = reader.getPageGutterTexts(page.index);
+      const gutter =
+        gutterTexts === undefined
+          ? ''
+          : serializePageGutter(gutterTexts, layout.facsimile);
       const header =
         chrome !== undefined && chrome.header !== ''
           ? `<div class="bt-page-header">${escapeHtml(chrome.header)}</div>\n`
@@ -206,7 +221,7 @@ function renderPagedBody(
       return (
         `<section class="bt-page" data-page="${page.index + 1}">\n` +
         `${content}\n` +
-        `${header}${footer}</section>`
+        `${gutter}${header}${footer}</section>`
       );
     })
     .join('\n');

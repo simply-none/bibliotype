@@ -14,6 +14,7 @@ interface LayoutOptions {
   columns: number;                          // 分栏数 1~3
   pageNumberStyle: PageNumberStyle;         // 'decimal' | 'chinese' | 'roman'
   combineUpright: CombineUprightOptions;    // 直排数字/英文策略（D3）
+  facsimile?: FacsimileOptions;             // 古籍仿真版式（缺省 undefined = 不启用）
 }
 ```
 
@@ -21,6 +22,12 @@ interface LayoutOptions {
 | --- | --- |
 | `DEFAULT_LAYOUT_OPTIONS` | 横排、A5、单栏、阿拉伯页码 |
 | `CLASSICAL_LAYOUT_OPTIONS` | 直排右起、16 开、单栏、中文页码 |
+| `FACSIMILE_BASE_LAYOUT` | 同上，但由 `FACSIMILE_PRESETS` 填充 `facsimile`（版框 / 界行 / 版心） |
+
+`facsimile` 是「古籍仿真直排」的唯一开关：缺省时版心尺寸、样式表与度量签名
+与未实现该能力前完全一致；启用后只有版心带宽（`facsimile.gutter.size`）进入
+主轴扣减，版框与界行画在页边距内、不侵占版心。详见
+[22 古籍仿真直排](22-facsimile-vertical.md)。
 
 ```ts
 import {
@@ -134,11 +141,16 @@ const css = buildBookCss({
   options: layoutOptions,
   fontToken: FONT_TOKENS.CLASSICAL_BODY,       // 可选
   containerSelector: '.bt-reader-page',          // 默认 'body'；阅读器可指向自身容器
+  pageDecoration: false,                         // 默认 false：古籍仿真装饰图层开关
 });
 ```
 
 产物三段：`:root` 输出 `--bt-*` 变量；根容器规则经 `var()` 引用变量（书写方向 /
 直排策略 / 分栏随布局选项）；`.bt-*` 节点类样式（限定在根容器内，避免样式泄漏）。
+
+`pageDecoration` 只由**固定分页渲染路径**开启（阅读视图 / 编辑分页 / 打印 `paged`），
+且还要求布局带 `facsimile` 与直排（三重闸门）。EPUB（reflow）、连续编辑画布、
+量尺表一律不开启，故「现代横排 / 古籍直排」的样式表逐字符不变。
 
 ## 相关
 

@@ -114,6 +114,19 @@ const reader = new Reader({ layout: CLASSICAL_LAYOUT_OPTIONS }); // 直排、16 
 reader.loadDocument(document);
 ```
 
+### 古籍直排 vs 古籍仿真直排
+
+两者**并列**，互不影响：
+
+| | 古籍直排（本节） | 古籍仿真直排 |
+| --- | --- | --- |
+| 布局 | `CLASSICAL_LAYOUT_OPTIONS`（无 `facsimile` 字段） | `FACSIMILE_BASE_LAYOUT` + 模板填充 `facsimile` |
+| 版框 | 扩展令牌 `page-border`（页面 border，会侵占版心） | 装饰图层（画在页边距内，不侵占版心） |
+| 界行 / 版心 | 无 | 有（乌丝栏 / 朱丝栏、书口鱼尾） |
+| 对既有行为 | — | **零改动**：缺省 `facsimile` 即走本节全部原路径 |
+
+详见 [22 古籍仿真直排](22-facsimile-vertical.md)。
+
 ## 阅读与导出中的古籍
 
 - **阅读分块**：`reader` 将双行小注 / 眉批 / 校勘记等标记为「版式文本容器」，

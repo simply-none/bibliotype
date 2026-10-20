@@ -98,5 +98,18 @@ export function computeMetricsSignature(input: MetricsSignatureInput): string {
     (key) => `${key}=${input.tokens[key] ?? ''}`,
   ).join(';');
   const featurePart = computeFeatureMetricsSignature(input.features);
-  return `${optionsPart(input.options)}|${tokenPart}|${featurePart}`;
+  const base = `${optionsPart(input.options)}|${tokenPart}|${featurePart}`;
+  /*
+   * 古籍仿真版式：只在启用时**追加**到签名尾部，原键集与顺序一字不动——
+   * 未启用时签名与改造前逐字符相同（「现代横排 / 古籍直排」的分页缓存
+   * 行为零变化）。参与项只有真正影响度量的：版心带宽（扣主轴）与两个
+   * 仿真字体族（同字号字宽不同）；版框线宽 / 颜色 / 纸纹属纯绘制，不进签名。
+   */
+  if (input.options.facsimile === undefined) return base;
+  const facsimile = input.options.facsimile;
+  return `${base}|fs:${facsimile.frame}/${facsimile.rule}/g${
+    facsimile.gutter?.size ?? 0
+  }/ft${input.tokens['font-family-classical-song'] ?? ''},${
+    input.tokens['font-family-classical-fangsong'] ?? ''
+  }`;
 }

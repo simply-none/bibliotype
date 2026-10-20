@@ -22,7 +22,10 @@ import { combineUprightCss } from '../combine-upright.js';
 import type { LayoutOptions } from '../layout-options.js';
 import { buildCssVariables, type StyleDeclaration } from '../style-builder.js';
 import { isVerticalMode } from '../writing-mode.js';
+import { isFacsimileEnabled } from '../facsimile.js';
+import { resolveFacsimileCssVariables } from '../facsimile-geometry.js';
 import { buildFeatureCss } from './feature-selectors.js';
+import { buildFacsimileDecorationCss } from './facsimile-frame-css.js';
 
 /** CSS 声明对象 → CSS 文本（每条声明一行，缩进两格） */
 export function declarationToCss(declaration: StyleDeclaration): string {
@@ -60,6 +63,23 @@ export interface BuildBookCssOptions {
   features?: FeatureStyleSheet;
   /** 命名样式集合（输出 `[data-style-id="…"]` 规则，优先级高于功能样式） */
   namedStyles?: NamedStyleSet;
+  /**
+   * 是否输出古籍仿真装饰图层（版框 / 界行 / 版心，默认 `false`）
+   *
+   * 只有「固定分页渲染路径」显式开启：阅读视图 `BtBookView`、编辑分页
+   * `PagedCanvas`、打印 `paged` 模式。EPUB（reflow）、连续编辑画布、
+   * 量尺表一律不开启——且还须布局里真的带 `facsimile`（双闸门），
+   * 因此「现代横排 / 古籍直排」的产物逐字符不变。
+   */
+  pageDecoration?: boolean;
+  /**
+   * 装饰图层的挂载选择器（缺省同 `containerSelector`）
+   *
+   * 打印稿的书册根规则挂在 `body`（页面盒由 `buildPrintCss` 的 `.bt-page` 承担），
+   * 而版框 / 界行必须逐页绘制，故打印路径单独传 `.bt-page`——既不改既有根规则，
+   * 又保证装饰落在每一页上。
+   */
+  decorationSelector?: string;
 }
 
 /** 标题 1~6 相对 `--bt-font-size-heading` 的倍率（H1 为基准） */
@@ -83,6 +103,14 @@ export function buildBookCss(input: BuildBookCssOptions): string {
 
   /* ---------- 1. 变量层：--bt-* ---------- */
   const variables = buildCssVariables(tokens);
+  /*
+   * 古籍仿真几何变量（列距 / 图层内缩 / 版心带宽）只在「启用 + 直排」时并入
+   * 变量层；未启用时 `:root` 变量表与改造前逐字符一致（隔离矩阵第 5 条），
+   * 横排即便误带 facsimile 也不产出仿真变量（仿真版式只在直排下成立）。
+   */
+  if (input.pageDecoration === true && isFacsimileEnabled(options) && vertical) {
+    Object.assign(variables, resolveFacsimileCssVariables(options, tokens));
+  }
   const variableLines = Object.entries(variables)
     .map(([name, value]) => `  ${name}: ${value};`)
     .join('\n');
@@ -578,7 +606,25 @@ ${scoped('.bt-page-footer')} {
   );
 
   /*
-   * ---------- 9. 用户覆盖：功能样式 + 命名样式 ----------
+   * ---------- 9. 古籍仿真装饰（版框 / 界行 / 版心） ----------
+   *
+   * 双闸门：`pageDecoration` 由分页渲染路径显式开启，且布局里真的带
+   * `facsimile` 且为直排；三者缺一即不输出任何字符 —— 「现代横排 /
+   * 古籍直排」的样式表因此逐字符不变。
+   */
+  if (input.pageDecoration === true && isFacsimileEnabled(options) && vertical) {
+    const decoration = buildFacsimileDecorationCss({
+      options,
+      tokens,
+      containerSelector: input.decorationSelector ?? containerSelector,
+    });
+    if (decoration !== '') {
+      rules.push(`/* ---------- 古籍仿真装饰（版框 / 界行 / 版心） ---------- */\n${decoration}`);
+    }
+  }
+
+  /*
+   * ---------- 10. 用户覆盖：功能样式 + 命名样式 ----------
    *
    * 追加在最后：同优先级靠层叠顺序胜出（不用 !important——老引擎对
    * `!important` 与 `var()` 的组合行为不可靠）。命名样式排在其后，

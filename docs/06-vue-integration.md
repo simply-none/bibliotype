@@ -184,7 +184,13 @@ refresh();                                      // 外部 loadDocument 后同步
 - `useReader` / `useEditorBinding` 在组件或 `effectScope` 内调用时自动清理（解绑事件 / detach 视图）；
   在组件外调用则需自行管理生命周期；
 - `useEditorBinding` 会 `markRaw(toRaw(editor))`，保证绑定实例与调用方持有的是同一对象；
-- `BtBookView` 注入的书册样式表以 `#bt-book-css` 单例挂载，多实例共享、以最后写入为准。
+- `BtBookView` 注入的书册样式表以 `#bt-book-css` 单例挂载，多实例共享、以最后写入为准；
+- `BtBookView` 在 `setup` 时用 `useReaderBinding(props.reader)` **一次性绑定** Reader，
+  因此**替换 `reader` prop 需要配合 `:key` 重新挂载**（否则页内容按新 Reader 渲染、
+  样式表仍停在旧布局）。切换主题 / 布局重建 Reader 的场景请照此处理，
+  见 demo 的 `:key="themeKey + '-' + readerEpoch"`；
+- 古籍仿真直排的装饰图层（`pageDecoration`）由 `BtBookView` / `PagedCanvas` 依据
+  `layout.facsimile` 自动开启，`BtEditor` 连续画布刻意不开（避免绝对定位图层干扰点选）。
 
 ## 相关
 

@@ -23,12 +23,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isTextNode, type BookNode, type FeatureStyleSheet, type NamedStyleSet } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, isVerticalMode, type LayoutOptions } from '@bibliotype/layout';
-import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
+import { buildBookCss, serializeNode, serializePageGutter } from '@bibliotype/layout/html';
 import {
   buildPageChromeIndex,
   formatPageNumber,
   isPageChromeEnabled,
   resolvePageChromeTexts,
+  resolvePageGutterTexts,
   type PageChromeIndex,
   type PageNumberStyle,
 } from '@bibliotype/reader';
@@ -121,6 +122,7 @@ function syncStyle(): void {
     containerSelector: CONTAINER_SELECTOR,
     features: props.features,
     namedStyles: props.namedStyles,
+    pageDecoration: props.options.facsimile !== undefined,
   });
   // 续页片段（fromLine>0）是上一页面段落的接续行：书排惯例不缩进，
   // 去掉 .bt-paragraph 的首行 text-indent（仅片段首段，段内后续行本就不缩进）
@@ -210,6 +212,26 @@ const bookTitle = computed(() => {
   return props.editor?.getSharedDocument().metadata.title ?? '';
 });
 
+/*
+ * 版心（书口）：与阅读视图、打印稿同源。未启用古籍仿真版式时
+ * `gutterConfig` 为 undefined → 恒不渲染，编辑画布行为零变化。
+ */
+const gutterConfig = computed(() => props.options.facsimile?.gutter);
+
+/**
+ * 版心索引（章名 + 封面块）
+ *
+ * 启用版心才建表：每页需判封面（决定是否显示书口）与取篇卷名；
+ * 与页眉页脚索引同构，一次 DFS 建好，避免逐页回溯文档树。
+ */
+const gutterIndex = computed<PageChromeIndex | null>(() => {
+  void props.pages;
+  if (gutterConfig.value === undefined) return null;
+  const doc = props.editor?.getSharedDocument();
+  if (doc === undefined) return null;
+  return buildPageChromeIndex(doc.root);
+});
+
 const pageFrameStyle = computed(() => ({
   ...buildPageStyle(pageSize.value, props.tokens),
   ...buildRootStyle({
@@ -286,6 +308,8 @@ interface RenderedPage {
   mainPos: number;
   frags: RenderedFrag[];
   numberText: string;
+  /** 版心（书口）HTML（空串 = 不渲染；未启用仿真版式时恒为空） */
+  gutterHtml: string;
   /** 页眉文本（空串 = 不渲染） */
   header: string;
   /** 页脚文本（空串 = 不渲染） */
@@ -317,26 +341,34 @@ const renderedPages = computed<RenderedPage[]>(() => {
     const page = props.pages[i];
     if (page === undefined) continue;
     const numberText = formatPageNumber(i + 1, pageNumberStyle.value);
+    const firstId = page.fragments[0]?.blockId;
+    /* 封面判定：页眉页脚索引与版心索引任一可用即可；都未启用时按非封面处理 */
+    const coverSet = index ?? gutterIndex.value;
+    const isCover = firstId !== undefined && coverSet !== null && coverSet.coverBlocks.has(firstId);
     let header = '';
     let footer = '';
     let chromeOn = false;
-    if (chrome !== undefined) {
-      const firstId = page.fragments[0]?.blockId;
-      // 封面不标页眉页脚（书籍惯例）；索引缺失时按非封面处理（仅有页码 / 书名）
-      const isCover = firstId !== undefined && index !== null && index.coverBlocks.has(firstId);
-      if (firstId !== undefined && !isCover) {
-        const texts = resolvePageChromeTexts({
-          chrome,
-          pageIndex: i,
-          bookTitle: bookTitle.value,
-          chapterTitle: index?.chapterTitles.get(firstId) ?? '',
-          pageNumberText: numberText,
-        });
-        header = texts.header;
-        footer = texts.footer;
-        chromeOn = true;
-      }
+    if (chrome !== undefined && firstId !== undefined && !isCover) {
+      const texts = resolvePageChromeTexts({
+        chrome,
+        pageIndex: i,
+        bookTitle: bookTitle.value,
+        chapterTitle: index?.chapterTitles.get(firstId) ?? '',
+        pageNumberText: numberText,
+      });
+      header = texts.header;
+      footer = texts.footer;
+      chromeOn = true;
     }
+    /* 版心（书口）：封面不显示；未启用仿真版式时为 undefined → 空串 */
+    const gutterTexts =
+      gutterConfig.value === undefined || firstId === undefined || isCover
+        ? undefined
+        : resolvePageGutterTexts({
+            bookTitle: bookTitle.value,
+            chapterTitle: gutterIndex.value?.chapterTitles.get(firstId) ?? '',
+            pageNumberText: numberText,
+          });
     list.push({
       index: i,
       mainPos: SCROLL_PADDING + i * stride.value,
@@ -348,6 +380,10 @@ const renderedPages = computed<RenderedPage[]>(() => {
         html: fragHtml(frag),
       })),
       numberText,
+      gutterHtml:
+        gutterTexts === undefined
+          ? ''
+          : serializePageGutter(gutterTexts, props.options.facsimile),
       header,
       footer,
       chromeOn,
@@ -1010,6 +1046,7 @@ watch(
               v-html="frag.html"
             ></div>
           </div>
+          <div v-if="page.gutterHtml" class="bt-page-gutter-host" v-html="page.gutterHtml"></div>
           <!-- 页眉页脚放在 flow 之后：绝对定位，DOM 顺序不影响视觉层级，
                但能保证 .bt-paged-page__flow 的首片段仍是「页首块吞 margin」的命中目标 -->
           <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>

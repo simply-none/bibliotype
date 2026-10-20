@@ -90,6 +90,10 @@ export {
 } from './commands.js';
 export type { FigureOptions, TableCellAlign, InsertNoteOptions } from './commands.js';
 
+/* ---------- 目录生成 / 刷新 ---------- */
+export { insertToc, collectTocEntries, buildTocNode } from './toc.js';
+export type { TocEntry, TocOptions } from './toc.js';
+
 /* ---------- 选区转换为容器（「替换为」） ---------- */
 export { replaceSelectionWithContainer } from './selection-convert.js';
 export type { ReplaceContainerOptions, ReplaceIdOwner } from './selection-convert.js';

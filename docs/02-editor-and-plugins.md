@@ -92,6 +92,27 @@ off();
 | `insertRuby(reading, text?)` | 注音：选区加 `ruby` 标记，或插入带注音文字 |
 | `insertFigure({ src, alt, caption })` | 图片 + 图注块组，光标落入图注 |
 | `insertHorizontalRule()` / `insertPageBreak()` | 分隔线 `break(variant='hr')` / 分页符 `break(variant='page')` |
+| `insertFootnote` / `insertEndnote` / `insertMarginNote` / `insertNote` | 脚注 / 尾注 / 边注，按同类现存数量自动编号（见 [31 注释](31-notes.md)） |
+| `insertToc(options?)` | 生成 / 刷新目录页（见下节） |
+
+### 目录生成 / 刷新（`insertToc`）
+
+```ts
+import { insertToc, collectTocEntries } from '@bibliotype/editor';
+
+insertToc();                                  // 插在前置页之后
+insertToc({ maxLevel: 1, includeHeadings: true });
+insertToc({ title: '' });                     // 不排「目录」标题行
+insertToc({ links: false });                  // 纯文字目录
+insertToc({ hrefPrefix: 'text/sec-0.xhtml#' }); // 跨文档链接前缀
+```
+
+- 产物是 `toc` 块：标题行 `data-role="toc-title"` + 逐条段落 `toc-entry`（顶层）/ `toc-subentry`（更深），
+  与 demo 目录页、`book-css` 的 `role.toc-*` 样式同一口径；
+- 条目只收**有 `id` 的结构节点**（卷 / 章 / 节 / 附录 / 前言 / 后记；`includeHeadings` 时加 heading），
+  无 id 的节点没有可用锚点，宁缺不列；
+- 层级按结构嵌套推导，跳级收敛为「父级 + 1」，避免缩进错位；
+- 已存在目录时**原位替换内容**（保留其 `id` 与自定义属性），即「刷新」；文档无可收条目时返回 `false`。
 
 ### 默认键位（`createBookEditorKeymap`）
 

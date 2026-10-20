@@ -283,6 +283,11 @@ ${scoped('.bt-mark-highlight')} {
 ${scoped('.bt-mark-link')} {
   color: var(--bt-${COLOR_TOKENS.ACCENT});
 }
+/* 目录条目上的链接只是跳转载体：跟随目录版式（居中 / 层级字号），不另加颜色与下划线 */
+${scoped('.bt-toc .bt-mark-link')} {
+  color: inherit;
+  text-decoration: none;
+}
 ${scoped('.bt-math-block')} {
   margin: 1em 0;
   text-align: center;

@@ -284,3 +284,35 @@ describe('注释块', () => {
     );
   });
 });
+
+describe('目录块', () => {
+  it('toc → nav，标题行与条目段落按 role 输出 data-role，条目链接保留 href', () => {
+    const toc: BookNode = {
+      type: NODE_TYPES.TOC,
+      id: 'toc-1',
+      attrs: { title: '目录' },
+      children: [
+        {
+          type: NODE_TYPES.HEADING,
+          attrs: { level: 1, role: 'toc-title' },
+          children: [{ type: 'text', text: '目录' }],
+        },
+        {
+          type: NODE_TYPES.PARAGRAPH,
+          attrs: { role: 'toc-entry' },
+          children: [
+            { type: 'text', text: '上论', marks: [{ type: MARK_TYPES.LINK, attrs: { href: '#vol-1' } }] },
+          ],
+        },
+      ],
+    };
+
+    expect(serializeNode(toc)).toBe(
+      '<nav id="toc-1" class="bt-toc" data-title="目录">' +
+        '<h1 class="bt-heading" data-level="1" data-role="toc-title">目录</h1>' +
+        '<p class="bt-paragraph" data-role="toc-entry">' +
+        '<a class="bt-mark-link" href="#vol-1">上论</a></p>' +
+        '</nav>',
+    );
+  });
+});

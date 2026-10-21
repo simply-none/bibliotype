@@ -163,10 +163,16 @@ export class BookEditor {
     return this.state.tr;
   }
 
-  /** 派发事务：应用后若文档发生变化则广播变更 */
+  /**
+   * 派发事务：应用后若文档发生变化则广播变更
+   *
+   * 走 `applyTransaction`（而不是 `state.apply`）以便插件的 `appendTransaction`
+   * 能生效——修订追踪（C5）依赖它在事务落定后追加打标事务。
+   */
   dispatch(transaction: Transaction): void {
-    const docChanged = transaction.docChanged;
-    this.state = this.state.apply(transaction);
+    const result = this.state.applyTransaction(transaction);
+    const docChanged = result.transactions.some((item) => item.docChanged);
+    this.state = result.state;
     if (docChanged) {
       this.changeSeq += 1;
       this.emitChange();

@@ -68,6 +68,37 @@ const memory = new MemoryAdapter();
 存储记录含冗余元数据（列表页免解析全文），并保留 `updatedAt`；Electron（SQLite）与远端（HTTP）
 适配器可循同一契约另行实现（如 `@bibliotype/adapter-sqlite`、`@bibliotype/adapter-http`）。
 
+## 可选能力：书架摘要与历史版本
+
+`IndexedDbAdapter` 与 `MemoryAdapter` 在必选方法之外实现两个可选端口（调用方需先探测）：
+
+```ts
+import { isBookLibraryStore, isBookSummaryStore } from '@bibliotype/core';
+import { IndexedDbVersionStore } from '@bibliotype/adapter-indexeddb';
+
+if (isBookLibraryStore(adapter)) {
+  const page = await adapter.query({ text: '朱熹', sortBy: 'recentRead', groupBy: 'tag' });
+}
+
+/* 只改摘要、不重写正文：阅读进度 / 最近阅读 / 封面 / 标签 */
+if (isBookSummaryStore(adapter)) {
+  await adapter.updateSummary('lunyu', { progress: 0.32, lastOpenedAt: Date.now() });
+}
+
+/* 历史快照：独立数据库（默认 bibliotype-versions），复合主键 [documentId, version] */
+const versions = new IndexedDbVersionStore();
+await versions.saveVersion(snapshot);
+await versions.pruneVersions('lunyu', { maxCount: 20, now: Date.now() });
+```
+
+- 摘要字段全部可选，旧记录缺字段由 `mergeDocumentSummary` 回退，**不升库版本、不重写旧记录**；
+- 字数在 `save` 时用 `countDocumentStats` 算一次落库，书架渲染不再遍历 IR；
+- 版本仓与文档库分开，避免快照把正文库撑大；`MemoryVersionStore` 供测试与 SSR 使用；
+- 存储实现只执行删除，保留策略的「该删哪些」由 core 的 `selectExpiredSnapshots` 决定。
+
+两个适配器共用 `src/__tests__/storage-contract.ts` 的公共契约套件（含可选能力探测），
+新增适配器建议直接复用该套件。
+
 ## 相关
 
 - 功能参考：[docs/10-storage-adapters.md](../../docs/10-storage-adapters.md)

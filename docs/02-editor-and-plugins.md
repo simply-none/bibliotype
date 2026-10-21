@@ -181,6 +181,81 @@ replaceAll('第\\d+章', '第X章', { regex: true });   // 「全部替换」
 - **往返一致性**：由于注释容器在阅读分块中恒为**原子叶块**（见 [04](04-reader-and-pagination.md)），
   编辑保存产生的「容器 + 段落」规范形态与初始宽松形态渲染结果一致。
 
+## 修订模式（C5）
+
+修订用三种标记表达，全部登记在 core 的 `MARK_TYPES`，并同步到
+`CORE_EDITOR_MARK_SPECS` 与 `layout` 序列化：
+
+| 标记 | 含义 | attrs |
+| --- | --- | --- |
+| `insertion` | 新增文本 | `changeId` / `author` / `timestamp` |
+| `deletion` | 删除文本（**内容保留**） | 同上 |
+| `format-change` | 格式变化 | 同上 + `previous`（变更前标记快照 JSON） |
+
+```ts
+import {
+  BookEditor,
+  createBookEditorPlugins,
+  createRevisionTrackingPlugin,
+  setRevisionMode,
+  setRevisionView,
+  acceptRevision,
+  rejectRevision,
+  acceptAllRevisions,
+  rejectAllRevisions,
+} from '@bibliotype/editor';
+
+const editor = new BookEditor({
+  schema,
+  document,
+  plugins: [
+    ...createBookEditorPlugins(schema),
+    createRevisionTrackingPlugin({ author: '张三' }),
+  ],
+});
+
+setRevisionMode(true)(editor.editorState, (tr) => editor.dispatch(tr));
+acceptAllRevisions(editor.editorState, (tr) => editor.dispatch(tr));
+```
+
+- **自动打标**：插件在 `appendTransaction` 中追加打标事务——删除的文本按 `deletion`
+  重新插回（所以拒绝可无损还原），新增区间加 `insertion`，`addMark` / `removeMark`
+  区间加 `format-change`；撤销 / 重做（`addToHistory: false`）不记录；
+- 打标事务带内部元数据，不会递归；`changeId` 由 `buildChangeId(作者, 时间, 序号)`
+  确定性生成（时间由插件选项注入，缺省 `Date.now`）；
+- **接受 / 拒绝**：编辑器命令走 `pmNodeToIr → core 纯函数 → irNodeToPm`，与导出 / 测试
+  共用同一语义；
+- `BookEditor.dispatch` 使用 `applyTransaction`，因此 `appendTransaction` 在无视图路径
+  同样生效（与 `EditorView` 行为一致）；
+- 视图投影发生在**序列化边界**（见 [05](05-layout-and-html.md)）：编辑器内部始终保留
+  带标记的原始内容，避免「终稿视图编辑后丢失原文」。
+
+## 历史版本（C7）
+
+```ts
+import { diffDocuments, inlineTextDiff, createSnapshot, restoreSnapshot } from '@bibliotype/core';
+import { IndexedDbVersionStore } from '@bibliotype/adapter-indexeddb';
+
+const store = new IndexedDbVersionStore();
+const metas = await store.listVersions('lunyu');
+const snapshot = createSnapshot({
+  documentId: 'lunyu',
+  document: editor.getDocument(),
+  version: metas.length + 1,
+  createdAt: Date.now(),
+  label: '投稿前',
+});
+await store.saveVersion(snapshot);
+
+const diff = diffDocuments(snapshot.document, editor.getDocument()); // { changes, added, removed, modified }
+const restored = restoreSnapshot(snapshot);                          // 校验和 + validateDocument
+```
+
+- `diffDocuments`：同层子节点按 `id`（无 id 时 `type + 首行文本`）对齐后做 LCS，
+  文本叶子给出字符级 `inlineTextDiff`（超长文本退化为整段替换）；
+- 回滚必须走 `restoreSnapshot`：校验和与 IR 校验任一失败都返回 `{ ok: false, code, message }`，
+  不返回文档，避免坏快照写进书库。
+
 ## 插件系统（core）
 
 插件是 bibliotype 的扩展单元（classical / collab 等均以插件形态提供能力）：

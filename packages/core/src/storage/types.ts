@@ -24,14 +24,40 @@ export interface StoredDocument {
   updatedAt: number;
 }
 
-/** 文档摘要（列表页展示） */
+/**
+ * 文档摘要（列表页 / 书架展示）
+ *
+ * 除 `id` / `title` / `updatedAt` 外的字段均为**可选**：早期版本落库的摘要
+ * 没有这些字段，读取侧必须通过 `mergeDocumentSummary` 回退，不得假定存在。
+ */
 export interface DocumentSummary {
   id: string;
   /** 标题（取自 metadata.title） */
   title: string;
   /** 最后更新时间（epoch ms） */
   updatedAt: number;
+  /** 责任者（取 metadata.contributors 首位姓名） */
+  author?: string;
+  /** ISBN（取 metadata.identifiers 中 scheme 为 isbn 的首项） */
+  isbn?: string;
+  /** 书架标签（规范化后的去重列表） */
+  tags?: string[];
+  /**
+   * 封面缩略图（data URI 或 `asset:<id>` 引用）
+   *
+   * 书籍原文封面可能很大，书架只缓存缩略图。
+   */
+  coverThumbnail?: string;
+  /** 正文字数（`countDocumentStats().characters` 口径，保存时算一次） */
+  wordCount?: number;
+  /** 阅读进度（0–1；0 表示未读，1 表示读完） */
+  progress?: number;
+  /** 最近阅读时间（epoch ms；未读过则缺省） */
+  lastOpenedAt?: number;
 }
+
+/** 摘要的部分更新载荷（undefined 表示「不修改该字段」） */
+export type DocumentSummaryPatch = Partial<Omit<DocumentSummary, 'id'>>;
 
 /** 保存选项 */
 export interface SaveOptions {

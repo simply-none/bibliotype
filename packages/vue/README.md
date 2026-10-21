@@ -79,6 +79,11 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `BtTableSizePicker` | `anchor`（触发器矩形）、`trigger?`、`maxRows?` / `maxCols?`（默认 8）、`rows?` / `cols?`（默认 3）；emit `select({ rows, cols })` / `close` | Word / WPS 式表格尺寸选择器：行 × 列网格悬停高亮、点击即插，另给精确行列输入；Teleport + `placeFloating` 定位，详见 [docs/21](../../docs/21-table-editing.md) |
 | `BtAnnotationSidebar` | `model`（按章分组的标注）、`readonly?`；emit `locate` / `remove` / `resolve` / `reply` | 书签 / 高亮 / 笔记 / 评论侧栏：四个 tab 过滤、按章分组，点击定位由宿主执行；正文内高亮装饰不在本组件，详见 [docs/24](../../docs/24-annotation.md) |
 | `BtDocumentStats` | `stats`、`compact?`、`selectable?`；emit `select-structure(nodeId)` | 状态栏统计：字数 / 块数 / 阅读时长 / 注释数 + 章节分布（纯 CSS 条形，无图表库），详见 [docs/30](../../docs/30-document-stats.md) |
+| `BtBookShelf` | `cards`、`total?`、`facets?`、`activeTags?`、`search?`、`viewMode?`、`sortBy?`、`loading?`、`error?`、`emptyHint?`；emit `search` / `toggle-tag` / `sort` / `update:view` / `open` / `import` / `export` | 书架：网格 / 列表双视图、封面占位、进度条、标签筛选、检索，详见 [docs/06](../../docs/06-vue-integration.md#新增组件p2书架--备份--加密--修订--版本) |
+| `BtBackupPanel` | `busy?`、`progress?`、`result?`、`strategy?`；emit `export` / `import` / `update:strategy` | 整库备份：三段式冲突策略 + 逐书进度 + 失败清单 |
+| `BtEncryptionPanel` | `enabled?`、`unlocked?`、`notesLocked?`、`busy?`、`error?`、`redact?`；emit `enable` / `unlock` / `disable` / `toggle-notes` / `update:redact` | 开启 / 解锁 / 关闭加密、注记独立密钥、脱敏导出 |
+| `BtRevisionSidebar` | `model`、`view?`、`enabled?`、`author?`；emit `set-mode` / `set-view` / `accept` / `reject` / `accept-all` / `reject-all` / `locate` | 修订侧栏：标记 / 终稿 / 原稿三视图、类型色条、单条与全部接受拒绝 |
+| `BtVersionHistory` | `model`、`diffRows?`、`summaryText?`、`compareMode?`、`activeVersion?`、`busy?`、`error?`；emit `compare` / `restore` / `create` / `update:compare-mode` | 版本时间轴 + 左右 / 行内对比 + 一键回滚（校验由宿主执行） |
 
 ## API 概览
 
@@ -93,7 +98,9 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `buildPagedLayout(input)` / `usePagedLayout(opts)` | 编辑态分页内核：块抽取 → 量尺 → 分页 → 逐页片段（支持 `fromBlockId` 增量实测与 `targetBlockId` 定点实测） |
 | `useAnnotations(opts)` | 选区建标注 + `AnnotationStorage` 编排 + 按章侧栏模型（`vue → annotation → core`） |
 | `useDocumentStats({ document, revision?, debounceMs? })` | 300ms 防抖的 `countDocumentStats` 组合式 |
-| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `PagedCanvas` | 组件 |
+| `useBookLibrary({ store, codec?, now?, pageSize?, ... })` | 书架状态：查询 / 标签筛选 / 排序 / 视图、`openBook` / `exportBook` / `importBook`；`.btbook` 的 ZIP 由宿主经 `codec` 注入 |
+| `buildShelfCards` / `buildTagFacets` / `buildRevisionModel` / `buildVersionHistoryModel` / `buildDiffRows` | 书架 / 修订 / 版本视图模型（纯函数，可单测） |
+| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtBookShelf` / `BtBackupPanel` / `BtEncryptionPanel` / `BtRevisionSidebar` / `BtVersionHistory` / `PagedCanvas` | 组件 |
 | `createBibliotype()` | Vue 插件（全局注册组件） |
 
 在组件 / `effectScope` 内调用组合式 API 时，scope 销毁会自动解绑事件与视图。

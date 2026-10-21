@@ -194,6 +194,32 @@ const html = serializeNode(node, {
 - marks 数组索引 0 为最内层，序列化时自内向外逐层包裹；
 - 非白名单属性统一输出为 `data-*`，语义信息不丢失。
 
+### 修订视图（`revisionView`）
+
+`SerializeNodeOptions.revisionView` 在**序列化边界**投影修订（C5），编辑器内部文档始终保留原文：
+
+| 值 | 输出 | 用途 |
+| --- | --- | --- |
+| `'marked'`（序列化器缺省） | 三类标记全部保留为 `ins` / `del` / `span` + `data-change-id` / `data-author` / `data-timestamp` | 编辑留痕、审阅 |
+| `'final'` | 接受全部：删除内容不输出、插入去标 | **导出默认**（EPUB / PDF / 站点） |
+| `'original'` | 拒绝全部：插入内容不输出、删除去标 | 呈现原稿 |
+
+```ts
+serializeNode(document.root, { revisionView: 'final' });    // 导出终稿
+serializeNode(document.root, { revisionView: 'marked' });   // 带修订标记版
+```
+
+- 投影只作用于**文本叶子**：`resolveMarksForView` 判定整段隐藏时返回空串，元素结构与 id 不受影响；
+- `format-change` 在标记视图不改变字形（赭黄虚线由 CSS 给出）；`previous` 镜像只在 IR / 撤销栈，不写进 DOM；
+- 导出器（`exporter-epub` / `exporter-pdf` / `exporter-site`）的 `revisionView` 选项缺省 `'final'`，
+  需要留痕交付时显式传 `'marked'`；
+- 非法值按缺省 `'marked'` 处理，不抛错（旧宿主传错参数不会直接毁掉导出）。
+
+三个标记的样式由 `buildBookCss` 在根容器内 scoped 输出：`.bt-mark-insertion` 墨绿下划线、
+`.bt-mark-deletion` 朱红删除线 + 灰字、`.bt-mark-format-change` 赭黄虚线下划线——只用文字装饰，
+不加色块，直排下不压字。取舍：相比「删除即丢内容 + 旁路记录」，保留内容让拒绝可无损还原，
+代价是修订态文档体积增大、终稿必须投影，因此导出前统一走 `final`。
+
 ### buildBookCss / declarationToCss
 
 ```ts
@@ -213,13 +239,7 @@ const css = buildBookCss({
 且还要求布局带 `facsimile` 与直排（三重闸门）。EPUB（reflow）、连续编辑画布、
 量尺表一律不开启，故「现代横排 / 古籍直排」的样式表逐字符不变。
 
-## 相关
-
-- 包参考：[`@bibliotype/layout`](../packages/layout/README.md)
-- 分页与阅读状态机：[04 阅读器与分页](04-reader-and-pagination.md)
-- 令牌体系：[11 主题与令牌](11-theme-tokens.md)
-
-## 页底注区（B5）
+## 页底注区序列化（B5）
 
 `serializePageNotes(notes, options)` 把分页器已算出的 `page.notes` 序列化为页底注区 HTML：
 
@@ -234,3 +254,10 @@ const css = buildBookCss({
 - **渲染**：`BtBookView` 在正文流上按页设置 `column-count` + `column-fill: auto`，子块 `break-inside: avoid`；多栏量尺按栏宽（页宽扣栏间距后均分）实测。
 - **对页**：`BtBookView` 新增 `spread="facing"`，左右并排渲染相邻两页（偶数页在左），缩放按双页宽计算；EPUB 仍为重排流，不套对页。
 - **分栏符**：`break(variant='column')` + `insertColumnBreak`；CSS `break-before: column`，单栏退化为细分隔标记。分页器不重算列填充（列内断点由 CSS 执行），极端情况下可能留白。
+
+## 相关
+
+- 包参考：[`@bibliotype/layout`](../packages/layout/README.md)
+- 分页与阅读状态机：[04 阅读器与分页](04-reader-and-pagination.md)
+- 令牌体系：[11 主题与令牌](11-theme-tokens.md)
+- 修订标记与接受 / 拒绝：[02 编辑器与插件](02-editor-and-plugins.md#修订模式c5)

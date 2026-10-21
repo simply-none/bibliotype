@@ -126,6 +126,28 @@ export {
 } from './search.js';
 export type { TextMatch, EditorSearchOptions } from './search.js';
 
+/* ---------- 修订模式（C5） ---------- */
+export {
+  REVISION_PLUGIN_KEY,
+  createRevisionTrackingPlugin,
+  revisionStateOf,
+} from './revision-plugin.js';
+export type {
+  RevisionPluginMeta,
+  RevisionPluginState,
+  RevisionTrackingOptions,
+} from './revision-plugin.js';
+export {
+  acceptAllRevisions,
+  acceptRevision,
+  rejectAllRevisions,
+  rejectRevision,
+  setRevisionAuthor,
+  setRevisionMode,
+  setRevisionView,
+  toggleRevisionMode,
+} from './revision-commands.js';
+
 /* ---------- 插件与键位 ---------- */
 export { createBookEditorKeymap, createBookEditorPlugins } from './plugins.js';
 

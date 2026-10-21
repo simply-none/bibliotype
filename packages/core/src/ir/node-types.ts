@@ -127,6 +127,18 @@ export const MARK_TYPES = {
    * `sortKey`（可选排序键，如手填拼音 / 笔画序）。
    */
   INDEX_TERM: 'index-term',
+  /**
+   * 修订：插入（C5）
+   *
+   * 与 `deletion` / `format-change` 同属「修订标记」，只在修订模式开启时写入；
+   * attrs：`changeId`（同一笔修订的标识）、`author`、`timestamp`、
+   * `previous`（`format-change` 专用的变更前标记快照 JSON）。
+   */
+  INSERTION: 'insertion',
+  /** 修订：删除（内容保留在 IR 中，终稿视图投影时才隐去） */
+  DELETION: 'deletion',
+  /** 修订：格式变更（保留变更前标记快照，拒绝时还原） */
+  FORMAT_CHANGE: 'format-change',
 } as const;
 
 /** 标记类型联合（由 MARK_TYPES 推导） */

@@ -70,12 +70,17 @@ import { serializeNode, escapeHtml, buildBookCss } from '@bibliotype/layout/html
 
 const html = serializeNode(node);   // IR 节点 → 语义 HTML（缺元素子节点时用 span，否则 div）
 // 竖排书刊可显式替换标点 / 数字：serializeNode(node, { verticalText: { digits: 'kanji' } })
+// 修订投影：'final' 导出终稿 / 'original' 原稿 / 缺省 'marked' 保留 ins+del 标记
+serializeNode(node, { revisionView: 'final' });
 const css = buildBookCss({
   tokens: DEFAULT_THEME,
   options: layout,
   containerSelector: '.bt-reader-page',   // 样式作用域（可省略）
 });
 ```
+
+修订标记的样式（`.bt-mark-insertion` / `.bt-mark-deletion` / `.bt-mark-format-change`）随
+`buildBookCss` 输出，全部限定在根容器内，只用文字装饰、不加色块。
 
 ### 古籍仿真直排（版框 / 界行 / 版心）
 
@@ -108,7 +113,7 @@ const grid = resolveFacsimileGrid(layout, preset.tokens);
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
 | 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |
 | 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |
-| `./html` | `serializeNode`、`escapeHtml`、`buildBookCss`、`declarationToCss`、`serializePageGutter` |
+| `./html` | `serializeNode`（含 `revisionView` / `verticalText` / `anchorIds` 选项）、`escapeHtml`、`buildBookCss`、`declarationToCss`、`serializePageGutter`、`serializePageNotes` |
 
 ## 相关
 

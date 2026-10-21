@@ -88,6 +88,57 @@ export { default as BtDocumentStats } from './components/BtDocumentStats.vue';
 export { useDocumentStats } from './use-document-stats.js';
 export type { UseDocumentStats, UseDocumentStatsOptions } from './use-document-stats.js';
 
+/* ---------- 书架 / 备份 / 加密（H3–H5） ---------- */
+export { default as BtBookShelf } from './components/BtBookShelf.vue';
+export { default as BtBackupPanel } from './components/BtBackupPanel.vue';
+export { default as BtEncryptionPanel } from './components/BtEncryptionPanel.vue';
+export { useBookLibrary, SHELF_VIEW_MODES } from './use-book-library.js';
+export type {
+  ShelfExportResult,
+  ShelfImportResult,
+  ShelfViewMode,
+  UseBookLibraryOptions,
+  UseBookLibraryReturn,
+} from './use-book-library.js';
+export {
+  buildShelfCard,
+  buildShelfCards,
+  buildTagFacets,
+  emptyShelfHint,
+  formatRelativeTime,
+  formatWordCount,
+  normalizeProgress,
+  titleGlyph,
+} from './book-shelf-model.js';
+export type { ShelfCard, TagFacet } from './book-shelf-model.js';
+
+/* ---------- 修订模式（C5） ---------- */
+export { default as BtRevisionSidebar } from './components/BtRevisionSidebar.vue';
+export { buildRevisionModel, excerptText, revisionCountsText } from './revision-model.js';
+export type {
+  RevisionCounts,
+  RevisionItem,
+  RevisionSidebarModel,
+} from './revision-model.js';
+
+/* ---------- 历史版本（C7） ---------- */
+export { default as BtVersionHistory } from './components/BtVersionHistory.vue';
+export {
+  VERSION_GROUP_KEYS,
+  buildDiffRows,
+  buildVersionHistoryModel,
+  diffSummaryText,
+  versionGroupOf,
+  versionTimeText,
+} from './version-model.js';
+export type {
+  DiffRow,
+  VersionGroup,
+  VersionGroupKey,
+  VersionHistoryModel,
+  VersionItem,
+} from './version-model.js';
+
 export { placeFloating } from './floating-position.js';
 export type { FloatingPlacement, FloatingRect, FloatingSize } from './floating-position.js';
 export { useSelectionReplace } from './use-selection-replace.js';

@@ -21,6 +21,10 @@ export type {
   SkeletonNode,
 } from './chunked-store.js';
 
+/* ---------- 历史版本存储（端口见 core：DocumentVersionStore） ---------- */
+export { IndexedDbVersionStore, MemoryVersionStore } from './version-store.js';
+export type { IndexedDbVersionStoreOptions } from './version-store.js';
+
 /* ---------- 样式设置存储（IndexedDB / localStorage / 内存，端口见 core） ---------- */
 export {
   IndexedDbStyleStore,

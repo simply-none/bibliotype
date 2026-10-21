@@ -11,10 +11,23 @@
  *
  * 非浏览器环境（Node/SSR）请使用 MemoryAdapter 或注入 fake-indexeddb。
  */
+import {
+  buildDocumentSummary,
+  carryOverSummaryFields,
+  countDocumentStats,
+  isDocumentSummary,
+  mergeDocumentSummary,
+  queryDocumentSummaries,
+} from '@bibliotype/core';
 import type {
   BookDocument,
+  BookLibraryStore,
   BookNode,
+  BookQueryResult,
+  BookSummaryStore,
+  DocumentQuery,
   DocumentSummary,
+  DocumentSummaryPatch,
   SaveOptions,
   StorageAdapter,
   StoredDocument,
@@ -69,6 +82,12 @@ interface ChunkedDocumentRecord {
   skeleton: SkeletonNode;
   /** 本记录引用的全部片 id（清理陈旧片用） */
   chunkIds: string[];
+  /**
+   * 书架摘要（可选）
+   *
+   * 旧版本写入的记录没有该字段，读取时回退为「元数据即时构建」。
+   */
+  summary?: DocumentSummary;
 }
 
 /** 片记录（chunk 仓：一条记录 = 一组连续兄弟节点，估算体积 ≤ 32KB） */
@@ -82,7 +101,7 @@ interface ChunkRecord {
 }
 
 /** IndexedDB 存储适配器 */
-export class IndexedDbAdapter implements StorageAdapter {
+export class IndexedDbAdapter implements StorageAdapter, BookLibraryStore, BookSummaryStore {
   readonly name = 'indexeddb';
 
   private readonly databaseName: string;
@@ -160,6 +179,18 @@ export class IndexedDbAdapter implements StorageAdapter {
     );
   }
 
+  /** 取记录的书架摘要（旧记录缺 `summary` 时用元数据即时构建，不写回） */
+  private summaryOfMeta(record: ChunkedDocumentRecord): DocumentSummary {
+    if (isDocumentSummary(record.summary)) {
+      return { ...record.summary };
+    }
+    return buildDocumentSummary({
+      id: record.id,
+      metadata: record.metadata,
+      updatedAt: record.updatedAt,
+    });
+  }
+
   /** 读某文档的全部片（按归属索引一次取回） */
   private async readChunks(db: IDBDatabase, id: string): Promise<Map<string, BookNode[]>> {
     const tx = db.transaction(this.chunkStore, 'readonly');
@@ -192,14 +223,24 @@ export class IndexedDbAdapter implements StorageAdapter {
       () => this.nextChunkId(),
     );
 
+    const updatedAt = options.updatedAt ?? Date.now();
     const record: ChunkedDocumentRecord = {
       id,
       format: CHUNK_FORMAT,
       schemaVersion: document.schemaVersion,
       metadata: document.metadata,
-      updatedAt: options.updatedAt ?? Date.now(),
+      updatedAt,
       skeleton: snapshot.skeleton,
       chunkIds: [...snapshot.chunkIds],
+      summary: carryOverSummaryFields(
+        prevMeta !== undefined ? this.summaryOfMeta(prevMeta) : undefined,
+        buildDocumentSummary({
+          id,
+          metadata: document.metadata,
+          updatedAt,
+          wordCount: countDocumentStats(document).characters,
+        }),
+      ),
     };
 
     const tx = db.transaction(
@@ -253,20 +294,39 @@ export class IndexedDbAdapter implements StorageAdapter {
     );
     const merged = new Map<string, DocumentSummary>();
     for (const record of legacy) {
-      merged.set(record.id, {
-        id: record.id,
-        title: record.metadata.title,
-        updatedAt: record.updatedAt,
-      });
+      merged.set(
+        record.id,
+        buildDocumentSummary({
+          id: record.id,
+          metadata: record.metadata,
+          updatedAt: record.updatedAt,
+        }),
+      );
     }
     for (const record of metas) {
-      merged.set(record.id, {
-        id: record.id,
-        title: record.metadata.title,
-        updatedAt: record.updatedAt,
-      });
+      merged.set(record.id, this.summaryOfMeta(record));
     }
     return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  async query(query: DocumentQuery = {}): Promise<BookQueryResult> {
+    return queryDocumentSummaries(await this.list(), query);
+  }
+
+  async updateSummary(
+    id: string,
+    patch: DocumentSummaryPatch,
+  ): Promise<DocumentSummary | undefined> {
+    const db = await this.openDb();
+    const meta = await this.readMetaRecord(db, id);
+    if (meta === undefined) {
+      return undefined;
+    }
+    const summary = mergeDocumentSummary(this.summaryOfMeta(meta), patch);
+    const tx = db.transaction(this.metaStore, 'readwrite');
+    tx.objectStore(this.metaStore).put({ ...meta, summary, updatedAt: summary.updatedAt });
+    await transactionDone(tx);
+    return summary;
   }
 
   async delete(id: string): Promise<boolean> {

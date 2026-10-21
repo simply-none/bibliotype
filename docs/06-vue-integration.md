@@ -1,6 +1,6 @@
 # 06 Vue 集成
 
-> 涉及包：`@bibliotype/vue`　·　相关：[02 编辑器与插件](02-editor-and-plugins.md)、[04 阅读器与分页](04-reader-and-pagination.md)
+> 涉及包：`@bibliotype/vue`　·　相关：[02 编辑器与插件](02-editor-and-plugins.md)、[04 阅读器与分页](04-reader-and-pagination.md)、[10 存储适配器](10-storage-adapters.md)
 
 `@bibliotype/vue` 是阅读状态机与编辑核心的 **Vue 3 封装层**：组合式 API 将
 `Reader` / `BookEditor`（均为无 DOM 状态机）桥接为响应式状态，组件负责 DOM 渲染。
@@ -210,3 +210,54 @@ refresh();                                      // 外部 loadDocument 后同步
 `BtBookView` 新增 `fontSize` prop 与 `update:fontSize` 事件：page 模式双指缩放上抛字号（12–32px 夹紧），重排由宿主负责；scroll 模式容器可聚焦，PageUp / PageDown / 空格 / Home / End 滚动一屏。
 
 `BtBookView` 另新增 `spread="single" | "facing"`：facing 下 page 模式并排渲染相邻两页（偶数页在左），缩放按双页宽计算；scroll 模式不受影响。
+
+## 新增组件（P2）：书架 / 备份 / 加密 / 修订 / 版本
+
+五个组件都是**纯展示**：状态与 IO 在组合式函数或宿主，组件只发语义事件。
+
+| 组件 | 用途 | props | 事件 |
+| --- | --- | --- | --- |
+| `BtBookShelf` | 书架：网格 / 列表双视图、封面占位、进度条、标签筛选、检索 | `cards`、`total?`、`facets?`、`activeTags?`、`search?`、`viewMode?`（`grid` / `list`）、`sortBy?`（`recentRead` / `updated` / `title` / `wordCount`）、`loading?`、`error?`、`emptyHint?` | `search` / `toggle-tag` / `sort` / `update:view` / `open` / `import(bytes)` / `export(id)` |
+| `BtBackupPanel` | 整库备份：三段式冲突策略 + 常驻后果说明 + 逐书进度 + 失败清单 | `busy?`、`progress?`（`{ current, total, title }`）、`result?`、`strategy?` | `export` / `import({ bytes, strategy })` / `update:strategy` |
+| `BtEncryptionPanel` | 开启 / 解锁 / 关闭正文加密、注记独立密钥、脱敏导出 | `enabled?`、`unlocked?`、`notesLocked?`、`busy?`、`error?`、`redact?` | `enable(password)` / `unlock(password)` / `disable` / `toggle-notes(locked)` / `update:redact` |
+| `BtRevisionSidebar` | 修订侧栏：三段视图切换、类型色条、单条 / 全部接受拒绝 | `model`、`view?`、`enabled?`、`author?` | `set-mode` / `set-view` / `accept(changeId)` / `reject(changeId)` / `accept-all` / `reject-all` / `locate(path)` |
+| `BtVersionHistory` | 版本时间轴（今日 / 昨日 / 更早）+ 左右 / 行内对比 + 一键回滚 | `model`、`diffRows?`、`summaryText?`、`compareMode?`、`activeVersion?`、`busy?`、`error?` | `compare(version)` / `restore(version)` / `create(label)` / `update:compare-mode` |
+
+配套组合式 / 纯函数模型：
+
+| 导出 | 说明 |
+| --- | --- |
+| `useBookLibrary({ store, codec?, now?, pageSize?, collectAssets?, loadAnnotations?, saveAnnotations? })` | 书架状态：`cards` / `summaries` / `total` / `facets` / 检索 / 标签 / 排序 / 视图、`refresh` / `openBook` / `exportBook` / `importBook` / `removeBook`；查询走 `BookLibraryStore`，未实现时退化为 `list()` + 纯函数过滤 |
+| `buildShelfCards` / `buildTagFacets` / `formatRelativeTime` / `formatWordCount` / `titleGlyph` | 卡片视图模型（进度夹紧、字数缩写、书脊占位字形），纯函数可单测 |
+| `buildRevisionModel` / `revisionCountsText` / `excerptText` | 修订侧栏模型（按类型 / 作者分组、摘要截断），入参为 `collectRevisions` 的条目 |
+| `buildVersionHistoryModel` / `buildDiffRows` / `diffSummaryText` / `versionGroupOf` | 版本时间轴与差异行模型（`+2 −1 ~3` 计数、行内 / 左右两用的行序） |
+
+```ts
+import { useBookLibrary, BtBookShelf } from '@bibliotype/vue';
+import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
+
+const lib = useBookLibrary({ store: new IndexedDbAdapter(), codec: zipCodec });
+await lib.refresh();
+```
+
+```vue
+<BtBookShelf
+  :cards="lib.cards.value"
+  :total="lib.total.value"
+  :facets="lib.facets.value"
+  :search="lib.search.value"
+  :view-mode="lib.viewMode.value"
+  @search="lib.setSearch"
+  @toggle-tag="lib.toggleTag"
+  @sort="lib.setSort"
+  @open="lib.openBook"
+  @import="lib.importBook"
+  @export="lib.exportBook"
+/>
+```
+
+接线约定：
+
+- `.btbook` 的 ZIP 能力必须由宿主注入（`BookPackCodec`），`@bibliotype/vue` 不引压缩库；
+- 回滚按钮只发 `restore` 事件，**校验与写库由宿主调 `restoreSnapshot` 完成**，失败原因经 `error` 就地显示；
+- 修订侧栏的 `model` 由 `collectRevisions(document)` 经 `buildRevisionModel` 产出，`locate` 的 `path` 是 IR 节点路径，宿主据此滚动定位。

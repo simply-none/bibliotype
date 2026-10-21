@@ -100,6 +100,10 @@ instance.events.on('page:change', ({ pageIndex, totalPages }) => {
 | 主题令牌 | `FONT_TOKENS` / `FONT_SIZE_TOKENS` / `LAYOUT_TOKENS` / `COLOR_TOKENS`、`DEFAULT_THEME`、`createThemeAccessor` |
 | 核心实例 | `createBibliotype`（`BibliotypeInstance` / `CoreInstanceOptions`） |
 | 存储契约 | `StorageAdapter`、`StoredDocument`、`DocumentSummary`、`SaveOptions` |
+| 书架与备份 | `BookLibraryStore` / `isBookLibraryStore` / `DocumentQuery` / `queryDocumentSummaries`、`BookSummaryStore` / `isBookSummaryStore`、`buildDocumentSummary` / `mergeDocumentSummary`、`packBookArchive` / `unpackBookArchive` / `BookPackCodec`、`buildLibraryBackupFiles` / `restoreLibrary` / `BACKUP_CONFLICT_STRATEGIES` |
+| 历史版本 | `createSnapshot` / `restoreSnapshot` / `nextSnapshotVersion`、`DocumentVersionStore` / `isDocumentVersionStore`、`selectExpiredSnapshots` / `assertRetentionPolicy`、`diffDocuments` / `inlineTextDiff` |
+| 修订 | `REVISION_MARK_TYPES` / `REVISION_VIEWS`、`collectRevisions` / `resolveMarksForView`、`acceptRevisions` / `rejectRevisions` / `projectRevisionView` |
+| 加密与脱敏 | `deriveKeyPbkdf2` / `createStringCipher` / `createByteCipher`、`createEncryptedStorageAdapter` / `createEncryptedAssetStore`、`CryptoError` / `CRYPTO_ERROR_CODES`、`redactDocument` / `redactAnnotations` |
 | 资产契约 | `AssetStore` / `AssetPayload` / `AssetRef` / `AssetKind`、`ASSET_KINDS`、`toAssetRef` / `hashAssetBytes` / `isAssetStore` |
 | 锚点 | `Anchor` / `BlockAnchor` / `TextAnchor`、`ANCHOR_TYPES`、`createBlockAnchor` / `createTextAnchor`、`serializeAnchor` / `parseAnchor`、`resolveAnchor` / `clampAnchor`、`locateNode` / `nodePlainText` |
 | 校验与迁移 | `validateDocument` / `DOCUMENT_ISSUE_CODES`、`DocumentIssue` / `ValidationResult`、`migrateDocument` / `MigrationStep` / `MigrationPathError`、`readSchemaVersion` / `LEGACY_SCHEMA_VERSION` / `BUILTIN_MIGRATIONS` |
@@ -127,6 +131,44 @@ migrateDocument(raw, { steps: [{ from: '0.0.0', to: '0.1.0', migrate: (doc) => d
 
 - `validateDocument`：节点类型 / 标记 / 形态 / 属性 / id 唯一性，问题带 `path` 与 `nodeId`；
 - `migrateDocument`：逐级迁移，缺环抛 `MigrationPathError`，迁移后自动校验。
+
+## 书架、备份、修订、历史与加密
+
+五块能力都是「纯函数内核 + 可选端口」，核心包不引压缩库、不碰 DOM：
+
+```ts
+import {
+  buildDocumentSummary, mergeDocumentSummary, queryDocumentSummaries,
+  packBookArchive, restoreLibrary, BACKUP_CONFLICT_STRATEGIES,
+  collectRevisions, acceptRevisions, projectRevisionView,
+  createSnapshot, restoreSnapshot, diffDocuments,
+  deriveKeyPbkdf2, createStringCipher, createEncryptedStorageAdapter,
+  redactDocument,
+} from '@bibliotype/core';
+
+/* 摘要：字数由保存侧算好传入；旧记录缺字段走 merge 回退 */
+const summary = buildDocumentSummary({ id, metadata, updatedAt, wordCount });
+mergeDocumentSummary(summary, { progress: 0.32, lastOpenedAt: now });
+
+/* 查询：检索词全部命中，标签命中任一，支持排序与分组 */
+queryDocumentSummaries(summaries, { text: '朱熹', sortBy: 'recentRead', groupBy: 'tag' });
+
+/* 修订：接受 / 拒绝 / 投影到终稿 */
+acceptRevisions(document, ['change-1']);
+projectRevisionView(document, 'final');
+
+/* 历史：快照带校验和，回滚前双重校验 */
+const snap = createSnapshot({ documentId: 'lunyu', document, version: 1, createdAt: now });
+const restored = restoreSnapshot(snap);   // { ok: false, code, issues, message } 时拒绝落库
+
+/* 加密：装饰既有适配器，底层只看到密文 */
+const cipher = createStringCipher(await deriveKeyPbkdf2({ password, salt }));
+const secure = createEncryptedStorageAdapter({ inner: storage, cipher });
+```
+
+- `.btbook` 与整库备份共用同一 `BookPackCodec` 端口，ZIP 由宿主注入；
+- 修订的 `insertion` / `deletion` / `format-change` 三种标记在 core 统一登记，接受 / 拒绝语义只有一份；
+- 快照与修订时间、加密随机源全部参数注入，产物可确定性复现。
 
 ## 相关
 

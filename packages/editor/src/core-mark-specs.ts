@@ -123,4 +123,80 @@ export const CORE_EDITOR_MARK_SPECS: readonly EditorMarkSpecEntry[] = [
       ],
     },
   },
+  /**
+   * 修订标记（C5）：插入 / 删除 / 格式变更
+   *
+   * - `inclusive: false`：修订标记不向后续输入延续（否则新输入会被误判为同一笔修订）；
+   * - `changeId` 是接受 / 拒绝的定位键，`previous` 仅格式变更使用。
+   */
+  {
+    type: MARK_TYPES.INSERTION,
+    spec: {
+      inclusive: false,
+      attrs: {
+        ...COMMON_MARK_ATTRS,
+        changeId: { default: null },
+        author: { default: null },
+        timestamp: { default: null },
+        previous: { default: null },
+      },
+      parseDOM: [
+        {
+          tag: 'ins.bt-mark-insertion',
+          getAttrs: (dom): Record<string, unknown> | false =>
+            typeof dom === 'string' ? false : readRevisionAttrs(dom),
+        },
+      ],
+    },
+  },
+  {
+    type: MARK_TYPES.DELETION,
+    spec: {
+      inclusive: false,
+      attrs: {
+        ...COMMON_MARK_ATTRS,
+        changeId: { default: null },
+        author: { default: null },
+        timestamp: { default: null },
+        previous: { default: null },
+      },
+      parseDOM: [
+        {
+          tag: 'del.bt-mark-deletion',
+          getAttrs: (dom): Record<string, unknown> | false =>
+            typeof dom === 'string' ? false : readRevisionAttrs(dom),
+        },
+      ],
+    },
+  },
+  {
+    type: MARK_TYPES.FORMAT_CHANGE,
+    spec: {
+      inclusive: false,
+      attrs: {
+        ...COMMON_MARK_ATTRS,
+        changeId: { default: null },
+        author: { default: null },
+        timestamp: { default: null },
+        previous: { default: null },
+      },
+      parseDOM: [
+        {
+          tag: 'span.bt-mark-format-change',
+          getAttrs: (dom): Record<string, unknown> | false =>
+            typeof dom === 'string' ? false : readRevisionAttrs(dom),
+        },
+      ],
+    },
+  },
 ];
+
+/** 从 DOM 读取修订标记属性（缺失返回 null，交由 attrs 默认值处理） */
+function readRevisionAttrs(dom: HTMLElement): Record<string, unknown> {
+  return {
+    changeId: dom.getAttribute('data-change-id'),
+    author: dom.getAttribute('data-author'),
+    timestamp: dom.getAttribute('data-timestamp'),
+    previous: dom.getAttribute('data-previous'),
+  };
+}

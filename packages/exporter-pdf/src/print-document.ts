@@ -15,6 +15,7 @@ import {
   FONT_SIZE_TOKENS,
   LAYOUT_TOKENS,
   type BookDocument,
+  type RevisionView,
 } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import {
@@ -106,6 +107,12 @@ export interface PrintDocumentOptions {
   /** 节点类型 → 标签覆盖（透传序列化器，用于插件节点定制） */
   tagOverrides?: Readonly<Record<string, string>>;
   /**
+   * 修订视图（C5，缺省 `'final'`：导出终稿）
+   *
+   * 打印稿是成品交付物，缺省隐去修订标记；需要留痕时显式传 `'marked'`。
+   */
+  revisionView?: RevisionView;
+  /**
    * 图片 src 改写回调（透传序列化器）
    *
    * 浏览器降级路径用它做「data URI → blob URL」去重瘦身（见 pdf-export.ts
@@ -165,6 +172,8 @@ function renderFlowBody(book: BookDocument, options: PrintDocumentOptions): stri
     tagOverrides: options.tagOverrides,
     rewriteSrc: options.rewriteSrc,
     verticalText: options.verticalText,
+    // 打印稿是成品：缺省终稿，留痕版由调用方显式传 'marked'
+    revisionView: options.revisionView ?? 'final',
   });
   return `<main class="bt-book">\n${content}\n</main>`;
 }
@@ -208,6 +217,7 @@ function renderPagedBody(
             tagOverrides: options.tagOverrides,
             rewriteSrc: options.rewriteSrc,
             verticalText: options.verticalText,
+            revisionView: options.revisionView ?? 'final',
           }),
         )
         .join('\n');

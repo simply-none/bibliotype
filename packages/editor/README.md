@@ -95,6 +95,36 @@ table-cell` 渲染为语义 `<table><tbody><tr><td>`（不是默认的嵌套 `di
 `dropEmptyFragments` / `idOwner` / `insertWhenEmpty` / `normalizeTextblocks`。
 详见 [docs/20 选区替换为](../../docs/20-selection-replace.md)。
 
+### 修订模式（C5）
+
+```ts
+import {
+  BookEditor, createBookEditorPlugins, createRevisionTrackingPlugin,
+  setRevisionMode, setRevisionView, setRevisionAuthor,
+  acceptRevision, rejectRevision, acceptAllRevisions, rejectAllRevisions,
+} from '@bibliotype/editor';
+
+const editor = new BookEditor({
+  schema,
+  document,
+  plugins: [
+    ...createBookEditorPlugins(schema),
+    createRevisionTrackingPlugin({ author: '张三' }),   // 时间可注入：{ now: () => fixed }
+  ],
+});
+
+setRevisionMode(true)(editor.editorState, (tr) => editor.dispatch(tr));
+```
+
+- 三种标记：`insertion` / `deletion` / `format-change`（`core` 的 `MARK_TYPES` 登记，attrs 为
+  `changeId` / `author` / `timestamp`，格式变更另带 `previous`）；
+- 删除的文本以 `deletion` 标记**保留在文档里**，因此拒绝可无损还原；增量标记在
+  `appendTransaction` 中补记，撤销 / 重做不记录；
+- 接受 / 拒绝走 `pmNodeToIr → core 纯函数 → irNodeToPm`，与导出、测试共用同一语义；
+- 视图切换只改插件状态（`marked` / `final` / `original`），投影发生在序列化边界，
+  编辑器文档始终保留原文——详见 [docs/02](../../docs/02-editor-and-plugins.md#修订模式c5)、
+  [docs/05](../../docs/05-layout-and-html.md#修订视图revisionview)。
+
 ### 插件与键位
 
 - `createBookEditorPlugins(schema)`：history + 键位插件集；

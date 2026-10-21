@@ -18,8 +18,10 @@ import {
   evaluateCondition,
   isTextNode,
   noteRoleOf,
+  resolveMarksForView,
   type BookMark,
   type BookNode,
+  type RevisionView,
   type ConditionContext,
 } from '@bibliotype/core';
 import { renderSealSvg, type SealBorder, type SealLayout, type SealStyle } from '../svg/seal.js';
@@ -68,6 +70,13 @@ export interface SerializeNodeOptions {
    * （`.bt-seal:empty::after` 读取 `data-text`），不打包位图、不增加资源。
    */
   inlineSealSvg?: boolean;
+  /**
+   * 修订视图（C5）：`marked`（缺省，输出修订标记）/ `final`（终稿）/ `original`（原稿）
+   *
+   * 投影发生在**序列化边界**：编辑器内部文档始终保留被删内容，
+   * 导出与阅读侧按视图投影，不会出现「终稿视图编辑后丢失原文」。
+   */
+  revisionView?: RevisionView;
 }
 
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
@@ -222,6 +231,23 @@ function dataAttrs(
   for (const [key, value] of Object.entries(attrs)) {
     if (exclude.includes(key) || value === undefined || value === null) continue;
     const name = DATA_ATTR_NAME_OVERRIDES[key] ?? key;
+    result += ` data-${name}="${escapeHtml(String(value))}"`;
+  }
+  return result;
+}
+
+/** 修订标记的元信息属性串（change-id / author / timestamp，值缺省时省略） */
+function revisionDataAttrs(attrs: Readonly<Record<string, unknown>> | undefined): string {
+  if (attrs === undefined) return '';
+  const mapping: readonly (readonly [string, string])[] = [
+    ['changeId', 'change-id'],
+    ['author', 'author'],
+    ['timestamp', 'timestamp'],
+  ];
+  let result = '';
+  for (const [key, name] of mapping) {
+    const value = attrs[key];
+    if (value === undefined || value === null) continue;
     result += ` data-${name}="${escapeHtml(String(value))}"`;
   }
   return result;
@@ -447,6 +473,19 @@ function wrapMark(mark: BookMark, inner: string, options: SerializeNodeOptions):
       const href = targetId !== '' ? ` href="#${escapeHtml(targetId)}"` : '';
       return `<a${idAttr} class="bt-mark-noteref"${href}${epubType}>${inner}</a>`;
     }
+    /* C5 修订：语义标签 + 修订元信息（`previous` 体积大，不落 DOM） */
+    case MARK_TYPES.INSERTION: {
+      const extras = dataAttrs(attrs, ['changeId', 'author', 'timestamp', 'previous']);
+      return `<ins class="bt-mark-insertion"${revisionDataAttrs(attrs)}${extras}>${inner}</ins>`;
+    }
+    case MARK_TYPES.DELETION: {
+      const extras = dataAttrs(attrs, ['changeId', 'author', 'timestamp', 'previous']);
+      return `<del class="bt-mark-deletion"${revisionDataAttrs(attrs)}${extras}>${inner}</del>`;
+    }
+    case MARK_TYPES.FORMAT_CHANGE: {
+      const extras = dataAttrs(attrs, ['changeId', 'author', 'timestamp', 'previous']);
+      return `<span class="bt-mark-format-change"${revisionDataAttrs(attrs)}${extras}>${inner}</span>`;
+    }
     default: {
       const extras = dataAttrs(attrs, []);
       return `<span class="bt-mark-${escapeHtml(mark.type)}"${extras}>${inner}</span>`;
@@ -494,6 +533,11 @@ function nodeToHtml(node: BookNode, options: SerializeNodeOptions): string {
   if (isTextNode(node)) {
     const raw = node.text ?? '';
     const text = options.verticalText === undefined ? raw : transformVerticalText(raw, options.verticalText);
+    if (options.revisionView !== undefined && options.revisionView !== 'marked') {
+      const resolved = resolveMarksForView(node.marks, options.revisionView);
+      if (resolved.hidden) return '';
+      return applyMarks(escapeHtml(text), resolved.marks, options);
+    }
     return applyMarks(escapeHtml(text), node.marks, options);
   }
   if (node.type === NODE_TYPES.BOOK) {

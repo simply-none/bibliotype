@@ -35,6 +35,7 @@ const { resolved, orphans } = resolveAnnotations(document.root, store.list());
 | 容器 | `AnnotationStore`（`add` / `addMany` / `update` / `remove` / `list` / `subscribe` / `hydrate` / `persist`）、`AnnotationPatch` |
 | 解析 | `resolveAnnotation` / `resolveAnnotations`、`groupAnnotationsByNode`、`countByKind` |
 | 序列化 | `serializeAnnotationSet` / `deserializeAnnotationSet`、`isAnnotation` / `validateAnnotations`、`ANNOTATION_SCHEMA_VERSION` |
+| 加密 | `createEncryptedAnnotationStorage`（独立密钥，`EncryptedAnnotationStorageOptions`） |
 
 ## 约定
 
@@ -42,6 +43,26 @@ const { resolved, orphans } = resolveAnnotations(document.root, store.list());
 - 时间通过 `createdAt` / `clock` 注入，测试可断言确定性输出；
 - 目标节点被删除时解析结果归入 `orphans`，文本变短时 `clamped = true`——不抛错；
 - 标注建议**单独存储**（`AnnotationStorage`），不要塞回 `BookDocument`。
+
+## 注记独立加密（H5）
+
+```ts
+import { createEncryptedAnnotationStorage } from '@bibliotype/annotation';
+import { createStringCipher, deriveKeyPbkdf2 } from '@bibliotype/core';
+
+const notesKey = await deriveKeyPbkdf2({ password, salt: notesSalt });   // 与正文密钥分开
+const storage = createEncryptedAnnotationStorage({
+  read, write, remove,                       // 宿主提供三个读写函数
+  cipher: createStringCipher(notesKey),
+});
+
+await store.persist(storage, 'lunyu');       // 落盘为密文信封
+```
+
+- 只锁笔记与批注，正文可照常阅读（反之正文加密也可先不解锁注记）；
+- 载荷是 JSON 信封，底层存储只见密文；历史明文 / 被改写的载荷抛
+  `CryptoError(CORRUPT_PAYLOAD)`，口令错抛 `WRONG_KEY`，**不静默降级为明文**；
+- 密钥只驻内存，会话结束失效；脱敏导出（`redactAnnotations`）是另一件事，不要混用。
 
 ## 相关
 

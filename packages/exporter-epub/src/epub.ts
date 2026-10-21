@@ -25,6 +25,7 @@ import {
   type BookDocument,
   type BookNode,
   type ExportComment,
+  type RevisionView,
 } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { DEFAULT_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
@@ -60,6 +61,13 @@ export interface EpubExportOptions {
   modified?: string;
   /** 节点类型 → 标签覆盖（透传序列化器，用于插件节点定制） */
   tagOverrides?: Readonly<Record<string, string>>;
+  /**
+   * 修订视图（C5，缺省 `'final'`：导出终稿）
+   *
+   * EPUB 是成品交付物，缺省不带修订痕迹；需要把改动留痕（如交作者复核）时
+   * 显式传 `'marked'`。`'original'` 输出接受全部修订前的原稿。
+   */
+  revisionView?: RevisionView;
   /** OPF 版本（缺省 '3.0'；京东读书等 RMSDK 显式传 '2.0'） */
   version?: '2.0' | '3.0';
   /** 单内容文档未压缩字节上限（缺省 256KiB；导入型扁平书按此拆分为多文档） */
@@ -254,6 +262,8 @@ export function exportEpub(
     epubSemantics: epubVersion === '3.0',
     /* EPUB 2 阅读器对 SVG 支持不齐：印章退化为文字印章（data-text），不打包位图 */
     inlineSealSvg: epubVersion !== '2.0',
+    /* 成品交付默认不带修订痕迹；留痕版由调用方显式传 'marked' */
+    revisionView: options.revisionView ?? 'final',
   };
 
   /* 封面预登记：先于序列化拿到 manifest id（序列化期内图片去重归并到同一条目） */

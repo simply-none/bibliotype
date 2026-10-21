@@ -67,7 +67,8 @@ export function exportSite(
 
   plan.sections.forEach((item, index) => {
     const bodyHtml = (item.node.children ?? [])
-      .map((child) => serializeNode(child))
+      // 站点是发布物：缺省终稿；留痕站由调用方显式传 'marked'
+      .map((child) => serializeNode(child, { revisionView: options.revisionView ?? 'final' }))
       .join('\n');
     const prev = index > 0 ? sections[index - 1] : undefined;
     const next = index < sections.length - 1 ? sections[index + 1] : undefined;

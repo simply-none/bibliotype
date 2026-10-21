@@ -3,10 +3,13 @@
 > 涉及包：`@bibliotype/adapter-http`（依赖 `@bibliotype/core`）
 > 相关篇目：[10 存储适配器](10-storage-adapters.md) · [09 协同编辑](09-collab.md) · [15 SSR 与 Node 同构](15-ssr-and-node.md)
 
-`@bibliotype/adapter-http` 实现 core 的两个端口：
+`@bibliotype/adapter-http` 实现 core 的三个端口：
 
 - `StorageAdapter`：文档整存整取；
-- `AssetStore`：资产字节读写（图片 / 字体 / 音频）。
+- `AssetStore`：资产字节读写（图片 / 字体 / 音频）；
+- `BookLibraryStore`：书架查询（客户端过滤，服务端零改动，见第八节）。
+
+`BookSummaryStore`（摘要补丁）**不实现**：HTTP 无该端点，阅读进度 / 标签更新请回落到整本 `save`。
 
 ## 一、用法
 
@@ -106,3 +109,28 @@ const adapter = createHttpAdapter({
 | 图片取回后类型丢失 | 响应未带 `Content-Type` | 服务端补响应头，或把 mediaType 记在资产元数据 |
 | 401 时静默失败 | 调用方只判断了返回值 | 捕获 `HttpAdapterError` 并按 `status` 分流 |
 | 跨域预检失败 | 自定义头触发 preflight | 服务端放行 `Authorization` / 自定义头 |
+
+## 八、书架查询（H3）
+
+适配器同时满足 `BookLibraryStore` 类型守卫，但 `query()` 是**客户端实现**：
+
+```ts
+import { isBookLibraryStore } from '@bibliotype/core';
+
+if (isBookLibraryStore(adapter)) {
+  const page = await adapter.query({ text: '朱熹', sortBy: 'recentRead', groupBy: 'tag', limit: 60 });
+  // { items, total, groups }
+}
+```
+
+- 取全量 `GET /documents` 摘要，再用 core 的 `queryDocumentSummaries` 做检索 / 排序 / 分组——
+  **不新增服务端端点**，老服务端无需改造；
+- 检索覆盖标题 / 作者 / ISBN / 标签；排序键 `recentRead` / `updated` / `title` / `wordCount` 中，
+  除 `updated` 外的字段依赖服务端返回的摘要；缺字段自动回退（`mergeDocumentSummary`），不报错；
+- 服务端只需保证 `id / title / updatedAt`，其余可选字段（`author` / `isbn` / `tags` /
+  `coverThumbnail` / `wordCount` / `progress` / `lastOpenedAt`）原样透传；
+- 规模上限：每次查询都拉全量摘要，适合「几十到几百本」的个人书库；书库更大时应由服务端
+  提供真正的查询端点，届时替换 `query` 实现即可，调用方代码不变。
+
+> 能力差异：IndexedDB / 内存适配器实现 `BookSummaryStore`（增量写摘要），HTTP 不实现；
+> 需要「更新阅读进度但不重写正文」时，HTTP 侧只能整本 `save`。

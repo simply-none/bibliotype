@@ -293,6 +293,23 @@ ${scoped('.bt-mark-strikethrough')} {
 ${scoped('.bt-mark-highlight')} {
   background-color: rgba(255, 235, 130, 0.45);
 }
+/* ---------- 修订标记（C5）：插入 / 删除 / 格式变更 ---------- */
+${scoped('.bt-mark-insertion')} {
+  text-decoration: underline;
+  text-decoration-color: #2f6b4f;
+  text-underline-offset: 0.18em;
+}
+${scoped('.bt-mark-deletion')} {
+  text-decoration: line-through;
+  text-decoration-color: #a33a2a;
+  color: #8a8073;
+}
+${scoped('.bt-mark-format-change')} {
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: #b07a21;
+  text-underline-offset: 0.18em;
+}
 ${scoped('.bt-mark-link')} {
   color: var(--bt-${COLOR_TOKENS.ACCENT});
 }

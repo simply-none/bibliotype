@@ -20,12 +20,15 @@
  * - `updatedAt` 由 `SaveOptions` 注入（缺省取 clock），保证可测与可回溯；
  * - `close()` 仅标记关闭，之后仍可继续使用（与 core 契约一致）。
  */
-import { isBookDocument, toAssetRef } from '@bibliotype/core';
+import { isBookDocument, queryDocumentSummaries, toAssetRef } from '@bibliotype/core';
 import type {
   AssetPayload,
   AssetRef,
   AssetStore,
   BookDocument,
+  BookLibraryStore,
+  BookQueryResult,
+  DocumentQuery,
   DocumentSummary,
   PutAssetOptions,
   SaveOptions,
@@ -98,10 +101,16 @@ function isAssetRef(value: unknown): value is AssetRef {
 /**
  * 创建远端存储适配器
  *
- * 返回对象同时实现 `StorageAdapter` 与 `AssetStore`；服务端未提供资产端点时，
- * 资产方法会以 404 语义抛错（调用方可用 `isAssetStore` 之外再按需探测）。
+ * 返回对象同时实现 `StorageAdapter`、`AssetStore` 与只读的 `BookLibraryStore`；
+ * 服务端未提供资产端点时，资产方法会以 404 语义抛错（调用方可用 `isAssetStore` 之外再按需探测）。
+ *
+ * 书架查询在客户端用 `list()` 结果做纯函数过滤：**不新增服务端端点**，
+ * 因而摘要的阅读进度 / 标签等附加字段以服务端返回值为准；摘要补丁端口
+ * （`BookSummaryStore`）不实现，调用方须回落到整本 `save`。
  */
-export function createHttpAdapter(options: HttpAdapterOptions): StorageAdapter & AssetStore {
+export function createHttpAdapter(
+  options: HttpAdapterOptions,
+): StorageAdapter & AssetStore & BookLibraryStore {
   const base = trimSlash(options.baseUrl);
   const documentsPath = options.documentsPath ?? '/documents';
   const assetsPath = options.assetsPath ?? '/assets';
@@ -175,7 +184,7 @@ export function createHttpAdapter(options: HttpAdapterOptions): StorageAdapter &
   const documentUrl = (id: string): string => `${documentsPath}/${encodeURIComponent(id)}`;
   const assetUrl = (id: string): string => `${assetsPath}/${encodeURIComponent(id)}`;
 
-  const adapter: StorageAdapter & AssetStore = {
+  const adapter: StorageAdapter & AssetStore & BookLibraryStore = {
     name: 'http',
 
     async save(id: string, document: BookDocument, saveOptions: SaveOptions = {}): Promise<void> {
@@ -218,6 +227,11 @@ export function createHttpAdapter(options: HttpAdapterOptions): StorageAdapter &
         );
       }
       return payload.documents.filter(isDocumentSummary).map((item) => ({ ...item }));
+    },
+
+    async query(documentQuery: DocumentQuery = {}): Promise<BookQueryResult> {
+      // 服务端未提供查询端点：取全量摘要后在客户端过滤 / 排序 / 分组
+      return queryDocumentSummaries(await adapter.list(), documentQuery);
     },
 
     async delete(id: string): Promise<boolean> {

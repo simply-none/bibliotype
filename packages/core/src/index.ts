@@ -217,8 +217,46 @@ export type {
   StorageAdapter,
   StoredDocument,
   DocumentSummary,
+  DocumentSummaryPatch,
   SaveOptions,
 } from './storage/types.js';
+
+/* ---------- 书架摘要与查询（纯函数 + 可选端口） ---------- */
+export type { BuildDocumentSummaryInput } from './storage/library.js';
+export {
+  buildDocumentSummary,
+  carryOverSummaryFields,
+  clampProgress,
+  mergeDocumentSummary,
+  normalizeTags,
+  summaryAuthor,
+  summaryIsbn,
+  summaryTagsFromMetadata,
+  isDocumentSummary,
+} from './storage/library.js';
+export {
+  DOCUMENT_GROUP_KEYS,
+  DOCUMENT_SORT_KEYS,
+  SORT_DIRECTIONS,
+  defaultDirection,
+  groupDocumentSummaries,
+  isBookLibraryStore,
+  isBookSummaryStore,
+  matchesDocumentQuery,
+  queryDocumentSummaries,
+  sortDocumentSummaries,
+  splitQueryTokens,
+} from './storage/query.js';
+export type {
+  BookLibraryStore,
+  BookQueryResult,
+  BookSummaryStore,
+  DocumentGroupKey,
+  DocumentQuery,
+  DocumentSortKey,
+  DocumentSummaryGroup,
+  SortDirection,
+} from './storage/query.js';
 
 /* ---------- 资产存储端口 ---------- */
 export type {
@@ -235,3 +273,172 @@ export {
   toAssetRef,
   isAssetStore,
 } from './storage/asset.js';
+
+/* ---------- `.btbook` 单书档 ---------- */
+export {
+  BTBOOK_FILES,
+  BTBOOK_FORMAT,
+  BTBOOK_FORMAT_VERSION,
+  BOOK_PACK_ERROR_CODES,
+  BookPackError,
+  assetIdFromPath,
+  assetPackPath,
+  buildBookPackFiles,
+  isBookPackCodec,
+  packBookArchive,
+  parseBookPackFiles,
+  parseBookPackManifest,
+  unpackBookArchive,
+} from './storage/btbook.js';
+export type {
+  BookPackAsset,
+  BookPackAssetMeta,
+  BookPackCodec,
+  BookPackErrorCode,
+  BookPackFile,
+  BookPackManifest,
+  BuildBookPackInput,
+  UnpackedBookPack,
+} from './storage/btbook.js';
+
+/* ---------- 整库备份 / 迁移 ---------- */
+export {
+  BACKUP_CONFLICT_STRATEGIES,
+  LIBRARY_BACKUP_FILES,
+  LIBRARY_BACKUP_FORMAT,
+  LIBRARY_BACKUP_VERSION,
+  backupBookIdFromPath,
+  backupBookPath,
+  buildLibraryBackupFiles,
+  nextCopyId,
+  packLibraryArchive,
+  parseLibraryBackupManifest,
+  resolveConflictTarget,
+  restoreLibrary,
+  unpackLibraryArchive,
+} from './storage/backup.js';
+export type {
+  BackupConflictStrategy,
+  BuildLibraryBackupInput,
+  LibraryBackupBookEntry,
+  LibraryBackupManifest,
+  LibraryRestoreBookHook,
+  LibraryRestoreFailure,
+  LibraryRestoreProgress,
+  LibraryRestoreResult,
+  RestoreLibraryOptions,
+} from './storage/backup.js';
+
+/* ---------- 加密与脱敏 ---------- */
+export {
+  CRYPTO_ERROR_CODES,
+  CryptoError,
+  isCryptoError,
+} from './crypto/errors.js';
+export type { CryptoErrorCode } from './crypto/errors.js';
+export {
+  DEFAULT_PBKDF2_ITERATIONS,
+  KDF_SALT_BYTES,
+  createPbkdf2Derivation,
+  deriveKeyPbkdf2,
+  randomBytes,
+  resolveSubtle,
+} from './crypto/kdf.js';
+export type { KeyDerivation, Pbkdf2Options } from './crypto/kdf.js';
+export {
+  DEFAULT_IV_BYTES,
+  ENCRYPTED_ENVELOPE_VERSION,
+  base64ToBytes,
+  bytesToBase64,
+  createByteCipher,
+  createStringCipher,
+  decodeEnvelope,
+  encodeEnvelope,
+  isEncryptedEnvelope,
+} from './crypto/aes-gcm.js';
+export type {
+  AesGcmOptions,
+  ByteCipher,
+  EncryptedEnvelope,
+  StringCipher,
+} from './crypto/aes-gcm.js';
+export {
+  SEALED_ASSET_MEDIA_TYPE,
+  SEALED_DOCUMENT_KEY,
+  SEALED_DOCUMENT_SCHEMA,
+  SEALED_DOCUMENT_TITLE,
+  createEncryptedAssetStore,
+  createEncryptedStorageAdapter,
+  isSealedDocument,
+  readSealedEnvelope,
+} from './crypto/adapters.js';
+export type {
+  EncryptedAssetStoreOptions,
+  EncryptedStorageAdapterOptions,
+} from './crypto/adapters.js';
+export {
+  READING_PROGRESS_KEYS,
+  needsRedaction,
+  redactAnnotations,
+  redactDocument,
+} from './privacy/redact.js';
+export type { RedactOptions, RedactableAnnotation } from './privacy/redact.js';
+
+/* ---------- 修订模式（C5） ---------- */
+export {
+  REVISION_MARK_TYPES,
+  REVISION_VIEWS,
+  buildChangeId,
+  collectRevisions,
+  isRevisionMark,
+  parsePreviousMarks,
+  resolveMarksForView,
+  revisionTypeLabel,
+  revisionTypeOf,
+  serializeMarks,
+} from './revision/revision-marks.js';
+export type {
+  ResolvedRevisionMarks,
+  RevisionAttrs,
+  RevisionEntry,
+  RevisionMarkType,
+  RevisionView,
+} from './revision/revision-marks.js';
+export {
+  acceptRevisions,
+  acceptRevisionsInRoot,
+  hasRevisions,
+  projectRevisionView,
+  rejectRevisions,
+  rejectRevisionsInRoot,
+} from './revision/accept-reject.js';
+
+/* ---------- 历史版本（C7） ---------- */
+export {
+  DOCUMENT_SNAPSHOT_VERSION,
+  assertRetentionPolicy,
+  createSnapshot,
+  isDocumentVersionStore,
+  nextSnapshotVersion,
+  restoreSnapshot,
+  selectExpiredSnapshots,
+  snapshotChecksum,
+} from './history/snapshot.js';
+export type {
+  DocumentSnapshot,
+  DocumentSnapshotMeta,
+  DocumentVersionStore,
+  SnapshotRetentionPolicy,
+  SnapshotRestoreResult,
+} from './history/snapshot.js';
+export {
+  DOCUMENT_CHANGE_KINDS,
+  diffDocuments,
+  inlineTextDiff,
+} from './history/diff.js';
+export type {
+  DocumentChange,
+  DocumentChangeKind,
+  DocumentDiff,
+  TextDiffSegment,
+} from './history/diff.js';

@@ -128,12 +128,130 @@ off();
 > [`apps/demo/src/composables/use-draft-autosave.ts`](../apps/demo/src/composables/use-draft-autosave.ts)，
 > 演示入口在 `apps/demo/src/App.vue`。
 
+## 书架摘要与查询（H3）
+
+`DocumentSummary` 只在必备字段（`id` / `title` / `updatedAt`）之外**追加可选字段**：
+`author` / `isbn` / `tags` / `coverThumbnail` / `wordCount` / `progress` / `lastOpenedAt`。
+旧库记录缺字段不报错，读取侧用 `mergeDocumentSummary` 回退。
+
+> 兼容红线：**不要给 `StorageAdapter` 加必选方法**。书架能力拆成两个可选端口，
+> 调用方必须先探测再使用，避免存量实现与宿主 autosave 被破坏。
+
+```ts
+import {
+  isBookLibraryStore,   // name + query
+  isBookSummaryStore,   // name + updateSummary
+  queryDocumentSummaries,
+} from '@bibliotype/core';
+
+const summaries = isBookLibraryStore(storage)
+  ? (await storage.query({ text: '朱熹', sortBy: 'recentRead', groupBy: 'tag' })).items
+  : queryDocumentSummaries(await storage.list(), { text: '朱熹' });
+```
+
+| 端口 | 方法 | 实现 |
+| --- | --- | --- |
+| `BookLibraryStore` | `query(DocumentQuery)` | IndexedDB / 内存 / HTTP（`list` + 纯函数） |
+| `BookSummaryStore` | `updateSummary(id, patch)` | IndexedDB / 内存（HTTP 无端点，不实现） |
+
+查询口径（`core/src/storage/query.ts`，纯函数）：
+
+- 检索词按空白切分，**全部命中**才算匹配，覆盖标题 / 作者 / ISBN / 标签；
+- 标签筛选为**命中任一**；
+- 排序键：`recentRead`（缺 `lastOpenedAt` 回落 `updatedAt`）/ `updated` / `title` / `wordCount`；
+  标题用码位比较，跨环境确定性；
+- 分组：`none` / `tag`（一本可进多组）/ `author`（缺省「未署名」）。
+
+字数在 `save` 时用 `countDocumentStats().characters` 算一次写进摘要；保存正文时
+`carryOverSummaryFields` 会保留进度 / 最近阅读 / 封面 / 显式标签。
+
+## `.btbook` 单书档（H3）
+
+一本书 = `manifest.json` + `document.json` + `annotations.json`（可选）+ `assets/<id>`（可选）。
+
+```ts
+import { packBookArchive, unpackBookArchive, isBookPackCodec } from '@bibliotype/core';
+
+const bytes = await packBookArchive(
+  { id, document, createdAt: Date.now(), summary, annotations },
+  codec, // 宿主注入：zip(files) / unzip(bytes)
+);
+const { manifest, document: restored, summary: restoredSummary } = await unpackBookArchive(bytes, codec);
+```
+
+- **core 不引压缩库**：`BookPackCodec` 由宿主提供（Node 可用 `zlib`，浏览器可用 `fflate`；
+  示例应用给了一份零依赖 STORE 实现，见 `apps/demo/src/zip-codec.ts`）；
+- 结构校验：`parseBookPackManifest` / `parseBookPackFiles` 抛 `BookPackError`（稳定 `code`：
+  `INVALID_MANIFEST` / `INVALID_FORMAT` / `UNSUPPORTED_VERSION` / `INVALID_DOCUMENT` / `MISSING_ASSET`）；
+- 语义校验（IR）不在打包层做，由导入 / 恢复链路调用 `validateDocument`。
+
+## 整库备份与迁移（H4）
+
+备份包复用同一套格式：`manifest.json` + 每本 `books/<id>.btbook` + `settings.json` / `styles.json`。
+
+```ts
+import { buildLibraryBackupFiles, restoreLibrary, BACKUP_CONFLICT_STRATEGIES } from '@bibliotype/core';
+
+const files = buildLibraryBackupFiles({ createdAt: Date.now(), books, settings, styles });
+const result = await restoreLibrary({
+  files,
+  codec,
+  target: storage,
+  strategy: BACKUP_CONFLICT_STRATEGIES.KEEP_BOTH,
+  onProgress: (item) => console.log(item.current, item.total, item.title),
+});
+// result: { restored, skipped, copies, failures, settings, styles }
+```
+
+| 策略 | 同 id 冲突时 |
+| --- | --- |
+| `merge`（默认） | 保留 `updatedAt` 较新的一份 |
+| `overwrite` | 以备份内容为准 |
+| `keep-both` | 导入件另存为 `<id>-copy`、`<id>-copy-2`… |
+
+恢复原则：逐书串行；先 `validateDocument` 再落库；单本失败只进 `failures`（`code` + 中文原因），
+不中断整批；`onBookRestored` 供宿主补写注记等域外数据。
+
+## 历史版本（C7）
+
+端口 `DocumentVersionStore`（可选能力，`isDocumentVersionStore` 探测）：
+`listVersions` / `saveVersion` / `loadVersion` / `deleteVersion` / `pruneVersions`。
+
+- 适配器实现：`IndexedDbVersionStore`（默认独立库 `bibliotype-versions`，复合主键
+  `[documentId, version]`，不动文档库版本号）与 `MemoryVersionStore`；
+- 快照带内容校验和（FNV-1a）：回滚先验校验和，再 `validateDocument`，双失败都拒绝并给出原因；
+- 保留策略由 `selectExpiredSnapshots` 选择（`maxCount` / `maxAgeDays` 取更严格者），
+  存储实现只执行删除；非法策略直接抛 `RangeError`，避免误清历史。
+
+## 存储层加密（H5）
+
+**装饰而非改造**：`createEncryptedStorageAdapter({ inner, cipher })` 在 `save` / `load` 边界
+加解密；底层适配器只见密文。
+
+```ts
+import { createStringCipher, createEncryptedStorageAdapter, deriveKeyPbkdf2 } from '@bibliotype/core';
+
+const key = await deriveKeyPbkdf2({ password, salt });       // PBKDF2-SHA256，默认 21 万次
+const cipher = createStringCipher(key);                       // AES-GCM 256
+const secure = createEncryptedStorageAdapter({ inner: storage, cipher });
+```
+
+- 信封：`{ v: 1, iv, data }`（base64）；加密态文档仍是合法 IR（`schemaVersion: 'sealed-v1'`，
+  信封存 `metadata.extra.__btSealedDocument`）；
+- 错误码稳定：`WRONG_KEY` / `CORRUPT_PAYLOAD` / `NOT_SUPPORTED` / `INVALID_PARAMETER`，
+  信息为中文并给出修复指向；**禁止静默降级为明文**；
+- 已知限制：加密态 `list()` 只给占位标题，因此加密适配器不实现 `BookLibraryStore`；
+  混合状态（明文记录）读取会明确报错，提示关闭加密或从备份恢复；
+- 资产用 `createEncryptedAssetStore({ inner, cipher: byteCipher })`，`mediaType` 与文件名
+  随密文一起保存，底层只看到 `application/x-bt-sealed`。
+
 ## 规划中的适配器
 
-- `@bibliotype/adapter-sqlite`：Electron 端（数据库）；
-- `@bibliotype/adapter-http`：远端（自建服务）。
+- `@bibliotype/adapter-sqlite`：Electron 端。**驱动由宿主安装并注入**（插件不安装任何
+  SQLite 包），端口只读取连接；契约同 `StorageAdapter` + 上述可选能力。
+- `@bibliotype/adapter-http` 已实现（见 [29 远端适配器](29-adapter-http.md)）。
 
-两者均只需实现同一 `StorageAdapter` 契约，consume 方代码无需改动。
+两者均只需实现同一契约，consume 方代码无需改动。
 
 ## 相关
 

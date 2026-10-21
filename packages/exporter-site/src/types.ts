@@ -5,7 +5,7 @@
  * `style.css` + `search-index.json`（可选）+ `book.json`（IR 原文，可选）。
  * 全部为文本文件，输出确定性（无时间戳、路径按节序编号）。
  */
-import type { ExportComment } from '@bibliotype/core';
+import type { ExportComment, RevisionView } from '@bibliotype/core';
 import type { LayoutOptions } from '@bibliotype/layout';
 
 /** 站点文件（全部为文本） */
@@ -58,6 +58,12 @@ export interface SiteExportOptions {
   containerSelector?: string;
   /** 是否输出 `book.json`（IR 原文，缺省 true） */
   includeBookJson?: boolean;
+  /**
+   * 修订视图（C5，缺省 `'final'`：站点输出终稿）
+   *
+   * 站点是对外发布物，缺省不带修订痕迹；内部审阅站可显式传 `'marked'`。
+   */
+  revisionView?: RevisionView;
   /** 是否输出 `search-index.json`（缺省 true） */
   searchIndex?: boolean;
   /** 导出的最大节数保护（缺省 2000，防误导出超长书） */

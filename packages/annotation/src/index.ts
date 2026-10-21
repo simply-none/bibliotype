@@ -44,6 +44,10 @@ export {
 /* ---------- Markdown 导出 ---------- */
 export { annotationsToMarkdown } from './markdown.js';
 
+/* ---------- 加密存储（注记独立密钥） ---------- */
+export { createEncryptedAnnotationStorage } from './encrypted-storage.js';
+export type { EncryptedAnnotationStorageOptions } from './encrypted-storage.js';
+
 /* ---------- 容器 ---------- */
 export { AnnotationStore } from './store.js';
 export type { AnnotationPatch, AnnotationListener } from './store.js';

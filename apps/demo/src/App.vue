@@ -42,7 +42,7 @@ import {
 } from '@bibliotype/core';
 import { CLASSICAL_THEME_OVERRIDES } from '@bibliotype/classical';
 import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
-import { BookEditor, createBookEditorPlugins } from '@bibliotype/editor';
+import { BookEditor, createBookEditorPlugins, createRevisionTrackingPlugin } from '@bibliotype/editor';
 import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 import {
   CLASSICAL_LAYOUT_OPTIONS,
@@ -83,6 +83,7 @@ import ImportPanel from './components/ImportPanel.vue';
 import ProgressBar from './components/ProgressBar.vue';
 import SearchPanel from './components/SearchPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
+import LibraryDrawer from './components/LibraryDrawer.vue';
 import ToolbarUsageTip from './components/ToolbarUsageTip.vue';
 import type { ToolbarUsage } from './components/toolbar-usage.js';
 import { useDraftAutosave } from './composables/use-draft-autosave.js';
@@ -505,6 +506,17 @@ const bookEditor = shallowRef<BookEditor | null>(null);
 /** BtEditor 组件实例（编辑态目录跳转等命令入口） */
 const btEditorRef = ref<InstanceType<typeof BtEditor> | null>(null);
 
+/** 书库抽屉是否展开（书架 / 备份 / 加密 / 修订 / 版本） */
+const libraryOpen = ref(false);
+
+/** 从书库打开一本书：阅读器与编辑器同步换文档 */
+function onLibraryBook(document: BookDocument): void {
+  reader.value.loadDocument(document);
+  bookVersion.value += 1;
+  bookEditor.value?.loadDocument(document);
+  pushToast(`已打开《${document.metadata.title}》`, 'success');
+}
+
 /** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效）
  *
  * 单一真相源为 `editing.readonly`（持久化）：设置面板「只读模式」勾选、
@@ -774,7 +786,11 @@ async function enterEdit(): Promise<void> {
     bookEditor.value = new BookEditor({
       schema,
       document: draft ?? reader.value.document ?? lunyuDocument,
-      plugins: createBookEditorPlugins(schema),
+      plugins: [
+        ...createBookEditorPlugins(schema),
+        // 修订追踪默认关闭，由「书库 → 修订」页签开启（C5）
+        createRevisionTrackingPlugin({ author: 'demo' }),
+      ],
     });
     unsubscribeEditor = bookEditor.value.onChange(onEditorChange);
     dirty.value = bookEditor.value.isDirty;
@@ -1370,6 +1386,14 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="toolbar__button"
+            :class="{ 'toolbar__button--active': libraryOpen }"
+            @click="libraryOpen = !libraryOpen"
+          >
+            书库
+          </button>
+          <button
+            type="button"
+            class="toolbar__button"
             :class="{ 'toolbar__button--active': settingsOpen }"
             @click="settingsOpen = !settingsOpen"
           >
@@ -1636,6 +1660,14 @@ onBeforeUnmount(() => {
       :editable="infoEditable"
       @save="onMetadataSave"
       @close="infoOpen = false"
+    />
+
+    <LibraryDrawer
+      v-model:open="libraryOpen"
+      :document="currentDocument"
+      :editor="bookEditor"
+      @open-book="onLibraryBook"
+      @notify="(message) => pushToast(message, 'info')"
     />
 
     <AppToast :items="toasts" @dismiss="dismissToast" />

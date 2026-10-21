@@ -50,7 +50,7 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 文档含索引词时命中）；`.bt-seal` 改为「内联 SVG 印谱 + `:empty` 文字兜底」结构
  * （无印章文档渲染不受影响），样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = 'f73062ea';
+export const CLASSICAL_CSS_FNV = 'd483fee1';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

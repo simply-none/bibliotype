@@ -117,6 +117,41 @@ const set = deserializeAnnotationSet(json);          // 非法输入抛 TypeErro
 | 同一处高亮出现两条 | 手工生成 id（随机 / 时间戳） | 用 `createHighlight` 的内容哈希 id |
 | 评论无法标记已解决 | 直接改 `resolved` 字段 | 用 `setCommentResolved(annotation, true)` 返回新对象 |
 
+## 七、注记独立加密（H5）
+
+注记可以用**独立密钥**加密：只锁笔记与批注，正文照常阅读；反之正文加密时也可以先不解锁注记。
+
+```ts
+import { createEncryptedAnnotationStorage } from '@bibliotype/annotation';
+import { createStringCipher, deriveKeyPbkdf2 } from '@bibliotype/core';
+
+/* 与正文密钥分开派生：不同 salt 或不同口令 */
+const notesKey = await deriveKeyPbkdf2({ password: notesPassword, salt: notesSalt });
+const notesCipher = createStringCipher(notesKey);
+
+const storage = createEncryptedAnnotationStorage({
+  read: (bookId) => idb.readPayload(`ann:${bookId}`),
+  write: (bookId, payload) => idb.writePayload(`ann:${bookId}`, payload),
+  remove: (bookId) => idb.removePayload(`ann:${bookId}`),
+  cipher: notesCipher,
+});
+
+await store.persist(storage, 'lunyu');   // 落盘的是密文信封
+await store.hydrate(storage, 'lunyu');   // 口令错 → CryptoError(WRONG_KEY)
+```
+
+- 载荷是 JSON 信封字符串（`isEncryptedEnvelope` 判定），底层存储只见密文；
+- **不静默降级**：历史明文标注、被改写的载荷、解密后非合法集合一律抛
+  `CryptoError`（`CORRUPT_PAYLOAD`），提示「关闭注记加密或从备份恢复」；
+- 口令错抛 `WRONG_KEY`，不删除、不覆盖原记录，重试即可；
+- 密钥只驻内存，会话结束即失效；「本次会话已解锁」由宿主记录，不落盘；
+- 与正文加密的分工：正文加密解决「库里读不出书」，注记加密解决「库里读不出笔记」，
+  两者可单独开关。
+
+导出侧脱敏（`redactAnnotations` / `redactDocument`）解决另一个问题：导出物里
+**不含**批注、作者与阅读进度。目录下 [10 存储适配器](10-storage-adapters.md#存储层加密h5) 记了正文侧装饰器，
+两者不要混用——加密只管存储，脱敏只管导出。
+
 ## 在 Vue 中消费（C6 / D2）
 
 标注包只管数据；视图侧由 `@bibliotype/vue` 提供：

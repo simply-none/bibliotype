@@ -3,7 +3,12 @@
  * 用内存假服务端（fake fetch）验证，不依赖网络。
  */
 import { describe, expect, it, vi } from 'vitest';
-import { createEmptyDocument, isAssetStore } from '@bibliotype/core';
+import {
+  createEmptyDocument,
+  isAssetStore,
+  isBookLibraryStore,
+  isBookSummaryStore,
+} from '@bibliotype/core';
 import type { BookDocument } from '@bibliotype/core';
 import { HttpAdapterError, createHttpAdapter } from '../index.js';
 import type { FetchLike, HttpRequestInit, HttpResponseLike } from '../index.js';
@@ -158,6 +163,21 @@ describe('createHttpAdapter 文档端口', () => {
     await adapter.save('b1', sampleDocument(), { updatedAt: 1 });
     const list = await adapter.list();
     expect(list).toEqual([{ id: 'b1', title: '论语', updatedAt: 1 }]);
+  });
+
+  it('书架查询在客户端完成（不新增服务端端点）', async () => {
+    const server = createFakeServer();
+    const adapter = createHttpAdapter({ baseUrl: BASE, fetchImpl: server.fetchImpl });
+    await adapter.save('b1', sampleDocument(), { updatedAt: 100 });
+    await adapter.save('b2', { ...sampleDocument(), metadata: { title: '史记' } }, { updatedAt: 200 });
+
+    expect(isBookLibraryStore(adapter)).toBe(true);
+    const result = await adapter.query({ text: '史记', sortBy: 'updated' });
+    expect(result.total).toBe(1);
+    expect(result.items.map((item) => item.id)).toEqual(['b2']);
+    // 只读能力：HTTP 适配器不实现摘要补丁端口
+    expect(isBookSummaryStore(adapter)).toBe(false);
+    expect(server.calls.every((call) => call.url.startsWith(`${BASE}/documents`))).toBe(true);
   });
 
   it('删除与清空', async () => {

@@ -118,11 +118,12 @@ describe('快照与保留策略', () => {
     }
   });
 
-  it('结构不合法时拒绝回滚', () => {
+  it('结构性错误时拒绝回滚', () => {
     const broken: BookDocument = {
       schemaVersion: '0.3.0',
       metadata: { title: '坏文档' },
-      root: { type: 'book', children: [{ type: 'unknown-node' }] },
+      // 容器上带 text：结构性错误（与未知插件类型无关）
+      root: { type: 'book', children: [{ type: 'paragraph', text: '非法' }] },
     };
     const snapshot = createSnapshot({
       documentId: 'book-1',
@@ -134,6 +135,75 @@ describe('快照与保留策略', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.code).toBe('INVALID_DOCUMENT');
+    }
+  });
+
+  it('含插件类型（古籍标记）的快照默认可回滚，并回传 warning', () => {
+    const pluginDoc: BookDocument = {
+      schemaVersion: '0.3.0',
+      metadata: { title: '论语' },
+      root: {
+        type: 'book',
+        children: [
+          { type: 'collation-mark', attrs: { symbol: '○' } },
+          {
+            type: 'paragraph',
+            children: [
+              { type: 'text', text: '子曰', marks: [{ type: 'judou', attrs: { symbol: '，' } }] },
+            ],
+          },
+        ],
+      },
+    };
+    const snapshot = createSnapshot({
+      documentId: 'book-1',
+      document: pluginDoc,
+      version: 3,
+      createdAt: 1000,
+    });
+
+    const result = restoreSnapshot(snapshot);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.document).toEqual(pluginDoc);
+      expect(result.warnings?.map((issue) => issue.code)).toEqual([
+        'unknown-node-type',
+        'unknown-mark-type',
+      ]);
+    }
+  });
+
+  it('登记插件类型后无 warning；显式严格时拒绝回滚', () => {
+    const pluginDoc: BookDocument = {
+      schemaVersion: '0.3.0',
+      metadata: { title: '论语' },
+      root: {
+        type: 'book',
+        children: [{ type: 'collation-mark', attrs: { symbol: '○' } }],
+      },
+    };
+    const snapshot = createSnapshot({
+      documentId: 'book-1',
+      document: pluginDoc,
+      version: 4,
+      createdAt: 1000,
+    });
+
+    const lenient = restoreSnapshot(snapshot, {
+      validateOptions: { knownNodeTypes: ['collation-mark'] },
+    });
+    expect(lenient.ok).toBe(true);
+    if (lenient.ok) {
+      expect(lenient.warnings).toBeUndefined();
+    }
+
+    const strict = restoreSnapshot(snapshot, {
+      validateOptions: { unknownTypesAsWarning: false },
+    });
+    expect(strict.ok).toBe(false);
+    if (!strict.ok) {
+      expect(strict.code).toBe('INVALID_DOCUMENT');
+      expect(strict.message).toContain('未知');
     }
   });
 

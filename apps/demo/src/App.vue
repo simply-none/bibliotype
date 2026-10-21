@@ -70,7 +70,7 @@ import {
   type BlockMeasureContext,
   type OutlineItem,
 } from '@bibliotype/reader';
-import { BtAnnotationSuggestions, BtBookView, BtDocumentStats, BtEditor, BtPager, BtSidebarResizer, BtToc, createFontCheckProbe, measurePagination, disposeMeasureSheet, splitFontFamilyList, useAnnotationSuggestions, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
+import { BtAnnotationSuggestions, BtBookView, BtCompareView, BtDocumentStats, BtEditor, BtPager, BtSidebarResizer, BtToc, createFontCheckProbe, measurePagination, disposeMeasureSheet, splitFontFamilyList, useAnnotationSuggestions, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
 import {
   collectEpubGlyphProblems,
   exportEpub,
@@ -540,8 +540,28 @@ const mode = ref<'read' | 'edit'>('read');
 /** 启动恢复完成（草稿内容 + 页码已回灌）；就绪前视图不渲染，避免样章闪烁 */
 const booted = ref(false);
 
-/** 阅读视图模式：单页翻页 / 连续滚动多页 */
-const viewMode = ref<'page' | 'scroll'>('page');
+/** 阅读视图模式：单页翻页 / 连续滚动多页 / 流式阅读（D5） */
+const viewMode = ref<'page' | 'scroll' | 'scroll-flow'>('page');
+
+/**
+ * 实际生效视图模式：流式阅读在直排 / 仿真版式下不被支持，自动回落单页翻页
+ * （与 `BtBookView` 的 `flowSupported` 口径一致），并提示用户。
+ */
+const effectiveViewMode = computed<'page' | 'scroll' | 'scroll-flow'>(() => {
+  if (viewMode.value !== 'scroll-flow') return viewMode.value;
+  if (verticalRail.value || facsimilePreset.value !== undefined) return 'page';
+  return 'scroll-flow';
+});
+
+/** 流式阅读回落提示（非空时界面顶部展示一条说明条） */
+const modeFallbackHint = ref('');
+
+/** 翻页动效：slide（默认）/ fade / none */
+const pageTransition = ref<'slide' | 'fade' | 'none'>('slide');
+
+/** 阅读位置持久化（D5）：以锚点为主，刷新 / 改字号后回到原句 */
+const POSITION_KEY = 'bibliotype-demo:position';
+const savedPosition = ref<string | undefined>(undefined);
 
 /** 编辑态右栏属性检视器是否折叠（收成细条只留展开把手；随界面偏好快照持久化） */
 const inspectorCollapsed = ref(false);
@@ -687,11 +707,12 @@ const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
 /** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
 const SETTINGS_KEY = 'bibliotype-demo:settings';
 
-/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 属性栏折叠 */
+/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 翻页动效 / 属性栏折叠 */
 interface SettingsSnapshot {
   themeKey: ThemeKey;
   night: boolean;
-  viewMode: 'page' | 'scroll';
+  viewMode: 'page' | 'scroll' | 'scroll-flow';
+  pageTransition: 'slide' | 'fade' | 'none';
   /** 编辑态右栏属性检视器折叠（true = 收成细条） */
   inspectorCollapsed: boolean;
 }
@@ -710,10 +731,15 @@ function readSettingsSnapshot(): SettingsSnapshot | null {
     ) {
       return null;
     }
+    const viewModeValue = parsed.viewMode;
+    const transitionValue = parsed.pageTransition;
     return {
       themeKey: parsed.themeKey,
       night: parsed.night === true,
-      viewMode: parsed.viewMode === 'scroll' ? 'scroll' : 'page',
+      viewMode:
+        viewModeValue === 'scroll' || viewModeValue === 'scroll-flow' ? viewModeValue : 'page',
+      pageTransition:
+        transitionValue === 'fade' || transitionValue === 'none' ? transitionValue : 'slide',
       inspectorCollapsed: parsed.inspectorCollapsed === true,
     };
   } catch {
@@ -731,6 +757,7 @@ function applySettingsSnapshot(snapshot: SettingsSnapshot): void {
   themeKey.value = snapshot.themeKey;
   night.value = snapshot.night;
   viewMode.value = snapshot.viewMode;
+  pageTransition.value = snapshot.pageTransition;
   inspectorCollapsed.value = snapshot.inspectorCollapsed;
 }
 
@@ -740,6 +767,7 @@ function persistSettingsSnapshot(): void {
     themeKey: themeKey.value,
     night: night.value,
     viewMode: viewMode.value,
+    pageTransition: pageTransition.value,
     inspectorCollapsed: inspectorCollapsed.value,
   };
   try {
@@ -766,7 +794,7 @@ function persistSettingsSnapshot(): void {
  * 都即时写回 localStorage，无需调用方逐个补 `persistSettingsSnapshot()`。
  */
 watch(
-  [themeKey, night, viewMode, inspectorCollapsed],
+  [themeKey, night, viewMode, pageTransition, inspectorCollapsed],
   persistSettingsSnapshot,
 );
 
@@ -789,6 +817,25 @@ function writeLastPage(pageIndex: number): void {
   }
 }
 
+/** 读取上次保存的阅读位置（锚点 JSON；缺省 undefined 走旧页码回退） */
+function readSavedPosition(): string | undefined {
+  try {
+    const raw = window.localStorage.getItem(POSITION_KEY);
+    return raw === null ? undefined : raw;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 落盘当前阅读位置（锚点 JSON；存储不可用环境静默失败） */
+function writeSavedPosition(json: string): void {
+  try {
+    window.localStorage.setItem(POSITION_KEY, json);
+  } catch {
+    /* 忽略 */
+  }
+}
+
 /** 页态订阅退订句柄（绑定当前 Reader 实例，实例重建时重挂） */
 let unsubscribePage: (() => void) | null = null;
 
@@ -805,12 +852,54 @@ watch(reader, () => {
   if (booted.value) attachPageTracking();
 });
 
+/** 阅读位置变化（D5）：以锚点 JSON 持久化，刷新 / 改字号后回到原句 */
+function onReadingPosition(position: unknown): void {
+  if (position === undefined || position === null) return;
+  try {
+    writeSavedPosition(JSON.stringify(position));
+  } catch {
+    /* 序列化 / 存储失败时静默，不阻断阅读 */
+  }
+}
+
+/** 流式阅读不被当前版式支持，已回落分页：提示用户一次 */
+function onModeFallback(payload: { reason: string }): void {
+  modeFallbackHint.value = payload.reason;
+}
+
+/** 滚动模式是否支持流式阅读（直排 / 仿真版式下回落分页，与 BtBookView 口径一致） */
+const flowSupported = computed(
+  () => viewMode.value === 'scroll-flow' && !verticalRail.value && facsimilePreset.value === undefined,
+);
+
+/** 视图模式三态循环：page → scroll → scroll-flow → page（不支持的 scroll-flow 自动跳过） */
+function cycleViewMode(): void {
+  const order = ['page', 'scroll', 'scroll-flow'] as const;
+  const idx = order.indexOf(viewMode.value);
+  for (let step = 1; step <= order.length; step += 1) {
+    const next = order[(idx + step) % order.length]!;
+    if (next === 'scroll-flow' && !flowSupported.value) continue;
+    viewMode.value = next;
+    return;
+  }
+  viewMode.value = 'page';
+}
+
+/** 视图模式展示名 */
+const viewModeLabel = computed(() => {
+  if (viewMode.value === 'scroll-flow') return '流式阅读';
+  if (viewMode.value === 'scroll') return '连续滚动';
+  return '单页翻页';
+});
+
 /** 启动恢复：设置快照 + 草稿内容回灌并刷新书本 + 回跳上次阅读页；就绪后置 booted */
 async function bootstrap(): Promise<void> {
   try {
     const last = readLastPage();
     const snapshot = readSettingsSnapshot();
     if (snapshot !== null) applySettingsSnapshot(snapshot);
+    // 恢复锚点阅读位置（scroll-flow 模式据此回到原句；旧页码键仍作回退）
+    savedPosition.value = readSavedPosition();
     const draft = await readDraft();
     // 按恢复后的版式重建 Reader（初次创建仍是默认主题基准）并载入草稿内容
     reader.value = createReader(
@@ -1342,6 +1431,17 @@ const MODE_USAGE: ToolbarUsage = {
 const VIEW_MODE_USAGE: ToolbarUsage = {
   use: '在「单页翻页」与「连续滚动多页」之间切换',
   where: '阅读态用 ← / → 翻页；连续模式也可用滚轮上下浏览',
+};
+
+/** 双页对照（D5）：以当前文档左右对页演示对照容器 */
+const compareOpen = ref(false);
+const COMPARE_USAGE: ToolbarUsage = {
+  use: '打开双页对照视图：当前文档左右对页阅读（同书对照）；可接入两份文稿做底本 / 校本比对',
+  where: '对照视图由 BtSpreadLayout 承载，中缝分隔、标签固定',
+};
+
+const PREV_PAGE_USAGE: ToolbarUsage = {
+  use: '← / → 翻页（仅阅读态；编辑态方向键交给编辑器）',
   key: '← / →',
   limit: '编辑态不生效（方向键归编辑器）',
 };
@@ -1656,6 +1756,11 @@ onBeforeUnmount(() => {
       />
 
       <main class="app__main">
+        <!-- 流式阅读不被当前版式支持时的回落说明条（可关闭，不使用弹窗） -->
+        <div v-if="booted && mode === 'read' && effectiveViewMode !== viewMode" class="app__mode-hint">
+          <span>{{ modeFallbackHint || '当前版式暂不支持流式阅读，已切换为分页阅读。' }}</span>
+          <button type="button" class="app__mode-hint-close" @click="modeFallbackHint = ''">知道了</button>
+        </div>
         <div ref="editorStageRef" class="app__stage">
           <BtBookView
             v-if="booted && mode === 'read'"
@@ -1665,9 +1770,13 @@ onBeforeUnmount(() => {
             :font-token="activeFontToken"
             :features="features"
             :named-styles="namedStyles"
-            :mode="viewMode"
+            :mode="effectiveViewMode"
             :font-size="fontSizeNum"
+            :page-transition="pageTransition"
+            :initial-position="savedPosition"
             @update:font-size="onFontSizeUpdate"
+            @update:position="onReadingPosition"
+            @mode-fallback="onModeFallback"
           />
           <BtEditor
             v-else-if="booted && bookEditor"
@@ -1772,10 +1881,22 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="statusbar__button"
-              :class="{ 'statusbar__button--on': viewMode === 'scroll' }"
-              @click="viewMode = viewMode === 'page' ? 'scroll' : 'page'"
+              :class="{ 'statusbar__button--on': viewMode !== 'page' }"
+              :disabled="!flowSupported && viewMode === 'page'"
+              :title="flowSupported ? '切换阅读形态：单页 / 连续滚动 / 流式' : '当前版式（直排 / 仿真）不支持流式阅读'"
+              @click="cycleViewMode"
             >
-              {{ viewMode === 'page' ? '滚动翻页' : '单页翻页' }}
+              {{ viewModeLabel }}
+            </button>
+          </ToolbarUsageTip>
+          <ToolbarUsageTip :usage="COMPARE_USAGE">
+            <button
+              type="button"
+              class="statusbar__button"
+              :class="{ 'statusbar__button--on': compareOpen }"
+              @click="compareOpen = !compareOpen"
+            >
+              双页对照
             </button>
           </ToolbarUsageTip>
         </div>
@@ -1829,7 +1950,9 @@ onBeforeUnmount(() => {
       :theme-base-tokens="themeBaseTokens"
       :document="reader.document ?? lunyuDocument"
       :night="night"
+      :page-transition="pageTransition"
       @update:night="night = $event; persistSettingsSnapshot()"
+      @update:page-transition="pageTransition = $event; persistSettingsSnapshot()"
       @apply-theme-tokens="onApplyThemeTokens"
       @close="closeSettings"
     />
@@ -1851,6 +1974,21 @@ onBeforeUnmount(() => {
     />
 
     <AppToast :items="toasts" @dismiss="dismissToast" />
+
+    <!-- D5 双页对照：当前文档左右对页（同书对照）。接入第二份文稿可比对底本 / 校本 -->
+    <div v-if="compareOpen" class="app__compare-overlay">
+      <div class="app__compare-bar">
+        <span class="app__compare-title">双页对照（当前文档左右对页）</span>
+        <button type="button" class="app__compare-close" @click="compareOpen = false">关闭</button>
+      </div>
+      <div class="app__compare-body">
+        <BtCompareView
+          :left="reader"
+          mode="page"
+          :page-transition="pageTransition"
+        />
+      </div>
+    </div>
   </div>
 </template>
 

@@ -355,3 +355,33 @@ const suggestions = useAnnotationSuggestions({
   },
 });
 ```
+
+## 多形态阅读（D5）：`scroll-flow` / 翻页动效 / 双页对照
+
+### `BtBookView` 新增能力
+
+| 维度 | 说明 |
+| --- | --- |
+| `mode` | 扩展为 `'page' \| 'scroll' \| 'scroll-flow'`；`scroll-flow` 仅横排流式，直排 / 仿真 / `spread='facing'` 下自动回落 `page` 并 emit `mode-fallback` |
+| `pageTransition` | `'none' \| 'slide' \| 'fade'`（默认 `slide`）：横排滑动 / 直排方向自适应；尊重系统「减少动态效果」与显式 `none` |
+| `initialPosition` | `ReadingPosition \| string`：首帧解析后强制挂载目标分块并滚到锚点（刷新 / 改字号后回到原句） |
+| `flowChunkBlocks` / `flowRootMargin` / `estimateFlowHeight` | 流式分块上限 / 挂载预取边距 / 高度估算覆盖 |
+| emits | `update:position`（锚点 + 进度，宿主持久化）、`update:page`（页码变化，容器同步用）、`update:fontSize`、`mode-fallback` |
+
+流式分支按 `data-flow-key` 渲染分块：已挂载分块 `v-html` 逐块序列化（`serializeNode` 开启 `anchorIds`），未挂载分块渲染估算高度骨架占位（`aria-hidden`）。滚动以 rAF 节流，按视口位置经 `resolveMountWindow` 计算挂载窗口（`flowRootMargin` 控制预取余量）、取视口首块经 `reader.getPositionForNode` 回写 `update:position`；`ResizeObserver` 实测高度并做滚动补偿。
+
+### `BtSpreadLayout`（双栏 / 对页纯布局容器）
+
+props：`mode`（`columns` / `facing`）、`gap`、`leftLabel` / `rightLabel`；插槽 `left` / `right`。中缝分隔 + 可选标签，窄窗（`<720px`）上下堆叠。`BtCompareView` 与 `BtCollationCompare` 共用此容器，中缝 / 比例 / 响应式规则只有一套实现。
+
+### `BtCompareView`（双文稿对照）
+
+- 仅传 `left`：退化为单文档 `spread='facing'` 对页阅读；
+- 传 `right`：左右并排各一份 `BtBookView`（`mode='columns'`），可独立翻页；`syncPages` 开启时**双向页码同步**（重入守卫 + 越界钳制）；
+- 两侧位置经 `update:position` 汇总（`side: 'left' \| 'right'`），宿主持久化可分别保存。
+
+### 翻页动效降级规则
+
+- 默认 `slide`：横排新页自右向左滑入 12% + 透明度 0.6→1，约 220ms；直排改为自下而上；
+- `fade`：仅透明度；`none` / 系统「减少动态效果」：完全瞬时切换（过渡 `none`）；
+- 过渡只加在页框外层，**不改变 `serializeNode` 产物与导出 HTML**。

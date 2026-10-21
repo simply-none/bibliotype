@@ -212,6 +212,10 @@ const result = await restoreLibrary({
 恢复原则：逐书串行；先 `validateDocument` 再落库；单本失败只进 `failures`（`code` + 中文原因），
 不中断整批；`onBookRestored` 供宿主补写注记等域外数据。
 
+`restoreLibrary` 接受 `validateOptions`（`ValidateOptions` 透传）：**恢复路径默认把未知节点 / 标记类型
+降级为 warning**，含古籍插件标记的文档不会被整本拒绝；`onBookValidated(context)` 可在每本恢复成功时
+回传 warning 级问题（未知类型等）供诊断。需要严格口径时传 `unknownTypesAsWarning: false`。
+
 ## 历史版本（C7）
 
 端口 `DocumentVersionStore`（可选能力，`isDocumentVersionStore` 探测）：
@@ -220,6 +224,8 @@ const result = await restoreLibrary({
 - 适配器实现：`IndexedDbVersionStore`（默认独立库 `bibliotype-versions`，复合主键
   `[documentId, version]`，不动文档库版本号）与 `MemoryVersionStore`；
 - 快照带内容校验和（FNV-1a）：回滚先验校验和，再 `validateDocument`，双失败都拒绝并给出原因；
+  `restoreSnapshot(snapshot, { validateOptions })` 与备份恢复同口径——未知插件类型默认降级为 warning，
+  结构性错误仍拒绝；成功分支可回传 `warnings`。
 - 保留策略由 `selectExpiredSnapshots` 选择（`maxCount` / `maxAgeDays` 取更严格者），
   存储实现只执行删除；非法策略直接抛 `RangeError`，避免误清历史。
 

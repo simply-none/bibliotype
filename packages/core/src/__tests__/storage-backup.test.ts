@@ -250,11 +250,16 @@ describe('restoreLibrary', () => {
     expect(result.failures.every((item) => item.message.length > 0)).toBe(true);
   });
 
-  it('IR 校验不通过时拒绝落库', async () => {
+  it('结构性错误仍拒绝落库（未知插件类型只告警）', async () => {
     const archive = await jsonCodec.zip(
       buildBookPackFiles({
         id: 'x',
-        document: { schemaVersion: '0.3.0', metadata: { title: '结构坏' }, root: { type: 'book', children: [{ type: 'unknown-node' }] } },
+        document: {
+          schemaVersion: '0.3.0',
+          metadata: { title: '结构坏' },
+          // 容器节点上带 text：结构性错误，与插件类型无关
+          root: { type: 'book', children: [{ type: 'paragraph', text: '非法' }] },
+        },
         createdAt: 1,
       }),
     );
@@ -266,6 +271,84 @@ describe('restoreLibrary', () => {
     const result = await restoreLibrary({ files, codec: jsonCodec, target });
     expect(result.restored).toEqual([]);
     expect(result.failures[0]?.code).toBe('INVALID_DOCUMENT');
+    expect(target.docs.size).toBe(0);
+  });
+});
+
+describe('恢复校验：插件类型（H4）', () => {
+  /** 含 classical 插件节点与标记的文档（core 不认识这些类型） */
+  function classicalDoc(): BookDocument {
+    const doc = sampleDoc('论语');
+    doc.root.children = [
+      {
+        type: 'collation-mark',
+        attrs: { symbol: '○' },
+        children: [],
+      },
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        children: [
+          { type: 'text', text: '子曰', marks: [{ type: 'judou', attrs: { symbol: '，' } }] },
+        ],
+      },
+    ];
+    return doc;
+  }
+
+  async function restoreClassical(
+    options: Omit<Parameters<typeof restoreLibrary>[0], 'files' | 'codec' | 'target'> = {},
+  ) {
+    const archive = await jsonCodec.zip(
+      buildBookPackFiles({ id: 'lunyu', document: classicalDoc(), createdAt: 1 }),
+    );
+    const files = buildLibraryBackupFiles({
+      createdAt: 1,
+      books: [{ id: 'lunyu', title: '论语', archive }],
+    });
+    const target = new TestAdapter();
+    const result = await restoreLibrary({ files, codec: jsonCodec, target, ...options });
+    return { target, result };
+  }
+
+  it('未知插件类型默认降级为 warning，书籍照常恢复', async () => {
+    const warnings: string[] = [];
+    const { target, result } = await restoreClassical({
+      onBookValidated: (context) => {
+        warnings.push(...context.warnings.map((issue) => issue.code));
+      },
+    });
+
+    expect(result.restored).toEqual(['lunyu']);
+    expect(result.failures).toEqual([]);
+    expect(await target.load('lunyu')).toBeDefined();
+    expect(warnings).toContain('unknown-node-type');
+    expect(warnings).toContain('unknown-mark-type');
+  });
+
+  it('登记插件类型后不再产生未知类型警告', async () => {
+    const warnings: string[] = [];
+    const { result } = await restoreClassical({
+      validateOptions: {
+        knownNodeTypes: ['collation-mark'],
+        knownMarkTypes: ['judou'],
+      },
+      onBookValidated: (context) => {
+        warnings.push(...context.warnings.map((issue) => issue.code));
+      },
+    });
+
+    expect(result.restored).toEqual(['lunyu']);
+    expect(warnings).toEqual([]);
+  });
+
+  it('显式收紧（unknownTypesAsWarning: false）时仍拒绝插件类型文档', async () => {
+    const { target, result } = await restoreClassical({
+      validateOptions: { unknownTypesAsWarning: false },
+    });
+
+    expect(result.restored).toEqual([]);
+    expect(result.failures[0]?.code).toBe('INVALID_DOCUMENT');
+    expect(result.failures[0]?.message).toContain('未知');
     expect(target.docs.size).toBe(0);
   });
 });

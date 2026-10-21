@@ -74,11 +74,15 @@ const props = defineProps<{
   /** 当前文档（缺字检查扫描对象） */
   document?: BookDocument;
   /** 夜间预设开关（演示态快捷预设，不写入样式快照） */
+  /** 翻页动效（D5；演示态快捷预设，不写入样式快照） */
+  pageTransition?: 'slide' | 'fade' | 'none';
   night: boolean;
 }>();
 
 const emit = defineEmits<{
   'update:night': [value: boolean];
+  /** 翻页动效切换（D5） */
+  'update:page-transition': [value: 'slide' | 'fade' | 'none'];
   /** 主题预设应用（全量令牌，由 App 收敛为与基线的差量） */
   'apply-theme-tokens': [tokens: Record<string, string>];
   close: [];
@@ -540,6 +544,15 @@ async function onResetAll(): Promise<void> {
   presetMessage.value = '已恢复全部默认并清除已保存的样式';
 }
 
+/* ---------- 翻页动效（D5） ---------- */
+
+/** 翻页动效选项 */
+const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; label: string }> = [
+  { value: 'slide', label: '滑动' },
+  { value: 'fade', label: '淡入' },
+  { value: 'none', label: '无' },
+];
+
 /* ---------- 底部保存 / 关闭 ---------- */
 
 /** 是否存在未保存改动（草稿脏标记；非草稿模式回退常量 false） */
@@ -664,6 +677,22 @@ async function onSave(): Promise<void> {
                   <option v-for="count in 3" :key="count" :value="count">{{ count }} 栏</option>
                 </select>
               </label>
+            </div>
+
+            <div class="panel__field">
+              <span class="panel__label">翻页动效（D5）</span>
+              <div class="panel__chips">
+                <button
+                  v-for="item in TRANSITION_OPTIONS"
+                  :key="item.value"
+                  type="button"
+                  class="panel__chip"
+                  :class="{ 'panel__chip--active': (pageTransition ?? 'slide') === item.value }"
+                  @click="emit('update:page-transition', item.value)"
+                >
+                  {{ item.label }}
+                </button>
+              </div>
             </div>
 
             <div v-if="pageSizeKey === 'custom'" class="panel__row">

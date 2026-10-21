@@ -88,6 +88,18 @@ export { default as BtDocumentStats } from './components/BtDocumentStats.vue';
 export { useDocumentStats } from './use-document-stats.js';
 export type { UseDocumentStats, UseDocumentStatsOptions } from './use-document-stats.js';
 
+/* ---------- 多形态阅读（P3 D5） ---------- */
+export { default as BtSpreadLayout } from './components/BtSpreadLayout.vue';
+export { default as BtCompareView } from './components/BtCompareView.vue';
+export { usePrefersReducedMotion } from './prefers-reduced-motion.js';
+export {
+  adjustScrollOffset,
+  estimateFlowChunkHeight,
+  resolveAnchorChunkIndex,
+  resolveMountWindow,
+} from './flow-model.js';
+export type { FlowMetrics, FlowMountWindow } from './flow-model.js';
+
 /* ---------- 目录增强（D6） ---------- */
 export { default as BtSidebarResizer } from './components/BtSidebarResizer.vue';
 export { useTocView, TOC_ROW_KEY_ATTRIBUTE } from './use-toc-view.js';

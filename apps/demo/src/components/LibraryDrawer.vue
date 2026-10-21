@@ -21,6 +21,7 @@ import {
   collectRevisions,
   restoreSnapshot,
 } from '@bibliotype/core';
+import { DEMO_VALIDATE_OPTIONS } from '../ir-types.js';
 import type {
   BackupConflictStrategy,
   BookDocument,
@@ -286,7 +287,7 @@ async function restoreVersion(version: number): Promise<void> {
   if (snapshot === undefined) {
     return;
   }
-  const restored = restoreSnapshot(snapshot);
+  const restored = restoreSnapshot(snapshot, { validateOptions: DEMO_VALIDATE_OPTIONS });
   if (!restored.ok) {
     versionError.value = restored.message;
     return;

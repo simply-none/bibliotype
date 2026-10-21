@@ -249,12 +249,17 @@ await store.saveVersion(snapshot);
 
 const diff = diffDocuments(snapshot.document, editor.getDocument()); // { changes, added, removed, modified }
 const restored = restoreSnapshot(snapshot);                          // 校验和 + validateDocument
+const restored2 = restoreSnapshot(snapshot, { validateOptions });    // 透传校验选项
 ```
 
 - `diffDocuments`：同层子节点按 `id`（无 id 时 `type + 首行文本`）对齐后做 LCS，
   文本叶子给出字符级 `inlineTextDiff`（超长文本退化为整段替换）；
 - 回滚必须走 `restoreSnapshot`：校验和与 IR 校验任一失败都返回 `{ ok: false, code, message }`，
-  不返回文档，避免坏快照写进书库。
+  不返回文档，避免坏快照写进书库；
+- **恢复口径默认宽松**：`restoreSnapshot` / `restoreLibrary` 内部对未知节点 / 标记类型
+  默认降级为 warning（而非判非法），因此含古籍插件标记（`collation-mark` / `judou` 等）的合法
+  快照 / 备份可正常回滚 / 恢复；显式 `validateDocument`、传 `validate: false` 或
+  `unknownTypesAsWarning: false` 仍保持严格。成功分支可经 `warnings` 回传非阻断告警。
 
 ## 插件系统（core）
 

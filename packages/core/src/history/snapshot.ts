@@ -7,9 +7,10 @@
  * - 时间一律由调用方注入，便于测试与回溯。
  */
 import type { BookDocument } from '../ir/document.js';
-import { validateDocument } from '../ir/validate.js';
 import type { DocumentIssue } from '../ir/validate.js';
 import { hashAssetBytes } from '../storage/asset.js';
+import type { RestoreValidationOptions } from '../storage/restore-validation.js';
+import { validateRestoredDocument } from '../storage/restore-validation.js';
 
 /** 快照记录格式版本 */
 export const DOCUMENT_SNAPSHOT_VERSION = 1;
@@ -175,15 +176,31 @@ export function selectExpiredSnapshots(
 
 /** 回滚结果 */
 export type SnapshotRestoreResult =
-  | { ok: true; document: BookDocument }
+  | {
+      ok: true;
+      document: BookDocument;
+      /** 非阻断警告（如文档含未登记的插件类型；缺省不含该字段） */
+      warnings?: DocumentIssue[];
+    }
   | { ok: false; code: 'CHECKSUM_MISMATCH' | 'INVALID_DOCUMENT'; issues: DocumentIssue[]; message: string };
 
 /**
  * 回滚校验：先验校验和，再走 `validateDocument`
  *
  * 校验失败不返回文档，调用方据此拒绝回滚并提示，避免把坏文档写进书库。
+ *
+ * 与备份恢复同口径：**未知节点 / 标记类型默认降级为 warning**，否则含古籍
+ * 插件标记的合法文档会被判非法（`collation-mark` / `judou` 等）。结构性错误
+ * 仍然拒绝；需要严格时在 `options.validateOptions` 传
+ * `unknownTypesAsWarning: false`。
+ *
+ * @param snapshot 待回滚快照
+ * @param options 校验选项（`validateOptions` 透传 `validateDocument`）
  */
-export function restoreSnapshot(snapshot: DocumentSnapshot): SnapshotRestoreResult {
+export function restoreSnapshot(
+  snapshot: DocumentSnapshot,
+  options: RestoreValidationOptions = {},
+): SnapshotRestoreResult {
   const checksum = snapshotChecksum(snapshot.document);
   if (checksum !== snapshot.checksum) {
     return {
@@ -193,7 +210,7 @@ export function restoreSnapshot(snapshot: DocumentSnapshot): SnapshotRestoreResu
       message: `版本 ${snapshot.version} 的内容校验和不匹配，快照可能已损坏，请改选其他版本。`,
     };
   }
-  const validation = validateDocument(snapshot.document);
+  const validation = validateRestoredDocument(snapshot.document, options.validateOptions);
   if (!validation.ok) {
     return {
       ok: false,
@@ -202,5 +219,7 @@ export function restoreSnapshot(snapshot: DocumentSnapshot): SnapshotRestoreResu
       message: `版本 ${snapshot.version} 未通过 IR 校验：${validation.errors[0]?.message ?? '结构不合法'}。`,
     };
   }
-  return { ok: true, document: snapshot.document };
+  return validation.warnings.length === 0
+    ? { ok: true, document: snapshot.document }
+    : { ok: true, document: snapshot.document, warnings: validation.warnings };
 }

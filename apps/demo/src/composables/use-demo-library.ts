@@ -37,6 +37,7 @@ import { IndexedDbAdapter, IndexedDbVersionStore } from '@bibliotype/adapter-ind
 import { useBookLibrary } from '@bibliotype/vue';
 import type { UseBookLibraryReturn } from '@bibliotype/vue';
 import { reactive, ref, shallowRef, type Ref, type ShallowRef } from 'vue';
+import { DEMO_VALIDATE_OPTIONS } from '../ir-types.js';
 import { demoZipCodec } from '../zip-codec.js';
 
 /** 书库库名 / 仓名 */
@@ -298,6 +299,8 @@ export function useDemoLibrary(): DemoLibraryApi {
       codec: demoZipCodec,
       target: adapter,
       strategy,
+      // 登记古籍插件类型，避免含校勘 / 专名等标记的文档被恢复链路误判非法
+      validateOptions: DEMO_VALIDATE_OPTIONS,
       onProgress: (item: LibraryRestoreProgress) => {
         progress.value = { current: item.current, total: item.total, title: item.title };
       },
@@ -341,7 +344,7 @@ export function useDemoLibrary(): DemoLibraryApi {
     if (snapshotValue === undefined) {
       return null;
     }
-    const restored = restoreSnapshot(snapshotValue);
+    const restored = restoreSnapshot(snapshotValue, { validateOptions: DEMO_VALIDATE_OPTIONS });
     if (!restored.ok) {
       throw new Error(restored.message);
     }

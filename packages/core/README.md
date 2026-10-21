@@ -136,6 +136,7 @@ migrateDocument(raw, { steps: [{ from: '0.0.0', to: '0.1.0', migrate: (doc) => d
 
 - `validateDocument`：节点类型 / 标记 / 形态 / 属性 / id 唯一性，问题带 `path` 与 `nodeId`；
 - `migrateDocument`：逐级迁移，缺环抛 `MigrationPathError`，迁移后自动校验。
+- `validateRestoredDocument`（恢复链路专用）：透传 `ValidateOptions`，**默认把未知节点 / 标记类型降级为 warning**（而非判非法），因此含古籍插件标记的文档可正常备份恢复、可正常回滚历史版本；显式 `validateDocument`、传 `validate: false` 或 `unknownTypesAsWarning: false` 仍保持严格。`restoreLibrary` / `restoreSnapshot` 已默认走该宽容口径。
 
 ## 书架、备份、修订、历史与加密
 

@@ -10,7 +10,9 @@
  * - **冲突策略显式**：merge（保留较新）/ overwrite（覆盖）/ keep-both（生成副本）。
  */
 import type { BookDocument } from '../ir/document.js';
-import { validateDocument } from '../ir/validate.js';
+import type { DocumentIssue } from '../ir/validate.js';
+import type { RestoreValidationOptions } from './restore-validation.js';
+import { validateRestoredDocument } from './restore-validation.js';
 import type { AssetStore } from './asset.js';
 import { isAssetStore } from './asset.js';
 import type { BookPackCodec, BookPackFile, UnpackedBookPack } from './btbook.js';
@@ -254,7 +256,7 @@ export type LibraryRestoreBookHook = (context: {
 }) => Promise<void>;
 
 /** 恢复选项 */
-export interface RestoreLibraryOptions {
+export interface RestoreLibraryOptions extends RestoreValidationOptions {
   /** 备份包文件（已解压） */
   files: readonly BookPackFile[];
   /** 压缩端口（用于解开单书 `.btbook`） */
@@ -269,6 +271,28 @@ export interface RestoreLibraryOptions {
   onBookRestored?: LibraryRestoreBookHook;
   /** 是否执行 IR 校验（默认 true；关闭仅用于已知可信来源） */
   validate?: boolean;
+  /**
+   * 校验选项（透传 `validateDocument`）
+   *
+   * 恢复路径默认把未知节点 / 标记类型降级为 warning（见
+   * `RESTORE_VALIDATE_DEFAULTS`），因此含插件类型的书籍不会被整本拒绝；
+   * 传入插件类型清单可让校验「认识」这些类型，传
+   * `unknownTypesAsWarning: false` 则收紧为严格。
+   */
+  validateOptions?: RestoreValidationOptions['validateOptions'];
+  /**
+   * 每本恢复成功时的校验警告（未知类型等），供宿主导出诊断
+   *
+   * 仅在开启校验且存在 warning 时触发；不影响写入结果。
+   */
+  onBookValidated?: (context: {
+    /** 写入后的文档 id */
+    targetId: string;
+    /** 原文档 id */
+    sourceId: string;
+    /** warning 级问题（结构错误不会走到这里） */
+    warnings: readonly DocumentIssue[];
+  }) => void;
 }
 
 /** 恢复结果 */
@@ -381,8 +405,14 @@ export async function restoreLibrary(
     } else {
       try {
         const unpacked = await unpackBookArchiveForRestore(archive.data, options.codec);
+        let warnings: readonly DocumentIssue[] = [];
         if (options.validate !== false) {
-          const validation = validateDocument(unpacked.document);
+          // 恢复口径：未知插件类型降级为 warning，结构性错误才拒绝写入
+          const validation = validateRestoredDocument(
+            unpacked.document,
+            options.validateOptions,
+          );
+          warnings = validation.warnings;
           if (!validation.ok) {
             const first = validation.errors[0];
             throw new BookPackError(
@@ -422,6 +452,13 @@ export async function restoreLibrary(
           result.restored.push(decision.id);
           if (decision.id !== unpacked.manifest.id) {
             result.copies.push({ sourceId: unpacked.manifest.id, id: decision.id });
+          }
+          if (warnings.length > 0) {
+            options.onBookValidated?.({
+              targetId: decision.id,
+              sourceId: unpacked.manifest.id,
+              warnings,
+            });
           }
           if (options.onBookRestored !== undefined) {
             await options.onBookRestored({

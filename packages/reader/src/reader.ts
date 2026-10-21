@@ -40,6 +40,7 @@ import {
   type BlockSizeEstimator,
 } from './document-blocks.js';
 import { findNodeById } from './find-node.js';
+import { buildFlowChunks, type BuildFlowChunksOptions, type FlowChunk } from './flow.js';
 import {
   buildNoteAnchors,
   findNoteAnchor,
@@ -185,6 +186,11 @@ function defaultPageMainSize(
   return resolvePageMainSize(layout, tokens);
 }
 
+/** 流式分块选项 → 缓存键（缺省值与显式值视为不同选项，避免误命中） */
+function flowCacheKey(options: BuildFlowChunksOptions): string {
+  return `${options.maxBlocksPerChunk ?? ''}|${options.maxCharsPerChunk ?? ''}`;
+}
+
 /** 阅读器状态机 */
 export class Reader {
   /** 事件总线（document:load / page:change / toc:ready） */
@@ -229,6 +235,12 @@ export class Reader {
   private readonly pageByBlockId = new Map<string, number>();
   /** 块 id → 源节点（分页管线同源产出，免逐块全树查找） */
   private nodeById: ReadonlyMap<string, BookNode> = new Map();
+  /** 块 id → 块序号（流式阅读进度用，O(1) 查询） */
+  private readonly blockIndexById = new Map<string, number>();
+  /** 流式分块缓存（只随文档 / 分块选项变化，与分页无关） */
+  private flowCache: { key: string; chunks: readonly FlowChunk[] } | undefined;
+  /** 块 / 章 id → 所在分块序号（流式定位用） */
+  private readonly chunkIndexByNodeId = new Map<string, number>();
   /** pageMainSize 是否由外部显式给定（否则随布局变化重算） */
   private pageMainSizeExplicit: boolean;
 
@@ -263,6 +275,9 @@ export class Reader {
   loadDocument(doc: BookDocument): void {
     this.doc = doc;
     this.pageIndex = 0;
+    // 换文档后流式分块必须重算（缓存键只含选项，不含文档身份）
+    this.flowCache = undefined;
+    this.chunkIndexByNodeId.clear();
     this.outlineItems = extractOutline(doc.root);
     this.events.emit('document:load', { document: doc });
 
@@ -334,6 +349,11 @@ export class Reader {
           return node?.type === NODE_TYPES.FOOTNOTE ? { ...block, floatToBottom: true } : block;
         })
       : extracted.blocks;
+    // 块序号表随分页重建：流式进度与「按节点取位置」都靠它，避免热路径线性查找
+    this.blockIndexById.clear();
+    this.blocks.forEach((block, index) => {
+      if (!this.blockIndexById.has(block.id)) this.blockIndexById.set(block.id, index);
+    });
     const result = paginate(this.blocks, {
       pageMainSize: this.pageMainSize,
       bottomSlack: this.bottomSlackPx,
@@ -802,6 +822,108 @@ export class Reader {
     const fallback = Math.min(parsed.pageIndex, this.pages.length - 1);
     if (fallback < 0) return false;
     return this.goToPage(fallback) || fallback === this.pageIndex;
+  }
+
+  /**
+   * 按节点取阅读位置（流式阅读用）
+   *
+   * 与 `getPosition` 的区别：位置不依赖当前页，直接由「块序号」推出进度，
+   * 因此 `scroll-flow` 没有分页结果也能读写位置。锚点仍是真实块 id，
+   * `restorePosition` 在分页 / 流式两种模式下都能命中。
+   *
+   * @param nodeId 块 id 或结构容器 id（容器取首个块）
+   * @param options `savedAt` 由调用方注入
+   * @returns 节点不在当前文档 / 文档为空时为 `undefined`
+   */
+  getPositionForNode(
+    nodeId: string,
+    options: { savedAt?: string } = {},
+  ): ReadingPosition | undefined {
+    const index = this.getBlockIndex(nodeId);
+    if (index === undefined) return undefined;
+    const block = this.blocks[index];
+    if (block === undefined) return undefined;
+    return createReadingPosition(
+      createBlockAnchor(block.id),
+      this.pageByBlockId.get(block.id) ?? 0,
+      this.blocks.length === 0 ? 0 : (index + 1) / this.blocks.length,
+      options.savedAt,
+    );
+  }
+
+  /* ---------------- 流式分块（P3 D5） ---------------- */
+
+  /**
+   * 流式分块（按章切分 + 块数 / 字数上限）
+   *
+   * 结果与分页无关，只随文档与选项变化；同一实例重复调用命中缓存。
+   * 视图层据 `FlowChunk.nodes` 序列化，按 `startIndex` / `charCount` 估算占位高度。
+   */
+  getFlowChunks(options: BuildFlowChunksOptions = {}): readonly FlowChunk[] {
+    if (this.doc === undefined) return [];
+    if (this.flowCache !== undefined && this.flowCache.key === flowCacheKey(options)) {
+      return this.flowCache.chunks;
+    }
+    const chunks = buildFlowChunks(this.doc, options);
+    this.flowCache = { key: flowCacheKey(options), chunks };
+    this.chunkIndexByNodeId.clear();
+    chunks.forEach((chunk, index) => {
+      // 章 id 指向该章首块所在分块（目录 / 书签跳转落在章首）
+      if (!this.chunkIndexByNodeId.has(chunk.containerId)) {
+        this.chunkIndexByNodeId.set(chunk.containerId, index);
+      }
+      for (const id of chunk.nodeIds) {
+        if (!this.chunkIndexByNodeId.has(id)) this.chunkIndexByNodeId.set(id, index);
+      }
+    });
+    return chunks;
+  }
+
+  /**
+   * 取块 / 章 id 所在的分块序号
+   *
+   * @param nodeId 块 id 或结构容器 id
+   * @param options 与 `getFlowChunks` 相同的分块选项
+   */
+  getFlowChunkIndex(
+    nodeId: string,
+    options: BuildFlowChunksOptions = {},
+  ): number | undefined {
+    this.getFlowChunks(options);
+    return this.chunkIndexByNodeId.get(nodeId);
+  }
+
+  /** 取节点（块或结构容器；未命中返回 `undefined`） */
+  getNode(nodeId: string): BookNode | undefined {
+    return this.nodeOf(nodeId);
+  }
+
+  /**
+   * 取节点在正文块序列中的序号（0 起）
+   *
+   * 结构容器返回其首个块的序号——与 `goToNode` / `getPageOfNode` 的容器口径一致。
+   */
+  getBlockIndex(nodeId: string): number | undefined {
+    const direct = this.blockIndexById.get(nodeId);
+    if (direct !== undefined) return direct;
+    const node = this.getNode(nodeId);
+    if (node === undefined) return undefined;
+    return this.firstBlockIndexOf(node);
+  }
+
+  /** 深度优先找节点子树里的首个块序号 */
+  private firstBlockIndexOf(node: BookNode): number | undefined {
+    const id = typeof node.id === 'string' ? node.id : '';
+    if (id !== '') {
+      const index = this.blockIndexById.get(id);
+      if (index !== undefined) return index;
+    }
+    for (const child of node.children ?? []) {
+      if (isTextNode(child)) continue;
+      const found = this.firstBlockIndexOf(child);
+      if (found !== undefined) return found;
+    }
+    return undefined;
   }
 
   /* ---------------- 导航 ---------------- */

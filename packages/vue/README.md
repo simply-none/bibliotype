@@ -71,7 +71,9 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 
 | 组件 | Props | 说明 |
 | --- | --- | --- |
-| `BtBookView` | `reader`（必需）、`tokens?`、`fontToken?`、`fit?`（`width` / `contain` / `none`，默认 `contain`，仅 `page` 模式）、`mode?`（`page` 单页翻页 / `scroll` 连续滚动多页，默认 `page`） | 书籍页面渲染：IR → HTML（与导出器同源），注入书册样式表，页框等比缩放（ResizeObserver）；封面页自动隐藏页码。`scroll` 模式把所有分页纵向拼接为可滚动容器（窗口化虚拟滚动：仅渲染视口附近页，滚动条仍反映全书总长），滚动时按可见页回写 `Reader` 页态，外部翻页（`BtPager` / 键盘 / 目录）则滚动定位到对应页 |
+| `BtBookView` | `reader`（必需）、`tokens?`、`fontToken?`、`fit?`（`width` / `contain` / `none`，默认 `contain`，仅 `page` 模式）、`mode?`（`page` 单页翻页 / `scroll` 连续滚动多页 / `scroll-flow` 流式阅读，默认 `page`）、`spread?`（`single` / `facing`，仅 `page` 生效）、`pageTransition?`（`none` / `slide` / `fade`，默认 `slide`）、`flowChunkBlocks?`、`flowRootMargin?`、`estimateFlowHeight?`、`initialPosition?`；emit `update:position` / `update:page` / `update:fontSize` / `mode-fallback` | 书籍页面渲染：IR → HTML（与导出器同源），注入书册样式表，页框等比缩放（ResizeObserver）。`scroll-flow` 模式按章分块、视口窗口懒挂载、骨架占位、锚点进度持久化（`initialPosition` / `update:position`）；直排 / 仿真 / 对页下自动回落 `page` 并 emit `mode-fallback`。`pageTransition` 控制翻页滑动 / 淡入动效，尊重系统「减少动态效果」 |
+| `BtSpreadLayout` | `mode?`（`columns` / `facing`）、`gap?`、`leftLabel?` / `rightLabel?`；插槽 `left` / `right` | 双栏 / 对页纯布局容器：中缝分隔 + 可选标签，窄窗上下堆叠。`BtCompareView` 与 `BtCollationCompare` 共用此容器 |
+| `BtCompareView` | `left`（必需 `Reader`）、`right?`（`Reader`，缺省退化对页）、`labels?`、`syncPages?`、`mode?`、`fit?`、`pageTransition?`、`flowChunkBlocks?`、`initialPosition?`；emit `update:position` / `mode-fallback` | 双文稿对照：单文档 → 左右对页；双文档 → 左右并排、各自独立翻页，`syncPages` 时双向同步（重入守卫 + 越界钳制），两侧位置经 `update:position` 汇总 |
 | `BtPager` | `reader` | 上一页 / 下一页按钮 + 页码状态 |
 | `BtToc` | `reader`、`expandedKeys?`（v-model）、`thumbnails?`、`showThumbnails?`、`searchPlaceholder?`、`emptyText?`、`showExpandControls?`；emit `select(item)` / `update:expandedKeys` | 目录面板：当前章高亮、折叠记忆、目录内搜索、缩略图占位、活动项滚入视野 |
 | `BtTocItem` | `item`、`depth?`、`mode?`（`tree` / `row`）、`rowKey?`、`hasChildren?`、`expanded?`、`active?`、`matched?`、`query?`、`thumbnail?`、`showThumbnail?` | 目录项：`tree` 递归 / `row` 扁平行（由 `BtToc` 驱动） |
@@ -111,9 +113,11 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `createFontCheckProbe(doc?)` / `splitFontFamilyList(stack)` | `document.fonts.check` → `GlyphProbe` 适配 / 拆分字体回退链 |
 | `useAnnotationSuggestions({ document, revision?, apply, terms?, detector? })` | 句读 / 专名建议状态机：`all` / `pending` / `visible` / `counts` / `accept` / `reject` / `commitJudou` / `setOverride` / `reset`；命令由宿主注入（不把 ProseMirror 带进只读场景） |
 | `useGlyphAudit({ document, families?, revision?, probe?, idsFor? })` | 缺字审计：`issues` / `summary` / `missingCount` / `idsCount` / `refresh`，探测缺省走 `document.fonts.check` |
+| `usePrefersReducedMotion()` | 探测系统「减少动态效果」（`matchMedia` 缺失时回落 `false`，监听 `change`，`onScopeDispose` 清理） |
+| `estimateFlowChunkHeight(chunk, metrics)` / `resolveMountWindow({ chunks, heights, offsets, scrollTop, viewportHeight, overscan? })` / `resolveAnchorChunkIndex(chunks, nodeId, options?)` / `adjustScrollOffset(prevHeights, nextHeights, scrollTop, anchorIndex)` | 流式阅读纯函数：高度估算 / 视口挂载窗口 / 锚点分块定位 / 上方高度变化滚动补偿，全部无 DOM 依赖 |
 | `useBookLibrary({ store, codec?, now?, pageSize?, ... })` | 书架状态：查询 / 标签筛选 / 排序 / 视图、`openBook` / `exportBook` / `importBook`；`.btbook` 的 ZIP 由宿主经 `codec` 注入 |
 | `buildShelfCards` / `buildTagFacets` / `buildRevisionModel` / `buildVersionHistoryModel` / `buildDiffRows` | 书架 / 修订 / 版本视图模型（纯函数，可单测） |
-| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtSidebarResizer` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtNotePreview` / `BtThemePanel` / `BtFontFallbackPanel` / `BtAnnotationSuggestions` / `BtGlyphAuditPanel` / `BtBookShelf` / `BtBackupPanel` / `BtEncryptionPanel` / `BtRevisionSidebar` / `BtVersionHistory` / `PagedCanvas` | 组件 |
+| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtSidebarResizer` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtNotePreview` / `BtThemePanel` / `BtFontFallbackPanel` / `BtAnnotationSuggestions` / `BtGlyphAuditPanel` / `BtSpreadLayout` / `BtCompareView` / `BtBookShelf` / `BtBackupPanel` / `BtEncryptionPanel` / `BtRevisionSidebar` / `BtVersionHistory` / `PagedCanvas` | 组件 |
 | `createBibliotype()` | Vue 插件（全局注册组件） |
 
 在组件 / `effectScope` 内调用组合式 API 时，scope 销毁会自动解绑事件与视图。

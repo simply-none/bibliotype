@@ -35,6 +35,14 @@ export interface UseNoteInteractionOptions {
   reader: Reader;
   /** 请求翻页（不传则直接调用 `reader.goToPage`；组件可注入以同步滚动容器） */
   onRequestPage?: (pageIndex: number) => boolean;
+  /**
+   * 流式阅读定位钩子（D5）
+   *
+   * 流式模式没有分页结果，`getPageOfNote` 取不到页码。宿主传入后，`goToNote`
+   * 在「注释元素尚未挂载」时优先调用它，由宿主挂载目标块并把元素滚入视口；
+   * 返回 `true` 表示已发起定位（渲染后继续高亮），`false` / 不传则回落既有分页逻辑。
+   */
+  onLocateNode?: (nodeId: string) => boolean;
   /** 单次高亮时长（ms，缺省 2000） */
   highlightMs?: number;
   /** 悬浮预览延迟（ms，缺省 180） */
@@ -115,6 +123,7 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
   const {
     reader,
     onRequestPage,
+    onLocateNode,
     highlightMs = 2000,
     previewDelayMs = 180,
     previewHideMs = 4000,
@@ -250,6 +259,17 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
     if (inPage !== null) {
       activate(noteId);
       scrollTo(inPage);
+      return true;
+    }
+    // 流式阅读：注释元素尚未挂载时，交给宿主挂载目标块并滚入视口
+    if (onLocateNode?.(noteId) === true) {
+      afterRender(() => {
+        const element = findNoteElement(noteId);
+        if (element !== null) {
+          activate(noteId);
+          scrollTo(element);
+        }
+      });
       return true;
     }
     const page = reader.getPageOfNote(noteId) ?? reader.getPageOfNode(noteId);

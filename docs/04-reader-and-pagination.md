@@ -202,6 +202,33 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 
 详见 [22 古籍仿真直排](22-facsimile-vertical.md)。
 
+## 流式阅读（D5 `scroll-flow`）
+
+将正文按「结构章节」切成扁平的 `FlowChunk` 列表，视图只挂载视口附近的分块，离开视口后卸载并以估算高度占位，从而替代一次性预分页——大部头首屏只渲染当前可见的少量内容。
+
+### 分块（`buildFlowChunks`）
+
+- 结构容器（`volume` / `chapter` / `section` / `preface` / `postscript` / `appendix`）作为**章边界**；章内按顶层子块切片；
+- 块**不可再分**（表格 / 注文不会被切碎）；
+- 双上限：`maxBlocksPerChunk`（默认 24）与 `maxCharsPerChunk`（默认 1200），**先到为准**；
+- `FlowChunk` 携带 `key`（无 id 节点按文档序号合成稳定 key）、`containerId`、`title`（章标题，无障碍标签）、`level`、`nodeIds`、`startIndex`、`charCount`（高度估算用）；
+- 纯函数、确定性，便于单测与宿主覆盖。
+
+### 位置（`Reader` 增量 API）
+
+- `getFlowChunks(options?)`：结果与分页无关，只随文档与选项缓存；
+- `getNode(id)` / `getBlockIndex(id)`（结构容器取首个块序号）/ `getFlowChunkIndex(id, options?)`（含容器 id → 所在块）；
+- `getPositionForNode(id, { savedAt? })`：进度 = 块序号 / 总块数，锚点用 `createBlockAnchor`，与既有 `restorePosition` 完全兼容——改字号 / 屏宽后位置不漂移。
+
+### 视图侧（`packages/vue` `flow-model` 纯函数）
+
+- `estimateFlowChunkHeight(chunk, metrics)`：字数 / 每行字数 × 行高 + 段距；
+- `resolveMountWindow({ chunks, heights, offsets, scrollTop, viewportHeight, overscan? })`：求需挂载的 key 区间；
+- `resolveAnchorChunkIndex(chunks, nodeId, options?)`：含祖先 / 首块回退；
+- `adjustScrollOffset(prevHeights, nextHeights, scrollTop, anchorIndex)`：上方高度变化补偿，避免跳动。
+
+`BtBookView` 在 `scroll-flow` 下按 `flowChunkBlocks`（默认 24）分块，首屏只挂载窗口内少数分块、其余为骨架占位；滚动以「视口首块」经 `getPositionForNode` 回写 `update:position`；`initialPosition` 解析后强制挂载目标块并滚到锚点。详见 [06 Vue 集成 · 多形态阅读](06-vue-integration.md#多形态阅读d5scroll-flow--双页对照)。
+
 ## 相关
 
 - 包参考：[`@bibliotype/reader`](../packages/reader/README.md)

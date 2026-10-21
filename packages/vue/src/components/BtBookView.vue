@@ -22,9 +22,24 @@ import { DEFAULT_THEME, FONT_SIZE_TOKENS, NODE_TYPES, isTextNode, type BookNode 
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, isVerticalMode } from '@bibliotype/layout';
 import { buildBookCss, serializeNode, serializePageGutter, serializePageNotes } from '@bibliotype/layout/html';
-import { formatPageNumber, type PageNumberStyle, type Reader } from '@bibliotype/reader';
+import {
+  formatPageNumber,
+  parseReadingPosition,
+  type PageNumberStyle,
+  type Reader,
+  type ReadingPosition,
+} from '@bibliotype/reader';
 import { useReaderBinding } from '../use-reader.js';
 import { useNoteInteraction } from '../use-note-interaction.js';
+import {
+  adjustScrollOffset,
+  estimateFlowChunkHeight,
+  resolveAnchorChunkIndex,
+  resolveMountWindow,
+  type FlowMetrics,
+} from '../flow-model.js';
+import { usePrefersReducedMotion } from '../prefers-reduced-motion.js';
+import type { FlowChunk } from '@bibliotype/reader';
 import BtNotePreview from './BtNotePreview.vue';
 
 const props = withDefaults(
@@ -41,8 +56,8 @@ const props = withDefaults(
     namedStyles?: NamedStyleSet;
     /** 缩放策略（仅 page 模式）：width 按容器宽 / contain 按容器宽高 / none 原尺寸 */
     fit?: 'width' | 'contain' | 'none';
-    /** 阅读模式：page 单页翻页（默认） / scroll 连续滚动多页 */
-    mode?: 'page' | 'scroll';
+    /** 阅读模式：page 单页翻页（默认） / scroll 连续滚动多页 / scroll-flow 流式阅读（D5） */
+    mode?: 'page' | 'scroll' | 'scroll-flow';
     /** 阅读区无障碍名称（读屏用） */
     ariaLabel?: string;
     /**
@@ -59,17 +74,58 @@ const props = withDefaults(
      * 翻页步长仍为 1，跨过页对时整体换对。
      */
     spread?: 'single' | 'facing';
+    /**
+     * 翻页动效（仅 page / scroll 分页渲染）
+     *
+     * - `slide`：新页按阅读方向滑入（横排左右、直排上下），220ms；
+     * - `fade`：仅淡入淡出；
+     * - `none`：无动效。
+     *
+     * 系统开启「减少动态效果」或 `pageTransition='none'` 时强制瞬时切换。
+     */
+    pageTransition?: 'none' | 'slide' | 'fade';
+    /**
+     * 初始阅读位置（D5）
+     *
+     * 由宿主持久化的 `ReadingPosition`（或 JSON 串）；`scroll-flow` 下据此挂载目标
+     * 分块并滚到锚点句；`page` / `scroll` 下走既有 `reader.restorePosition`。
+     */
+    initialPosition?: ReadingPosition | string;
+    /**
+     * 流式分块上限：单块最多块数（D5，缺省 24）
+     */
+    flowChunkBlocks?: number;
+    /**
+     * 流式懒挂载预取余量（CSS 长度，缺省 `800px`）：取首个数值作为视口上下预挂载距离
+     * （`resolveMountWindow` 的 `overscan`），用于滚动前提前挂载相邻分块。
+     */
+    flowRootMargin?: string;
+    /**
+     * 宿主自定义分块高度估算（D5）
+     *
+     * 不传则用「字数 / 每行字数 × 行高」估算；挂载后由 `ResizeObserver` 实测覆盖。
+     */
+    estimateFlowHeight?: (chunk: FlowChunk) => number;
   }>(),
   { fit: 'contain', mode: 'page', ariaLabel: '正文阅读区，可用方向键翻页' },
 );
 
 const emit = defineEmits<{
   (event: 'update:fontSize', value: number): void;
+  /** 阅读位置变化（D5）：宿主据此持久化（刷新 / 换字号后回到原句） */
+  (event: 'update:position', value: ReadingPosition): void;
+  /** 当前页码变化（0 起）；容器（BtCompareView）据此同步两侧翻页 */
+  (event: 'update:page', value: number): void;
+  /** 请求的阅读模式不被当前版式支持，已自动回落（D5） */
+  (event: 'mode-fallback', payload: { requested: string; effective: string; reason: string }): void;
 }>();
 
 const { layout, pagination, pageNumberText, currentPage, totalPages } = useReaderBinding(
   props.reader,
 );
+
+/** 书写方向为直排：滚动模式翻页轴随之由纵向转为水平（自右向左） */
+const verticalWriting = computed(() => isVerticalMode(layout.value.writingMode));
 
 /**
  * 注释交互（D9）
@@ -90,7 +146,44 @@ const {
 } = useNoteInteraction({
   reader: props.reader,
   onRequestPage: (page) => props.reader.goToPage(page),
+  onLocateNode: (nodeId) => locateFlowNode(nodeId),
 });
+
+/* =========================================================================
+ * 模式判定 / 翻页动效（D5，前置声明：下方 note-interaction / mode 监听会引用）
+ * ========================================================================= */
+
+/** 系统「减少动态效果」探测（SSR / 无 matchMedia 回落 false） */
+const prefersReducedMotion = usePrefersReducedMotion();
+/** 翻页动效是否关闭（显式 none 或系统减少动态效果） */
+const flowReduced = computed(
+  () => (props.pageTransition ?? 'slide') === 'none' || prefersReducedMotion.value,
+);
+
+/** 仿真版式 / 直排 / 对页下流式不被支持，回落 paged 并提示宿主 */
+const facsimileMode = computed(() => layout.value.facsimile !== undefined);
+const flowSupported = computed(
+  () =>
+    props.mode === 'scroll-flow' &&
+    !verticalWriting.value &&
+    !facsimileMode.value &&
+    props.spread !== 'facing',
+);
+/** 实际生效模式：scroll-flow 不支持时回落 page，其余原样透传 */
+const effectiveMode = computed<'page' | 'scroll' | 'scroll-flow'>(() =>
+  flowSupported.value
+    ? 'scroll-flow'
+    : props.mode === 'scroll'
+      ? 'scroll'
+      : 'page',
+);
+
+/** 翻页过渡名称（none / 减少动态效果 → 空；fade 用淡入；其余滑入） */
+const transitionName = computed(() =>
+  flowReduced.value ? '' : props.pageTransition === 'fade' ? 'bt-fade' : 'bt-turn',
+);
+/** 翻页过渡 key：页码或版式变化即触发 */
+const pageTurnKey = computed(() => `${props.spread}-${props.reader.currentPage}`);
 
 // 翻页后旧预览的锚点已不可见，直接收起（高亮由计时器自行清理）
 watch(currentPage, closeNotePreview);
@@ -100,8 +193,6 @@ const tokens = computed<Readonly<Record<string, string | undefined>>>(() => {
   return { ...base, [FONT_SIZE_TOKENS.BODY]: `${props.fontSize}px` };
 });
 const pageSize = computed(() => layout.value.pageSize);
-/** 书写方向为直排：滚动模式翻页轴随之由纵向转为水平（自右向左） */
-const verticalWriting = computed(() => isVerticalMode(layout.value.writingMode));
 
 /* ---------- 页内容与样式 ---------- */
 
@@ -377,13 +468,21 @@ function updateScale(): void {
 /** scroll 模式：横排按容器宽适配；直排横向滚动额外受容器高约束（整页高须可见） */
 const scrollerRef = ref<HTMLElement | null>(null);
 const scrollScale = ref(1);
+/** scroll-flow 模式：流式滚动容器（与 paged / scroll 互不依赖） */
+const flowRootRef = ref<HTMLElement | null>(null);
 let scrollObserver: ResizeObserver | undefined;
 
 /* 注释委托挂在当前模式的活动容器上（切模式时重绑，旧容器的预览随 attach 清空） */
 watch(
-  [rootRef, scrollerRef, () => props.mode],
+  [rootRef, scrollerRef, flowRootRef, () => props.mode],
   () => {
-    attachNoteInteraction(props.mode === 'scroll' ? scrollerRef.value : rootRef.value);
+    const container =
+      effectiveMode.value === 'scroll'
+        ? scrollerRef.value
+        : effectiveMode.value === 'scroll-flow'
+          ? flowRootRef.value
+          : rootRef.value;
+    attachNoteInteraction(container);
   },
   { flush: 'post', immediate: true },
 );
@@ -830,6 +929,13 @@ watch(
     if (mode === 'scroll') {
       attachScrollObserver();
       scrollToPage(props.reader.currentPage);
+    } else if (mode === 'scroll-flow') {
+      const root = flowRootRef.value;
+      if (root !== null) {
+        flowScrollTop.value = root.scrollTop;
+        flowViewportH.value = root.clientHeight;
+      }
+      applyInitialFlowPosition();
     } else {
       attachPageObserver();
     }
@@ -840,6 +946,13 @@ onMounted(() => {
   if (props.mode === 'scroll') {
     attachScrollObserver();
     void nextTick(() => scrollToPage(props.reader.currentPage));
+  } else if (props.mode === 'scroll-flow') {
+    const root = flowRootRef.value;
+    if (root !== null) {
+      flowScrollTop.value = root.scrollTop;
+      flowViewportH.value = root.clientHeight;
+    }
+    applyInitialFlowPosition();
   } else {
     attachPageObserver();
   }
@@ -847,9 +960,14 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   detachObservers();
+  flowRO?.disconnect();
   if (scrollRaf !== 0) {
     cancelAnimationFrame(scrollRaf);
     scrollRaf = 0;
+  }
+  if (flowRaf !== 0) {
+    cancelAnimationFrame(flowRaf);
+    flowRaf = 0;
   }
 });
 
@@ -858,17 +976,326 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
   if (props.mode === 'scroll') updateScrollScale();
   else updateScale();
 });
+
+/* =========================================================================
+ * scroll-flow 流式阅读（D5）
+ *
+ * 与 page / scroll 互不依赖：直接读 IR 分块（reader.getFlowChunks），只序列化
+ * 视口窗口内的分块，未挂载分块用估算高度撑起滚动条；挂载后由 ResizeObserver
+ * 实测覆盖。位置以「视口首块锚点」回写，刷新 / 换字号后回到原句。
+ * ========================================================================= */
+
+/** 流式键盘：PageDown / 空格按视口滚动，Home / End 到首尾（注释快捷键优先） */
+function onFlowKeydown(event: KeyboardEvent): void {
+  if (handleNoteKeydown(event)) return;
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+  const el = flowRootRef.value;
+  if (el === null) return;
+  const step = el.clientHeight;
+  if (step <= 0) return;
+  let handled = true;
+  if (event.key === 'Home') el.scrollTo({ top: 0 });
+  else if (event.key === 'End') el.scrollTo({ top: el.scrollHeight });
+  else if (event.key === 'PageDown' || event.key === ' ') el.scrollBy({ top: step });
+  else if (event.key === 'PageUp') el.scrollBy({ top: -step });
+  else if (event.key === 'ArrowDown') el.scrollBy({ top: step * 0.1 });
+  else if (event.key === 'ArrowUp') el.scrollBy({ top: -step * 0.1 });
+  else handled = false;
+  if (handled) event.preventDefault();
+}
+
+watch(
+  () => props.mode,
+  (mode) => {
+    if (mode === 'scroll-flow' && !flowSupported.value) {
+      emit('mode-fallback', {
+        requested: 'scroll-flow',
+        effective: 'page',
+        reason: facsimileMode.value
+          ? 'facsimile'
+          : verticalWriting.value
+            ? 'vertical-writing'
+            : 'facing-spread',
+      });
+    }
+  },
+  { immediate: true },
+);
+
+/** 流式分块（随文档 / 分块上限缓存） */
+const flowChunks = computed<readonly FlowChunk[]>(() =>
+  props.reader.getFlowChunks({ maxBlocksPerChunk: props.flowChunkBlocks }),
+);
+
+/** 流式版式度量（估算占位高度用） */
+const flowMetrics = computed<FlowMetrics>(() => {
+  const fsRaw = tokens.value[FONT_SIZE_TOKENS.BODY];
+  const fontSize = fsRaw !== undefined ? parseFloat(fsRaw) || 16 : 16;
+  return {
+    width: pageSize.value.width > 0 ? pageSize.value.width : 640,
+    fontSize,
+    lineHeight: 1.8,
+    paragraphSpacing: fontSize * 0.9,
+  };
+});
+
+/** 各分块实测高度（挂载后回写；未测量用估算） */
+const flowMeasured = ref<Record<number, number>>({});
+function estimateChunkHeight(chunk: FlowChunk, index: number): number {
+  if (flowMeasured.value[index] !== undefined) return flowMeasured.value[index]!;
+  return props.estimateFlowHeight !== undefined
+    ? props.estimateFlowHeight(chunk)
+    : estimateFlowChunkHeight(chunk, flowMetrics.value);
+}
+const flowHeights = computed<number[]>(() => flowChunks.value.map(estimateChunkHeight));
+
+/** 分块顶部绝对偏移（累计实测高度） */
+const flowOffsets = computed<number[]>(() => {
+  const offsets: number[] = [];
+  let acc = 0;
+  for (const h of flowHeights.value) {
+    offsets.push(acc);
+    acc += h;
+  }
+  return offsets;
+});
+
+/** 滚动状态 */
+const flowScrollTop = ref(0);
+const flowViewportH = ref(0);
+
+/** 强制挂载的分块（initialPosition / 注释定位触发），不随滚动卸载 */
+const flowForced = ref<Set<number>>(new Set());
+
+/** 流式预取余量：解析 `flowRootMargin`（如 `800px 0px`）取首个数值，缺省 800 */
+const flowOverscanPx = computed(() => {
+  const raw = props.flowRootMargin;
+  if (typeof raw !== 'string') return 800;
+  const match = raw.match(/(\d+)px/);
+  return match !== null ? Number(match[1]) : 800;
+});
+
+const flowWindow = computed(() =>
+  resolveMountWindow({
+    offsets: flowOffsets.value,
+    heights: flowHeights.value,
+    scrollTop: flowScrollTop.value,
+    viewportHeight: flowViewportH.value,
+    overscan: flowOverscanPx.value,
+  }),
+);
+/** 当前需渲染内容（窗口 ∪ 强制）的分块序号集合 */
+const flowMounted = computed<Record<number, boolean>>(() => {
+  const mounted: Record<number, boolean> = {};
+  const { start, end } = flowWindow.value;
+  for (let i = start; i <= end; i += 1) mounted[i] = true;
+  for (const idx of flowForced.value) mounted[idx] = true;
+  return mounted;
+});
+
+/** 流式进度文案（无障碍播报） */
+const flowProgressText = computed(() => {
+  if (flowChunks.value.length === 0) return '';
+  const pos = props.reader.getPosition();
+  return `已读 ${Math.round((pos?.progress ?? 0) * 100)}%`;
+});
+
+/** 单块序列化（text 叶子不输出） */
+function flowChunkHtml(index: number): string {
+  const chunk = flowChunks.value[index]!;
+  return chunk.nodes
+    .filter((node) => !isTextNode(node))
+    .map((node) => serializeNode(node))
+    .join('\n');
+}
+
+/** 流式内容排版样式（沿用书册令牌的字体 / 行距 / 书写方向） */
+const flowRootStyle = computed(() => buildRootStyle({ tokens: tokens.value, options: layout.value }));
+
+/** 注释定位（流式）：挂载目标块并滚入视口 */
+function locateFlowNode(nodeId: string): boolean {
+  if (effectiveMode.value !== 'scroll-flow') return false;
+  const idx = resolveAnchorChunkIndex(flowChunks.value, nodeId);
+  if (idx < 0) return false;
+  flowForced.value = new Set(flowForced.value).add(idx);
+  void nextTick(() => {
+    const root = flowRootRef.value;
+    if (root === null) return;
+    const target = root.querySelector(`#${cssEscape(nodeId)}`);
+    if (target !== null) {
+      target.scrollIntoView({ block: 'start' });
+    } else {
+      root.scrollTop = flowOffsets.value[idx] ?? 0;
+    }
+  });
+  return true;
+}
+
+/** CSS 选择器转义（注释 id 可能是树路径，含 `/`） */
+function cssEscape(value: string): string {
+  if (typeof window !== 'undefined' && typeof window.CSS?.escape === 'function') {
+    return window.CSS.escape(value);
+  }
+  return value.replace(/["\\]/g, '\\$&');
+}
+
+let flowRaf = 0;
+let lastEmittedAnchor = '';
+function emitFlowPosition(): void {
+  const top = flowScrollTop.value + 1;
+  const offsets = flowOffsets.value;
+  const heights = flowHeights.value;
+  let idx = 0;
+  for (let i = 0; i < offsets.length; i += 1) {
+    if (offsets[i]! + heights[i]! <= top) idx = i;
+    else break;
+  }
+  const chunk = flowChunks.value[idx];
+  if (chunk === undefined) return;
+  const nodeId = chunk.nodeIds.find((id) => id !== '' && !id.startsWith('flow-')) ?? chunk.nodeIds[0];
+  if (nodeId === undefined) return;
+  const position = props.reader.getPositionForNode(nodeId);
+  if (position === undefined) return;
+  if (position.anchor.nodeId !== lastEmittedAnchor) {
+    lastEmittedAnchor = position.anchor.nodeId;
+    emit('update:position', position);
+  }
+}
+
+function onFlowScroll(): void {
+  const root = flowRootRef.value;
+  if (root === null) return;
+  flowScrollTop.value = root.scrollTop;
+  flowViewportH.value = root.clientHeight;
+  if (flowRaf !== 0) return;
+  flowRaf = requestAnimationFrame(() => {
+    flowRaf = 0;
+    emitFlowPosition();
+  });
+}
+
+/** 初始位置恢复（D5）：挂载目标块并滚到锚点句 */
+function applyInitialFlowPosition(): void {
+  if (props.initialPosition === undefined) return;
+  const parsed =
+    typeof props.initialPosition === 'string'
+      ? parseReadingPosition(props.initialPosition)
+      : props.initialPosition;
+  if (parsed === undefined || parsed.anchor?.nodeId === undefined) return;
+  const nodeId = parsed.anchor.nodeId;
+  const idx = resolveAnchorChunkIndex(flowChunks.value, nodeId);
+  if (idx < 0) return;
+  flowForced.value = new Set(flowForced.value).add(idx);
+  void nextTick(() => {
+    const root = flowRootRef.value;
+    if (root === null) return;
+    const target = root.querySelector(`#${cssEscape(nodeId)}`);
+    if (target !== null) {
+      target.scrollIntoView({ block: 'start' });
+    } else {
+      root.scrollTop = flowOffsets.value[idx] ?? 0;
+    }
+  });
+}
+
+/** 实测高度回写：观察所有已挂载分块内容，挂载后写入实测高度 */
+let flowRO: ResizeObserver | undefined;
+const flowObserved = new WeakMap<Element, number>();
+function ensureFlowResizeObserver(): void {
+  if (typeof ResizeObserver === 'undefined') return;
+  if (flowRO === undefined) {
+    flowRO = new ResizeObserver((entries) => {
+      let prev = flowHeights.value;
+      const next = { ...flowMeasured.value };
+      let changed = false;
+      for (const entry of entries) {
+        const idx = flowObserved.get(entry.target);
+        if (idx === undefined) continue;
+        const h = (entry.target as HTMLElement).getBoundingClientRect().height;
+        if (h > 0 && Math.abs((next[idx] ?? 0) - h) > 0.5) {
+          next[idx] = h;
+          changed = true;
+        }
+      }
+      if (changed) {
+        flowMeasured.value = next;
+        // 上方高度变化补偿滚动位置，避免跳动
+        const correctedTop = adjustScrollOffset({
+          previousHeights: prev,
+          heights: flowHeights.value,
+          anchorIndex: resolveAnchorChunkIndex(flowChunks.value, lastEmittedAnchor) ?? 0,
+          scrollTop: flowRootRef.value?.scrollTop ?? 0,
+        });
+        const root = flowRootRef.value;
+        if (root !== null && Math.abs(correctedTop - root.scrollTop) > 0.5) {
+          root.scrollTop = correctedTop;
+        }
+      }
+    });
+  }
+}
+
+watch(
+  flowMounted,
+  async () => {
+    await nextTick();
+    ensureFlowResizeObserver();
+    const root = flowRootRef.value;
+    if (root === null) return;
+    root.querySelectorAll('.bt-flow-chunk__content').forEach((el) => {
+      const key = el.getAttribute('data-flow-idx');
+      if (key === null) return;
+      const idx = Number(key);
+      if (!flowObserved.has(el)) {
+        flowObserved.set(el, idx);
+        flowRO?.observe(el);
+      }
+    });
+  },
+  { deep: true },
+);
+
+// 进入 scroll-flow 时初始化滚动状态并尝试恢复初始位置
+watch(
+  effectiveMode,
+  async (mode) => {
+    if (mode !== 'scroll-flow') return;
+    await nextTick();
+    const root = flowRootRef.value;
+    if (root !== null) {
+      flowScrollTop.value = root.scrollTop;
+      flowViewportH.value = root.clientHeight;
+    }
+    applyInitialFlowPosition();
+  },
+  { immediate: true },
+);
+
+/** 页码变化：容器据此同步双文档翻页，宿主可据此持久化页码 */
+watch(currentPage, (page) => {
+  emit('update:page', page);
+});
+
+/** 暴露给宿主 / 容器（BtCompareView 页码同步）：以当前文档口径翻页 */
+defineExpose({
+  /** 跳转到指定页码（越界由 Reader 内部钳制） */
+  goToPage: (page: number): boolean => props.reader.goToPage(page),
+  /** 当前页码（0 起） */
+  currentPage: (): number => props.reader.currentPage,
+});
 </script>
 
 <template>
   <!-- 单页模式：一次渲染当前页，等比缩放居中；滚轮 / 键盘 / 触屏滑动 = 翻页 -->
   <div
-    v-if="mode === 'page'"
+    v-if="effectiveMode === 'page'"
     ref="rootRef"
     class="bt-book-view bt-book-view--paged"
+    :class="{ 'is-vertical': verticalWriting }"
     role="document"
     tabindex="0"
     :aria-label="ariaLabel"
+    :data-mode-fallback="mode === 'scroll-flow' ? 'paged' : undefined"
     @wheel="onPageWheel"
     @keydown="onPageKeydown"
     @touchstart.passive="onPageTouchStart"
@@ -880,6 +1307,8 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
     @focusin="onNoteFocusIn"
     @focusout="onNoteFocusOut"
   >
+    <Transition :name="transitionName" mode="out-in">
+      <div :key="pageTurnKey" class="bt-book-view__turn">
     <!-- 对页模式：左右并排渲染当前页对（左页为偶数页），整体按双页宽缩放 -->
     <div v-if="spreadEnabled" class="bt-book-view__spread" :style="spreadStageStyle">
       <div v-for="p in spreadPages" :key="p.index" class="bt-reader-page" :style="spreadPageStyle(p)">
@@ -913,7 +1342,9 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
           class="bt-page-number"
         >{{ pageNumberText }}</footer>
       </div>
-    </div>
+      </div>
+      </div>
+    </Transition>
     <!-- 页码播报：视觉隐藏，读屏在翻页后朗读当前页 -->
     <span class="bt-sr-only" aria-live="polite">{{ pageNumberText }} / 共 {{ totalPages }} 页</span>
     <BtNotePreview :preview="notePreview" />
@@ -921,7 +1352,7 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
 
   <!-- 连续滚动模式：窗口化渲染可见页，滚动 ↔ 页态双向同步（直排时沿水平自右向左） -->
   <div
-    v-else
+    v-else-if="effectiveMode === 'scroll'"
     ref="scrollerRef"
     class="bt-book-view bt-book-view--scroll"
     :class="{ 'bt-book-view--scroll-x': verticalWriting }"
@@ -959,6 +1390,50 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
         </div>
       </div>
     </div>
+    <BtNotePreview :preview="notePreview" />
+  </div>
+
+  <!-- 流式阅读模式（D5）：按章分块、视口窗口懒挂载、锚点进度持久化 -->
+  <div
+    v-else
+    ref="flowRootRef"
+    class="bt-book-view bt-book-view--flow"
+    :class="{ 'is-vertical': verticalWriting }"
+    tabindex="0"
+    :aria-label="ariaLabel"
+    :data-mode-fallback="mode === 'scroll-flow' ? 'paged' : undefined"
+    @scroll="onFlowScroll"
+    @keydown="onFlowKeydown"
+    @click="onNoteClick"
+    @pointerover="onNotePointerOver"
+    @pointerout="onNotePointerOut"
+    @focusin="onNoteFocusIn"
+    @focusout="onNoteFocusOut"
+  >
+    <div class="bt-book-view__flow">
+      <section
+        v-for="(chunk, i) in flowChunks"
+        :key="chunk.key"
+        class="bt-flow-chunk"
+        :data-flow-key="chunk.key"
+        :aria-label="chunk.title ?? '正文'"
+      >
+        <div
+          v-if="flowMounted[i]"
+          class="bt-reader-page__flow bt-flow-chunk__content"
+          :data-flow-idx="i"
+          :style="flowRootStyle"
+          v-html="flowChunkHtml(i)"
+        ></div>
+        <div
+          v-else
+          class="bt-flow-skeleton"
+          :style="{ height: `${flowHeights[i]}px` }"
+          aria-hidden="true"
+        ></div>
+      </section>
+    </div>
+    <span class="bt-sr-only" aria-live="polite">{{ flowProgressText }}</span>
     <BtNotePreview :preview="notePreview" />
   </div>
 </template>
@@ -1106,5 +1581,101 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
   left: 0;
   right: auto;
   bottom: auto;
+}
+
+/* ---- 翻页动效（D5） ---- */
+.bt-book-view__turn {
+  position: relative;
+}
+
+.bt-turn-enter-active,
+.bt-turn-leave-active {
+  transition:
+    transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.22s ease;
+  will-change: transform, opacity;
+}
+
+/* 横排：新页自右向左滑入、旧页同向滑出 */
+.bt-book-view--paged:not(.is-vertical) .bt-turn-enter-from {
+  transform: translateX(12%);
+  opacity: 0.6;
+}
+.bt-book-view--paged:not(.is-vertical) .bt-turn-leave-to {
+  transform: translateX(-12%);
+  opacity: 0;
+}
+
+/* 直排：翻页方向改为自下而上 */
+.bt-book-view--paged.is-vertical .bt-turn-enter-from {
+  transform: translateY(12%);
+  opacity: 0.6;
+}
+.bt-book-view--paged.is-vertical .bt-turn-leave-to {
+  transform: translateY(-12%);
+  opacity: 0;
+}
+
+.bt-fade-enter-active,
+.bt-fade-leave-active {
+  transition: opacity 0.22s ease;
+}
+.bt-fade-enter-from,
+.bt-fade-leave-to {
+  opacity: 0;
+}
+
+/* 系统「减少动态效果」：彻底关闭过渡，仍瞬时切换 */
+@media (prefers-reduced-motion: reduce) {
+  .bt-turn-enter-active,
+  .bt-turn-leave-active,
+  .bt-fade-enter-active,
+  .bt-fade-leave-active {
+    transition: none;
+  }
+}
+
+/* ---- 流式阅读（D5） ---- */
+.bt-book-view--flow {
+  display: block;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+.bt-book-view--flow:focus {
+  outline: none;
+}
+.bt-book-view--flow:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+.bt-book-view__flow {
+  max-width: 38em;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+.bt-flow-chunk {
+  display: block;
+}
+.bt-flow-chunk__content {
+  transition: opacity 0.12s ease;
+}
+/* 未挂载分块：低对比骨架占位，行高与真实一致，无扫光动效 */
+.bt-flow-skeleton {
+  border-radius: 4px;
+  background: currentColor;
+  opacity: 0.06;
+  margin: 0.9em 0;
+  pointer-events: none;
+}
+.bt-book-view--flow.is-vertical .bt-book-view__flow {
+  writing-mode: vertical-rl;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bt-flow-chunk__content {
+    transition: none;
+  }
 }
 </style>

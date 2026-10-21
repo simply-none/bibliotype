@@ -10,6 +10,7 @@ import { computed, ref } from 'vue';
 import { isTextNode, type BookNode } from '@bibliotype/core';
 import { serializeNode } from '@bibliotype/layout/html';
 import type { Reader } from '@bibliotype/reader';
+import BtSpreadLayout from './BtSpreadLayout.vue';
 
 /** 校勘标记（classical 插件节点，vue 不直接依赖该包，按 IR 类型名识别） */
 const COLLATION_MARK = 'collation-mark';
@@ -132,14 +133,38 @@ const EMPTY_SIDE = '（本侧无校勘标记）';
       @focusin="activate(pair.pairId)"
       @focusout="deactivate"
     >
-      <div class="bt-collation-compare__pane" data-role="base">
-        <div v-if="pair.base !== undefined" v-html="pair.base.html"></div>
-        <p v-else class="bt-collation-compare__placeholder">{{ EMPTY_SIDE }}</p>
-      </div>
-      <div class="bt-collation-compare__pane" data-role="variant">
-        <div v-if="pair.variant !== undefined" v-html="pair.variant.html"></div>
-        <p v-else class="bt-collation-compare__placeholder">{{ EMPTY_SIDE }}</p>
-      </div>
+      <!-- 对页模式：复用双栏 / 对页通用容器（中缝 + 标签），结构容器类与 data-role 不变 -->
+      <BtSpreadLayout
+        v-if="mode === 'facing'"
+        mode="facing"
+        left-label="底本"
+        right-label="校本"
+      >
+        <template #left>
+          <div class="bt-collation-compare__pane" data-role="base">
+            <div v-if="pair.base !== undefined" v-html="pair.base.html"></div>
+            <p v-else class="bt-collation-compare__placeholder">{{ EMPTY_SIDE }}</p>
+          </div>
+        </template>
+        <template #right>
+          <div class="bt-collation-compare__pane" data-role="variant">
+            <div v-if="pair.variant !== undefined" v-html="pair.variant.html"></div>
+            <p v-else class="bt-collation-compare__placeholder">{{ EMPTY_SIDE }}</p>
+          </div>
+        </template>
+      </BtSpreadLayout>
+
+      <!-- 并列双栏：保持原有网格布局 -->
+      <template v-else>
+        <div class="bt-collation-compare__pane" data-role="base">
+          <div v-if="pair.base !== undefined" v-html="pair.base.html"></div>
+          <p v-else class="bt-collation-compare__placeholder">{{ EMPTY_SIDE }}</p>
+        </div>
+        <div class="bt-collation-compare__pane" data-role="variant">
+          <div v-if="pair.variant !== undefined" v-html="pair.variant.html"></div>
+          <p v-else class="bt-collation-compare__placeholder">{{ EMPTY_SIDE }}</p>
+        </div>
+      </template>
     </article>
   </section>
 </template>
@@ -152,16 +177,16 @@ const EMPTY_SIDE = '（本侧无校勘标记）';
 }
 
 .bt-collation-compare__pair {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.2em;
   padding: 0.6em 0.8em;
   border-radius: 4px;
   transition: background-color 0.15s ease;
 }
 
-.bt-collation-compare[data-mode='facing'] .bt-collation-compare__pair {
-  gap: 2.4em;
+/* 并列双栏：两栏网格由本组件控制（对页模式改由 BtSpreadLayout 承载） */
+.bt-collation-compare[data-mode='columns'] .bt-collation-compare__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2em;
 }
 
 .bt-collation-compare__pair.is-linked {

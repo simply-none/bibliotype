@@ -44,6 +44,14 @@ export type {
   ExtractedBlocks,
 } from './document-blocks.js';
 
+/* ---------- 流式分块（P3 D5） ---------- */
+export {
+  DEFAULT_FLOW_CHUNK_BLOCKS,
+  DEFAULT_FLOW_CHUNK_CHARS,
+  buildFlowChunks,
+} from './flow.js';
+export type { BuildFlowChunksOptions, FlowChunk } from './flow.js';
+
 /* ---------- 块解析 ---------- */
 export { findNodeById, findNodeTrail } from './find-node.js';
 

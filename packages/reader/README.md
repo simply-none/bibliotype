@@ -65,6 +65,11 @@ off();
 | `formatCurrentPageNumber()` | 当前页展示页码 |
 | `search(query, options?)` | 全文搜索（`limit` 默认 50、`contextLength` 默认 12） |
 | `nextPage()` / `prevPage()` / `goToPage(i)` / `goToNode(id)` | 导航（越界 / 未命中返回 false） |
+| `getNode(id)` | 取节点（块或结构容器；未命中返回 `undefined`） |
+| `getBlockIndex(id)` | 取节点在正文块序列中的序号（0 起；结构容器取首个块），流式进度用 |
+| `getPositionForNode(id, { savedAt? })` | 按块序号取阅读位置（锚点 + 进度，与 `restorePosition` 兼容）；节点不在文档时返回 `undefined` |
+| `getFlowChunks({ maxBlocksPerChunk?, maxCharsPerChunk? })` | 流式分块（按章切分、块不可再分、确定性 key），结果与分页无关、按文档缓存 |
+| `getFlowChunkIndex(id, options?)` | 取块 / 章 id 所在的分块序号（用于流式定位） |
 
 ### 独立函数
 
@@ -75,6 +80,7 @@ off();
 - **页码**：`formatPageNumber(n, style)`、`toChineseNumeral(n)`、`toRomanNumeral(n)`；
 - **版心**：`resolvePageGutterTexts({ bookTitle, chapterTitle, pageNumberText })`（去空白后交给
   `@bibliotype/layout/html` 的 `serializePageGutter` 序列化，三端同源）。
+- **流式分块**：`buildFlowChunks(document, options?)`（纯函数，见 [docs/04](../../docs/04-reader-and-pagination.md#流式阅读scroll-flow)）。
 
 ## 工作机制
 

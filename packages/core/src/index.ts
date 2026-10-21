@@ -426,6 +426,13 @@ export type {
   RestoreLibraryOptions,
 } from './storage/backup.js';
 
+/* ---------- 恢复链路校验（备份 / 历史回滚共用） ---------- */
+export {
+  RESTORE_VALIDATE_DEFAULTS,
+  validateRestoredDocument,
+} from './storage/restore-validation.js';
+export type { RestoreValidationOptions } from './storage/restore-validation.js';
+
 /* ---------- 加密与脱敏 ---------- */
 export {
   CRYPTO_ERROR_CODES,

@@ -77,6 +77,30 @@ BookDocument
 `buildDefaultIdentifier` / `fnv1a` / `resolveIdentifier` / `normalizeIdentifier` / `isIsbn` /
 `contributorRoleCode`（标识符与元数据）。
 
+## 古籍元数据与缺字报告（K6 / K7）
+
+OPF 的 `dc:*` 区按元数据补全，缺字段不输出、不编造：
+
+- `metadata.classicalCategory` → 四部 / 二级类各一条 `<dc:subject xml:lang="…">`；
+- `metadata.classification` → 追加一条 `<dc:subject>`（原书 / 馆藏分类号）；
+- `metadata.edition` → `<dc:source>庚辰本，清乾隆五十六年</dc:source>`；
+- `<dc:type>Text</dc:type>` 固定输出。
+
+```ts
+import { collectEpubGlyphProblems } from '@bibliotype/exporter-epub';
+
+const problems = collectEpubGlyphProblems(document, {
+  families: ['Songti SC', 'SimSun', 'serif'],
+  probe: (char, family) => document.fonts.check(`12px ${family}`, char),
+  idsFor: (char) => idsDictionary.get(char),
+});
+// [{ severity: 'warning', code: 'GLYPH-IDS' | 'GLYPH-MISSING', message: '…', path: '0.2.1' }]
+```
+
+缺字报告为 `warning` 级、不阻断导出；`GLYPH-IDS` 表示可用 IDS 合成显示，
+`GLYPH-MISSING` 表示阅读器会显示豆腐块。完整 CNMARC / DC JSON 导出在
+`@bibliotype/core`（`toCnmarc` / `toDublinCore` / `serializeDublinCore`）。
+
 ## 相关
 
 - 功能参考：[docs/07-export-epub.md](../../docs/07-export-epub.md)

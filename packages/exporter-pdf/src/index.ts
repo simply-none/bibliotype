@@ -19,3 +19,5 @@ export type {
   PdfAdapterOptions,
   PdfExportAdapter,
 } from './pdf-export.js';
+export { collectPdfGlyphProblems, summarizePdfGlyphProblems } from './glyph-report.js';
+export type { PdfGlyphCheckOptions } from './glyph-report.js';

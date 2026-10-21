@@ -322,3 +322,36 @@ note.attach(rootElement);
 - `applyPreset` 默认保留排版令牌（`TYPOGRAPHY_THEME_TOKENS`），切换主题不会覆盖用户自定义字号；
 - `importJson` 是**全量应用**（含排版令牌），保证「导出 → 导入」视觉一致；非法主题包把中文 issue 写进 `issues`；
 - 主题包只含令牌，`StylePreset` 的 layout / features / namedStyles 与之互不覆盖（详见 [11 主题令牌](11-theme-tokens.md)）。
+
+### 句读 / 专名审阅与缺字审计（K3 / K6）
+
+| 导出 | 用途 | 关键参数 / 返回值 |
+| --- | --- | --- |
+| `useAnnotationSuggestions({ document, revision?, apply, terms?, detector?, autoRefresh? })` | 建议状态机（待处理 / 已接受 / 已拒绝 / 已落地） | `all` / `pending` / `visible` / `counts` / `decisions` / `filter` / `accept` / `reject` / `commitJudou` / `setOverride` / `reset` |
+| `BtAnnotationSuggestions` | 审阅面板 | `suggestions` / `counts` / `filter`（v-model）、`disabled`；emit `accept` / `reject` / `commit` / `locate` / `override` |
+| `useGlyphAudit({ document, families?, revision?, probe?, idsFor? })` | 缺字审计 | `issues` / `summary` / `missingCount` / `idsCount` / `refresh` |
+| `BtGlyphAuditPanel` | 缺字清单 | `issues` / `maxItems`；逐条显示字符、码位、可合成 / 缺字、上下文与 IR 路径 |
+
+要点：
+
+- **命令由宿主注入**：`vue` 只从 `classical/editor` 做 `import type`（构建后擦除，运行时零依赖），
+  只读阅读场景不加载 ProseMirror；
+  demo 用 `applyJudouSuggestions` / `applyProperNameSuggestions` / `removeSuggestionMarks` /
+  `commitJudouAsText` 包装成 `SuggestionApplyHandlers` 传入；
+- 接受建议落 `judou` / `proper-name` 标记（`source=auto`），**正文字符不变**；
+  「采纳为标点」把已接受的句读标记落成真实字符并移除标记，整批单事务、可一次撤销；
+- 全部拒绝后文档逐字节不变（建议只是内存态）；
+- `useGlyphAudit` 默认探测走 `document.fonts.check`，环境不支持时降级为全部命中。
+
+```ts
+const suggestions = useAnnotationSuggestions({
+  document: () => editor.getDocument(),
+  revision: editorVersion,
+  apply: {
+    judou: (items) => editor.command(applyJudouSuggestions(items)),
+    properName: (items) => editor.command(applyProperNameSuggestions(items)),
+    remove: (options) => editor.command(removeSuggestionMarks(options)),
+    commitJudou: (options) => editor.command(commitJudouAsText(options)),
+  },
+});
+```

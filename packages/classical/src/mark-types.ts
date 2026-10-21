@@ -14,6 +14,14 @@ export const CLASSICAL_MARK_TYPES = {
   BOOK_TITLE: 'book-title',
   /** 圈点（传统读书标记，attrs.style 区分圈/点） */
   CIRCLE_EMPHASIS: 'circle-emphasis',
+  /**
+   * 句读候选（K3）
+   *
+   * 标记「某字之后宜加标点」，本身不改动正文字符；attrs：`symbol`（候选标点）、
+   * `source`（自动建议为 `auto`）、`suggestionId`、`rule`、`confidence`。
+   * 人工确认后可保留标记，或经「采纳为标点」命令落成真实字符。
+   */
+  JUDOU: 'judou',
   /** 注文引用锚点（attrs.noteId 指向注文节点） */
   NOTE_REF: 'note-ref',
   /** 异文标记（行内轻量标记，与 VARIANT_CHAR 节点互补） */

@@ -386,4 +386,42 @@ describe('竖排文字形态', () => {
       '。1850',
     );
   });
+
+  it('glyph 回调逐字符替换缺字，缺省不影响输出', () => {
+    const node: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [{ type: 'text', text: '山𫞩水' }],
+    };
+    const plain = serializeNode(node);
+
+    // 回调全部返回 undefined：产物与不传回调一致
+    expect(serializeNode(node, { glyph: () => undefined })).toBe(plain);
+
+    const replaced = serializeNode(node, {
+      glyph: (char) => (char === '𫞩' ? '<span class="bt-glyph">合成</span>' : undefined),
+    });
+    expect(replaced).toContain('山');
+    expect(replaced).toContain('水');
+    expect(replaced).toContain('<span class="bt-glyph">合成</span>');
+    expect(replaced).not.toContain('𫞩');
+  });
+
+  it('glyph 回调不影响标记包裹的结构', () => {
+    const node: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [
+        {
+          type: 'text',
+          text: '𫞩',
+          marks: [{ type: MARK_TYPES.STRONG }],
+        },
+      ],
+    };
+    const html = serializeNode(node, {
+      glyph: () => '<span class="bt-glyph">X</span>',
+    });
+    expect(html).toBe(
+      '<p class="bt-paragraph"><strong><span class="bt-glyph">X</span></strong></p>',
+    );
+  });
 });

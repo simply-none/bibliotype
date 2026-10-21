@@ -73,13 +73,13 @@ describe('古籍规格注册（D8）', () => {
     expect(schema.marks[CLASSICAL_MARK_TYPES.PROPER_NAME]).toBeUndefined();
   });
 
-  it('buildClassicalEditorSchema 注册全部 13 个古籍节点与 6 个标记', () => {
+  it('buildClassicalEditorSchema 注册全部 13 个古籍节点与 7 个标记', () => {
     const schema = buildClassicalEditorSchema();
     expect(Object.keys(CLASSICAL_NODE_TYPES)).toHaveLength(13);
     for (const type of Object.values(CLASSICAL_NODE_TYPES)) {
       expect(schema.nodes[type], `节点 ${type} 未注册`).toBeDefined();
     }
-    expect(Object.keys(CLASSICAL_MARK_TYPES)).toHaveLength(6);
+    expect(Object.keys(CLASSICAL_MARK_TYPES)).toHaveLength(7);
     for (const mark of Object.values(CLASSICAL_MARK_TYPES)) {
       expect(schema.marks[mark], `标记 ${mark} 未注册`).toBeDefined();
     }

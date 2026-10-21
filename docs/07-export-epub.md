@@ -200,9 +200,46 @@ EPUB 2（`version: '2.0'`）另输出 `<guide>`：`toc` 指向 `nav.xhtml`、`te
 | `MediaCollector` / `parseDataImageUri` / `sniffImageMediaType` | 媒体收集 |
 | `validateEpub(entries, { version, maxSectionBytes })` / `checkWellFormedXml` | 导出前校验 |
 | `buildNavXhtml` / `buildOpf` / `buildNcx` / `renderXhtmlDocument` | 各文档生成 |
+| `collectEpubGlyphProblems(document, options)` | 导出前缺字报告（K6，`warning` 级，含码位与 IR 路径） |
 | `contributorRoleCode` / `normalizeIdentifier` / `isIsbn` | 元数据工具 |
 | `groupEndnotes(root, { scope, title?, id? })` | 尾注聚合（章末 / 书末，返回新根，不改原文档） |
 | `buildContainerXml` / `EPUB_MIMETYPE` | OCF |
+
+## 古籍元数据映射（K7）
+
+`buildOpf` 在 OPF 的 `dc:*` 区补全三类信息，缺字段不输出、不编造：
+
+| 元数据 | OPF 元素 |
+| --- | --- |
+| `classicalCategory`（四部 + 二级类） | `<dc:subject xml:lang="zh-Hant">经部</dc:subject>`、`<dc:subject …>四书类</dc:subject>` |
+| `classification`（原书 / 馆藏分类号） | 追加一条 `<dc:subject>` |
+| `edition`（底本 / 参校本） | `<dc:source>庚辰本，清乾隆五十六年</dc:source>` |
+| 固定 | `<dc:type>Text</dc:type>` |
+
+- `dc:subject` 每个主题一条，EPUB 2 / 3 都带 `xml:lang`（两版都合法）；
+- 四部标签与版本项拼接与 `core` 的 `toDublinCore` 同口径，宿主无需二次加工；
+- 完整 CNMARC / DC JSON 导出在 `core`：`toCnmarc` / `toDublinCore` / `serializeDublinCore`
+  （字段与校验见 [01 数据模型](01-document-model.md#古籍编目字段k7)）。
+
+## 导出前缺字报告（K6）
+
+```ts
+import { collectEpubGlyphProblems } from '@bibliotype/exporter-epub';
+
+const problems = collectEpubGlyphProblems(document, {
+  families: ['Songti SC', 'SimSun', 'serif'],
+  probe: (char, family) => document.fonts.check(`12px ${family}`, char),
+  idsFor: (char) => idsDictionary.get(char),
+});
+// [{ severity: 'warning', code: 'GLYPH-IDS' | 'GLYPH-MISSING',
+//    message: '𫞩（U+2B7A9）缺字：可用 IDS 合成显示；位置 0.2.1，上下文「山𫞩水」', path: '0.2.1' }]
+```
+
+- 只产生 `warning`，**不阻断** `exportEpub`（补字是作者决策）；
+- `GLYPH-IDS`：字体缺、但宿主提供了 IDS 描述，可用 `layout` 的 `renderIdsGlyphHtml` 合成；
+- `GLYPH-MISSING`：无字形可回退，阅读器会显示豆腐块；
+- PDF / 打印路径用 `collectPdfGlyphProblems`（返回 `GlyphIssue[]`）与
+  `summarizePdfGlyphProblems`（一行中文摘要）。
 
 ## 已知边界
 

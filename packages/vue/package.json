@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@bibliotype/annotation": "workspace:*",
+    "@bibliotype/classical": "workspace:*",
     "@bibliotype/core": "workspace:*",
     "@bibliotype/editor": "workspace:*",
     "@bibliotype/layout": "workspace:*",

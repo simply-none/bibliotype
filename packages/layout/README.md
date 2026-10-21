@@ -120,7 +120,8 @@ const grid = resolveFacsimileGrid(layout, preset.tokens);
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
 | 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |
 | 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |
-| `./html` | `serializeNode`（含 `revisionView` / `verticalText` / `anchorIds` 选项）、`escapeHtml`、`buildBookCss`、`declarationToCss`、`serializePageGutter`、`serializePageNotes` |
+| 印章与缺字 SVG | `renderSealSvg`（白文 / 朱文印谱）、`renderIdsSvg` / `renderIdsGlyphHtml`（IDS 缺字合成，纯字符串、零依赖、同描述逐字节一致） |
+| `./html` | `serializeNode`（含 `revisionView` / `verticalText` / `anchorIds` / `glyph` 选项；`glyph` 逐字替换缺字，片段视为已转义受信 HTML）、`escapeHtml`、`buildBookCss`、`declarationToCss`、`serializePageGutter`、`serializePageNotes` |
 
 ## 相关
 

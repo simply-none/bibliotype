@@ -239,6 +239,58 @@ const css = buildBookCss({
 且还要求布局带 `facsimile` 与直排（三重闸门）。EPUB（reflow）、连续编辑画布、
 量尺表一律不开启，故「现代横排 / 古籍直排」的样式表逐字符不变。
 
+## 缺字合成与回退链（K6）
+
+分三层：`core` 决策、`layout` 渲染、导出器报告。
+
+### 解析与回退（core）
+
+```ts
+import { parseIds, resolveGlyphFallback, collectGlyphIssues } from '@bibliotype/core';
+
+const parsed = parseIds('⿰山夆'); // { tree, issues }
+resolveGlyphFallback('𫞩', {
+  families: ['Songti'],
+  probe,                       // (char, family) => boolean；缺省视为全部命中
+  idsFor: (char) => ids.get(char),
+});
+// { stage: 'font' | 'ids' | 'tofu', family?, idsTree?, missing, privateUse, … }
+```
+
+- 回退顺序固定：主字体链 → IDS 合成 → 方框（`stage: 'tofu'`）；
+- IDS 结构不完整（缺组件 / 超深）**不参与合成**，避免拼出错字；
+- `parseIds` 支持 U+2FF0–U+2FFB 全部 12 个运算符（含 `⿲` / `⿳` 三组件）。
+
+### 合成渲染（layout）
+
+```ts
+import { renderIdsSvg, renderIdsGlyphHtml } from '@bibliotype/layout';
+
+renderIdsSvg({ description: '⿰山夆', frame: true });
+renderIdsGlyphHtml('⿰山夆');
+// <span class="bt-glyph bt-glyph--ids" data-ids="⿰山夆"><svg …></svg></span>
+```
+
+纯字符串、零依赖、零随机：同一描述逐字节一致，可直接快照。书册样式 `.bt-glyph`
+把 SVG 按 1em 内联并下沉基线，颜色取 `currentColor`（换主题无需额外规则）。
+
+### 序列化替换
+
+`serializeNode(node, { glyph })` 逐字符回调：返回片段则替换该字符，返回 `undefined`
+按原文转义输出；**片段视为已转义的受信 HTML**（通常由 `renderIdsGlyphHtml` 产出）。
+不传 `glyph` 时产物与旧版逐字节一致。
+
+### 导出前报告
+
+```ts
+collectGlyphIssues(document, { families, probe, idsFor }); // core：带 path / context / code
+collectEpubGlyphProblems(document, options);               // exporter-epub：warning 级 ValidationProblem[]
+collectPdfGlyphProblems(document, options);               // exporter-pdf：GlyphIssue[]
+```
+
+报告只警告、不阻断导出（补字是作者决策）；Vue 侧 `useGlyphAudit` + `BtGlyphAuditPanel`
+在设置面板展示缺字清单，导出时由 demo 弹消息条提示。
+
 ## 页底注区序列化（B5）
 
 `serializePageNotes(notes, options)` 把分页器已算出的 `page.notes` 序列化为页底注区 HTML：

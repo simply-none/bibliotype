@@ -77,6 +77,15 @@ export interface SerializeNodeOptions {
    * 导出与阅读侧按视图投影，不会出现「终稿视图编辑后丢失原文」。
    */
   revisionView?: RevisionView;
+  /**
+   * 缺字合成回调（K6）：逐字符调用，返回 HTML 片段则替换该字符
+   *
+   * - 缺省不传：文本按原样输出，产物与既有版本逐字节一致；
+   * - 返回 `undefined` 时该字符按原文转义输出；
+   * - 返回值视为**已转义的受信 HTML**（调用方通常是 `renderIdsGlyphHtml`），
+   *   序列化器不再二次转义——宿主不得把用户输入拼进片段。
+   */
+  glyph?: (char: string) => string | undefined;
 }
 
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
@@ -175,6 +184,31 @@ export function escapeXml(value: string): string {
  */
 export function escapeHtml(value: string): string {
   return escapeXml(value);
+}
+
+/**
+ * 文本节点序列化：可选逐字符替换缺字字形（K6）
+ *
+ * 空白字符不调用回调（缺字只可能是可见字符，减少一次字符串比较）；
+ * 返回片段视为受信 HTML，不再二次转义——调用方须保证片段由
+ * `renderIdsGlyphHtml` 之类经过转义的生成器产出。
+ */
+function serializeGlyphText(
+  text: string,
+  glyph: ((char: string) => string | undefined) | undefined,
+): string {
+  if (glyph === undefined) return escapeHtml(text);
+
+  let html = '';
+  for (const char of text) {
+    if (/^\s$/u.test(char)) {
+      html += escapeHtml(char);
+      continue;
+    }
+    const replacement = glyph(char);
+    html += replacement === undefined ? escapeHtml(char) : replacement;
+  }
+  return html;
 }
 
 /** 元素子节点（剔除文本叶子） */
@@ -545,12 +579,13 @@ function nodeToHtml(node: BookNode, options: SerializeNodeOptions): string {
   if (isTextNode(node)) {
     const raw = node.text ?? '';
     const text = options.verticalText === undefined ? raw : transformVerticalText(raw, options.verticalText);
+    const html = serializeGlyphText(text, options.glyph);
     if (options.revisionView !== undefined && options.revisionView !== 'marked') {
       const resolved = resolveMarksForView(node.marks, options.revisionView);
       if (resolved.hidden) return '';
-      return applyMarks(escapeHtml(text), resolved.marks, options);
+      return applyMarks(html, resolved.marks, options);
     }
-    return applyMarks(escapeHtml(text), node.marks, options);
+    return applyMarks(html, node.marks, options);
   }
   if (node.type === NODE_TYPES.BOOK) {
     return serializeChildren(node, options);

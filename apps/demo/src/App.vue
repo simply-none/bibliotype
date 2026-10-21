@@ -41,7 +41,13 @@ import {
   type BookMetadata,
 } from '@bibliotype/core';
 import { CLASSICAL_THEME_OVERRIDES } from '@bibliotype/classical';
-import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
+import {
+  applyJudouSuggestions,
+  applyProperNameSuggestions,
+  buildClassicalEditorSchema,
+  commitJudouAsText,
+  removeSuggestionMarks,
+} from '@bibliotype/classical/editor';
 import { BookEditor, createBookEditorPlugins, createRevisionTrackingPlugin } from '@bibliotype/editor';
 import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 import {
@@ -64,14 +70,20 @@ import {
   type BlockMeasureContext,
   type OutlineItem,
 } from '@bibliotype/reader';
-import { BtBookView, BtDocumentStats, BtEditor, BtPager, BtSidebarResizer, BtToc, measurePagination, disposeMeasureSheet, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
-import { exportEpub, type ValidationProblem } from '@bibliotype/exporter-epub';
+import { BtAnnotationSuggestions, BtBookView, BtDocumentStats, BtEditor, BtPager, BtSidebarResizer, BtToc, createFontCheckProbe, measurePagination, disposeMeasureSheet, splitFontFamilyList, useAnnotationSuggestions, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
 import {
+  collectEpubGlyphProblems,
+  exportEpub,
+  type ValidationProblem,
+} from '@bibliotype/exporter-epub';
+import {
+  collectPdfGlyphProblems,
   createImageBlobRewriter,
   downloadPdf,
   exportPdfBytes,
   printHtml,
   renderPrintHtml,
+  summarizePdfGlyphProblems,
   type PdfAdapterOptions,
 } from '@bibliotype/exporter-pdf';
 import AppToast from './components/AppToast.vue';
@@ -925,6 +937,33 @@ function toggleEditMode(): void {
 
 /* ---------------- 导出 / 打印 ---------------- */
 
+/**
+ * 导出前缺字检查（K6）：只警告、不阻断
+ *
+ * 探测走 `document.fonts.check`；缺字在阅读器与打印里都会变豆腐块，但补字是
+ * 作者决策，所以只提示不拦截。宿主若登记了 IDS 描述，可在提示里看到「可合成」。
+ */
+function warnGlyphProblems(kind: 'epub' | 'pdf'): void {
+  const book = reader.value.document ?? lunyuDocument;
+  const stack = tokens.value[activeFontToken.value] ?? DEFAULT_THEME[FONT_TOKENS.BODY] ?? '';
+  const families = splitFontFamilyList(stack);
+  const probe = createFontCheckProbe();
+
+  if (kind === 'epub') {
+    const problems = collectEpubGlyphProblems(book, { families, probe });
+    if (problems.length > 0) {
+      pushToast(
+        `导出含 ${problems.length} 处缺字（可先补字体）：${problems[0]?.message ?? ''}`,
+        'info',
+      );
+    }
+    return;
+  }
+
+  const issues = collectPdfGlyphProblems(book, { families, probe });
+  if (issues.length > 0) pushToast(summarizePdfGlyphProblems(issues), 'info');
+}
+
 /** 触发浏览器下载 */
 function download(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
@@ -937,6 +976,7 @@ function download(filename: string, blob: Blob): void {
 
 /** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得；含已保存的编辑内容） */
 function onExportEpub(): void {
+  warnGlyphProblems('epub');
   const fontToken = activeFontToken.value;
   const layout = effectiveLayout.value;
   const book = reader.value.document ?? lunyuDocument;
@@ -1020,6 +1060,7 @@ function getElectronPdfBridge(): ElectronPdfBridge | undefined {
  * 分页模式（pdfPagedMode）：逐页（paged，与屏幕预览逐页同源）/ 连续（auto，更快）。
  */
 async function onExportPdf(): Promise<void> {
+  warnGlyphProblems('pdf');
   const fontToken = activeFontToken.value;
   const book = reader.value.document ?? lunyuDocument;
   const base = {
@@ -1165,15 +1206,16 @@ function onToolbarClickCapture(event: MouseEvent): void {
 /* ---------------- 面板与键盘 ---------------- */
 
 /** 左栏标签面板（同屏仅一个，参照主流阅读器；null = 整栏收起） */
-type AsideTab = 'toc' | 'search' | 'bookmarks' | 'import';
+type AsideTab = 'toc' | 'search' | 'bookmarks' | 'import' | 'suggestions';
 
 const activeTab = ref<AsideTab | null>('toc');
-/** 顶栏 tab 入口（顺序与左栏面板一致） */
+/** 顶栏 tab 入口（顺序与左栏面板一致；「句读」仅编辑模式可见） */
 const ASIDE_TABS: ReadonlyArray<{ key: AsideTab; label: string }> = [
   { key: 'toc', label: '目录' },
   { key: 'search', label: '搜索' },
   { key: 'bookmarks', label: '书签' },
   { key: 'import', label: '导入' },
+  { key: 'suggestions', label: '句读' },
 ];
 /** 顶栏 tab 入口：点已开项即收起，否则切换 */
 function toggleTab(tab: AsideTab): void {
@@ -1227,6 +1269,61 @@ const {
   setExpandedKeys: setTocExpandedKeys,
   resetWidth: resetTocWidth,
 } = useTocPrefs();
+
+/* ---------------- 句读 / 专名建议（K3） ---------------- */
+
+/** 编辑命令执行器：统一走 BookEditor 的 state + dispatch（单事务，可撤销） */
+type EditorCommand = ReturnType<typeof removeSuggestionMarks>;
+
+function runEditorCommand(command: EditorCommand): boolean {
+  const editor = bookEditor.value;
+  if (editor === null) return false;
+  return command(editor.editorState, (tr) => editor.dispatch(tr));
+}
+
+/**
+ * 建议审阅状态：建议由 `classical` 纯函数生成，接受 / 拒绝 / 采纳为标点
+ * 全部落到编辑器事务；库内不写存储，也不自动改正文。
+ */
+const {
+  visible: suggestionVisible,
+  counts: suggestionCounts,
+  filter: suggestionFilter,
+  accept: acceptSuggestions,
+  reject: rejectSuggestions,
+  commitJudou: commitSuggestions,
+  setOverride: setSuggestionOverride,
+} = useAnnotationSuggestions({
+  document: () => bookEditor.value?.getDocument() ?? undefined,
+  revision: () => (slotBinding.value?.version.value ?? 0) + bookVersion.value,
+  apply: {
+    judou: (items) => runEditorCommand(applyJudouSuggestions(items)),
+    properName: (items) => runEditorCommand(applyProperNameSuggestions(items)),
+    commitJudou: (options) => runEditorCommand(commitJudouAsText(options)),
+    remove: (options) => runEditorCommand(removeSuggestionMarks(options)),
+  },
+});
+
+/** 接受建议（ids 为空表示当前可见列表） */
+function onAcceptSuggestions(ids: readonly string[]): void {
+  const count = acceptSuggestions(ids.length === 0 ? undefined : ids);
+  if (count === 0) pushToast('没有可接受的建议', 'info');
+}
+
+/** 拒绝建议：未接受的本就只在内存里，接受后反悔会移除标记 */
+function onRejectSuggestions(ids: readonly string[]): void {
+  const count = rejectSuggestions(ids.length === 0 ? undefined : ids);
+  if (count === 0) pushToast('没有可拒绝的建议', 'info');
+}
+
+/** 采纳为标点：把已接受的句读标记落成真实字符（可撤销） */
+function onCommitSuggestions(ids: readonly string[]): void {
+  const count = commitSuggestions(ids.length === 0 ? undefined : ids);
+  pushToast(
+    count === 0 ? '先接受句读建议，再采纳为标点' : `已把 ${count} 处句读落成标点`,
+    count === 0 ? 'info' : 'success',
+  );
+}
 
 /*
  * 原先写在顶栏标题旁的用法说明，改挂到对应按钮的悬浮卡片上
@@ -1451,6 +1548,7 @@ onBeforeUnmount(() => {
         <div class="toolbar__group">
           <button
             v-for="tab in ASIDE_TABS"
+            v-show="tab.key !== 'suggestions' || mode === 'edit'"
             :key="tab.key"
             type="button"
             class="toolbar__button"
@@ -1528,6 +1626,23 @@ onBeforeUnmount(() => {
             :expanded-keys="tocExpandedKeys"
             @update:expanded-keys="setTocExpandedKeys"
             @select="onTocSelect"
+          />
+        </div>
+        <!-- 句读 / 专名建议（K3）：编辑模式面板，接受后才写入文档 -->
+        <div v-if="activeTab === 'suggestions'" class="app__suggestions">
+          <p v-if="mode !== 'edit'" class="app__suggestions-hint">
+            进入编辑模式后，可在此逐条接受句读与专名建议。
+          </p>
+          <BtAnnotationSuggestions
+            v-else
+            :suggestions="suggestionVisible"
+            :counts="suggestionCounts"
+            v-model:filter="suggestionFilter"
+            empty-text="当前段落没有待处理建议"
+            @accept="onAcceptSuggestions"
+            @reject="onRejectSuggestions"
+            @commit="onCommitSuggestions"
+            @override="setSuggestionOverride"
           />
         </div>
       </aside>
@@ -1712,6 +1827,7 @@ onBeforeUnmount(() => {
       :layout="effectiveLayout"
       :tokens="tokens"
       :theme-base-tokens="themeBaseTokens"
+      :document="reader.document ?? lunyuDocument"
       :night="night"
       @update:night="night = $event; persistSettingsSnapshot()"
       @apply-theme-tokens="onApplyThemeTokens"
@@ -1945,6 +2061,17 @@ onBeforeUnmount(() => {
 
 .app__toc {
   padding: 10px 4px 14px;
+}
+
+.app__suggestions {
+  padding: 10px 8px 14px;
+}
+
+.app__suggestions-hint {
+  margin: 0;
+  color: var(--demo-text-muted, #6b6b6b);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .app__main {

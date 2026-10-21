@@ -15,10 +15,65 @@ import {
   type EditorMarkSpecEntry,
   type EditorNodeSpecEntry,
 } from '@bibliotype/editor';
+import type { DOMOutputSpec, Mark, MarkSpec } from 'prosemirror-model';
 import { CLASSICAL_MARK_TYPES } from './mark-types.js';
 import { CLASSICAL_NODE_TYPES } from './node-types.js';
 
 const ns = NAMESPACES.CLASSICAL;
+
+/**
+ * 标记属性 → data-*
+ *
+ * 编辑画布的默认 mark DOM 不带属性；句读候选的 `.bt-mark-judou::after` 依赖
+ * `data-symbol` 渲染候选符号，因此该标记需要显式 toDOM（与序列化器同口径：
+ * rawAttrs 展开、其余键转 kebab 前缀 data-）。
+ */
+function markDomAttrs(mark: Mark): Record<string, string> {
+  const result: Record<string, string> = {};
+  const raw = mark.attrs['rawAttrs'];
+  if (typeof raw === 'object' && raw !== null) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (value === null || value === undefined) continue;
+      result[`data-${key}`] = String(value);
+    }
+  }
+  for (const [key, value] of Object.entries(mark.attrs)) {
+    if (key === 'id' || key === 'rawAttrs') continue;
+    if (value === null || value === undefined || value === '') continue;
+    result[`data-${key}`] = String(value);
+  }
+  return result;
+}
+
+/** 句读候选标记的 DOM 表现与解析（属性名与 `layout` 序列化一致） */
+const JUDOU_MARK_DOM: Pick<MarkSpec, 'toDOM' | 'parseDOM'> = {
+  toDOM: (mark: Mark): DOMOutputSpec => [
+    'span',
+    { class: 'bt-mark-judou', ...markDomAttrs(mark) },
+    0,
+  ],
+  parseDOM: [
+    {
+      tag: 'span.bt-mark-judou',
+      getAttrs: (dom: HTMLElement | string): Record<string, unknown> | false => {
+        if (typeof dom === 'string') return false;
+        const read = (name: string): string | null => dom.getAttribute(`data-${name}`);
+        const confidenceText = read('confidence');
+        const confidence =
+          confidenceText === null || confidenceText.trim() === ''
+            ? null
+            : Number(confidenceText);
+        return {
+          symbol: read('symbol'),
+          source: read('source'),
+          suggestionId: read('suggestionId'),
+          rule: read('rule'),
+          confidence: Number.isFinite(confidence) ? confidence : null,
+        };
+      },
+    },
+  ],
+};
 
 /** 古籍节点规格（13 种，与 CLASSICAL_NODE_DEFINITIONS 一一对应） */
 export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
@@ -134,14 +189,43 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   },
 ];
 
-/** 古籍标记规格（6 种，与 CLASSICAL_MARK_TYPES 一一对应） */
+/** 古籍标记规格（7 种，与 CLASSICAL_MARK_TYPES 一一对应） */
 export const CLASSICAL_EDITOR_MARK_SPECS: readonly EditorMarkSpecEntry[] = [
-  { type: CLASSICAL_MARK_TYPES.PROPER_NAME, namespace: ns, spec: { attrs: COMMON_MARK_ATTRS } },
+  {
+    /* 专名号：自动建议写入 source / suggestionId，手工标记不写（保持既有行为） */
+    type: CLASSICAL_MARK_TYPES.PROPER_NAME,
+    namespace: ns,
+    spec: {
+      attrs: {
+        ...COMMON_MARK_ATTRS,
+        source: { default: null },
+        suggestionId: { default: null },
+        nameKind: { default: null },
+        confidence: { default: null },
+      },
+    },
+  },
   { type: CLASSICAL_MARK_TYPES.BOOK_TITLE, namespace: ns, spec: { attrs: COMMON_MARK_ATTRS } },
   {
     type: CLASSICAL_MARK_TYPES.CIRCLE_EMPHASIS,
     namespace: ns,
     spec: { attrs: { ...COMMON_MARK_ATTRS, style: { default: null } } },
+  },
+  {
+    /* 句读候选：symbol 驱动伪元素渲染，source=auto 供「拒绝全部自动标记」识别 */
+    type: CLASSICAL_MARK_TYPES.JUDOU,
+    namespace: ns,
+    spec: {
+      attrs: {
+        ...COMMON_MARK_ATTRS,
+        symbol: { default: null },
+        source: { default: null },
+        suggestionId: { default: null },
+        rule: { default: null },
+        confidence: { default: null },
+      },
+      ...JUDOU_MARK_DOM,
+    },
   },
   {
     type: CLASSICAL_MARK_TYPES.NOTE_REF,

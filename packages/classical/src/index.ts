@@ -28,5 +28,33 @@ export type {
   CollationSummaryOptions,
 } from './collation-summary.js';
 
+/* ---------- 句读 / 专名建议（K3） ---------- */
+export {
+  suggestJudou,
+  judouMarkerRange,
+  JUDOU_SYMBOLS,
+  EXISTING_PUNCTUATION,
+} from './judou-rules.js';
+export type { JudouCandidate, JudouRuleOptions, JudouSymbol } from './judou-rules.js';
+export { BUILTIN_PROPER_NAME_TERMS, detectProperNames } from './proper-names.js';
+export type {
+  ProperNameDetector,
+  ProperNameDetectorInput,
+  ProperNameKind,
+  ProperNameMatch,
+  ProperNameTerm,
+} from './proper-names.js';
+export {
+  buildAnnotationSuggestions,
+  collectSuggestionBlocks,
+  countSuggestions,
+} from './annotation-suggestions.js';
+export type {
+  AnnotationSuggestion,
+  BuildSuggestionOptions,
+  SuggestionBlock,
+  SuggestionKind,
+} from './annotation-suggestions.js';
+
 /* ---------- 插件 ---------- */
 export { createClassicalPlugin, CLASSICAL_PLUGIN_NAME } from './plugin.js';

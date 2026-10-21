@@ -3,18 +3,27 @@
  * 书籍信息弹窗（Demo 组件，查看 / 编辑双态）
  *
  * 展示书目元数据（BookMetadata）全量字段：
- * 基本信息 / 责任者 / 版本 / 出版 / 标识符 / 古籍著录（extra 中文标签映射）/ 记录时间。
+ * 基本信息 / 责任者 / 版本 / 古籍著录（四部、版本类型、藏地、索书号）/ 出版 / 标识符 /
+ * 扩展键值（extra，仅查看）/ 记录时间。
  * editable 为 true 时可切换到编辑态：改基本字段、增删责任者 / 标识符 / 扩展键值，
  * 保存时向父级 emit('save', patch)（顶层字段补丁，留空即清空；title 空则不改）。
+ * 查看态可直接导出 DC JSON / CNMARC 文本（K7），文件由浏览器下载，库内不写文件。
  * 遮罩点击 / 关闭按钮 / Esc 关闭；编辑态下点遮罩不关闭（防误丢改动）。
  */
 import { computed, reactive, ref } from 'vue';
-import type {
-  BookMetadata,
-  Contributor,
-  EditionInfo,
-  Identifier,
-  PublicationInfo,
+import {
+  CLASSICAL_DIVISIONS,
+  EDITION_TYPES,
+  serializeDublinCore,
+  toCnmarc,
+  toDublinCore,
+  type BookMetadata,
+  type ClassicalDivision,
+  type Contributor,
+  type EditionInfo,
+  type EditionType,
+  type Identifier,
+  type PublicationInfo,
 } from '@bibliotype/core';
 
 const props = defineProps<{ metadata: BookMetadata; editable?: boolean }>();
@@ -72,6 +81,56 @@ const editionKindText = computed(() => {
   return '';
 });
 
+/** 四部标签（经部 / 史部 …） */
+const divisionText = computed(() => {
+  const division = props.metadata.classicalCategory?.division;
+  if (division === undefined) return '';
+  return CLASSICAL_DIVISIONS.find((item) => item.value === division)?.label ?? '';
+});
+
+/** 版本类型标签（刻本 / 抄本 …） */
+const editionTypeText = computed(() => {
+  const type = props.metadata.editionType;
+  if (type === undefined) return '';
+  return EDITION_TYPES.find((item) => item.value === type)?.label ?? '';
+});
+
+/* ---------------- 编目导出（DC JSON / CNMARC 文本） ---------------- */
+
+/** 文件名去非法字符 */
+function safeFilename(title: string): string {
+  return (title.trim() === '' ? 'bibliotype' : title.trim()).replace(/[\\/:*?"<>|]+/g, '_');
+}
+
+/** 触发文本下载（纯宿主行为，库内不写文件） */
+function downloadText(filename: string, text: string, mime: string): void {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** 导出都柏林核心 JSON */
+function exportDublinCore(): void {
+  downloadText(
+    `${safeFilename(props.metadata.title)}-dc.json`,
+    serializeDublinCore(toDublinCore(props.metadata)),
+    'application/json',
+  );
+}
+
+/** 导出 CNMARC 字段行文本 */
+function exportCnmarc(): void {
+  downloadText(
+    `${safeFilename(props.metadata.title)}-cnmarc.txt`,
+    toCnmarc(props.metadata),
+    'text/plain',
+  );
+}
+
 function contributorText(contributor: Contributor): string {
   return [contributor.dynasty, contributor.name, contributor.role]
     .filter((part) => part !== undefined && part !== '')
@@ -103,6 +162,16 @@ interface Draft {
   editionEra: string;
   editionPublisher: string;
   editionKind: '' | 'base' | 'variant';
+  /** 版本类型（K7）：刻本 / 抄本 / 活字 / 稿本 */
+  editionType: '' | EditionType;
+  /** 四部（K7） */
+  division: '' | ClassicalDivision;
+  /** 四部二级类 */
+  subdivision: string;
+  /** 藏地 / 收藏机构 */
+  repository: string;
+  /** 索书号 */
+  callNumber: string;
   pubPublisher: string;
   pubYear: string;
   pubPlace: string;
@@ -123,12 +192,24 @@ const draft = reactive<Draft>({
   editionEra: '',
   editionPublisher: '',
   editionKind: '',
+  editionType: '',
+  division: '',
+  subdivision: '',
+  repository: '',
+  callNumber: '',
   pubPublisher: '',
   pubYear: '',
   pubPlace: '',
   contributors: [],
   identifiers: [],
   extra: [],
+});
+
+/** 当前四部下的二级类候选（仍允许手填自定义值） */
+const subdivisionOptions = computed(() => {
+  const division = draft.division;
+  if (division === '') return [];
+  return CLASSICAL_DIVISIONS.find((item) => item.value === division)?.subdivisions ?? [];
 });
 
 /** 元数据 → 草稿（深拷贝，编辑不影响源对象） */
@@ -143,6 +224,11 @@ function toDraft(m: BookMetadata): Draft {
     editionEra: m.edition?.era ?? '',
     editionPublisher: m.edition?.publisher ?? '',
     editionKind: m.edition?.kind ?? '',
+    editionType: m.editionType ?? '',
+    division: m.classicalCategory?.division ?? '',
+    subdivision: m.classicalCategory?.subdivision ?? '',
+    repository: m.repository ?? '',
+    callNumber: m.callNumber ?? '',
     pubPublisher: m.publication?.publisher ?? '',
     pubYear: m.publication?.year ?? '',
     pubPlace: m.publication?.place ?? '',
@@ -212,6 +298,19 @@ function buildPatch(): Partial<BookMetadata> {
       : undefined,
     edition: hasEdition ? edition : undefined,
     publication: hasPublication ? publication : undefined,
+    /* 古籍著录（K7）：空值显式透传为 undefined，便于「清空」生效 */
+    editionType: draft.editionType === '' ? undefined : draft.editionType,
+    classicalCategory:
+      draft.division === ''
+        ? undefined
+        : {
+            division: draft.division,
+            ...(norm(draft.subdivision) === undefined
+              ? {}
+              : { subdivision: norm(draft.subdivision) }),
+          },
+    repository: norm(draft.repository),
+    callNumber: norm(draft.callNumber),
     contributors: draft.contributors
       .map((c) => ({ name: norm(c.name), dynasty: norm(c.dynasty ?? ''), role: norm(c.role ?? '') }))
       .filter((c) => c.name !== undefined) as Contributor[],
@@ -260,6 +359,14 @@ function removeExtra(index: number): void {
       <header class="dialog__header">
         <h2 class="dialog__title">书籍信息</h2>
         <div class="dialog__header-actions">
+          <template v-if="!editing">
+            <button type="button" class="dialog__action" @click="exportDublinCore">
+              导出 DC
+            </button>
+            <button type="button" class="dialog__action" @click="exportCnmarc">
+              导出 MARC
+            </button>
+          </template>
           <button
             v-if="editable && !editing"
             type="button"
@@ -331,6 +438,34 @@ function removeExtra(index: number): void {
           <div v-if="editionKindText" class="dialog__row">
             <span class="dialog__label">版本性质</span>
             <span class="dialog__value">{{ editionKindText }}</span>
+          </div>
+        </section>
+
+        <section
+          v-if="editionTypeText || divisionText || metadata.repository || metadata.callNumber"
+          class="dialog__section"
+        >
+          <h3 class="dialog__section-title">古籍著录</h3>
+          <div v-if="editionTypeText" class="dialog__row">
+            <span class="dialog__label">版本类型</span>
+            <span class="dialog__value">{{ editionTypeText }}</span>
+          </div>
+          <div v-if="divisionText" class="dialog__row">
+            <span class="dialog__label">四部</span>
+            <span class="dialog__value">
+              {{ divisionText
+              }}<template v-if="metadata.classicalCategory?.subdivision"
+                >·{{ metadata.classicalCategory.subdivision }}</template
+              >
+            </span>
+          </div>
+          <div v-if="metadata.repository" class="dialog__row">
+            <span class="dialog__label">藏地</span>
+            <span class="dialog__value">{{ metadata.repository }}</span>
+          </div>
+          <div v-if="metadata.callNumber" class="dialog__row">
+            <span class="dialog__label">索书号</span>
+            <span class="dialog__value">{{ metadata.callNumber }}</span>
           </div>
         </section>
 
@@ -446,6 +581,67 @@ function removeExtra(index: number): void {
           <label class="field">
             <span class="field__label">刊刻者 / 藏机构</span>
             <input v-model="draft.editionPublisher" class="field__input" type="text" />
+          </label>
+          <div class="field__grid">
+            <label class="field">
+              <span class="field__label">版本类型</span>
+              <select v-model="draft.editionType" class="field__input">
+                <option value="">未定</option>
+                <option v-for="item in EDITION_TYPES" :key="item.value" :value="item.value">
+                  {{ item.label }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">藏地</span>
+              <input
+                v-model="draft.repository"
+                class="field__input"
+                type="text"
+                placeholder="如：中国国家图书馆"
+              />
+            </label>
+          </div>
+        </section>
+
+        <section class="dialog__section">
+          <h3 class="dialog__section-title">古籍著录（K7）</h3>
+          <div class="field__grid">
+            <label class="field">
+              <span class="field__label">四部</span>
+              <select v-model="draft.division" class="field__input">
+                <option value="">未分类</option>
+                <option
+                  v-for="item in CLASSICAL_DIVISIONS"
+                  :key="item.value"
+                  :value="item.value"
+                >
+                  {{ item.label }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field__label">二级类</span>
+              <input
+                v-model="draft.subdivision"
+                class="field__input"
+                type="text"
+                list="bt-subdivisions"
+                placeholder="如：四书类"
+              />
+              <datalist id="bt-subdivisions">
+                <option v-for="item in subdivisionOptions" :key="item" :value="item" />
+              </datalist>
+            </label>
+          </div>
+          <label class="field">
+            <span class="field__label">索书号</span>
+            <input
+              v-model="draft.callNumber"
+              class="field__input"
+              type="text"
+              placeholder="如：善本 12345"
+            />
           </label>
         </section>
 

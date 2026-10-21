@@ -10,7 +10,7 @@
  * - EPUB 2：仅 `dc:date`、封面走 `<meta name="cover">`，不输出任何 EPUB 3
  *   专属 `<meta property>`（RMSDK 解析器不识别 property 属性）。
  */
-import type { BookMetadata, Contributor } from '@bibliotype/core';
+import { CLASSICAL_DIVISIONS, type BookMetadata, type Contributor } from '@bibliotype/core';
 import { escapeXml } from '@bibliotype/layout/html';
 
 /** manifest 条目 */
@@ -134,6 +134,30 @@ export function buildOpf(input: OpfInput): string {
     );
   }
   metaLines.push(`    <dc:language>${lang}</dc:language>`);
+  /* 古籍元数据（K7）：四部细目 / 分类号 → dc:subject，版本项 → dc:source。
+     dc:type 固定为 Text，便于平台书目库把「书」与「期刊 / 音像」区分开。 */
+  const subjects: string[] = [];
+  if (metadata.classicalCategory !== undefined) {
+    const division = CLASSICAL_DIVISIONS.find(
+      (item) => item.value === metadata.classicalCategory?.division,
+    );
+    if (division !== undefined) subjects.push(division.label);
+    const subdivision = metadata.classicalCategory.subdivision;
+    if (subdivision !== undefined && subdivision.trim() !== '') subjects.push(subdivision);
+  }
+  if (metadata.classification !== undefined && metadata.classification.trim() !== '') {
+    subjects.push(metadata.classification);
+  }
+  for (const subject of subjects) {
+    metaLines.push(`    <dc:subject xml:lang="${lang}">${escapeXml(subject)}</dc:subject>`);
+  }
+  metaLines.push(`    <dc:type>Text</dc:type>`);
+  const source = [metadata.edition?.name, metadata.edition?.era]
+    .filter((value): value is string => value !== undefined && value.trim() !== '')
+    .join('，');
+  if (source !== '') {
+    metaLines.push(`    <dc:source>${escapeXml(source)}</dc:source>`);
+  }
   for (const contributor of metadata.contributors ?? []) {
     /* EPUB 3 带 opf:role（MARC relator）供平台书目库归类；EPUB 2 不挂属性 */
     const role = epub3 ? ` opf:role="${contributorRoleCode(contributor.role)}"` : '';

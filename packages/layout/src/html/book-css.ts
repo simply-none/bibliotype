@@ -560,6 +560,21 @@ ${scoped('.bt-seal')} {
   display: inline-block;
   line-height: 1;
 }
+/*
+ * 缺字合成字形（K6）：IDS 拼出的方框字按 1em 内联，与正文基线略下沉对齐；
+ * SVG 用 currentColor，换主题不需要额外颜色规则。
+ */
+${scoped('.bt-glyph')} {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+}
+${scoped('.bt-glyph > svg')} {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 /* 内联 SVG 印谱：随字号缩放，基线下沉一点与正文对齐 */
 ${scoped('.bt-seal > svg')} {
   display: block;
@@ -612,6 +627,17 @@ ${scoped('.bt-mark-book-title')} {
 ${scoped('.bt-mark-circle-emphasis')} {
   text-emphasis: filled circle;
   text-emphasis-position: under right;
+}
+/*
+ * 句读候选（K3）：标记包裹候选标点前的字，伪元素显示淡色候选符号。
+ * 采纳为标点后标记被移除，正文只留真实字符；导出未采纳的文档时该伪元素
+ * 仍会画出淡色符号，提示「建议尚未处理」。
+ */
+${scoped('.bt-mark-judou')}::after {
+  content: attr(data-symbol);
+  color: var(--bt-${COLOR_TOKENS.ACCENT});
+  opacity: 0.55;
+  font-weight: 400;
 }
 /*
  * 圈点样式变体（R6 修复）：circleEmphasis.attrs.style 一直在 schema / IR 里，

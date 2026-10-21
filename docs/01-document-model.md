@@ -79,8 +79,33 @@ const paragraph: BookNode = {
 | `language` | 语言标记（BCP 47，如 `zh-Hant`） |
 | `identifiers` | 标识符列表 `{ scheme: 'isbn' \| ... , value }` |
 | `publication` | 出版信息 `{ publisher?, year?, place? }` |
+| `classicalCategory` | 四部细目 `{ division: 'jing' \| 'shi' \| 'zi' \| 'ji', subdivision? }`（K7） |
+| `editionType` | 版本类型：`block-print`（刻本）/ `manuscript`（抄本）/ `movable-type`（活字本）/ `draft`（稿本）（K7） |
+| `repository` | 藏地 / 收藏机构（K7） |
+| `callNumber` | 索书号（K7） |
 | `createdAt` / `updatedAt` | 时间戳 |
 | `extra` | 扩展元数据（插件自定义字段） |
+
+### 古籍编目字段（K7）
+
+```ts
+import {
+  CLASSICAL_DIVISIONS, EDITION_TYPES,
+  validateMetadata, migrateLegacyMetadata,
+  toDublinCore, serializeDublinCore, toCnmarc,
+} from '@bibliotype/core';
+
+validateMetadata(metadata);   // 返回 [{ field, message }]，非法四部 / 版本类型 / 卷数会被拦截
+toDublinCore(metadata);       // 固定键序的 DC 记录（title / creator / subject / source / relation …）
+toCnmarc(metadata);           // CNMARC 字段行文本（001 / 200 / 205 / 210 / 215 / 300 / 606 / 686 / 690 / 801 / 905）
+```
+
+- `CLASSICAL_DIVISIONS` / `EDITION_TYPES` 带中文标签与常见二级类（仅下拉建议，不限制自定义值）；
+- `classification`（自由文本分类号）与 `classicalCategory`（枚举四部）**并存**：前者保留原书分类号，
+  后者用于 MARC / DC 映射；
+- `migrateLegacyMetadata` 把旧版 `extra` 中的 `repository` / `callNumber` / `editionType` /
+  `classicalCategory` 提升到顶层（幂等，顶层优先，迁移后从 `extra` 移除）；
+- `toCnmarc` 输出的是「字段行文本」便于人工核对与导入编目工具，**不实现 ISO 2709 二进制打包**。
 
 ## 稳定 id 约定
 

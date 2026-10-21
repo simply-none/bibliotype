@@ -65,6 +65,7 @@ const FEATURE_SELECTORS: Readonly<Record<FeatureStyleId, string>> = {
   'mark.proper-name': '.bt-mark-proper-name',
   'mark.book-title': '.bt-mark-book-title',
   'mark.circle-emphasis': '.bt-mark-circle-emphasis',
+  'mark.judou': '.bt-mark-judou',
   'mark.note-ref': '.bt-mark-note-ref',
   'mark.variant': '.bt-mark-variant',
   'mark.taboo': '.bt-mark-taboo',

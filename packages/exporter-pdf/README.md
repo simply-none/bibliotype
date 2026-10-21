@@ -97,6 +97,23 @@ const css = buildPrintCss({ options: layout, tokens: DEFAULT_THEME, mode: 'paged
 `document?`：宿主 Document（缺省取全局 `document`；非浏览器环境抛错）。
 `onAfterPrint?`：打印完成后回调（iframe 移除前触发，用于释放 blob URL 等）。
 
+### 缺字报告（K6）
+
+```ts
+import { collectPdfGlyphProblems, summarizePdfGlyphProblems } from '@bibliotype/exporter-pdf';
+
+const issues = collectPdfGlyphProblems(document, {
+  families: ['Songti SC', 'SimSun', 'serif'],
+  probe: (char, family) => document.fonts.check(`12px ${family}`, char),
+  idsFor: (char) => idsDictionary.get(char),
+});
+// [{ char: '𫞩', code: 'U+2B7A9', path: '0.2.1', context: '山𫞩水', stage: 'ids' | 'tofu', … }]
+summarizePdfGlyphProblems(issues); // '缺字 2 处：𫞩（U+2B7A9，可 IDS 合成）；𠀋（U+2000B）'
+```
+
+只警告、不阻断导出；`stage: 'ids'` 表示可用 IDS 合成显示，`'tofu'` 表示会显示豆腐块。
+探测端口缺省时视为全部命中（宁漏报不误报）。
+
 ### `PdfExportAdapter`（`exportPdfBytes`）
 
 | 成员 | 说明 |

@@ -125,6 +125,23 @@ export {
 export type { UseThemePresets, UseThemePresetsOptions } from './use-theme-presets.js';
 export { createFontCheckProbe, splitFontFamilyList } from './font-probe.js';
 
+/* ---------- 句读 / 专名建议（K3） ---------- */
+export { default as BtAnnotationSuggestions } from './components/BtAnnotationSuggestions.vue';
+export { useAnnotationSuggestions } from './use-annotation-suggestions.js';
+export type {
+  SuggestionApplyHandlers,
+  SuggestionDecision,
+  SuggestionFilter,
+  SuggestionOverride,
+  UseAnnotationSuggestions,
+  UseAnnotationSuggestionsOptions,
+} from './use-annotation-suggestions.js';
+
+/* ---------- 缺字审计（K6） ---------- */
+export { default as BtGlyphAuditPanel } from './components/BtGlyphAuditPanel.vue';
+export { useGlyphAudit } from './use-glyph-audit.js';
+export type { UseGlyphAudit, UseGlyphAuditOptions } from './use-glyph-audit.js';
+
 /* ---------- 书架 / 备份 / 加密（H3–H5） ---------- */
 export { default as BtBookShelf } from './components/BtBookShelf.vue';
 export { default as BtBackupPanel } from './components/BtBackupPanel.vue';

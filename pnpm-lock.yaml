@@ -511,6 +511,9 @@ importers:
       '@bibliotype/annotation':
         specifier: workspace:*
         version: link:../annotation
+      '@bibliotype/classical':
+        specifier: workspace:*
+        version: link:../classical
       '@bibliotype/core':
         specifier: workspace:*
         version: link:../core

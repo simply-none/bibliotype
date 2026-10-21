@@ -18,13 +18,33 @@ export { NODE_TYPES, MARK_TYPES } from './ir/node-types.js';
 export type { CoreNodeType, CoreMarkType } from './ir/node-types.js';
 export type { BookNode, BookMark } from './ir/nodes.js';
 export { isTextNode, readAttr } from './ir/nodes.js';
+export {
+  CLASSICAL_DIVISIONS,
+  EDITION_TYPES,
+} from './ir/metadata.js';
 export type {
   BookMetadata,
+  ClassicalCategory,
+  ClassicalDivision,
   Contributor,
   EditionInfo,
+  EditionType,
   Identifier,
   PublicationInfo,
 } from './ir/metadata.js';
+export {
+  validateMetadata,
+  isClassicalDivision,
+  isEditionType,
+} from './metadata-validation.js';
+export type { MetadataIssue } from './metadata-validation.js';
+export {
+  toDublinCore,
+  serializeDublinCore,
+  toCnmarc,
+} from './metadata-mapping.js';
+export type { DublinCoreRecord } from './metadata-mapping.js';
+export { migrateLegacyMetadata } from './metadata-migration.js';
 export type { BookDocument } from './ir/document.js';
 export { IR_SCHEMA_VERSION, createEmptyDocument, isBookDocument } from './ir/document.js';
 export {
@@ -195,6 +215,25 @@ export type {
   GlyphCoverageEntry,
   GlyphCoverageReport,
 } from './font-coverage.js';
+
+/* ---------- IDS 解析 / 字形回退 / 缺字报告（K6） ---------- */
+export {
+  IDS_OPERATORS,
+  isIdsOperator,
+  idsOperatorArity,
+  parseIds,
+  formatIds,
+  countIdsLeaves,
+} from './ids.js';
+export type { IdsTreeNode, IdsIssue, IdsParseResult, IdsParseOptions } from './ids.js';
+export { resolveGlyphFallback, describeGlyphFallback } from './glyph-fallback.js';
+export type {
+  GlyphFallbackOptions,
+  GlyphFallbackResolution,
+  GlyphFallbackStage,
+} from './glyph-fallback.js';
+export { collectGlyphIssues, summarizeGlyphIssues } from './glyph-issues.js';
+export type { GlyphIssue, CollectGlyphIssuesOptions } from './glyph-issues.js';
 
 /* ---------- 功能样式表（按功能粒度的样式覆盖） ---------- */
 export {

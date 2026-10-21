@@ -23,6 +23,7 @@ import {
   FONT_TOKENS,
   LAYOUT_TOKENS,
   resolveNamedStyleChain,
+  type BookDocument,
   type FeatureStyleId,
   type ThemeToken,
 } from '@bibliotype/core';
@@ -52,8 +53,10 @@ import {
 } from '@bibliotype/layout';
 import {
   BtFontFallbackPanel,
+  BtGlyphAuditPanel,
   BtThemePanel,
   splitFontFamilyList,
+  useGlyphAudit,
 } from '@bibliotype/vue';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
 import { isFacsimilePresetModified } from '../facsimile-theme.js';
@@ -68,6 +71,8 @@ const props = defineProps<{
   tokens: Readonly<Record<string, string | undefined>>;
   /** 主题基线令牌（不含用户补丁与夜间覆盖，主题预设重置目标） */
   themeBaseTokens?: Readonly<Record<string, string | undefined>>;
+  /** 当前文档（缺字检查扫描对象） */
+  document?: BookDocument;
   /** 夜间预设开关（演示态快捷预设，不写入样式快照） */
   night: boolean;
 }>();
@@ -157,6 +162,14 @@ const fontFamilies = computed(() =>
 
 /** 回退调试的样例文本：常见字 + 拉丁 + 扩展 B 区（缺字时可直接看出） */
 const FONT_SAMPLE_TEXT = '子曰诗云，学而时习之。天地玄黄，宇宙洪荒。ABC 123 𠀋';
+
+/* ---------- 缺字检查（K6）：扫描当前文档，按同一字体链判断 ---------- */
+
+const glyphAudit = useGlyphAudit({
+  document: () => props.document,
+  families: fontFamilies,
+});
+const glyphIssues = glyphAudit.issues;
 
 function openFeature(id: FeatureStyleId): void {
   activeFeature.value = id;
@@ -1041,6 +1054,9 @@ async function onSave(): Promise<void> {
               :families="fontFamilies"
               title="逐字命中与缺字"
             />
+
+            <h5 class="panel__group-title">缺字检查</h5>
+            <BtGlyphAuditPanel :issues="glyphIssues" title="当前文档缺字" />
           </template>
 
           <!-- ========== 编辑行为 ========== -->

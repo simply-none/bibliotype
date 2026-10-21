@@ -46,3 +46,5 @@ export { checkWellFormedXml, validateEpub } from './validate.js';
 export type { ProblemSeverity, ValidateEpubInput, ValidationProblem } from './validate.js';
 export { VALIDATE_CLI_USAGE, runValidateCli } from './cli.js';
 export type { ValidateCliIo, ValidateCliResult } from './cli.js';
+export { collectEpubGlyphProblems } from './glyph-report.js';
+export type { EpubGlyphCheckOptions } from './glyph-report.js';

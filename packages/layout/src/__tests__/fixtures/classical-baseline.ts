@@ -52,8 +52,14 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-21 九次更新（D9）：新增注释激活态 `.bt-note-active`（含 noteref / marker
  * 强化与 reduced-motion 降级），仅在阅读器给注码加类时命中，样式表全文变化，基线重锁。
+ *
+ * 2026-10-21 十次更新（K3）：新增句读候选 `.bt-mark-judou::after`（读取
+ * `data-symbol` 画淡色候选标点），仅在文档含自动句读标记时命中，基线重锁。
+ *
+ * 2026-10-21 十一次更新（K6）：新增缺字合成字形 `.bt-glyph`（1em 内联 + SVG
+ * 撑满），仅在序列化传入 `glyph` 回调时命中，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '2bc311e5';
+export const CLASSICAL_CSS_FNV = '504fe65f';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

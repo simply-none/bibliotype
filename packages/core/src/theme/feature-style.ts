@@ -69,6 +69,8 @@ export const FEATURE_STYLE_IDS = [
   'mark.proper-name',
   'mark.book-title',
   'mark.circle-emphasis',
+  /* 句读候选（K3）：标记本身不改变文字，样式只画候选符号 */
+  'mark.judou',
   'mark.note-ref',
   'mark.variant',
   'mark.taboo',
@@ -176,6 +178,7 @@ export const FEATURE_STYLE_META: Readonly<Record<FeatureStyleId, Omit<FeatureSty
   'mark.proper-name': { label: '专名号', group: 'mark-classical', classical: true },
   'mark.book-title': { label: '书名号', group: 'mark-classical', classical: true },
   'mark.circle-emphasis': { label: '圈点', group: 'mark-classical', classical: true },
+  'mark.judou': { label: '句读标记', group: 'mark-classical', classical: true },
   'mark.note-ref': { label: '注号', group: 'mark-classical', classical: true },
   'mark.variant': { label: '异体字标记', group: 'mark-classical', classical: true },
   'mark.taboo': { label: '避讳标记', group: 'mark-classical', classical: true },

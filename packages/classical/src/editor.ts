@@ -19,6 +19,10 @@ export {
   toggleVariant,
   toggleNoteRef,
   toggleTaboo,
+  applyJudouSuggestions,
+  applyProperNameSuggestions,
+  removeSuggestionMarks,
+  commitJudouAsText,
   toggleInlineNote,
   toggleVariantChar,
   toggleTabooChar,
@@ -42,4 +46,10 @@ export {
   replaceWithImprint,
   replaceWithColophon,
   replaceWithBorderFrame,
+} from './editor-commands.js';
+export type {
+  CommitJudouOptions,
+  JudouSuggestionInput,
+  ProperNameSuggestionInput,
+  RemoveSuggestionMarksOptions,
 } from './editor-commands.js';

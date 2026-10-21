@@ -127,6 +127,7 @@ const MARK_LABELS: Readonly<Record<string, string>> = {
   'proper-name': '专名号',
   'book-title': '书名号',
   'circle-emphasis': '圈点',
+  judou: '句读候选',
   'note-ref': '注引用',
   variant: '异体标记',
   taboo: '避讳标记',

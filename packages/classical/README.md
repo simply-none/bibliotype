@@ -65,10 +65,11 @@ const editor = new BookEditor({ schema, plugins: createBookEditorPlugins(schema)
 | 校勘与字形 | `collation-note` 校勘记、`collation-mark` 校勘符号、`variant-char` 异体字、`taboo-char` 避讳字 |
 | 版式元素 | `imprint` 牌记、`colophon` 卷末题记、`seal` 印章、`border-frame` 版框、`fish-tail` 鱼尾 |
 
-### 古籍标记（`CLASSICAL_MARK_TYPES`，6 种）
+### 古籍标记（`CLASSICAL_MARK_TYPES`，7 种）
 
 `proper-name` 专名号 · `book-title` 书名号 · `circle-emphasis` 圈点 ·
-`note-ref` 注文引用锚点 · `variant` 异文标记 · `taboo` 避讳标记
+`judou` 句读候选（`source=auto`，只标记、不改字）· `note-ref` 注文引用锚点 ·
+`variant` 异文标记 · `taboo` 避讳标记
 
 ### 古籍主题
 
@@ -84,8 +85,9 @@ const editor = new BookEditor({ schema, plugins: createBookEditorPlugins(schema)
 
 | 入口 | 导出 |
 | --- | --- |
-| `@bibliotype/classical` | `CLASSICAL_NODE_TYPES` / `CLASSICAL_MARK_TYPES`、`CLASSICAL_NODE_DEFINITIONS`、`CLASSICAL_THEME_TOKENS` / `CLASSICAL_THEME_OVERRIDES`、`createClassicalPlugin` / `CLASSICAL_PLUGIN_NAME` |
-| `@bibliotype/classical/editor` | `CLASSICAL_EDITOR_NODE_SPECS` / `CLASSICAL_EDITOR_MARK_SPECS`、`registerClassicalEditorSpecs` / `buildClassicalEditorSchema`、编辑命令（见上） |
+| `@bibliotype/classical` | `CLASSICAL_NODE_TYPES` / `CLASSICAL_MARK_TYPES`（7 种，含 `judou`）、`CLASSICAL_NODE_DEFINITIONS`、`CLASSICAL_THEME_TOKENS` / `CLASSICAL_THEME_OVERRIDES`、`createClassicalPlugin` / `CLASSICAL_PLUGIN_NAME` |
+| 句读 / 专名建议（K3） | `suggestJudou` / `judouMarkerRange` / `JUDOU_SYMBOLS` / `EXISTING_PUNCTUATION`、`detectProperNames` / `BUILTIN_PROPER_NAME_TERMS`、`buildAnnotationSuggestions` / `collectSuggestionBlocks` / `countSuggestions`；模型端口 `ProperNameDetector`（宿主注入，不内置模型） |
+| `@bibliotype/classical/editor` | `CLASSICAL_EDITOR_NODE_SPECS` / `CLASSICAL_EDITOR_MARK_SPECS`、`registerClassicalEditorSpecs` / `buildClassicalEditorSchema`、编辑命令（见上）；建议落地命令 `applyJudouSuggestions` / `applyProperNameSuggestions` / `removeSuggestionMarks` / `commitJudouAsText` |
 
 ## 相关
 

@@ -3,7 +3,7 @@
 Vue 3 封装：`useReader` / `useReaderBinding` / `useEditorBinding` 组合式 API，
 `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtSidebarResizer` / `BtEditor` / `BtSelectionReplaceMenu` /
 `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtNotePreview` / `BtThemePanel` /
-`BtFontFallbackPanel` 组件，以及全局注册插件。
+`BtFontFallbackPanel` / `BtAnnotationSuggestions` / `BtGlyphAuditPanel` 组件，以及全局注册插件。
 
 ## 安装
 
@@ -79,6 +79,8 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `BtNotePreview` | `preview`（`NotePreviewState \| null`） | 注文预览浮层（`placeFloating` 定位、`role="tooltip"`） |
 | `BtThemePanel` | `tokens`、`baseTokens?`、`presets?`、`keepTokens?`、`title?`；emit `update:tokens` / `apply` / `export` / `import` | 主题预设卡片 + 导入导出 + 校验问题清单 |
 | `BtFontFallbackPanel` | `text`、`families`、`probe?`、`maxChars?`、`title?` | 字体回退链逐字调试：命中族、缺字标红 + 码位 |
+| `BtAnnotationSuggestions` | `suggestions`、`counts?`、`filter?`（v-model:filter）、`emptyText?`、`disabled?`；emit `accept(ids)` / `reject(ids)` / `commit(ids)` / `locate(item)` / `override(id, patch)` | 句读 / 专名建议审阅面板：类别筛选、逐条接受 / 拒绝、改标点 / 改类别、批量确认与「采纳为标点」 |
+| `BtGlyphAuditPanel` | `issues`、`title?`、`maxItems?`（缺省 40）、`emptyText?` | 缺字审计面板：字符、码位、可合成 / 缺字、上下文与 IR 路径 |
 | `BtEditor` | `editor`（`BookEditor`）、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?` | 编辑画布：挂载 / 卸载 ProseMirror 视图；`pagination` 开启后走自定义可编辑分页内核（真实书页盒 + 行级跨页续排 + 虚拟化；直排 / 多栏自动回退连续画布），片段输入经 `selection-bridge` 落成 `BookEditor` 事务；`loading` 遮罩首轮分页、`initialPage` 定位视口页、`editable=false` 只读 |
 | `BtSelectionReplaceMenu` | `binding`（必需，传 BtEditor 插槽 `slotBinding`）、`groups`（`ReplaceTargetGroup[]`）、`readonly?`、`autoShow?` | 选区「替换为」浮动菜单：选中文字后定位弹出，按分组展示目标，点击经 `binding.execute` 执行；横排 / 直排通用，详见 [docs/20](../../docs/20-selection-replace.md) |
 | `BtTableSizePicker` | `anchor`（触发器矩形）、`trigger?`、`maxRows?` / `maxCols?`（默认 8）、`rows?` / `cols?`（默认 3）；emit `select({ rows, cols })` / `close` | Word / WPS 式表格尺寸选择器：行 × 列网格悬停高亮、点击即插，另给精确行列输入；Teleport + `placeFloating` 定位，详见 [docs/21](../../docs/21-table-editing.md) |
@@ -107,9 +109,11 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `useNoteInteraction({ reader, onRequestPage?, highlightMs?, previewDelayMs? })` | 注释事件委托：跳转 / 回跳 / 双向高亮 / 预览 / `Alt+←/→` 上下条 |
 | `useThemePresets({ base?, tokens?, onTokensChange?, catalog?, keep? })` | 主题预设应用 / 重置 / 导出 / 导入（问题进 `issues`） |
 | `createFontCheckProbe(doc?)` / `splitFontFamilyList(stack)` | `document.fonts.check` → `GlyphProbe` 适配 / 拆分字体回退链 |
+| `useAnnotationSuggestions({ document, revision?, apply, terms?, detector? })` | 句读 / 专名建议状态机：`all` / `pending` / `visible` / `counts` / `accept` / `reject` / `commitJudou` / `setOverride` / `reset`；命令由宿主注入（不把 ProseMirror 带进只读场景） |
+| `useGlyphAudit({ document, families?, revision?, probe?, idsFor? })` | 缺字审计：`issues` / `summary` / `missingCount` / `idsCount` / `refresh`，探测缺省走 `document.fonts.check` |
 | `useBookLibrary({ store, codec?, now?, pageSize?, ... })` | 书架状态：查询 / 标签筛选 / 排序 / 视图、`openBook` / `exportBook` / `importBook`；`.btbook` 的 ZIP 由宿主经 `codec` 注入 |
 | `buildShelfCards` / `buildTagFacets` / `buildRevisionModel` / `buildVersionHistoryModel` / `buildDiffRows` | 书架 / 修订 / 版本视图模型（纯函数，可单测） |
-| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtSidebarResizer` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtNotePreview` / `BtThemePanel` / `BtFontFallbackPanel` / `BtBookShelf` / `BtBackupPanel` / `BtEncryptionPanel` / `BtRevisionSidebar` / `BtVersionHistory` / `PagedCanvas` | 组件 |
+| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtSidebarResizer` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtNotePreview` / `BtThemePanel` / `BtFontFallbackPanel` / `BtAnnotationSuggestions` / `BtGlyphAuditPanel` / `BtBookShelf` / `BtBackupPanel` / `BtEncryptionPanel` / `BtRevisionSidebar` / `BtVersionHistory` / `PagedCanvas` | 组件 |
 | `createBibliotype()` | Vue 插件（全局注册组件） |
 
 在组件 / `effectScope` 内调用组合式 API 时，scope 销毁会自动解绑事件与视图。

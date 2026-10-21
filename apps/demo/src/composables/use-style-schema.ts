@@ -357,6 +357,11 @@ export const STYLE_FIELDS: Partial<Record<FeatureStyleId, StyleField[]>> = {
     select('text-emphasis-position', '位置', EMPHASIS_POSITION_OPTIONS, '样式'),
     color('text-emphasis-color', '颜色', '样式'),
   ],
+  /* 句读候选：只调候选符号的颜色与浓淡（符号本身由 mark 的 data-symbol 决定） */
+  'mark.judou': [
+    color('color', '候选符号颜色', '符号'),
+    num('opacity', '候选符号透明度', '', 0, 1, 0.05, '符号'),
+  ],
   'mark.note-ref': [
     text('font-size', '字号', '如 0.72em', '字符'),
     select('vertical-align', '对齐', [

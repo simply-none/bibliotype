@@ -26,11 +26,15 @@
 | | `BORDER_FRAME` | `border-frame` | 版框装饰（乌丝栏 / 朱丝栏，`attrs.style`） |
 | | `FISH_TAIL` | `fish-tail` | 鱼尾（`attrs.style` 区分单 / 双鱼尾） |
 
-## 古籍标记（6 种）
+## 古籍标记（7 种）
 
 `CLASSICAL_MARK_TYPES`：`proper-name`（专名号）、`book-title`（书名号）、
-`circle-emphasis`（圈点，`attrs.style` 区分圈 / 点）、`note-ref`（注文引用锚点，
-`attrs.noteId`）、`variant`、`taboo`。
+`circle-emphasis`（圈点，`attrs.style` 区分圈 / 点）、`judou`（句读候选，K3）、
+`note-ref`（注文引用锚点，`attrs.noteId`）、`variant`、`taboo`。
+
+`judou` 的 `attrs` 为 `symbol`（候选标点）、`source`（自动建议为 `auto`）、
+`suggestionId`、`rule`、`confidence`；标记**不改动正文字符**，渲染层用
+`.bt-mark-judou::after { content: attr(data-symbol) }` 画淡色候选标点。
 
 ## 插件安装
 
@@ -91,6 +95,43 @@ toggleProperName()(editor.editorState, (tr) => editor.dispatch(tr));
 | `insertHeadNote()` | 当前叶块后插入眉批 |
 | `insertCollationNote()` | 当前叶块后插入校勘记 |
 | `insertCollationSymbol(symbol = '○')` | 光标处插入出校符号（可传 □ / △） |
+| `applyJudouSuggestions(items)` | 批量接受句读建议（单事务，落 `judou` 标记，可撤销） |
+| `applyProperNameSuggestions(items)` | 批量接受专名建议（落 `proper-name` 标记） |
+| `removeSuggestionMarks(options?)` | 拒绝 / 反悔：移除 `source=auto` 的自动标记（可按 `suggestionIds` 过滤） |
+| `commitJudouAsText(options?)` | 采纳为标点：把已接受的句读标记落成真实字符并移除标记 |
+
+## 句读 / 专名自动标注（K3）
+
+三层分工，**建议不落盘**——只有人工接受后才写文档：
+
+| 层 | 包 | 导出 |
+| --- | --- | --- |
+| 规则 | `classical` | `suggestJudou(text, options?)`、`judouMarkerRange(candidate, text)`、`JUDOU_SYMBOLS`、`EXISTING_PUNCTUATION` |
+| 专名 | `classical` | `detectProperNames(text, { terms?, detector? })`、`BUILTIN_PROPER_NAME_TERMS`、`ProperNameDetector`（宿主注入模型） |
+| 建议模型 | `classical` | `buildAnnotationSuggestions(blocks, options?)`、`collectSuggestionBlocks(document)`、`countSuggestions` |
+
+规则只覆盖低争议信号：句末语气词（也 / 矣 / 焉 / 哉 / 耳 / 乎 / 耶 / 邪 / 夫 / 兮）→ 句号；
+提示语（曰 / 云 / 问）→ 冒号；句首连词（然而 / 是以 / 故 / 则 / 而 / 若 …）→ 其前逗号。
+已有标点之后不再重复建议，同一偏移只保留置信度最高的一条。
+
+```ts
+import { buildAnnotationSuggestions, collectSuggestionBlocks } from '@bibliotype/classical';
+
+const suggestions = buildAnnotationSuggestions(collectSuggestionBlocks(document), {
+  // 专名模型端口：宿主接 NER 服务 / 本地模型；不传则只用内置字典
+  detector: ({ text }) => myNer(text),
+});
+// [{ id: 'judou:p-1:2:3:：', kind: 'judou', blockId: 'p-1', start: 2, end: 3, symbol: '：', … }]
+```
+
+偏移口径：**段内 UTF-16 code unit**，与 ProseMirror 位置一致；`id` 由类别 + 块 id +
+区间 + 符号确定性生成，可复现、可批量接受。
+
+Vue 侧 `useAnnotationSuggestions({ document, revision?, apply })` 把建议编排成状态机
+（待处理 / 已接受 / 已拒绝 / 已落地），接受 / 拒绝 / 采纳为标点的命令由宿主注入
+（`@bibliotype/vue` 不直接依赖 `classical/editor`，只读阅读场景不加载 ProseMirror）。
+`BtAnnotationSuggestions` 是配套面板：类别筛选、逐条接受 / 拒绝、改标点 / 改类别、
+批量确认与「采纳为标点」。详见 [06 Vue 集成](06-vue-integration.md#句读--专名建议k3)。
 
 ## 古籍主题与推荐布局
 

@@ -387,3 +387,271 @@ export function insertCollationSymbol(symbol = '○'): Command {
     return true;
   };
 }
+
+/* ---------- 句读 / 专名建议（K3） ---------- */
+
+/** 句读建议的落点（由 `annotation-suggestions` 产出后映射而来） */
+export interface JudouSuggestionInput {
+  /** 块节点 id */
+  blockId: string;
+  /** 段内起始偏移（含） */
+  start: number;
+  /** 段内结束偏移（不含） */
+  end: number;
+  /** 候选标点 */
+  symbol: string;
+  /** 建议 id（写入标记，供拒绝 / 逐条落地） */
+  suggestionId?: string;
+  /** 命中规则 id */
+  rule?: string;
+  /** 置信度 */
+  confidence?: number;
+}
+
+/** 专名建议的落点 */
+export interface ProperNameSuggestionInput {
+  /** 块节点 id */
+  blockId: string;
+  /** 段内起始偏移（含） */
+  start: number;
+  /** 段内结束偏移（不含） */
+  end: number;
+  /** 建议 id */
+  suggestionId?: string;
+  /** 专名类别（person / place / book …） */
+  nameKind?: string;
+  /** 置信度 */
+  confidence?: number;
+}
+
+/** 移除自动建议标记的选项 */
+export interface RemoveSuggestionMarksOptions {
+  /** 只移除这些建议 id；省略表示全部自动建议 */
+  suggestionIds?: readonly string[];
+  /** 只移除这些标记类型（缺省句读 + 专名） */
+  markTypes?: readonly string[];
+}
+
+/** 句读标记落成字符的选项 */
+export interface CommitJudouOptions {
+  /** 只落地这些建议 id；省略表示全部自动句读标记 */
+  suggestionIds?: readonly string[];
+}
+
+/**
+ * 段内文本偏移 → PM 位置
+ *
+ * 文本节点按 `node.text.length` 累计；行内原子 / 容器的内部结构不切分，
+ * 偏移落在其内部时取该节点之后（避免把标记切进 ruby、注码等结构）。
+ *
+ * @returns 偏移越界（负数 / 超过块内容长度）时为 `undefined`
+ */
+function textOffsetToPos(node: PmNode, blockPos: number, offset: number): number | undefined {
+  if (!Number.isInteger(offset) || offset < 0) return undefined;
+  if (offset === 0) return blockPos + 1;
+
+  let consumed = 0;
+  let pos = blockPos + 1;
+  for (let index = 0; index < node.childCount; index += 1) {
+    const child = node.child(index);
+    const length = child.isText ? (child.text ?? '').length : child.textContent.length;
+    if (offset <= consumed + length) {
+      if (child.isText) return pos + (offset - consumed);
+      return pos + child.nodeSize;
+    }
+    consumed += length;
+    pos += child.nodeSize;
+  }
+  return offset === consumed ? blockPos + 1 + node.content.size : undefined;
+}
+
+/** 同一条建议的 mark 属性（句读 / 专名共用 source=auto 口径） */
+function suggestionMarkAttrs(input: {
+  suggestionId?: string;
+  confidence?: number;
+  extra?: Record<string, string>;
+}): Attrs {
+  return {
+    source: 'auto',
+    suggestionId: input.suggestionId ?? null,
+    confidence: input.confidence ?? null,
+    ...(input.extra ?? {}),
+  };
+}
+
+/**
+ * 批量接受句读建议（单事务，可一次撤销）
+ *
+ * 标记包裹「候选标点前的字」，渲染层用 `.bt-mark-judou::after` 显示候选符号；
+ * 正文字符不变，拒绝时只需移除标记。
+ *
+ * @returns 有任一建议落点有效时为 `true`
+ */
+export function applyJudouSuggestions(
+  suggestions: readonly JudouSuggestionInput[],
+): Command {
+  return (state, dispatch) => {
+    if (suggestions.length === 0) return false;
+    const markType = state.schema.marks[CLASSICAL_MARK_TYPES.JUDOU];
+    if (markType === undefined) return false;
+
+    const tr = state.tr;
+    let applied = false;
+    for (const item of suggestions) {
+      const target = locateBlock(state.doc, item.blockId);
+      if (target === undefined) continue;
+      const from = textOffsetToPos(target.node, target.pos, item.start);
+      const to = textOffsetToPos(target.node, target.pos, item.end);
+      if (from === undefined || to === undefined || to <= from) continue;
+      tr.addMark(
+        from,
+        to,
+        markType.create(
+          suggestionMarkAttrs({
+            ...(item.suggestionId === undefined ? {} : { suggestionId: item.suggestionId }),
+            ...(item.confidence === undefined ? {} : { confidence: item.confidence }),
+            extra: {
+              symbol: item.symbol,
+              ...(item.rule === undefined ? {} : { rule: item.rule }),
+            },
+          }),
+        ),
+      );
+      applied = true;
+    }
+    if (!applied) return false;
+    dispatch?.(tr);
+    return true;
+  };
+}
+
+/**
+ * 批量接受专名建议（写入 `proper-name` 标记）
+ *
+ * @returns 有任一建议落点有效时为 `true`
+ */
+export function applyProperNameSuggestions(
+  suggestions: readonly ProperNameSuggestionInput[],
+): Command {
+  return (state, dispatch) => {
+    if (suggestions.length === 0) return false;
+    const markType = state.schema.marks[CLASSICAL_MARK_TYPES.PROPER_NAME];
+    if (markType === undefined) return false;
+
+    const tr = state.tr;
+    let applied = false;
+    for (const item of suggestions) {
+      const target = locateBlock(state.doc, item.blockId);
+      if (target === undefined) continue;
+      const from = textOffsetToPos(target.node, target.pos, item.start);
+      const to = textOffsetToPos(target.node, target.pos, item.end);
+      if (from === undefined || to === undefined || to <= from) continue;
+      tr.addMark(
+        from,
+        to,
+        markType.create(
+          suggestionMarkAttrs({
+            ...(item.suggestionId === undefined ? {} : { suggestionId: item.suggestionId }),
+            ...(item.confidence === undefined ? {} : { confidence: item.confidence }),
+            extra: item.nameKind === undefined ? {} : { nameKind: item.nameKind },
+          }),
+        ),
+      );
+      applied = true;
+    }
+    if (!applied) return false;
+    dispatch?.(tr);
+    return true;
+  };
+}
+
+/**
+ * 拒绝自动建议：移除 `source=auto` 的句读 / 专名标记
+ *
+ * 未接受的建议本来就不在文档里，因此「拒绝」是空操作；本命令用于
+ * 接受后又反悔，或一次性清空全部自动标记。
+ *
+ * @returns 实际移除了标记时为 `true`
+ */
+export function removeSuggestionMarks(
+  options: RemoveSuggestionMarksOptions = {},
+): Command {
+  return (state, dispatch) => {
+    const types = new Set(
+      options.markTypes ?? [CLASSICAL_MARK_TYPES.JUDOU, CLASSICAL_MARK_TYPES.PROPER_NAME],
+    );
+    const wanted = options.suggestionIds;
+    const tr = state.tr;
+    let applied = false;
+
+    state.doc.descendants((node, pos) => {
+      if (!node.isText) return true;
+      for (const mark of node.marks) {
+        if (!types.has(mark.type.name)) continue;
+        if (mark.attrs['source'] !== 'auto') continue;
+        const suggestionId = mark.attrs['suggestionId'];
+        if (
+          wanted !== undefined &&
+          (typeof suggestionId !== 'string' || !wanted.includes(suggestionId))
+        ) {
+          continue;
+        }
+        tr.removeMark(pos, pos + node.nodeSize, mark);
+        applied = true;
+      }
+      return true;
+    });
+
+    if (!applied) return false;
+    dispatch?.(tr);
+    return true;
+  };
+}
+
+/**
+ * 采纳为标点：把句读标记落成真实字符
+ *
+ * 在标记区间之后插入候选标点，并移除标记；从后往前处理，保证多段同时
+ * 落地时位置不互相影响。整批在单事务内完成，一次撤销即可回退。
+ *
+ * @returns 实际插入了字符时为 `true`
+ */
+export function commitJudouAsText(options: CommitJudouOptions = {}): Command {
+  return (state, dispatch) => {
+    const markType = state.schema.marks[CLASSICAL_MARK_TYPES.JUDOU];
+    if (markType === undefined) return false;
+    const wanted = options.suggestionIds;
+
+    const targets: Array<{ from: number; to: number; symbol: string }> = [];
+    state.doc.descendants((node, pos) => {
+      if (!node.isText) return true;
+      for (const mark of node.marks) {
+        if (mark.type.name !== CLASSICAL_MARK_TYPES.JUDOU) continue;
+        if (mark.attrs['source'] !== 'auto') continue;
+        const suggestionId = mark.attrs['suggestionId'];
+        if (
+          wanted !== undefined &&
+          (typeof suggestionId !== 'string' || !wanted.includes(suggestionId))
+        ) {
+          continue;
+        }
+        const symbol = mark.attrs['symbol'];
+        if (typeof symbol !== 'string' || symbol === '') continue;
+        targets.push({ from: pos, to: pos + node.nodeSize, symbol });
+      }
+      return true;
+    });
+    if (targets.length === 0) return false;
+
+    const tr = state.tr;
+    // 从后往前插入：前面的位置不受后续插入影响
+    targets.sort((a, b) => b.to - a.to);
+    for (const target of targets) {
+      tr.removeMark(target.from, target.to, markType);
+      tr.insertText(target.symbol, target.to);
+      tr.removeMark(target.to, target.to + target.symbol.length, markType);
+    }
+    dispatch?.(tr);
+    return true;
+  };
+}

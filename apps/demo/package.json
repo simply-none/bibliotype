@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@bibliotype/adapter-indexeddb": "workspace:*",
@@ -28,6 +29,7 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.0",
     "@vitejs/plugin-vue": "^5.2.0",
     "fake-indexeddb": "^6.0.0",
     "happy-dom": "^15.11.0",

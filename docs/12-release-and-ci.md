@@ -46,7 +46,7 @@ pnpm version:rc                # → 26.10.12-rc.1（预发布）
 pnpm version:latest            # → 26.10.12（正式）
 
 # 3. 构建并发布到 npm
-pnpm release:check             # 预检：构建 + publish --dry-run（不真正发布）
+pnpm release:check             # 预检：版本一致性断言 + 构建 + publish --dry-run（不真正发布）
 pnpm release:rc                # 构建 + 发布 rc 标签
 pnpm release                  # 构建 + 发布 latest 标签
 ```
@@ -61,8 +61,10 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 ```
 
 1. 读取 `.changeset/*.md`；无待发布变更时**退出码 2**（发布流程应中止）；
+   frontmatter 包名兼容单双引号（`@changesets/cli` 对 scoped 包输出单引号形式）；
 2. 计算版本号：`YY.M.D`；rc 通道为 `YY.M.D-rc.N`（同日自动递增）；
-3. 全部公开包统一升级到该版本（private 包跳过）；
+3. 全部公开包统一升级到该版本（private 包跳过），并把版本号**写回
+   `packages/core/src/version.ts` 的 `VERSION` 常量**（I6：单源自动化，无需手工同步）；
 4. 为变更说明涉及的包写 CHANGELOG（按 Major/Minor/Patch 分组），
    其余包写「随版本列车同步发布」占位；已存在 CHANGELOG 时前插新节；
 5. 删除已消费的变更说明文件；
@@ -77,12 +79,22 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 `fixed` 组包含全部 21 个公开包（与版本列车对齐）；`access: public`；
 `baseBranch: master`；`privatePackages.version/tag: false`（apps/demo 不参与）。
 
+### 版本一致性校验（check-version.mjs，I6）
+
+`scripts/check-version.mjs` 在 `release:check` 前置执行，校验两条不变式：
+
+1. **版本列车一致**：全部公开包（非 private）`package.json` 的 version 相同（以
+   `@bibliotype/core` 为锚）；
+2. **`VERSION` 常量对账**：`packages/core/src/version.ts` 的 `VERSION` 与
+   `packages/core/package.json` 的 version 一致（`version.mjs` 发版时自动写回）。
+
+不一致时非 0 退出并指出漂移文件；一致性由 `packages/core/src/__tests__/version-sync.test.ts`
+守护（对账、列车一致、写回幂等、漂移负例）。
+
 ### 发版后检查清单
 
-- **同步 `VERSION` 常量**：`packages/core/src/version.ts` 的 `VERSION` 为手写常量
-  （供 `import { VERSION } from '@bibliotype/core'` 对外暴露），`version.mjs` **只改写
-  各包 `package.json` 与 CHANGELOG，不会更新它**——发版后需手动改为与日期版本一致
-  （后续可考虑让 `version.mjs` 自动写入该常量）；
+- **`VERSION` 常量无需手工同步**：`version.mjs` 在写各包 `package.json` 的同时
+  自动写回 `packages/core/src/version.ts`（I6）；
 - 抽查任一包的 `package.json` 与 `CHANGELOG.md`，确认新版本号与变更说明已落盘；
 - 确认已消费的 `.changeset/*.md` 已被删除（`git status` 中仅剩版本与 CHANGELOG 改动）。
 
@@ -91,7 +103,9 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 ### GitHub Actions（主）
 
 `.github/workflows/ci.yml`：push `master` / PR 触发，`pnpm install --frozen-lockfile`
-→ `build` → `test` → `typecheck`（Node 20 + pnpm 缓存）。
+→ `build` → `test:coverage`（全量测试 + 覆盖率采集，core / layout / reader 阈值拦截，
+lcov 报告归档为 artifact）→ `typecheck`。**Node 20/22 双版本矩阵**（`fail-fast: false`，
+I9），并保留 E9 的 EPUB 校验 CLI 护栏步骤。
 
 `.github/workflows/release.yml`：`workflow_dispatch` 手动触发，输入 `channel`（rc / latest）：
 
@@ -164,8 +178,8 @@ MR 运行；`release` 阶段为 manual job（同样经 `version.mjs` + `pnpm -r 
 | `version.mjs` 退出码 2 | `.changeset/*.md` 为空——先 `pnpm changeset` 创建变更说明 |
 | 想先看版本计划 | `pnpm exec node scripts/version.mjs --dry-run`（不写文件） |
 | 正式版与 rc 的标签 | rc 发 `--tag rc`，正式发 `--tag latest`（`release:rc` / `release` 已内置） |
-| 发布前自查 | `pnpm release:check`（构建 + publish --dry-run 全量预检） |
-| 发版后 `VERSION` 常量与实际版本不一致 | `version.mjs` 不同步该常量——手动改 `packages/core/src/version.ts` 的 `VERSION`（见「发版后检查清单」） |
+| 发布前自查 | `pnpm release:check`（版本一致性断言 + 构建 + publish --dry-run 全量预检） |
+| 发版后 `VERSION` 常量与实际版本不一致 | 正常由 `version.mjs` 自动写回；若被手工改动，运行 `pnpm release:check` 会失败，重新执行 `pnpm version:rc` / `version:latest` 即可对齐 |
 
 ## 相关
 

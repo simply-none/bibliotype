@@ -23,6 +23,10 @@ bibliotype 的多数模块是**纯函数 / 无 DOM 状态机**，可在 Node（S
 | `@bibliotype/adapter-sqlite` | ✅ | 无 DOM 依赖；宿主注入 better-sqlite3 / sql.js 驱动即可 |
 | `@bibliotype/provider-websocket`：Provider | ⚠️ | 浏览器用原生 WebSocket / BroadcastChannel；Node 注入 `ws` 的 WebSocket |
 | `@bibliotype/provider-websocket`：参考服务端 | ✅ | Node 环境，需宿主安装可选 peer `ws` |
+| `@bibliotype/import`（TXT / Markdown / HTML / front-matter） | ✅ | 文本解析为纯函数 |
+| `@bibliotype/import-epub`（ZIP 解析 → IR） | ✅ | Node/浏览器均可；不依赖 DOM |
+| `@bibliotype/import-docx`（mammoth → HTML → IR） | ✅ | 解析为纯数据转换 |
+| `@bibliotype/exporter-site`（站点 ZIP） | ✅ | 纯字符串与 ZIP 打包，不依赖 DOM 与文件系统 |
 | `@bibliotype/editor`：规格注册 / schema / `BookEditor` 状态机 | ✅ | IR ⇄ PM 转换与事务为纯逻辑 |
 | `@bibliotype/editor`：视图绑定（`attach`） | ❌ | ProseMirror 视图需要 DOM |
 | `@bibliotype/vue`：`useReader` / `useReaderBinding` | ✅ | 组合式状态绑定，无 DOM |
@@ -30,6 +34,17 @@ bibliotype 的多数模块是**纯函数 / 无 DOM 状态机**，可在 Node（S
 | `@bibliotype/vue`：`BtBookView` / `BtEditor` 等组件 | ❌ | 渲染与样式注入（`onMounted`）需要 DOM；SSR 框架中按仅客户端处理 |
 
 图例：✅ 可直接使用　⚠️ 注入替代能力后可用　❌ 仅浏览器。
+
+## Node 导入冒烟护栏（I9）
+
+上表「✅」的判定由自动化用例守护：core / layout / reader / import / import-epub /
+import-docx / exporter-epub / exporter-pdf / exporter-site 九个关键包各有
+`src/__tests__/exports.test.ts`，在**默认 node 环境**动态导入包入口，断言关键导出存在、
+`typeof document` 全程为 `undefined`——任何新增的顶层 DOM 依赖都会让该测试失败。
+CI 以 Node 20/22 双版本矩阵运行同一套测试（见 [12 工程化与发布](12-release-and-ci.md)）。
+
+新增「Node 可用」包时同步补 `exports.test.ts`；包若引入顶层 DOM 依赖（如 vue 组件
+包），不应添加该测试，并在对照表中标注 ❌ / ⚠️ 与原因。
 
 ## 典型场景
 

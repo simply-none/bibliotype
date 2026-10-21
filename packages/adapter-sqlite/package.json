@@ -36,12 +36,14 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "tsup --clean"
+    "clean": "tsup --clean",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@bibliotype/core": "workspace:*"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.0",
     "@types/node": "^22.10.0",
     "@types/sql.js": "^1.4.9",
     "sql.js": "^1.12.0",

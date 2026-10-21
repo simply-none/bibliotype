@@ -20,10 +20,36 @@
 
 ```bash
 pnpm test                                             # 全仓（turbo 并行；含依赖构建）
+pnpm test:coverage                                    # 全仓覆盖率（turbo 并行；含阈值拦截）
 pnpm --filter @bibliotype/core test                   # 单包
 pnpm --filter @bibliotype/core exec vitest            # 单包 watch 模式
 pnpm --filter @bibliotype/layout exec vitest run book-css   # 指定文件
 ```
+
+## 覆盖率（I4）
+
+统一配置在根 `vitest.shared.ts` 的 `createVitestConfig()` 工厂：v8 provider、
+`include: ['src/**']`、排除 `__tests__` / fixtures / 类型声明 / dist、reporter
+`text + lcov`。各包 `"test:coverage": "vitest run --coverage"`（turbo 任务
+`test:coverage` 与 `test` 同构，依赖 `^build`）。
+
+**阈值拦截**：core / layout / reader 通过各自 `vitest.config.ts` 设阈值（按交付时真实
+基线略下调，宁低勿假绿）；其余包只出报告不拦。低于阈值时 vitest 输出
+`Coverage for lines (…) does not meet global threshold (…)` 并以非 0 退出，CI 随之失败。
+
+| 包 | 行 / 语句 | 函数 | 分支 | 交付时基线（行/分支/函数） |
+| --- | --- | --- | --- | --- |
+| `core` | 82 | 85 | 80 | 84.55 / 82.36 / 87.57 |
+| `layout` | 94 | 94 | 85 | 96.28 / 87.64 / 96.29 |
+| `reader` | 95 | 93 | 87 | 96.88 / 89.18 / 94.87 |
+
+CI 在 `pnpm test:coverage` 后把各包 `coverage/lcov.info` 归档为 artifact
+（`coverage-lcov-node<版本>`，保留 7 天），阈值失败也能下载定位（见 [12](12-release-and-ci.md)）。
+
+> 仓库约定（`.gitattributes`）：`*.mjs` 一律 LF。Windows 下 `core.autocrlf=true` 检出的
+> CRLF 会让 vitest/vite-node 对带 import 的 `.mjs`（如 `scripts/version.mjs`）的 SSR
+> 重写产生坏代码（`SyntaxError: Invalid or unexpected token`）；`.ts` 经 esbuild 规范化
+> 不受影响。测试中导入仓内 `.mjs` 前请确认工作区文件为 LF。
 
 ## 编写约定
 

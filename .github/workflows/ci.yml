@@ -1,7 +1,7 @@
-# 持续集成：构建 · 测试 · 类型检查
+# 持续集成：构建 · 测试 · 覆盖率 · 类型检查
 #
 # 触发：master 分支 push 与任意 PR。
-# 步骤：安装依赖（冻结锁文件）→ 全量构建 → 全量测试 → 全量类型检查。
+# 步骤：安装依赖（冻结锁文件）→ 全量构建 → 全量测试（覆盖率 + 阈值拦截，I4）→ 全量类型检查。
 # 说明：pnpm 版本由根 package.json 的 packageManager 字段决定（pnpm@9.15.0）。
 
 name: CI
@@ -20,8 +20,13 @@ concurrency:
 
 jobs:
   verify:
-    name: 构建 · 测试 · 类型检查
+    name: 构建 · 测试 · 类型检查（Node ${{ matrix.node-version }}）
     runs-on: ubuntu-latest
+    strategy:
+      # I9：Node 20/22 双版本矩阵；任一版本失败不取消另一版本的运行
+      fail-fast: false
+      matrix:
+        node-version: [20, 22]
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
 
       - name: 安装依赖
@@ -58,8 +63,21 @@ jobs:
             exit 1
           fi
 
-      - name: 测试（turbo 全量）
-        run: pnpm test
+      # I4：覆盖率统一 v8 provider；core/layout/reader 设阈值（低丁基线拦回归），
+      # 其余包只报告不拦。test:coverage 与 test 同为全量 vitest run，仅多覆盖率采集。
+      - name: 测试（覆盖率 + 阈值拦截）
+        run: pnpm test:coverage
+
+      - name: 归档覆盖率报告（lcov）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov-node${{ matrix.node-version }}
+          path: |
+            packages/*/coverage/lcov.info
+            apps/*/coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: 类型检查
         run: pnpm typecheck

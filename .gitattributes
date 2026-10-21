@@ -1,0 +1,7 @@
+# 行尾规范：.mjs 一律 LF（含检出时）
+#
+# 背景（I6）：Windows 下 core.autocrlf=true 会把工作区所有文件检出为 CRLF；
+# .ts 经 esbuild 转换不受影响，但 .mjs 在 vitest/vite-node 的 SSR transform
+# 重写 import 时会因 CRLF 偏移错位产生坏代码（SyntaxError: Invalid or
+# unexpected token）。故强制 .mjs 以 LF 存储与检出。
+*.mjs text eol=lf

@@ -36,7 +36,8 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "tsup --clean"
+    "clean": "tsup --clean",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@bibliotype/core": "workspace:*",
@@ -44,6 +45,7 @@
     "@bibliotype/reader": "workspace:*"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

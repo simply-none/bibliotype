@@ -36,7 +36,8 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "tsup --clean"
+    "clean": "tsup --clean",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@bibliotype/core": "workspace:*",
@@ -47,6 +48,7 @@
     "prosemirror-model": "^1.23.0"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.0",
     "@bibliotype/editor": "workspace:*",
     "happy-dom": "^15.11.0",
     "tsup": "^8.3.0",

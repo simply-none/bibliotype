@@ -43,6 +43,10 @@ export interface ReaderBinding {
   pagination: ShallowRef<readonly PaginatedPage[]>;
   /** 目录树 */
   outline: ShallowRef<readonly OutlineItem[]>;
+  /** 当前页对应目录项（目录高亮用；无目录 / 封面页前为 undefined） */
+  activeOutlineItem: ComputedRef<OutlineItem | undefined>;
+  /** 当前页对应目录项定位键（与 `TocViewItem.key` 同口径） */
+  activeOutlineKey: ComputedRef<string | undefined>;
   /** 当前页节点（块 id 已还原为 IR 节点） */
   pageNodes: ComputedRef<readonly BookNode[]>;
   /** 当前页展示页码（按页码样式格式化；无页时为空串） */
@@ -110,6 +114,9 @@ export function useReaderBinding(reader: Reader): ReaderBinding {
     layout,
     pagination,
     outline,
+    activeOutlineItem: computed(() => reader.getOutlineItemAtPage(currentPage.value)),
+    // 用定位表里的 key（无 id 节点回退树路径），与 toc-model / 折叠集合同源
+    activeOutlineKey: computed(() => reader.getOutlineAnchorAtPage(currentPage.value)?.key),
     pageNodes: computed(() => reader.getPageNodes(currentPage.value)),
     pageNumberText: computed(() => {
       const page = currentPage.value;

@@ -151,6 +151,50 @@ export {
 export type { ThemeToken } from './theme/tokens.js';
 export { DEFAULT_THEME } from './theme/default-theme.js';
 export { createThemeAccessor } from './theme/theme-accessor.js';
+export {
+  THEME_TOKEN_KEYS,
+  isThemeToken,
+  validateThemeTokenValue,
+  validateThemeTokens,
+} from './theme/theme-token-validation.js';
+export type {
+  ThemeTokenIssue,
+  ThemeTokenValidationResult,
+} from './theme/theme-token-validation.js';
+export {
+  THEME_PRESET_KIND,
+  THEME_PRESET_SCHEMA_VERSION,
+  ThemePresetError,
+  serializeThemePreset,
+  parseThemePreset,
+  validateThemePreset,
+  applyThemePreset,
+} from './theme/theme-preset.js';
+export type {
+  ThemePreset,
+  ThemePresetIssue,
+  ThemePresetParseResult,
+} from './theme/theme-preset.js';
+export {
+  BUILTIN_THEME_PRESETS,
+  NIGHT_THEME_PRESET,
+  EYE_CARE_THEME_PRESET,
+  PARCHMENT_THEME_PRESET,
+  createThemePresetCatalog,
+} from './theme/theme-preset-catalog.js';
+export type { ThemePresetCatalog } from './theme/theme-preset-catalog.js';
+
+/* ---------- 字体回退链覆盖分析 ---------- */
+export {
+  formatCodePoint,
+  isPrivateUseCodePoint,
+  analyzeGlyphCoverage,
+} from './font-coverage.js';
+export type {
+  GlyphProbe,
+  GlyphCoverageEntry,
+  GlyphCoverageReport,
+} from './font-coverage.js';
 
 /* ---------- 功能样式表（按功能粒度的样式覆盖） ---------- */
 export {

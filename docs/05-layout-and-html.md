@@ -248,6 +248,24 @@ const css = buildBookCss({
 - `overflow` 为真时给注区加 `data-overflow="true"` 仅作告警，不裁剪（按行拆条属于分页内核职责）；
 - 样式由 `buildBookCss` 输出（`.bt-page-notes` / `.bt-page-note` / `.bt-note-continued`）：与正文等宽、顶部 `border-block-start` 分隔线，直排按列宽收束。
 
+### 注码 / 注文的可定位契约（D9）
+
+注释序列化在原有类名之外补充两个**稳定锚点**，供阅读器做事件委托，不改 `epub:type` 语义：
+
+| 输出 | 位置 | 含义 |
+| --- | --- | --- |
+| `data-note-id="<节点 id>"` | 注释块（`aside` / `div`）自身 | 注文锚点：正文流里的注文（未浮注）也有，页底注区容器同样带此属性 |
+| `data-note-ref="<refId>"` | `.bt-note-marker` | 注码 → 正文引用：`refId` 同时用于 `bt-note-backref` 的 `href` |
+| `id="ref-…"` / `href="#<noteId>"` | `.bt-mark-noteref` | 正文注码：`id` 供回跳，`href` 供跳注 |
+| `href="#<refId>"` | `.bt-note-backref` | 回跳链接（`↩`） |
+
+激活态（点击注码 / 回跳时由阅读器加类，约 2s 后移除）：
+
+- `.bt-note-active`：注释条目整体浅强调色底 + `background-color` 过渡；`.bt-mark-noteref.bt-note-active` / `.bt-note-marker.bt-note-active` 用更深的强调色；
+- 规则仍在 `scoped('.bt-reader-page')` 段内，不进全局选择器；`prefers-reduced-motion: reduce` 下去掉过渡。
+
+> 交互实现（跳转、回跳、预览、快捷键）见 [31 注释交互](31-notes.md)，序列化只负责契约与样式。
+
 ## 分栏 / 对页 / 分栏符（P1-A）
 
 - **分栏**：`chapter` / `section` 的 `attrs.columns`（1~3）经 `extractBlocks` 传给 `MeasurableBlock.columns`；分页器按「页容量 × 栏数」装箱，栏数变化开新页，产物页带 `page.columns`。

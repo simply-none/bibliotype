@@ -5,6 +5,7 @@
  * 提供翻页、跳转、进度与事件；渲染交给 vue/react 封装或使用方。
  */
 import {
+  MARK_TYPES,
   NODE_TYPES,
   DEFAULT_THEME,
   createBlockAnchor,
@@ -39,7 +40,17 @@ import {
   type BlockSizeEstimator,
 } from './document-blocks.js';
 import { findNodeById } from './find-node.js';
+import {
+  buildNoteAnchors,
+  findNoteAnchor,
+  type NotePageAnchor,
+} from './note-index.js';
 import { countOutlineItems, extractOutline, type OutlineItem } from './outline.js';
+import {
+  buildOutlineAnchors,
+  findOutlineAnchorAtPage,
+  type OutlineAnchor,
+} from './outline-query.js';
 import { formatPageNumber, type PageNumberStyle } from './page-numbering.js';
 import {
   isNodeInCover,
@@ -208,6 +219,12 @@ export class Reader {
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
   private outlineItems: OutlineItem[] = [];
+  /** 目录定位表（页号升序，随重排重建；供当前目录项查询） */
+  private outlineAnchors: OutlineAnchor[] = [];
+  /** 注释定位表（文档顺序，随重排重建；供注释跳转与上下条切换） */
+  private noteAnchors: NotePageAnchor[] = [];
+  /** 注引用锚点 id → 页码（注文回跳：从注码回到正文原句） */
+  private readonly refPageById = new Map<string, number>();
   private pageIndex = 0;
   private readonly pageByBlockId = new Map<string, number>();
   /** 块 id → 源节点（分页管线同源产出，免逐块全树查找） */
@@ -335,6 +352,10 @@ export class Reader {
       }
     }
     this.indexNodeAnchors();
+    // 目录 / 注释定位表由分页结果派生：随后续重排重建，查询阶段不再遍历树
+    this.outlineAnchors = buildOutlineAnchors(this.outlineItems, (key) => this.pageByBlockId.get(key));
+    this.noteAnchors = buildNoteAnchors(result.pages);
+    this.indexNoteRefs();
 
     this.pageIndex = Math.min(this.pageIndex, Math.max(0, result.totalPages - 1));
     this.events.emit('page:change', {
@@ -392,6 +413,42 @@ export class Reader {
   /** 目录树 */
   get outline(): readonly OutlineItem[] {
     return this.outlineItems;
+  }
+
+  /**
+   * 取节点所在页（自 0 起）
+   *
+   * 支持叶块 id 与结构容器 id（容器取其首叶所在页，口径同 `goToNode`），
+   * 页底注块同样可定位。查询走分页时建立的映射表，O(1)，可安全用于翻页热路径。
+   *
+   * @returns 未载入 / 节点无 id / 不在块序列中时为 `undefined`
+   */
+  getPageOfNode(nodeId: string): number | undefined {
+    return this.pageByBlockId.get(nodeId);
+  }
+
+  /**
+   * 取某页对应的目录项
+   *
+   * 目录高亮口径：起始页不晚于该页的最后一个目录项（同页取最深子项）。
+   * 与标题字符串匹配相比，重名章节（如多卷都有「序」）不会串台。
+   *
+   * @returns 该页在首个目录项之前 / 无目录 / 页号非法时为 `undefined`
+   */
+  getOutlineItemAtPage(pageIndex: number): OutlineItem | undefined {
+    return this.getOutlineAnchorAtPage(pageIndex)?.item;
+  }
+
+  /**
+   * 取指定页对应的目录定位条目（含定位键 / 层级 / 起始页）
+   *
+   * 目录高亮应使用条目的 `key` 而不是 `item.nodeId`：自造目录项可能没有 id，
+   * 定位表用的是树路径回退键，二者不同源会导致活动态永远不命中。
+   *
+   * @returns 同 {@link getOutlineItemAtPage}，未命中时为 `undefined`
+   */
+  getOutlineAnchorAtPage(pageIndex: number): OutlineAnchor | undefined {
+    return findOutlineAnchorAtPage(this.outlineAnchors, pageIndex);
   }
 
   /** 全部块（分页前） */
@@ -462,6 +519,37 @@ export class Reader {
    */
   isPageNotesContinued(pageIndex: number): boolean {
     return this.pages[pageIndex]?.notesCarried === true;
+  }
+
+  /**
+   * 全文档注释定位表（文档顺序）
+   *
+   * 同一条注因注区满而跨页续排时只保留**首次出现**的页，避免跳转到「续前页」
+   * 片段。供「上一条 / 下一条注释」循环切换与注释总览使用。
+   */
+  getNoteAnchors(): readonly NotePageAnchor[] {
+    return this.noteAnchors;
+  }
+
+  /**
+   * 取注释所在页（自 0 起）
+   *
+   * @returns 该注不在页底注区（非浮注 / 文档未载入）时为 `undefined`
+   */
+  getPageOfNote(noteId: string): number | undefined {
+    return findNoteAnchor(this.noteAnchors, noteId)?.pageIndex;
+  }
+
+  /**
+   * 取注引用锚点所在页（自 0 起）
+   *
+   * 注文里的回跳链接只带锚点 id（`ref-*`），不是节点 id；需要 `refId → 页`
+   * 的反向索引才能跨页回到正文原句（注文续到下页时原句可能已不在当前页）。
+   *
+   * @returns 该锚点不在当前文档的注引用中时为 `undefined`
+   */
+  getPageOfNoteRef(refId: string): number | undefined {
+    return this.refPageById.get(refId);
   }
 
   /**
@@ -763,6 +851,31 @@ export class Reader {
    * 块序列仅含叶块，而目录项指向卷/章/节容器，
    * 故需把容器 id 映射到其首个叶块（路径规则与 extractBlocks 一致）所在页。
    */
+  /**
+   * 索引注引用锚点：`refId → 页`
+   *
+   * 只扫块节点（页内叶块）的 mark，不重复遍历容器锚点；同一锚点重复出现时
+   * 保留首次出现的页（与 `getPageOfNode` 的块优先口径一致）。
+   */
+  private indexNoteRefs(): void {
+    this.refPageById.clear();
+    const walk = (node: BookNode, pageIndex: number): void => {
+      for (const mark of node.marks ?? []) {
+        if (mark.type !== MARK_TYPES.NOTE_REF) continue;
+        const refId = mark.attrs?.refId;
+        if (typeof refId !== 'string' || refId === '' || this.refPageById.has(refId)) continue;
+        this.refPageById.set(refId, pageIndex);
+      }
+      for (const child of node.children ?? []) walk(child, pageIndex);
+    };
+    for (const block of this.blocks) {
+      const pageIndex = this.pageByBlockId.get(block.id);
+      const node = this.nodeById.get(block.id);
+      if (pageIndex === undefined || node === undefined) continue;
+      walk(node, pageIndex);
+    }
+  }
+
   private indexNodeAnchors(): void {
     if (this.doc === undefined) return;
 

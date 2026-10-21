@@ -389,15 +389,27 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
       typeof rawMarker === 'string' || typeof rawMarker === 'number'
         ? String(rawMarker)
         : '';
-    const markerHtml =
-      marker === '' ? '' : `<span class="bt-note-marker">${escapeHtml(marker)}</span>`;
-    const epubType = options.epubSemantics === true ? ` epub:type="${noteRole}"` : '';
     const rawRef = attrs?.refId;
+    const refId = typeof rawRef === 'string' && rawRef !== '' ? rawRef : '';
+    /*
+     * 注码带 `data-note-ref`：让「注文 → 正文引用」有第二个命中点（回跳符号之外的
+     * 注码本身），阅读器据此做双向高亮；`refId` 此前仅用于回跳 href，未落 DOM。
+     */
+    const markerHtml =
+      marker === ''
+        ? ''
+        : `<span class="bt-note-marker"${refId === '' ? '' : ` data-note-ref="${escapeHtml(refId)}"`}>${escapeHtml(marker)}</span>`;
+    const epubType = options.epubSemantics === true ? ` epub:type="${noteRole}"` : '';
     const backref =
-      typeof rawRef === 'string' && rawRef !== ''
-        ? `<a class="bt-note-backref" href="#${escapeHtml(rawRef)}">↩</a>`
-        : '';
-    return `<${tag}${idAttr}${classAttr}${epubType}${extras}>${serializeNoteContent(node, markerHtml, options)}${backref}</${tag}>`;
+      refId === '' ? '' : `<a class="bt-note-backref" href="#${escapeHtml(refId)}">↩</a>`;
+    /*
+     * 注释块自带 `data-note-id`：正文流里的注文（未浮注 / 尾注）没有页底注区包裹，
+     * 阅读器需要统一锚点做「注码 → 注文」跳转与高亮；与 `serializePageNotes` 的
+     * 容器属性同值，选择器取最外层也不会错位。
+     */
+    const noteId = node.id !== undefined && node.id !== '' ? node.id : '';
+    const noteIdAttr = noteId === '' ? '' : ` data-note-id="${escapeHtml(noteId)}"`;
+    return `<${tag}${idAttr}${classAttr}${epubType}${extras}${noteIdAttr}>${serializeNoteContent(node, markerHtml, options)}${backref}</${tag}>`;
   }
 
   if (VOID_TAGS.has(tag)) {

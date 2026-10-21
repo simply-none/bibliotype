@@ -221,6 +221,24 @@ ${scoped('.bt-note-backref')} {
   text-decoration: none;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
+/*
+ * 注释激活态（D9）：点击注码 / 回跳时由阅读器加 bt-note-active 类，约 2s 后移除。
+ * 进入快、退出慢（由移除类后的过渡承担），保证「点完知道落在哪」又不长期染色。
+ */
+${scoped('.bt-note-active')} {
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--bt-${COLOR_TOKENS.ACCENT}) 18%, transparent);
+  transition: background-color 200ms ease;
+}
+${scoped('.bt-mark-noteref.bt-note-active')},
+${scoped('.bt-note-marker.bt-note-active')} {
+  background-color: color-mix(in srgb, var(--bt-${COLOR_TOKENS.ACCENT}) 32%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  ${scoped('.bt-note-active')} {
+    transition: none;
+  }
+}
 ${scoped('.bt-table')} {
   border-collapse: collapse;
   /* 逻辑外边距：横排为上下、直排为左右，表格与相邻块沿书写方向留白 */

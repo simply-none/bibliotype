@@ -88,6 +88,43 @@ export { default as BtDocumentStats } from './components/BtDocumentStats.vue';
 export { useDocumentStats } from './use-document-stats.js';
 export type { UseDocumentStats, UseDocumentStatsOptions } from './use-document-stats.js';
 
+/* ---------- 目录增强（D6） ---------- */
+export { default as BtSidebarResizer } from './components/BtSidebarResizer.vue';
+export { useTocView, TOC_ROW_KEY_ATTRIBUTE } from './use-toc-view.js';
+export type { UseTocView, UseTocViewOptions } from './use-toc-view.js';
+export { buildTocViewItems, splitTocTitle, toggleTocExpanded } from './toc-model.js';
+export type { BuildTocViewOptions, TocTitleSegment, TocViewItem } from './toc-model.js';
+export {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_STEP,
+  clampSidebarWidth,
+  stepSidebarWidth,
+} from './sidebar-width.js';
+export type { SidebarWidthRange } from './sidebar-width.js';
+
+/* ---------- 注释交互（D9） ---------- */
+export { default as BtNotePreview } from './components/BtNotePreview.vue';
+export { useNoteInteraction, NOTE_ACTIVE_CLASS } from './use-note-interaction.js';
+export type {
+  NotePreviewState,
+  UseNoteInteraction,
+  UseNoteInteractionOptions,
+} from './use-note-interaction.js';
+
+/* ---------- 主题与外观（D10） ---------- */
+export { default as BtThemePanel } from './components/BtThemePanel.vue';
+export { default as BtFontFallbackPanel } from './components/BtFontFallbackPanel.vue';
+export {
+  useThemePresets,
+  TYPOGRAPHY_THEME_TOKENS,
+  CUSTOM_THEME_PRESET_ID,
+  THEME_COLOR_TOKENS,
+} from './use-theme-presets.js';
+export type { UseThemePresets, UseThemePresetsOptions } from './use-theme-presets.js';
+export { createFontCheckProbe, splitFontFamilyList } from './font-probe.js';
+
 /* ---------- 书架 / 备份 / 加密（H3–H5） ---------- */
 export { default as BtBookShelf } from './components/BtBookShelf.vue';
 export { default as BtBackupPanel } from './components/BtBackupPanel.vue';

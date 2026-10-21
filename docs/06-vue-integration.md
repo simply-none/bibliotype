@@ -50,6 +50,7 @@ useReader(docRef);
 | `currentPage` / `totalPages` / `progress` | `Ref<number>` | 当前页 / 总页数 / 进度 |
 | `layout` | `ShallowRef<LayoutOptions>` | 当前布局（重排后更新引用） |
 | `outline` | `ShallowRef<readonly OutlineItem[]>` | 目录树 |
+| `activeOutlineItem` / `activeOutlineKey` | `ComputedRef<OutlineItem \| undefined>` / `ComputedRef<string \| undefined>` | 当前页对应目录项及其定位键（无目录 / 封面页前为 `undefined`） |
 | `pageNodes` | `ComputedRef<readonly BookNode[]>` | 当前页 IR 节点 |
 | `pageNumberText` | `ComputedRef<string>` | 当前页展示页码（无页时为空串） |
 | `next` / `prev` / `goToPage` / `goToNode` | `() => boolean` | 导航（返回是否生效） |
@@ -64,8 +65,8 @@ useReader(docRef);
 | --- | --- | --- |
 | `BtBookView` | `reader: Reader`、`tokens?`、`fontToken?`、`fit?: 'width' \| 'contain' \| 'none'`（默认 `contain`，仅 `page` 模式）、`mode?: 'page' \| 'scroll'`（默认 `page`）、`ariaLabel?` | 书页视图：IR → HTML（与导出器同源序列化）、注入书册样式表、页脚页码（封面页自动隐藏）。`page` 一次渲染当前页并按容器等比缩放；`scroll` 连续滚动多页（滚动 ↔ 页态双向同步）。`page` 模式下内置**键盘翻页**（←→ ↑↓ PageUp/PageDown 空格 Home/End，带修饰键的组合不拦截）、**触屏滑动**（横排左滑下一 页、直排右滑下一页）、`role="document"` + `tabindex="0"` + `aria-live` 页码播报 |
 | `BtPager` | `reader: Reader` | 翻页控件：上一页 / 页码 / 下一页；`role="group"` + `aria-label`、页码区 `aria-live="polite"` |
-| `BtToc` | `reader: Reader`；emit `select(item)` | 目录树；点击经 `goToNode` 跳页并抛出 `select` |
-| `BtTocItem` | `item: OutlineItem`；emit `select` | 单个目录项（层级递归） |
+| `BtToc` | `reader: Reader`、`expandedKeys?`（受控折叠集合，配 `update:expandedKeys`）、`thumbnails?`、`showThumbnails?`、`searchPlaceholder?`、`emptyText?`、`showExpandControls?`；emit `select(item)` / `update:expandedKeys` | 目录面板：当前章高亮 + `aria-current`、折叠记忆、目录内搜索（过滤 + 命中高亮 + 自动展开父级）、可选缩略图（缺省首字占位）、可视区滚动定位；点击经 `goToNode` 跳页 |
+| `BtTocItem` | `item: OutlineItem`、`depth?`、`mode?: 'tree' \| 'row'`、`rowKey?`、`hasChildren?`、`expanded?`、`active?`、`matched?`、`query?`、`thumbnail?`、`showThumbnail?`；emit `select` / `toggle` | 单个目录项：`tree` 模式递归（旧行为），`row` 模式由 `BtToc` 驱动的扁平行 |
 | `BtEditor` | `editor: BookEditor`、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?`；emit `update:visiblePage` | 编辑画布；默认插槽作用域透传 `EditorBinding`。`pagination` 开启后走自定义可编辑分页内核（`PagedCanvas` 真实书页盒 + 行级跨页续排 + 虚拟化，直排 / 多栏自动回退连续画布），可编辑桥经 `selection-bridge` 把片段输入落成 `BookEditor` 事务；`loading` 在首轮分页就绪前以遮罩挡住未分页内容，`initialPage` 首轮分页后定位（阅读页 ↔ 编辑视口页位置记忆），`editable=false` 只读。**`scale`（缺省 1，限幅 0.2~2）对连续与分页两种模式均生效**：分页下作为用户倍率覆盖 `PagedCanvas` 的「按容器宽自适应且限 ≤1」，允许放大到 100% 以上（页宽超出容器走横向滚动）；不传 `scale` 时分页仍按容器宽自适应 |
 | `BtSelectionReplaceMenu` | `binding: EditorBinding`（传插槽 `slotBinding`）、`groups: ReplaceTargetGroup[]`、`readonly?`、`autoShow?`（默认 `true`） | 选区「替换为」浮动菜单：选中文字后在选区旁弹出，点击目标经 `binding.execute` 执行；Teleport 到 body + fixed 定位，横排 / 直排通用。详见 [20 选区替换为](20-selection-replace.md) |
 | `BtTableSizePicker` | `anchor: FloatingRect`、`trigger?: HTMLElement`、`maxRows?` / `maxCols?`（默认 8）、`rows?` / `cols?`（默认 3）；emit `select({ rows, cols })` / `close` | Word / WPS 式表格尺寸选择器：行 × 列网格悬停高亮、点击即插，另给精确行列输入；Teleport + `placeFloating` 定位。详见 [21 表格编辑](21-table-editing.md) |
@@ -261,3 +262,63 @@ await lib.refresh();
 - `.btbook` 的 ZIP 能力必须由宿主注入（`BookPackCodec`），`@bibliotype/vue` 不引压缩库；
 - 回滚按钮只发 `restore` 事件，**校验与写库由宿主调 `restoreSnapshot` 完成**，失败原因经 `error` 就地显示；
 - 修订侧栏的 `model` 由 `collectRevisions(document)` 经 `buildRevisionModel` 产出，`locate` 的 `path` 是 IR 节点路径，宿主据此滚动定位。
+
+## 新增组件（P3）：目录增强 / 注释交互 / 主题市场
+
+三项能力的共同约定：**库内不写存储、不下载文件、不引新依赖**——状态经 props / v-model 进出，持久化与文件 IO 由宿主完成。
+
+### 目录增强（D6）
+
+| 导出 | 用途 | 关键参数 / 事件 |
+| --- | --- | --- |
+| `BtToc` | 目录面板 | 见上表；另支持搜索框（`searchPlaceholder` 传空串可隐藏）与「全部展开 / 收起」 |
+| `BtSidebarResizer` | 侧栏宽度拖拽条 | `modelValue`（v-model）、`min` / `max` / `step` / `defaultWidth`、`side?: 'start' \| 'end'`、`disabled?`；emit `update:modelValue` / `reset` / `dragstart` / `dragend` |
+| `useTocView({ reader, expandedKeys?, onExpandedKeysChange?, query?, autoScroll? })` | 目录视图模型：活动项、折叠、过滤、滚动入视 | 返回 `rows` / `isEmpty` / `expandedKeys` / `toggle` / `expandAll` / `collapseAll` / `setQuery` / `attachContainer` |
+| `buildTocViewItems(outline, options)` / `toggleTocExpanded(...)` / `splitTocTitle(title, query)` | 纯函数内核（扁平行、折叠集合、命中片段） | 可直接单测，不依赖 DOM |
+
+要点：
+
+- 活动项来自 `reader.getOutlineItemAtPage(page)`（复用 `pageByBlockId` 索引），**不做标题字符串匹配**；
+- 折叠集合受控时**以宿主为准**：用户手动收起的章节不会因为翻页被自动摊开；搜索时父级强制展开；
+- 滚动定位用 `TOC_ROW_KEY_ATTRIBUTE`（`data-toc-key`）查行，`scrollIntoView` 缺失时静默跳过；
+- 缩略图由 `thumbnails` 映射传入（图片 / dataURL），缺省渲染首字骨架，不内置截图。
+
+```vue
+<BtSidebarResizer v-model="tocWidth" side="start" @reset="resetTocWidth" />
+<BtToc :reader="reader" v-model:expanded-keys="expandedKeys" />
+```
+
+### 注释交互（D9）
+
+| 导出 | 用途 | 关键参数 |
+| --- | --- | --- |
+| `useNoteInteraction({ reader, onRequestPage?, highlightMs?, previewDelayMs?, previewHideMs? })` | 事件委托 + 跳转 / 回跳 / 双向高亮 / 预览 / 上下条 | 返回 `preview` / `activeNoteId` / `attach` / `onClick` / `onPointerOver` / `onPointerOut` / `onFocusIn` / `onFocusOut` / `handleKeydown` / `goToNote` / `goToRef` / `stepNote` / `closePreview` |
+| `BtNotePreview` | 注文预览浮层（`placeFloating` 定位、`role="tooltip"`） | `preview: NotePreviewState \| null` |
+| `NOTE_ACTIVE_CLASS` | 激活态类名（`bt-note-active`，样式在书册 CSS 内） | 测试与自定义高亮时长可复用 |
+
+`BtBookView` 的接线（无需宿主配置）：
+
+- 页容器上委托 `click` / `pointerover` / `pointerout` / `focusin` / `focusout`，**page 与 scroll 两种模式都生效**；
+- `Alt + ←/→` 在文档全部注释间循环切换（跨页自动翻页）；`Esc` 关闭预览；
+- 高亮：注条与正文注码同时加 `bt-note-active`，2s 后自动褪去；翻页收起预览。
+
+```ts
+const note = useNoteInteraction({ reader });
+// 自定义容器（非 BtBookView 场景）：
+note.attach(rootElement);
+```
+
+### 主题与外观（D10）
+
+| 导出 | 用途 | 关键参数 / 事件 |
+| --- | --- | --- |
+| `BtThemePanel` | 主题预设卡片 + 导入导出 + 问题清单 | `tokens`、`baseTokens?`、`presets?`、`keepTokens?`、`title?`；emit `update:tokens` / `apply` / `export` / `import` |
+| `BtFontFallbackPanel` | 字体回退链逐字调试（缺字标红 + 码位） | `text`、`families`、`probe?`、`maxChars?`、`title?` |
+| `useThemePresets({ base?, tokens?, onTokensChange?, catalog?, presets?, keep? })` | 预设应用 / 重置 / 导入导出状态 | 返回 `presets` / `activeId` / `issues` / `applyPreset` / `resetTheme` / `exportJson` / `importJson` / `clearIssues` |
+| `createFontCheckProbe(doc?)` / `splitFontFamilyList(stack)` | `document.fonts.check` 适配 GlyphProbe / 拆分字体回退链 | 环境不支持时降级为「全部命中」 |
+
+要点：
+
+- `applyPreset` 默认保留排版令牌（`TYPOGRAPHY_THEME_TOKENS`），切换主题不会覆盖用户自定义字号；
+- `importJson` 是**全量应用**（含排版令牌），保证「导出 → 导入」视觉一致；非法主题包把中文 issue 写进 `issues`；
+- 主题包只含令牌，`StylePreset` 的 layout / features / namedStyles 与之互不覆盖（详见 [11 主题令牌](11-theme-tokens.md)）。

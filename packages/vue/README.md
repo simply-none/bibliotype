@@ -1,8 +1,9 @@
 # @bibliotype/vue
 
 Vue 3 封装：`useReader` / `useReaderBinding` / `useEditorBinding` 组合式 API，
-`BtBookView` / `BtPager` / `BtToc` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` /
-`BtAnnotationSidebar` / `BtDocumentStats` 组件，以及全局注册插件。
+`BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtSidebarResizer` / `BtEditor` / `BtSelectionReplaceMenu` /
+`BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtNotePreview` / `BtThemePanel` /
+`BtFontFallbackPanel` 组件，以及全局注册插件。
 
 ## 安装
 
@@ -72,8 +73,12 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | --- | --- | --- |
 | `BtBookView` | `reader`（必需）、`tokens?`、`fontToken?`、`fit?`（`width` / `contain` / `none`，默认 `contain`，仅 `page` 模式）、`mode?`（`page` 单页翻页 / `scroll` 连续滚动多页，默认 `page`） | 书籍页面渲染：IR → HTML（与导出器同源），注入书册样式表，页框等比缩放（ResizeObserver）；封面页自动隐藏页码。`scroll` 模式把所有分页纵向拼接为可滚动容器（窗口化虚拟滚动：仅渲染视口附近页，滚动条仍反映全书总长），滚动时按可见页回写 `Reader` 页态，外部翻页（`BtPager` / 键盘 / 目录）则滚动定位到对应页 |
 | `BtPager` | `reader` | 上一页 / 下一页按钮 + 页码状态 |
-| `BtToc` | `reader`；emit `select(item)` | 目录树（点击节点跳页并上报） |
-| `BtTocItem` | `item`、`depth?` | 递归目录项（供自定义目录结构复用） |
+| `BtToc` | `reader`、`expandedKeys?`（v-model）、`thumbnails?`、`showThumbnails?`、`searchPlaceholder?`、`emptyText?`、`showExpandControls?`；emit `select(item)` / `update:expandedKeys` | 目录面板：当前章高亮、折叠记忆、目录内搜索、缩略图占位、活动项滚入视野 |
+| `BtTocItem` | `item`、`depth?`、`mode?`（`tree` / `row`）、`rowKey?`、`hasChildren?`、`expanded?`、`active?`、`matched?`、`query?`、`thumbnail?`、`showThumbnail?` | 目录项：`tree` 递归 / `row` 扁平行（由 `BtToc` 驱动） |
+| `BtSidebarResizer` | `modelValue`（v-model）、`min?` / `max?` / `step?` / `defaultWidth?`、`side?`、`disabled?`；emit `update:modelValue` / `reset` / `dragstart` / `dragend` | 侧栏宽度拖拽条：拖拽 / 双击复位 / 方向键步进 / Home End，`role="separator"` + `aria-valuenow` |
+| `BtNotePreview` | `preview`（`NotePreviewState \| null`） | 注文预览浮层（`placeFloating` 定位、`role="tooltip"`） |
+| `BtThemePanel` | `tokens`、`baseTokens?`、`presets?`、`keepTokens?`、`title?`；emit `update:tokens` / `apply` / `export` / `import` | 主题预设卡片 + 导入导出 + 校验问题清单 |
+| `BtFontFallbackPanel` | `text`、`families`、`probe?`、`maxChars?`、`title?` | 字体回退链逐字调试：命中族、缺字标红 + 码位 |
 | `BtEditor` | `editor`（`BookEditor`）、`tokens?`、`options?`、`fontToken?`、`pagination?`、`paginationMode?`、`pageMainSize?`、`measure?`、`editable?`、`loading?`、`scale?`、`initialPage?` | 编辑画布：挂载 / 卸载 ProseMirror 视图；`pagination` 开启后走自定义可编辑分页内核（真实书页盒 + 行级跨页续排 + 虚拟化；直排 / 多栏自动回退连续画布），片段输入经 `selection-bridge` 落成 `BookEditor` 事务；`loading` 遮罩首轮分页、`initialPage` 定位视口页、`editable=false` 只读 |
 | `BtSelectionReplaceMenu` | `binding`（必需，传 BtEditor 插槽 `slotBinding`）、`groups`（`ReplaceTargetGroup[]`）、`readonly?`、`autoShow?` | 选区「替换为」浮动菜单：选中文字后定位弹出，按分组展示目标，点击经 `binding.execute` 执行；横排 / 直排通用，详见 [docs/20](../../docs/20-selection-replace.md) |
 | `BtTableSizePicker` | `anchor`（触发器矩形）、`trigger?`、`maxRows?` / `maxCols?`（默认 8）、`rows?` / `cols?`（默认 3）；emit `select({ rows, cols })` / `close` | Word / WPS 式表格尺寸选择器：行 × 列网格悬停高亮、点击即插，另给精确行列输入；Teleport + `placeFloating` 定位，详见 [docs/21](../../docs/21-table-editing.md) |
@@ -98,9 +103,13 @@ app.use(createBibliotype());   // 全局注册 BtBookView / BtPager / BtToc / Bt
 | `buildPagedLayout(input)` / `usePagedLayout(opts)` | 编辑态分页内核：块抽取 → 量尺 → 分页 → 逐页片段（支持 `fromBlockId` 增量实测与 `targetBlockId` 定点实测） |
 | `useAnnotations(opts)` | 选区建标注 + `AnnotationStorage` 编排 + 按章侧栏模型（`vue → annotation → core`） |
 | `useDocumentStats({ document, revision?, debounceMs? })` | 300ms 防抖的 `countDocumentStats` 组合式 |
+| `useTocView({ reader, expandedKeys?, onExpandedKeysChange?, query?, autoScroll? })` | 目录视图模型：活动项 / 折叠 / 搜索过滤 / 滚动入视（`attachContainer`） |
+| `useNoteInteraction({ reader, onRequestPage?, highlightMs?, previewDelayMs? })` | 注释事件委托：跳转 / 回跳 / 双向高亮 / 预览 / `Alt+←/→` 上下条 |
+| `useThemePresets({ base?, tokens?, onTokensChange?, catalog?, keep? })` | 主题预设应用 / 重置 / 导出 / 导入（问题进 `issues`） |
+| `createFontCheckProbe(doc?)` / `splitFontFamilyList(stack)` | `document.fonts.check` → `GlyphProbe` 适配 / 拆分字体回退链 |
 | `useBookLibrary({ store, codec?, now?, pageSize?, ... })` | 书架状态：查询 / 标签筛选 / 排序 / 视图、`openBook` / `exportBook` / `importBook`；`.btbook` 的 ZIP 由宿主经 `codec` 注入 |
 | `buildShelfCards` / `buildTagFacets` / `buildRevisionModel` / `buildVersionHistoryModel` / `buildDiffRows` | 书架 / 修订 / 版本视图模型（纯函数，可单测） |
-| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtBookShelf` / `BtBackupPanel` / `BtEncryptionPanel` / `BtRevisionSidebar` / `BtVersionHistory` / `PagedCanvas` | 组件 |
+| `BtBookView` / `BtPager` / `BtToc` / `BtTocItem` / `BtSidebarResizer` / `BtEditor` / `BtSelectionReplaceMenu` / `BtTableSizePicker` / `BtAnnotationSidebar` / `BtDocumentStats` / `BtNotePreview` / `BtThemePanel` / `BtFontFallbackPanel` / `BtBookShelf` / `BtBackupPanel` / `BtEncryptionPanel` / `BtRevisionSidebar` / `BtVersionHistory` / `PagedCanvas` | 组件 |
 | `createBibliotype()` | Vue 插件（全局注册组件） |
 
 在组件 / `effectScope` 内调用组合式 API 时，scope 销毁会自动解绑事件与视图。

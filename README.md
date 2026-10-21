@@ -17,7 +17,8 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 - **协同与存储**：Yjs 协同会话（IR ⇄ Y.Doc），IndexedDB / 内存 / 远端 REST 适配器，资产端口；
 - **位置与标注**：统一锚点契约（节点 id + 字符偏移）承载阅读位置、书签、高亮、笔记与评论；
 - **中文精排**：禁则避头尾、标点挤压、中西文混排间距；两遍排版交叉引用（参见第 X 页）；繁简 / 异体字转换；
-- **Vue 3 封装**：useReader / useEditorBinding 组合式 API 与 BtBookView / BtPager / BtToc / BtEditor 组件。
+- **Vue 3 封装**：useReader / useEditorBinding 等组合式 API 与 BtBookView / BtPager / BtToc / BtEditor 组件；
+  目录增强（当前章高亮 / 折叠记忆 / 目录内搜索）、注释双向跳转与预览、主题预设包与字体回退调试均已内置。
 
 ## 包一览
 

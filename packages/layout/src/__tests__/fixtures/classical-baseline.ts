@@ -49,8 +49,11 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 2026-10-20 八次更新（K4/K5）：新增索引词 `.bt-mark-index-term`（点线下标，仅在
  * 文档含索引词时命中）；`.bt-seal` 改为「内联 SVG 印谱 + `:empty` 文字兜底」结构
  * （无印章文档渲染不受影响），样式表全文变化，基线重锁。
+ *
+ * 2026-10-21 九次更新（D9）：新增注释激活态 `.bt-note-active`（含 noteref / marker
+ * 强化与 reduced-motion 降级），仅在阅读器给注码加类时命中，样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = 'd483fee1';
+export const CLASSICAL_CSS_FNV = '2bc311e5';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

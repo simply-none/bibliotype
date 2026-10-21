@@ -249,7 +249,7 @@ describe('注释块', () => {
 
   it('注码注入首个段落内部，与注文同起一行；marker 不再重复输出 data-*', () => {
     expect(serializeNode(footnote)).toBe(
-      '<aside id="fn-1" class="bt-footnote"><p class="bt-paragraph">' +
+      '<aside id="fn-1" class="bt-footnote" data-note-id="fn-1"><p class="bt-paragraph">' +
         '<span class="bt-note-marker">1</span>注文</p></aside>',
     );
   });
@@ -342,7 +342,7 @@ describe('注引用', () => {
     );
   });
 
-  it('注文 refId → 回跳链接；refId 不再输出 data-*', () => {
+  it('注文 refId → 回跳链接 + 注码 data-note-ref；注文带 data-note-id', () => {
     const note: BookNode = {
       type: NODE_TYPES.FOOTNOTE,
       id: 'note-footnote-1',
@@ -350,8 +350,9 @@ describe('注引用', () => {
       children: [{ type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '注文' }] }],
     };
     expect(serializeNode(note)).toBe(
-      '<aside id="note-footnote-1" class="bt-footnote"><p class="bt-paragraph">' +
-        '<span class="bt-note-marker">1</span>注文</p>' +
+      '<aside id="note-footnote-1" class="bt-footnote" data-note-id="note-footnote-1">' +
+        '<p class="bt-paragraph">' +
+        '<span class="bt-note-marker" data-note-ref="ref-1">1</span>注文</p>' +
         '<a class="bt-note-backref" href="#ref-1">↩</a></aside>',
     );
   });

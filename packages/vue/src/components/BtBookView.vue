@@ -24,6 +24,8 @@ import { buildPageStyle, buildRootStyle, isVerticalMode } from '@bibliotype/layo
 import { buildBookCss, serializeNode, serializePageGutter, serializePageNotes } from '@bibliotype/layout/html';
 import { formatPageNumber, type PageNumberStyle, type Reader } from '@bibliotype/reader';
 import { useReaderBinding } from '../use-reader.js';
+import { useNoteInteraction } from '../use-note-interaction.js';
+import BtNotePreview from './BtNotePreview.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -68,6 +70,30 @@ const emit = defineEmits<{
 const { layout, pagination, pageNumberText, currentPage, totalPages } = useReaderBinding(
   props.reader,
 );
+
+/**
+ * 注释交互（D9）
+ *
+ * 注区与注码都是 `v-html` 字符串，事件统一委托到页容器；跨页跳转读 Reader
+ * 的注释 / 注引用索引，翻页由 `onRequestPage` 走 reader.goToPage。
+ */
+const {
+  preview: notePreview,
+  attach: attachNoteInteraction,
+  onClick: onNoteClick,
+  onPointerOver: onNotePointerOver,
+  onPointerOut: onNotePointerOut,
+  onFocusIn: onNoteFocusIn,
+  onFocusOut: onNoteFocusOut,
+  handleKeydown: handleNoteKeydown,
+  closePreview: closeNotePreview,
+} = useNoteInteraction({
+  reader: props.reader,
+  onRequestPage: (page) => props.reader.goToPage(page),
+});
+
+// 翻页后旧预览的锚点已不可见，直接收起（高亮由计时器自行清理）
+watch(currentPage, closeNotePreview);
 const tokens = computed<Readonly<Record<string, string | undefined>>>(() => {
   const base = props.tokens ?? DEFAULT_THEME;
   if (props.fontSize === undefined) return base;
@@ -353,6 +379,15 @@ const scrollerRef = ref<HTMLElement | null>(null);
 const scrollScale = ref(1);
 let scrollObserver: ResizeObserver | undefined;
 
+/* 注释委托挂在当前模式的活动容器上（切模式时重绑，旧容器的预览随 attach 清空） */
+watch(
+  [rootRef, scrollerRef, () => props.mode],
+  () => {
+    attachNoteInteraction(props.mode === 'scroll' ? scrollerRef.value : rootRef.value);
+  },
+  { flush: 'post', immediate: true },
+);
+
 /** 几何常量：滚动轨道内边距 / 页间距 / 上下各多渲染的缓冲页数 */
 const SCROLL_PADDING = 16;
 const SCROLL_GAP = 20;
@@ -416,6 +451,8 @@ let wheelLockAt = 0;
 const KEY_FORWARD = new Set(['ArrowRight', 'ArrowDown', 'PageDown', ' ']);
 const KEY_BACKWARD = new Set(['ArrowLeft', 'ArrowUp', 'PageUp']);
 function onPageKeydown(event: KeyboardEvent): void {
+  // D9：Alt+←/→ 切换注释、Esc 关闭注释预览（先于翻页键位消费）
+  if (handleNoteKeydown(event)) return;
   if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
   let handled = false;
   if (event.key === 'Home') {
@@ -521,6 +558,7 @@ function onPageTouchEnd(event: TouchEvent): void {
  * 直排（横向滚动）时改按容器宽度推进。带修饰键的组合不拦截。
  */
 function onScrollKeydown(event: KeyboardEvent): void {
+  if (handleNoteKeydown(event)) return;
   if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
   const el = scrollerRef.value;
   if (el === null) return;
@@ -836,6 +874,11 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
     @touchstart.passive="onPageTouchStart"
     @touchmove="onPageTouchMove"
     @touchend="onPageTouchEnd"
+    @click="onNoteClick"
+    @pointerover="onNotePointerOver"
+    @pointerout="onNotePointerOut"
+    @focusin="onNoteFocusIn"
+    @focusout="onNoteFocusOut"
   >
     <!-- 对页模式：左右并排渲染当前页对（左页为偶数页），整体按双页宽缩放 -->
     <div v-if="spreadEnabled" class="bt-book-view__spread" :style="spreadStageStyle">
@@ -873,6 +916,7 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
     </div>
     <!-- 页码播报：视觉隐藏，读屏在翻页后朗读当前页 -->
     <span class="bt-sr-only" aria-live="polite">{{ pageNumberText }} / 共 {{ totalPages }} 页</span>
+    <BtNotePreview :preview="notePreview" />
   </div>
 
   <!-- 连续滚动模式：窗口化渲染可见页，滚动 ↔ 页态双向同步（直排时沿水平自右向左） -->
@@ -886,6 +930,11 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
     @scroll="onScroll"
     @wheel="onWheel"
     @keydown="onScrollKeydown"
+    @click="onNoteClick"
+    @pointerover="onNotePointerOver"
+    @pointerout="onNotePointerOut"
+    @focusin="onNoteFocusIn"
+    @focusout="onNoteFocusOut"
   >
     <div class="bt-scroll__track" :style="contentStyle">
       <div
@@ -910,6 +959,7 @@ watch([() => props.fit, () => props.spread, pageSize], () => {
         </div>
       </div>
     </div>
+    <BtNotePreview :preview="notePreview" />
   </div>
 </template>
 

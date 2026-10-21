@@ -12,6 +12,21 @@ export {
 } from './outline.js';
 export type { OutlineItem, ExtractOutlineOptions } from './outline.js';
 
+/* ---------- 目录定位（P3 D6） ---------- */
+export {
+  outlineKeyOf,
+  flattenOutline,
+  collectOutlineKeys,
+  buildOutlineAnchors,
+  findOutlineAnchorAtPage,
+} from './outline-query.js';
+export type { OutlineKey, OutlineAnchor } from './outline-query.js';
+
+
+/* ---------- 注释页索引（P3 D9） ---------- */
+export { buildNoteAnchors, findNoteAnchor, neighborNoteAnchor } from './note-index.js';
+export type { NotePageAnchor, NoteIndexPage } from './note-index.js';
+
 /* ---------- 块提取 ---------- */
 export {
   DEFAULT_MEASURE_CONTEXT,

@@ -114,6 +114,24 @@ reader.goToNode('ch-2');  // 按节点 id 跳页（支持叶块 id 与结构容�
 
 `goToNode` 目标无 id / 不在块序列中返回 `false`；目录项、搜索结果及上层应用（如 demo 书签面板）均基于它跳转。
 
+### 节点 ↔ 页 查询（D6 / D9）
+
+```ts
+reader.getPageOfNode('ch-2');        // 节点所在页（叶块 → 该页；容器 → 首个叶所在页）
+reader.getOutlineItemAtPage(3);      // 第 3 页对应的最具体目录项（祖先优先）
+reader.getOutlineAnchorAtPage(3);    // 同上，但带定位键 key / 层级 / 起始页（目录高亮用 key）
+reader.getNoteAnchors();             // [{ noteId, refId?, pageIndex }…]（文档顺序）
+reader.getPageOfNote('fn-1');        // 注文所在页（未浮注 / 无该注时 undefined）
+reader.getPageOfNoteRef('ref-1');    // 注引用锚点所在页（注文回跳跨页用）
+```
+
+- `getPageOfNode` / `getOutlineItemAtPage` 复用重排时建立的 `pageByBlockId`（容器 id → 首叶页），
+  **查询不遍历文档**，可作为翻页热路径上的调用；
+- `getOutlineItemAtPage` 取「页内最具体」的目录项：同页多个标题时取层级最深者，目录高亮即用它；
+- `getPageOfNoteRef` 的 `refId` 来自 `NOTE_REF` 标记的 `attrs.refId`（注文回跳链接的锚点 id），
+  索引在重排时一次建立：`refId → 页`；
+- 均为只读查询，不触发重排、不改变当前页。
+
 ## 全文搜索
 
 ```ts

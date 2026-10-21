@@ -15,6 +15,7 @@
 import { computed, ref } from 'vue';
 import {
   COLOR_TOKENS,
+  DEFAULT_THEME,
   FEATURE_STYLE_GROUPS,
   FEATURE_STYLE_IDS,
   FEATURE_STYLE_META,
@@ -23,6 +24,7 @@ import {
   LAYOUT_TOKENS,
   resolveNamedStyleChain,
   type FeatureStyleId,
+  type ThemeToken,
 } from '@bibliotype/core';
 import {
   DEFAULT_FACSIMILE_PRESET_ID,
@@ -48,6 +50,11 @@ import {
   type LayoutOptions,
   type PageChromeField,
 } from '@bibliotype/layout';
+import {
+  BtFontFallbackPanel,
+  BtThemePanel,
+  splitFontFamilyList,
+} from '@bibliotype/vue';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
 import { isFacsimilePresetModified } from '../facsimile-theme.js';
 import FeatureStyleEditor from './FeatureStyleEditor.vue';
@@ -59,18 +66,29 @@ const props = defineProps<{
   layout: LayoutOptions;
   /** 当前生效令牌（含夜间覆盖） */
   tokens: Readonly<Record<string, string | undefined>>;
+  /** 主题基线令牌（不含用户补丁与夜间覆盖，主题预设重置目标） */
+  themeBaseTokens?: Readonly<Record<string, string | undefined>>;
   /** 夜间预设开关（演示态快捷预设，不写入样式快照） */
   night: boolean;
 }>();
 
 const emit = defineEmits<{
   'update:night': [value: boolean];
+  /** 主题预设应用（全量令牌，由 App 收敛为与基线的差量） */
+  'apply-theme-tokens': [tokens: Record<string, string>];
   close: [];
 }>();
 
 /* ---------- 导航 ---------- */
 
-type PanelSection = 'features' | 'layout' | 'chrome' | 'facsimile' | 'behavior' | 'presets';
+type PanelSection =
+  | 'features'
+  | 'layout'
+  | 'chrome'
+  | 'facsimile'
+  | 'theme'
+  | 'behavior'
+  | 'presets';
 
 const section = ref<PanelSection>('features');
 /** 功能分组（features 面板内再分） */
@@ -83,6 +101,7 @@ const NAV: ReadonlyArray<{ id: PanelSection; label: string }> = [
   { id: 'layout', label: '版面与页面' },
   { id: 'chrome', label: '页眉页脚' },
   { id: 'facsimile', label: '古籍仿真' },
+  { id: 'theme', label: '外观主题' },
   { id: 'behavior', label: '编辑行为' },
   { id: 'presets', label: '预设管理' },
 ];
@@ -97,6 +116,47 @@ const featureDeclarations = computed(() => props.api.features.value[activeFeatur
 
 /** 已覆盖的功能数量（导航角标） */
 const overriddenFeatures = computed(() => Object.keys(props.api.features.value).length);
+
+/* ---------- 外观主题（D10）：只读令牌 + 主题预设，与样式草稿互不影响 ---------- */
+
+/**
+ * 主题面板基线：以宿主传入的主题基准起底（缺省回退 DEFAULT_THEME）
+ *
+ * 与 App 的 `themeBaseTokens` 同源——面板据此判差、重置，避免两处基线不一致
+ * （否则「恢复默认」可能把主题色写成默认色）。
+ */
+function mergeTokens(
+  base: Readonly<Record<string, string | undefined>> | undefined,
+): Record<ThemeToken, string> {
+  const merged: Record<string, string> = { ...DEFAULT_THEME };
+  for (const [key, value] of Object.entries(base ?? {})) {
+    if (typeof value === 'string' && value !== '') merged[key] = value;
+  }
+  return merged as Record<ThemeToken, string>;
+}
+
+const themePanelBase = computed<Record<ThemeToken, string>>(() =>
+  mergeTokens(props.themeBaseTokens),
+);
+
+/** 主题面板令牌：基线 + 当前生效令牌（缺键时用基线补齐，色板不出现空块） */
+const themePanelTokens = computed<Record<ThemeToken, string>>(() => {
+  const merged: Record<string, string> = { ...themePanelBase.value };
+  for (const [key, value] of Object.entries(props.tokens)) {
+    if (typeof value === 'string' && value !== '') merged[key] = value;
+  }
+  return merged as Record<ThemeToken, string>;
+});
+
+/** 字体回退链（取正文令牌的 font-family 声明） */
+const fontFamilies = computed(() =>
+  splitFontFamilyList(
+    props.tokens[FONT_TOKENS.BODY] ?? DEFAULT_THEME[FONT_TOKENS.BODY],
+  ),
+);
+
+/** 回退调试的样例文本：常见字 + 拉丁 + 扩展 B 区（缺字时可直接看出） */
+const FONT_SAMPLE_TEXT = '子曰诗云，学而时习之。天地玄黄，宇宙洪荒。ABC 123 𠀋';
 
 function openFeature(id: FeatureStyleId): void {
   activeFeature.value = id;
@@ -960,6 +1020,27 @@ async function onSave(): Promise<void> {
             <p v-else class="panel__hint">
               当前未启用仿真版式：点上方任一模板即启用（模板自带直排右起与开本）。
             </p>
+          </template>
+
+          <!-- ========== 外观主题（D10） ========== -->
+          <template v-else-if="section === 'theme'">
+            <p class="panel__hint">
+              主题只换纸色与墨色（令牌层），点选即生效、不进样式草稿；字号、行距、页边距等排版偏好不会被主题覆盖，
+              「预设管理」里的样式预设同样各管各的。
+            </p>
+            <BtThemePanel
+              :tokens="themePanelTokens"
+              :base-tokens="themePanelBase"
+              title="主题预设"
+              @update:tokens="emit('apply-theme-tokens', $event)"
+            />
+
+            <h5 class="panel__group-title">字体回退链</h5>
+            <BtFontFallbackPanel
+              :text="FONT_SAMPLE_TEXT"
+              :families="fontFamilies"
+              title="逐字命中与缺字"
+            />
           </template>
 
           <!-- ========== 编辑行为 ========== -->

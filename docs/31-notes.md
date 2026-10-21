@@ -103,18 +103,45 @@ schema 侧：三种注释节点的规格带 `marker`（显示注码）与 `refId
 import { serializeNode } from '@bibliotype/layout/html';
 
 serializeNode(footnote);
-// <aside id="fn-1" class="bt-footnote"><p class="bt-paragraph"><span class="bt-note-marker">1</span>注文</p></aside>
+// <aside id="fn-1" class="bt-footnote" data-note-id="fn-1"><p class="bt-paragraph"><span class="bt-note-marker" data-note-ref="ref-1">1</span>注文</p><a class="bt-note-backref" href="#ref-1">↩</a></aside>
 
 serializeNode(footnote, { epubSemantics: true });
-// <aside id="fn-1" class="bt-footnote" epub:type="footnote">…<a class="bt-note-backref" href="#ref-1">↩</a></aside>
+// <aside id="fn-1" class="bt-footnote" epub:type="footnote" data-note-id="fn-1">…<a class="bt-note-backref" href="#ref-1">↩</a></aside>
 ```
 
 - 注码提为真实 `<span class="bt-note-marker">` 并**注入首个段落内部**，与注文同起一行（若与段落平级，块级段落会把注码挤到单独一行）；
 - `epub:type` 只在 `epubSemantics: true` 时输出：EPUB 导出开启，站点导出 / PDF 打印稿保持关闭，不输出 HTML 规范外的属性；
-- `marker` / `refId` 不再重复输出成 `data-*`；
+- `marker` / `refId` 不再重复输出成 `data-*`；另补两个**定位锚点**：注文带 `data-note-id`（节点 id），注码带 `data-note-ref`（`refId`），供阅读器做跳转 / 双向高亮（契约见 [05 版式与 HTML](05-layout-and-html.md#注码--注文的可定位契约d9)）；
 - 注引用输出为 `<a id="ref-1" class="bt-mark-noteref" href="#note-footnote-1" epub:type="noteref">1</a>`；无 `targetId` 时退化为不带 href 的 `<a>`；
 - 注文 `attrs.refId` 存在时，块末追加 `<a class="bt-note-backref" href="#ref-1">↩</a>` 回跳链接（纯 HTML 与 EPUB 都输出，EPUB 2 不带 `epub:type`）；
 - 样式：`.bt-footnote` / `.bt-endnote` / `.bt-margin-note` 沿用注文字号与颜色令牌，`.bt-note-marker` 管注码与注文间距，`.bt-mark-noteref` 做正文上标（颜色继承正文，不做成蓝色链接），`.bt-note-backref` 管回跳符号。
+
+## 阅读器交互（D9）
+
+注释在阅读视图里是 `v-html` 注入的字符串，`@bibliotype/vue` 在**页容器上做单点事件委托**，不为每个注码绑监听（千页文档下监听数恒定）。
+
+| 动作 | 行为 |
+| --- | --- |
+| 点击正文注码 `.bt-mark-noteref` | 定位到注文并高亮；注文不在当前页时按 `reader.getPageOfNote` 自动翻页，再定位 |
+| 点击回跳符号 `.bt-note-backref` | 回到正文原句注码并高亮；跨页时按 `reader.getPageOfNoteRef(refId)` 翻页 |
+| 点击注码编号 `.bt-note-marker[data-note-ref]` | 等同回跳（注码也是回跳命中点） |
+| 悬浮 / 键盘聚焦注码 | 约 180ms 后显示注文预览浮层；指针移出或失焦即收起 |
+| 触屏点击注码 | 跳转后直接显示预览（无 hover 能力时），约 4s 自动收起 |
+| `Esc` | 关闭预览 |
+| `Alt + →` / `Alt + ←` | 下一条 / 上一条注释（按文档顺序**循环**；跨页自动翻页） |
+
+实现要点：
+
+- 组合式 `useNoteInteraction` 负责解析、跳转、计时与键盘；`BtBookView` 在 page / scroll 两种模式都接同一套委托；
+- 高亮类 `.bt-note-active` 同时加到注文与对应注码上（双向高亮），默认 2s 后移除，时长可注入（测试不真等待）；
+- 目标找不到时 `goToNote` / `goToRef` 返回 `false`，不抛错、不改变当前页；`scrollIntoView` 缺失的环境静默跳过滚动；
+- 跨页跳转后等 DOM 渲染完再补高亮，避免页模式「翻过去但没染色」。
+
+```ts
+// 非 BtBookView 的自定义容器也可复用
+const note = useNoteInteraction({ reader });
+note.attach(myPageElement);
+```
 
 ## exporter-epub：语义输出
 

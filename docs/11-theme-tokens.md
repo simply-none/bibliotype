@@ -111,6 +111,115 @@ buildCssVariables(tokens);                         // 内联场景：--bt-* 声�
 buildBookCss({ tokens, options: layoutOptions });  // 文本场景：:root 变量 + .bt-* 类样式
 ```
 
+## 主题预设包（D10）
+
+主题预设 = **只含令牌**的可分发产物（不含版式补丁 / 功能样式 / 命名样式），文件格式：
+
+```json
+{
+  "kind": "bibliotype-theme-preset",
+  "schemaVersion": 1,
+  "preset": {
+    "id": "night",
+    "name": "夜间",
+    "description": "深色底面 + 暖白文字，弱光环境下对比柔和",
+    "tokens": {
+      "color-text": "#E8E4DC",
+      "color-background": "#1C1B19",
+      "color-note-text": "#9A948A",
+      "color-accent": "#C9A227"
+    }
+  }
+}
+```
+
+- `id` 只允许小写字母 / 数字 / 连字符；`tokens` 按固定令牌顺序输出，**不含时间与随机值**，同一预设导出逐字节一致；
+- `schemaVersion` 不匹配、`kind` 不符、未知令牌键、非法颜色 / 长度都会给出中文 issue 并**拒绝导入**；
+- 校验口径「结构从严、语法从宽」：拦截 CSS 注入（`;` `{}` `<>` `url(`）与明显非法格式，不穷举 CSS 语法。
+
+```ts
+import {
+  serializeThemePreset,
+  parseThemePreset,
+  validateThemePreset,
+  applyThemePreset,
+  ThemePresetError,
+  createThemePresetCatalog,
+  BUILTIN_THEME_PRESETS,
+  DEFAULT_THEME,
+} from '@bibliotype/core';
+
+const json = serializeThemePreset(preset);
+const parsed = parseThemePreset(json);            // 非法时抛 ThemePresetError（含 issues）
+const check = validateThemePreset(JSON.parse(json)); // 不抛错，返回 { preset?, issues }
+
+/* 应用：keep 中的令牌保留基线值（用户自定义字号不被主题覆盖） */
+const next = applyThemePreset(DEFAULT_THEME, parsed, ['font-size-body']);
+
+/* 目录：可注册 / 覆盖 / 移除，内置 night / eye-care / parchment */
+const catalog = createThemePresetCatalog();
+catalog.register(parsed);
+catalog.list();  // 内置 + 已注册（按注册顺序）
+```
+
+| 导出 | 说明 |
+| --- | --- |
+| `THEME_PRESET_KIND` / `THEME_PRESET_SCHEMA_VERSION` | 文件类型标识与版本 |
+| `ThemePreset` / `ThemePresetIssue` / `ThemePresetParseResult` | 预设、问题（`path` + 中文 `message`）、校验结果 |
+| `serializeThemePreset` / `parseThemePreset` / `validateThemePreset` / `applyThemePreset` | 往返与合并 |
+| `ThemePresetError` | 导入失败异常，`issues` 为全量问题清单 |
+| `createThemePresetCatalog` / `BUILTIN_THEME_PRESETS` | 可实例化目录与三套内置预设 |
+| `THEME_TOKEN_KEYS` / `isThemeToken` / `validateThemeTokenValue` / `validateThemeTokens` | 令牌层校验工具 |
+
+### 主题与样式预设的边界
+
+| 维度 | 主题预设（本节目） | 样式预设（`StylePreset`） |
+| --- | --- | --- |
+| 内容 | 仅令牌（建议只含颜色） | `layout` + `features` + `namedStyles` + `tokens` |
+| 生效方式 | 合并进令牌链 | 整份写入样式快照 |
+| 切换影响 | 不改字号 / 行距 / 页边距（`keep`） | 会整体替换排版 |
+
+两者叠在不同层、互不覆盖；Demo 的合并顺序为
+「主题 → 仿真模板 → 用户补丁（`tokenPatch`）→ 主题预设 → 夜间覆盖」：
+
+- 主题预设压在用户补丁之上，避免「设置里改过颜色 → 主题预设看不见」；它默认只写颜色，
+  字号 / 行距仍由 `tokenPatch` 主导；
+- 「恢复默认」只清空主题预设差量，用户补丁里的颜色随即恢复；
+- 夜间是临时预览，永远在最上层，应用主题预设时会自动关闭。
+
+### Vue 侧
+
+```vue
+<BtThemePanel
+  :tokens="tokens"
+  :base-tokens="themeBaseTokens"
+  @update:tokens="onApplyThemeTokens"
+/>
+```
+
+`useThemePresets({ base?, tokens?, onTokensChange?, catalog?, keep? })` 返回
+`presets` / `activeId` / `issues` / `applyPreset` / `resetTheme` / `exportJson` / `importJson`。
+`applyPreset` 保留排版令牌；`importJson` 全量应用（导出再导入视觉一致）。详见 [06 Vue 集成](06-vue-integration.md)。
+
+## 字体回退链调试（D10）
+
+「某字由哪款字体画出来」只有宿主知道，因此 `core` 只提供端口 + 纯函数：
+
+```ts
+import { analyzeGlyphCoverage, formatCodePoint, type GlyphProbe } from '@bibliotype/core';
+
+const probe: GlyphProbe = (char, family) => document.fonts.check(`12px ${family}`, char);
+const report = analyzeGlyphCoverage('子曰𠀋', ['Songti', 'Kaiti'], probe);
+// entries: [{ char, codePoint, code: 'U+5B50', family, missing, privateUse }, …]
+// missing / total / missingCount / families
+```
+
+- 按码位去重、保留首次出现顺序；空白与控制符跳过；
+- 全链未命中 → `missing: true`；私用区（PUA）→ `privateUse: true`（换字体必错字）；
+- Vue 侧 `createFontCheckProbe()` 用 `document.fonts.check` 实现，环境不支持时**降级为全部命中**（宁漏报不误报）；
+- `splitFontFamilyList('"Songti SC", serif')` 把令牌拆成族名数组；
+- `BtFontFallbackPanel` 逐字展示命中族与码位，缺字标红；`maxChars` 防超长文本卡顿。
+
 ## 扩展令牌（插件）
 
 插件可注册新令牌键（如 classical 的 `writing-mode` / `text-orientation` /

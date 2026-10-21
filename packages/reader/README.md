@@ -58,6 +58,10 @@ off();
 | `getPageNodes(i)` | 某页正文 IR 节点（块 id 经块索引还原） |
 | `getPageNoteItems(i)` / `getPageNotes(i)` / `getPageNoteMainSize(i)` | 页底注条目 / 注节点 / 注区占高（`footnoteFloat` 开启时） |
 | `getPageGutterTexts(i)` | 版心（书口）竖写文本：书名 / 篇卷 / 叶次；未启用仿真版式或封面页返回 `undefined` |
+| `getPageOfNode(id)` | 节点所在页（叶块 → 该页；结构容器 → 首个叶所在页），读预建索引、不遍历文档 |
+| `getOutlineItemAtPage(i)` | 某页对应的最具体目录项（同页多标题取层级最深者），目录高亮用 |
+| `getNoteAnchors()` / `getPageOfNote(id)` | 注释定位表（文档顺序，含 `noteId` / `refId` / `pageIndex`）/ 注文所在页 |
+| `getPageOfNoteRef(refId)` | 注引用锚点所在页（注文回跳跨页用，`refId` 来自 `NOTE_REF` 标记） |
 | `formatCurrentPageNumber()` | 当前页展示页码 |
 | `search(query, options?)` | 全文搜索（`limit` 默认 50、`contextLength` 默认 12） |
 | `nextPage()` / `prevPage()` / `goToPage(i)` / `goToNode(id)` | 导航（越界 / 未命中返回 false） |

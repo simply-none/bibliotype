@@ -64,7 +64,7 @@ import {
   type BlockMeasureContext,
   type OutlineItem,
 } from '@bibliotype/reader';
-import { BtBookView, BtDocumentStats, BtEditor, BtPager, BtToc, measurePagination, disposeMeasureSheet, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
+import { BtBookView, BtDocumentStats, BtEditor, BtPager, BtSidebarResizer, BtToc, measurePagination, disposeMeasureSheet, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
 import { exportEpub, type ValidationProblem } from '@bibliotype/exporter-epub';
 import {
   createImageBlobRewriter,
@@ -88,6 +88,7 @@ import ToolbarUsageTip from './components/ToolbarUsageTip.vue';
 import type { ToolbarUsage } from './components/toolbar-usage.js';
 import { useDraftAutosave } from './composables/use-draft-autosave.js';
 import { useStyleSettings } from './composables/use-style-settings.js';
+import { useTocPrefs } from './composables/use-toc-prefs.js';
 import { useToast } from './composables/use-toast.js';
 import { installPerfProbe, type PerfProbe } from './composables/use-perf-probe.js';
 import { lunyuDocument } from './data/lunyu.js';
@@ -255,17 +256,53 @@ const NIGHT_COLORS: Readonly<Record<string, string>> = {
 };
 
 /**
- * 当前生效令牌：主题基础 → 仿真模板 → 面板补丁 → 夜间覆盖
+ * 主题预设令牌（D10，仅由「外观主题」面板写入）
  *
- * 仿真模板夹在主题与补丁之间：模板给的是「版式基准」，用户的单点微调
- * （tokenPatch）仍然优先；模板令牌不进补丁，因此切主题不会残留。
+ * 与样式快照（layout / features / namedStyles / tokenPatch）分开存放：
+ * 主题只管纸色与墨色，样式预设只管排版，二者叠在不同层，互不覆盖。
+ */
+const themePresetTokens = ref<Record<string, string>>({});
+
+/** 主题基线：切换主题 / 仿真模板后的「出厂色」，作为主题预设的重置目标 */
+const themeBaseTokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
+  ...theme.value.tokens,
+  ...facsimilePresetTokens.value,
+}));
+
+/**
+ * 当前生效令牌：主题基础 → 仿真模板 → 用户补丁 → 主题预设 → 夜间覆盖
+ *
+ * 层序理由：
+ * - 仿真模板给的是「版式基准」，用户单点微调（tokenPatch）优先于它；
+ * - 主题预设代表用户显式选择的外观，压在用户补丁之上（否则在设置里改过颜色的
+ *   用户会看到「主题不生效」）；它默认只写颜色，字号 / 行距仍由 tokenPatch 主导；
+ * - 夜间是临时预览，永远压在最上层。
  */
 const tokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
   ...theme.value.tokens,
   ...facsimilePresetTokens.value,
   ...tokenPatch.value,
+  ...themePresetTokens.value,
   ...(night.value ? NIGHT_COLORS : {}),
 }));
+
+/**
+ * 应用主题预设（来自「外观主题」面板）
+ *
+ * 面板给的是全量令牌，这里只保留与基线的差量：既避免把默认值写死成补丁，
+ * 也让「恢复默认」自然退化为空差量（用户补丁里的颜色随即恢复生效）。
+ * 应用主题时顺手关掉夜间覆盖——否则夜间色永远压在预设之上，用户会以为没生效。
+ *
+ * @param next 面板计算出的全量令牌
+ */
+function onApplyThemeTokens(next: Record<string, string>): void {
+  night.value = false;
+  const patch: Record<string, string> = {};
+  for (const [key, value] of Object.entries(next)) {
+    if (value !== themeBaseTokens.value[key]) patch[key] = value;
+  }
+  themePresetTokens.value = patch;
+}
 
 /** 解析令牌前导数值（非法回退默认） */
 function parseTokenNum(value: string | undefined, fallback: number): number {
@@ -462,9 +499,10 @@ const customized = computed(
     Object.keys(layoutPatch.value).length > 0,
 );
 
-/** 恢复全部默认：清空补丁 / 功能样式 / 命名样式 / 夜间，并删除已存样式快照 */
+/** 恢复全部默认：清空补丁 / 功能样式 / 命名样式 / 夜间 / 主题预设，并删除已存样式快照 */
 async function resetSettings(): Promise<void> {
   night.value = false;
+  themePresetTokens.value = {};
   await styleApi.resetAll();
   persistSettingsSnapshot();
 }
@@ -475,6 +513,8 @@ function switchTheme(key: ThemeKey): void {
   const current = reader.value.document ?? lunyuDocument;
   themeKey.value = key;
   layoutPatch.value = {};
+  // 主题预设属于旧主题的配色差量，换主题即失效（否则会串味）
+  themePresetTokens.value = {};
   reader.value = createReader(effectiveLayout.value, current);
   // 重建后按新排版重测（直排主题会回退估算，空映射安全）
   scheduleRemeasure();
@@ -1180,6 +1220,14 @@ const inspectorBinding = computed<EditorBinding | null>(() => {
    顶栏只承担书名与常驻状态，不再追加会长期滞留、挤占排版的状态行。 */
 const { items: toasts, push: pushToast, dismiss: dismissToast } = useToast();
 
+/* 目录面板偏好（展开集合 / 侧栏宽度）：库内不写存储，宿主落到 localStorage */
+const {
+  width: tocWidth,
+  expandedKeys: tocExpandedKeys,
+  setExpandedKeys: setTocExpandedKeys,
+  resetWidth: resetTocWidth,
+} = useTocPrefs();
+
 /*
  * 原先写在顶栏标题旁的用法说明，改挂到对应按钮的悬浮卡片上
  * （顶栏是放书名的，不该长期占着两行操作提示）。
@@ -1452,7 +1500,7 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
-    <div class="app__body">
+    <div class="app__body" :style="{ '--bt-aside-width': `${tocWidth}px` }">
       <aside v-show="asideVisible" class="app__aside">
         <SearchPanel
           v-if="activeTab === 'search'"
@@ -1474,9 +1522,23 @@ onBeforeUnmount(() => {
           @imported="onImported"
         />
         <div v-show="activeTab === 'toc'" class="app__toc">
-          <BtToc :key="`toc-${themeKey}-${readerEpoch}`" :reader="reader" @select="onTocSelect" />
+          <BtToc
+            :key="`toc-${themeKey}-${readerEpoch}`"
+            :reader="reader"
+            :expanded-keys="tocExpandedKeys"
+            @update:expanded-keys="setTocExpandedKeys"
+            @select="onTocSelect"
+          />
         </div>
       </aside>
+      <BtSidebarResizer
+        v-show="asideVisible"
+        v-model="tocWidth"
+        class="app__aside-resizer"
+        side="start"
+        label="调整目录宽度"
+        @reset="resetTocWidth"
+      />
 
       <main class="app__main">
         <div ref="editorStageRef" class="app__stage">
@@ -1649,8 +1711,10 @@ onBeforeUnmount(() => {
       :api="styleApi"
       :layout="effectiveLayout"
       :tokens="tokens"
+      :theme-base-tokens="themeBaseTokens"
       :night="night"
       @update:night="night = $event; persistSettingsSnapshot()"
+      @apply-theme-tokens="onApplyThemeTokens"
       @close="closeSettings"
     />
 
@@ -1867,11 +1931,16 @@ onBeforeUnmount(() => {
   display: flex;
   flex: none;
   flex-direction: column;
-  width: 280px;
+  /* 宽度由拖拽条写入 --bt-aside-width（缺省 280px，与旧版一致） */
+  width: var(--bt-aside-width, 280px);
   overflow-y: auto;
   border-inline-end: 1px solid var(--demo-border);
   background: var(--demo-aside);
   color: var(--demo-text);
+}
+
+.app__aside-resizer {
+  align-self: stretch;
 }
 
 .app__toc {
@@ -2066,7 +2135,7 @@ onBeforeUnmount(() => {
 
 /* 标签面板（目录 / 搜索 / 书签 / 导入）仍在主区内侧向展开：窄窗时收窄，不挤掉书页 */
 .app--rail .app__aside {
-  width: min(280px, 46%);
+  width: min(var(--bt-aside-width, 280px), 46%);
 }
 
 /* 顶栏外壳：自身不转置，只把「书名列」与「按钮列」横向并排成两条竖列 */

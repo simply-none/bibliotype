@@ -98,6 +98,8 @@ instance.events.on('page:change', ({ pageIndex, totalPages }) => {
 | 节点注册 | `NodeTypeRegistry` / `NodeTypeConflictError`、`CORE_NODE_DEFINITIONS`、`NAMESPACES`、`NodeKind` / `NodeTypeDefinition` |
 | 插件系统 | `BibliotypePlugin` / `definePlugin`、`PluginRegistry` / `PluginConflictError`、`BibliotypeContext` / `ThemeAccessor` |
 | 主题令牌 | `FONT_TOKENS` / `FONT_SIZE_TOKENS` / `LAYOUT_TOKENS` / `COLOR_TOKENS`、`DEFAULT_THEME`、`createThemeAccessor` |
+| 主题预设包 | `serializeThemePreset` / `parseThemePreset` / `validateThemePreset` / `applyThemePreset`、`ThemePresetError`、`createThemePresetCatalog` / `BUILTIN_THEME_PRESETS`（night / eye-care / parchment）、`THEME_TOKEN_KEYS` / `isThemeToken` / `validateThemeTokenValue` / `validateThemeTokens` |
+| 字体回退分析 | `analyzeGlyphCoverage`、`GlyphProbe` / `GlyphCoverageReport`、`formatCodePoint` / `isPrivateUseCodePoint` |
 | 核心实例 | `createBibliotype`（`BibliotypeInstance` / `CoreInstanceOptions`） |
 | 存储契约 | `StorageAdapter`、`StoredDocument`、`DocumentSummary`、`SaveOptions` |
 | 书架与备份 | `BookLibraryStore` / `isBookLibraryStore` / `DocumentQuery` / `queryDocumentSummaries`、`BookSummaryStore` / `isBookSummaryStore`、`buildDocumentSummary` / `mergeDocumentSummary`、`packBookArchive` / `unpackBookArchive` / `BookPackCodec`、`buildLibraryBackupFiles` / `restoreLibrary` / `BACKUP_CONFLICT_STRATEGIES` |

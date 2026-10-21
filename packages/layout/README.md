@@ -82,6 +82,13 @@ const css = buildBookCss({
 修订标记的样式（`.bt-mark-insertion` / `.bt-mark-deletion` / `.bt-mark-format-change`）随
 `buildBookCss` 输出，全部限定在根容器内，只用文字装饰、不加色块。
 
+注释输出带**可定位锚点**，供阅读器做事件委托（详见 [docs/05](../../docs/05-layout-and-html.md#注码--注文的可定位契约d9)）：
+
+- 注释块：`data-note-id="<节点 id>"`；
+- 注码：`<span class="bt-note-marker" data-note-ref="<refId>">N</span>`；
+- 回跳：`<a class="bt-note-backref" href="#<refId>">↩</a>`；正文注码：`<a id="<refId>" class="bt-mark-noteref" href="#<noteId>">`；
+- 激活态：`.bt-note-active`（注条浅色底 + `.bt-mark-noteref` / `.bt-note-marker` 强化），仅在阅读器加类时命中，`prefers-reduced-motion` 下去掉过渡。
+
 ### 古籍仿真直排（版框 / 界行 / 版心）
 
 ```ts

@@ -72,9 +72,15 @@ describe('EPUB 注释块', () => {
     const body = files['OEBPS/text/sec-0.xhtml'] ?? '';
 
     expect(body).toContain('xmlns:epub="http://www.idpf.org/2007/ops"');
-    expect(body).toContain('<aside id="fn-1" class="bt-footnote" epub:type="footnote">');
-    expect(body).toContain('<aside id="en-1" class="bt-endnote" epub:type="endnote">');
-    expect(body).toContain('<span class="bt-note-marker">1</span>习，鸟数飞也。');
+    expect(body).toContain(
+      '<aside id="fn-1" class="bt-footnote" epub:type="footnote" data-note-id="fn-1">',
+    );
+    expect(body).toContain(
+      '<aside id="en-1" class="bt-endnote" epub:type="endnote" data-note-id="en-1">',
+    );
+    expect(body).toContain(
+      '<span class="bt-note-marker" data-note-ref="ref-1">1</span>习，鸟数飞也。',
+    );
     /* 正文引用与注文回跳成对输出 */
     expect(body).toContain(
       '<a id="ref-1" class="bt-mark-noteref" href="#fn-1" epub:type="noteref">1</a>',

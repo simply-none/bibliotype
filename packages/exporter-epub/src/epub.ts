@@ -19,12 +19,15 @@ import {
   DEFAULT_THEME,
   MARK_TYPES,
   NODE_TYPES,
+  PERF_PHASES,
   buildIndexAppendix,
   buildIndexEntries,
   isTextNode,
+  profilerOrNoop,
   type BookDocument,
   type BookNode,
   type ExportComment,
+  type Profiler,
   type RevisionView,
 } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
@@ -128,6 +131,8 @@ export interface EpubExportOptions {
    * （`text/sec-N.xhtml#id`），因此调用方按普通 IR 构造即可。
    */
   appendices?: readonly BookNode[];
+  /** 性能探针（I7，缺省 no-op：不传零行为零开销；span 阶段固定为 export，按 step 标签细分） */
+  profiler?: Profiler;
 }
 
 /** 递归改写附录里的 `#id` 锚点为跨文件地址（未命中的保持原样） */
@@ -213,6 +218,9 @@ export function exportEpub(
   }
 
   /* ---------- 章节规划、锚点与媒体收集 ---------- */
+  /* I7：可选探针，按导出步骤打 span（缺省 no-op 零开销） */
+  const profiler = profilerOrNoop(options.profiler);
+  const planSpan = profiler.span(PERF_PHASES.EXPORT, { step: 'plan' });
   const plan = planDocument(root);
 
   /* ---------- 附录（导出期追加，不改动原文档） ----------
@@ -275,11 +283,13 @@ export function exportEpub(
     serialize: serializeNode,
     serializeOptions,
   });
+  planSpan.end({ sections: split.sections.length });
 
   const manifest: OpfManifestItem[] = [];
   const spine: string[] = [];
   const textEntries: Record<string, [Uint8Array, ZipOptions]> = {};
 
+  const xhtmlSpan = profiler.span(PERF_PHASES.EXPORT, { step: 'xhtml' });
   split.sections.forEach((section, index) => {
     const id = `sec-${index}`;
     const first = section.nodes[0];
@@ -301,8 +311,10 @@ export function exportEpub(
     manifest.push({ id, href: section.file, mediaType: 'application/xhtml+xml' });
     spine.push(id);
   });
+  xhtmlSpan.end({ sections: split.sections.length });
 
   /* ---------- 导航与样式 ---------- */
+  const navSpan = profiler.span(PERF_PHASES.EXPORT, { step: 'nav-opf' });
   const navItems = buildNavItems(split.sections, plan.anchors);
   const navXhtml = buildNavXhtml({
     title: '目录',
@@ -372,6 +384,8 @@ export function exportEpub(
   });
 
   /* ---------- 打包（mimetype 首条目且 STORE，OCF 要求） ---------- */
+  navSpan.end();
+  const zipSpan = profiler.span(PERF_PHASES.EXPORT, { step: 'zip' });
   const files: Record<string, [Uint8Array, ZipOptions]> = {
     mimetype: [strToU8(EPUB_MIMETYPE), { level: 0, mtime }],
     'META-INF/container.xml': [strToU8(buildContainerXml()), { mtime }],
@@ -408,7 +422,9 @@ export function exportEpub(
     options.onValidation?.(problems);
   }
 
-  return zipSync(files);
+  const zipBytes = zipSync(files);
+  zipSpan.end({ bytes: zipBytes.length });
+  return zipBytes;
 }
 
 /** OCF 容器描述（container.xml，指向 OPF） */

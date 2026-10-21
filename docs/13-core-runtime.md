@@ -198,6 +198,22 @@ const payload = serializeBibliotypeError(error);
 const restored = deserializeBibliotypeError(JSON.parse(JSON.stringify(payload)));
 ```
 
+## 性能探针（Profiler，I7）
+
+core 暴露可插拔性能探针端口（与 [18](18-pagination-engine-roadmap.md) 的 bench
+基准、vue `PERF_*` 埋点同一套阶段口径 `PERF_PHASES`）：
+
+- `Profiler` 端口：`span(phase, labels?) → { end(extraLabels?) }`；宿主可注入
+  自定义实现（对接 OTel 等）；
+- `NOOP_PROFILER` / `createNoopProfiler()`：缺省 no-op，零行为零开销；
+- `createCollectingProfiler()`：收集器，按「阶段 × 标签」聚合
+  count / total / min / max / mean，`reportJson()` / `reportText()` / `reset()`；
+- `PERF_PHASES`：`layout` / `measure` / `export` / `autosave`；
+- `profilerOrNoop(p)`：可选注入统一取值。
+
+`paginate` 与 `exportEpub` 均接受可选 `profiler` 注入（缺省 no-op）；用法与
+EPUB 各步骤 span 细分见 [18](18-pagination-engine-roadmap.md)。
+
 ## 相关
 
 - 包参考：[`@bibliotype/core`](../packages/core/README.md)

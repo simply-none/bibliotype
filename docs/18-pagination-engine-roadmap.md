@@ -58,6 +58,64 @@
 `packages/vue/src/pagination-measure.ts`、`packages/vue/src/components/BtEditor.vue`、
 `packages/vue/src/components/BtBookView.vue`。
 
+## 性能基准（I5）
+
+根 `bench/` 提供 node 环境纯函数基准，防性能回退（用法见 `bench/README.md`）：
+
+```bash
+pnpm build        # runner 消费各包 dist ESM
+pnpm bench        # 跑基准并与 bench/baseline.json 对比（劣化 >15% 失败，输出 bench/report.md）
+pnpm bench:update # 跑基准并把结果写为新基线（基线带 node 版本与平台）
+```
+
+| 基准项 | 链路 | 输入 |
+| --- | --- | --- |
+| `layout/paginate-1000p` | `paginate` 装箱（阶段口径 `layout`） | 3000 块 × 300px，页容量 1000，混合双栏（≈1000 页） |
+| `exporter-epub/epub-50ch` | `exportEpub` 打包全流程（`export`） | 50 章 × 50 段合成文档 |
+| `layout/serialize-5000nodes` | `serializeNode` XHTML 序列化 | 5000 段大节点树 |
+
+口径与约定：
+
+- **量尺（`measure`）不进 node 基准**——离屏量尺依赖浏览器布局盒；node 基准以
+  「量尺产物的消费端」（分页装箱）覆盖，浏览器侧看 demo 的 `PERF_MEASURE` 数据
+  （I7 起 `getVuePerfProfiler()` 可直接出聚合报表）；
+- 每项预热 1 轮弃样 + 采样 5 轮取**中位数**（`bench/lib.mjs` 的 `median`，确定性
+  单测在 core `__tests__/bench-lib.test.ts`）；
+- 判定只看劣化方向：相对基线劣化 **>15% 失败**（`REGRESSION_THRESHOLD`），性能
+  提升永远通过；基线环境（node 版本 / 平台）不一致时警告不失败——时序跨机不可比；
+- 有意优化 / 扩容后 `pnpm bench:update` 重写基线并在 changeset 说明；
+- CI 不设 per-PR 时序门禁（噪声大）；可选接法：夜间任务跑 `pnpm bench` 并把
+  `bench/report.md` 作为 artifact 归档，或仅在 release 分支启用。
+
+## 性能探针与可观测（I7）
+
+`@bibliotype/core` 新增可插拔 Profiler（替代散落的全局开关）：
+
+- **端口**：`Profiler.span(phase, labels?)` 返回句柄 `end(extraLabels?)`；
+  阶段常量 `PERF_PHASES`（`layout` / `measure` / `export` / `autosave`）与 bench
+  基准共用，口径一致；
+- **缺省 no-op**（`NOOP_PROFILER` / `createNoopProfiler`）：不注入零行为零开销，
+  调用方可以无脑打点；
+- **收集器**（`createCollectingProfiler`）：按「阶段 × 标签」聚合
+  count / total / min / max / mean，`reportJson()` 出结构化报表、`reportText()`
+  出对齐表格、`reset()` 清空；
+- **注入点**：`paginate(opts.profiler)` 与 `exportEpub(opts.profiler)`（EPUB 按
+  `step=plan / xhtml / nav-opf / zip` 细分 span）——开启后导出一次即可得到
+  分阶段耗时表；
+- **`PERF_*` 兼容**：vue 侧常量（`bt:layout` / `bt:measure` / `bt:save`）与
+  `setPerfProbeEnabled` 语义不变；开启后埋点同步记入 `getVuePerfProfiler()`
+  模块级收集器（阶段映射 `PERF_PHASES`），宿主无需自建 PerformanceObserver
+  也能拿到聚合报表。
+
+```ts
+import { PERF_PHASES, createCollectingProfiler } from '@bibliotype/core';
+import { exportEpub } from '@bibliotype/exporter-epub';
+
+const profiler = createCollectingProfiler();
+exportEpub(document, { profiler });
+console.log(profiler.reportText()); // 阶段 × 步骤耗时表；reportJson() 可 dump 成文件
+```
+
 ## 分栏与对页（P1-A 已落地）
 
 - 分页容量按 `pageMainSize × columns` 计算，`columns` 来自章节 / 节的 `attrs.columns`（1~3），栏数变化开新页。

@@ -25,7 +25,9 @@
     "release:rc": "pnpm build && pnpm -r publish --tag rc --no-git-checks --access public",
     "release": "pnpm build && pnpm -r publish --tag latest --no-git-checks --access public",
     "test:coverage": "turbo run test:coverage",
-    "size": "size-limit"
+    "size": "size-limit",
+    "bench": "node bench/run.mjs",
+    "bench:update": "node bench/run.mjs --update"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",

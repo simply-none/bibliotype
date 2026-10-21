@@ -12,6 +12,24 @@
 /* ---------- 版本 ---------- */
 export { VERSION } from './version.js';
 
+/* ---------- 性能探针（I7） ---------- */
+export {
+  NOOP_PROFILER,
+  PERF_PHASES,
+  createCollectingProfiler,
+  createNoopProfiler,
+  profilerOrNoop,
+} from './perf/profiler.js';
+export type {
+  CollectingProfiler,
+  PerfLabels,
+  PerfPhase,
+  PerfReport,
+  Profiler,
+  ProfilerSpan,
+} from './perf/profiler.js';
+export type { PerfSpanStats } from './perf/profiler.js';
+
 /* ---------- 统一错误（I8） ---------- */
 export {
   BibliotypeError,

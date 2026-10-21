@@ -31,6 +31,8 @@
  * 由调用方按书写方向传入相应测量值。向后兼容：不给 splittable / lineSize 时，
  * 行为与块原子版完全一致。
  */
+import { PERF_PHASES, profilerOrNoop } from '@bibliotype/core';
+import type { Profiler } from '@bibliotype/core';
 
 /** 可分页内容块 */
 export interface MeasurableBlock {
@@ -183,6 +185,8 @@ export interface PaginateOptions {
    * 正文可用主轴 = 页面容量 − 注区高度，即注区动态收缩正文。
    */
   noteArea?: NoteAreaOptions;
+  /** 性能探针（I7，缺省 no-op：不传零行为零开销） */
+  profiler?: Profiler;
   /**
    * 续排起点（增量分页）：从 `startIndex` 块起继续分页，`prefix` 页原样保留
    *
@@ -593,6 +597,20 @@ function columnsOfBlock(block: MeasurableBlock): number {
  * - 栏数取 1~3，越界夹紧。
  */
 export function paginate(
+  blocks: readonly MeasurableBlock[],
+  options: PaginateOptions,
+): PaginationResult {
+  /* I7：可选探针（缺省 no-op，零行为）；span 覆盖整轮装箱（含校验与分栏分组） */
+  const profiler = profilerOrNoop(options.profiler);
+  const span = profiler.span(PERF_PHASES.LAYOUT, { blocks: blocks.length });
+  try {
+    return paginateInner(blocks, options);
+  } finally {
+    span.end();
+  }
+}
+
+function paginateInner(
   blocks: readonly MeasurableBlock[],
   options: PaginateOptions,
 ): PaginationResult {

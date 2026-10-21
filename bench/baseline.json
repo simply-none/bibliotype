@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "node": "v20.18.3",
+    "platform": "win32",
+    "threshold": 0.15,
+    "createdAt": "2026-10-21T09:30:13.471Z",
+    "samples": 5
+  },
+  "entries": {
+    "layout/paginate-1000p": {
+      "msPerOp": 17.503,
+      "samples": 5
+    },
+    "exporter-epub/epub-50ch": {
+      "msPerOp": 52.68,
+      "samples": 5
+    },
+    "layout/serialize-5000nodes": {
+      "msPerOp": 12.317,
+      "samples": 5
+    }
+  }
+}

@@ -4,7 +4,7 @@
  * 零依赖封装：
  * - 延迟打开数据库（首次操作时 open，升级时自动建仓）；
  * - **分片落盘（P2）**：`save` 不再整本 `put`，而是切成「骨架 + 片」只写变更片
- *   （见 `chunked-store.ts`；IR 结构共享让「未变」判定退化为引用比较）；
+ *   （分片内核见 `@bibliotype/core` 的 `storage/chunking`；IR 结构共享让「未变」判定退化为引用比较）；
  * - 兼容旧格式：整本记录仍可读，下次写入时自动迁移为分片格式；
  * - list 按 updatedAt 降序；
  * - close 释放连接后仍可再次使用（自动重开）。
@@ -37,7 +37,7 @@ import {
   fromSkeleton,
   type ChunkSlice,
   type SkeletonNode,
-} from './chunked-store.js';
+} from '@bibliotype/core';
 import {
   openDatabase,
   requestToPromise,

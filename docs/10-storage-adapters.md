@@ -245,16 +245,78 @@ const secure = createEncryptedStorageAdapter({ inner: storage, cipher });
 - 资产用 `createEncryptedAssetStore({ inner, cipher: byteCipher })`，`mediaType` 与文件名
   随密文一起保存，底层只看到 `application/x-bt-sealed`。
 
-## 规划中的适配器
+## SqliteAdapter（H2，Electron / 本地优先）
 
-- `@bibliotype/adapter-sqlite`：Electron 端。**驱动由宿主安装并注入**（插件不安装任何
-  SQLite 包），端口只读取连接；契约同 `StorageAdapter` + 上述可选能力。
-- `@bibliotype/adapter-http` 已实现（见 [29 远端适配器](29-adapter-http.md)）。
+**驱动由宿主安装并注入**：适配器包不依赖、不打包任何 SQLite 引擎，`package.json`
+里没有 `better-sqlite3` / `sql.js`。宿主把自己装好的连接包装成 `SqliteDriver` 端口即可：
 
-两者均只需实现同一契约，consume 方代码无需改动。
+```ts
+import Database from 'better-sqlite3';                     // 宿主自己的依赖
+import { createBetterSqliteDriver, SqliteAdapter, SqliteAssetStore, SqliteVersionStore }
+  from '@bibliotype/adapter-sqlite';
+
+const driver = createBetterSqliteDriver(new Database('library.db'));
+const storage = new SqliteAdapter({ driver });
+const assets = new SqliteAssetStore({ driver });
+const versions = new SqliteVersionStore({ driver });
+```
+
+```ts
+/* 浏览器 / 测试：sql.js 的 WASM 引擎，同样走宿主注入 */
+import initSqlJs from 'sql.js';
+const SQL = await initSqlJs();
+const driver = createSqlJsDriver(new SQL.Database());
+```
+
+两个工厂都只做「同步引擎 → 异步端口」的薄适配：变参绑定（better-sqlite3）与
+`bind / step / getAsObject`（sql.js）由包内消化，适配器只面对 `exec / prepare / transaction`。
+驱动生命周期归宿主，`adapter.close()` **不会**关闭连接。
+
+### 表结构（`PRAGMA user_version = 1`）
+
+| 表 | 关键列 | 说明 |
+| --- | --- | --- |
+| `documents` | `id` PK、`title`、`updated_at`、`schema_version`、`metadata`、`summary`、`skeleton`、`chunk_ids` | 骨架 + 书架摘要；`list()` 只读这里 |
+| `chunks` | `(doc_id, chunk_id)` PK、`nodes` | 片内容，`ON DELETE CASCADE` 随文档删除 |
+| `assets` | `id` PK、`kind`、`media_type`、`name`、`byte_length`、`hash`、`data BLOB` | 资产与文档生命周期独立 |
+| `versions` | `(doc_id, version)` PK、`meta`、`snapshot`、`created_at` | 历史快照，`clear()` 不清 |
+| `settings` | `key` PK、`value` | 样式 / 偏好小载荷（`SqliteKeyValueStore`） |
+
+首次打开自动建表建索引，重复打开幂等；库版本高于适配器支持时直接报错，避免旧代码写坏新库。
+
+### 与 IndexedDbAdapter 的同与异
+
+| 维度 | 行为 |
+| --- | --- |
+| 分片 | 同构：复用 `@bibliotype/core` 的 `buildChunkedSnapshot` / `fromSkeleton`，只写引用变化的片 |
+| 可选端口 | 全实现：`BookLibraryStore` / `BookSummaryStore` / `DocumentVersionStore` / `AssetStore` |
+| 缺片 | 视为记录损坏，`load()` 返回 `undefined`，不返回半截文档 |
+| 事务 | 单次保存 / 清理在 `BEGIN IMMEDIATE … COMMIT` 内，失败 `ROLLBACK` 保留原数据 |
+| `clear()` | 只清 `documents`（级联 `chunks`），资产、历史版本、设置保留 |
+| `close()` | 空操作（与 IndexedDB 的「关闭连接、下次重开」不同，驱动归宿主） |
+| 版本仓位置 | 与文档同库不同表（IndexedDB 是独立数据库） |
+| 多写者 | 依赖 SQLite 自身的写锁；同一数据库不要并发开多个写连接做长事务 |
+
+### 契约测试
+
+`memory` / `indexeddb` / `sqlite` 共用 `@bibliotype/core/testing` 的契约套件（测试专用子入口，
+依赖 vitest，不进主入口）：
+
+```ts
+import { runStorageContractTests } from '@bibliotype/core/testing';
+
+runStorageContractTests({ name: 'SqliteAdapter', create: () => new SqliteAdapter({ driver }) });
+```
+
+SQLite 侧用 `sql.js`（devDependency）跑真实 SQL 与 1 MB BLOB 往返；生产产物仍零引擎依赖。
+
+## 远端适配器
+
+`@bibliotype/adapter-http` 已实现（见 [29 远端适配器](29-adapter-http.md)），能力差异
+（无 `BookSummaryStore`、`query` 客户端过滤）见该文。
 
 ## 相关
 
-- 包参考：[`@bibliotype/adapter-indexeddb`](../packages/adapter-indexeddb/README.md)
+- 包参考：[`@bibliotype/adapter-indexeddb`](../packages/adapter-indexeddb/README.md)、[`@bibliotype/adapter-sqlite`](../packages/adapter-sqlite/README.md)
 - IR 序列化约束：[01 数据模型](01-document-model.md)
 - 协同同步：[09 协同编辑](09-collab.md)

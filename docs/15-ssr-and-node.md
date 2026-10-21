@@ -20,6 +20,9 @@ bibliotype 的多数模块是**纯函数 / 无 DOM 状态机**，可在 Node（S
 | `@bibliotype/exporter-pdf`：`printHtml` / `printBook` | ❌ | 需要 `document` 与浏览器打印环境 |
 | `@bibliotype/adapter-indexeddb`：`MemoryAdapter` | ✅ | 内存实现，适合测试与 SSR |
 | `@bibliotype/adapter-indexeddb`：`IndexedDbAdapter` | ⚠️ | 缺省取全局 `indexedDB`；Node 注入 `factory`（`fake-indexeddb`）或改用 `MemoryAdapter` |
+| `@bibliotype/adapter-sqlite` | ✅ | 无 DOM 依赖；宿主注入 better-sqlite3 / sql.js 驱动即可 |
+| `@bibliotype/provider-websocket`：Provider | ⚠️ | 浏览器用原生 WebSocket / BroadcastChannel；Node 注入 `ws` 的 WebSocket |
+| `@bibliotype/provider-websocket`：参考服务端 | ✅ | Node 环境，需宿主安装可选 peer `ws` |
 | `@bibliotype/editor`：规格注册 / schema / `BookEditor` 状态机 | ✅ | IR ⇄ PM 转换与事务为纯逻辑 |
 | `@bibliotype/editor`：视图绑定（`attach`） | ❌ | ProseMirror 视图需要 DOM |
 | `@bibliotype/vue`：`useReader` / `useReaderBinding` | ✅ | 组合式状态绑定，无 DOM |

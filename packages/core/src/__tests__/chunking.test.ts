@@ -1,5 +1,5 @@
 /**
- * 分片切片器测试（纯函数，不依赖 IndexedDB）
+ * 分片切片器测试（纯函数，不依赖存储实现）
  *
  * 关注三件事：
  * 1. 往返一致性（骨架 + 片能还原出相同的 IR 结构）；
@@ -7,13 +7,16 @@
  * 3. 局部结构变化（插入 / 删除段落）只重写局部片。
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument, type BookNode } from '@bibliotype/core';
+import { NODE_TYPES } from '../ir/node-types.js';
+import { createEmptyDocument } from '../ir/document.js';
+import type { BookDocument } from '../ir/document.js';
+import type { BookNode } from '../ir/nodes.js';
 import {
   CHUNK_BUDGET_BYTES,
   buildChunkedSnapshot,
   fromSkeleton,
   type ChunkSlice,
-} from '../chunked-store.js';
+} from '../storage/chunking.js';
 
 /** 造一个段落节点 */
 function paragraph(id: string, text: string): BookNode {

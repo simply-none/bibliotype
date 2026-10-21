@@ -8,7 +8,7 @@ import { IDBFactory } from 'fake-indexeddb';
 import { createSnapshot, nextSnapshotVersion, restoreSnapshot } from '@bibliotype/core';
 import type { BookDocument, DocumentVersionStore } from '@bibliotype/core';
 import { IndexedDbVersionStore, MemoryVersionStore } from '../version-store.js';
-import { sampleDocument } from './storage-contract.js';
+import { sampleDocument } from '@bibliotype/core/testing';
 
 const DAY = 24 * 60 * 60 * 1000;
 

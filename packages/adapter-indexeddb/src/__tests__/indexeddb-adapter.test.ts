@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { IndexedDbAdapter } from '../indexeddb-adapter.js';
-import { runStorageContractTests, sampleDocument } from './storage-contract.js';
+import { runStorageContractTests, sampleDocument } from '@bibliotype/core/testing';
 
 /** 每个用例独立的适配器（独立工厂 → 独立数据库） */
 function createAdapter(): IndexedDbAdapter {

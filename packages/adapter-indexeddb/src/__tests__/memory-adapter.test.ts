@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MemoryAdapter } from '../memory-adapter.js';
-import { runStorageContractTests } from './storage-contract.js';
+import { runStorageContractTests } from '@bibliotype/core/testing';
 
 runStorageContractTests({
   name: 'MemoryAdapter（存储契约）',

@@ -1,0 +1,76 @@
+{
+  "name": "@bibliotype/provider-websocket",
+  "version": "0.1.0",
+  "description": "协同网络传输：WebSocket Provider（重连 + 离线队列）、BroadcastChannel 多标签与参考服务端 - bibliotype 协同包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/provider-websocket"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/provider-websocket#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./server": {
+      "import": {
+        "types": "./dist/server/reference-server.d.ts",
+        "default": "./dist/server/reference-server.js"
+      },
+      "require": {
+        "types": "./dist/server/reference-server.d.cts",
+        "default": "./dist/server/reference-server.cjs"
+      }
+    }
+  },
+  "bin": {
+    "bt-collab-server": "./bin/serve.mjs"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "serve": "node bin/serve.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean"
+  },
+  "dependencies": {
+    "@bibliotype/collab": "workspace:*",
+    "@bibliotype/core": "workspace:*",
+    "yjs": "^13.6.20"
+  },
+  "peerDependencies": {
+    "ws": ">=8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ws": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.12",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "ws": "^8.18.0"
+  }
+}

@@ -11,15 +11,15 @@ export type { IndexedDbAdapterOptions } from './indexeddb-adapter.js';
 export { openDatabase, requestToPromise, transactionDone } from './idb-helpers.js';
 export type { StoreDefinition } from './idb-helpers.js';
 
-/* ---------- 分片存储（骨架 + 片；供自定义持久化复用） ---------- */
-export { CHUNK_BUDGET_BYTES, buildChunkedSnapshot, fromSkeleton } from './chunked-store.js';
+/* ---------- 分片存储（骨架 + 片；内核在 core，此处保持既有再导出） ---------- */
+export { CHUNK_BUDGET_BYTES, buildChunkedSnapshot, fromSkeleton } from '@bibliotype/core';
 export type {
   ChunkNodeMap,
   ChunkSlice,
   ChunkWrite,
   ChunkedSnapshot,
   SkeletonNode,
-} from './chunked-store.js';
+} from '@bibliotype/core';
 
 /* ---------- 历史版本存储（端口见 core：DocumentVersionStore） ---------- */
 export { IndexedDbVersionStore, MemoryVersionStore } from './version-store.js';

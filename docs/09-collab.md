@@ -88,6 +88,85 @@ class MySocketProvider implements CollabProvider {
   更新广播给除来源外的全部成员；`size` 为在线成员数；
 - `InMemoryProvider(network)`：将 Y.Doc 接入总线；远端来源的更新不再回播（避免环路）。
 
+## 网络传输：WebSocket 与多标签（G2）
+
+`@bibliotype/provider-websocket` 提供两个实现，均满足 `CollabProvider`：
+
+```ts
+import { createWebSocketProvider, createBroadcastProvider } from '@bibliotype/provider-websocket';
+
+/* 服务端（多端协同） */
+const provider = createWebSocketProvider({
+  url: 'wss://example.com/collab',
+  docId: 'lunyu',
+  clientId: 'user-a',
+  socketFactory: (url) => new WebSocket(url),   // 缺省取全局 WebSocket
+});
+
+/* 本地多标签（同源标签页互同步，无服务端） */
+const local = createBroadcastProvider({ channelName: 'bt:lunyu', clientId: 'tab-1' });
+
+const session = new CollabSession(ydoc, provider);   // 构造即 connect
+```
+
+### 帧结构（协议版本 1）
+
+文本帧 = JSON 信封 + base64 的 Yjs 更新；单帧上限 8 MiB（`COLLAB_MAX_FRAME_BYTES`）。
+
+| 方向 | 帧 | 载荷 |
+| --- | --- | --- |
+| 客户端 → 服务端 | `join` | `{ protocol, docId, clientId }` |
+| 客户端 → 服务端 | `update` | `{ update }` |
+| 客户端 → 服务端 | `ping` | `{ at }` |
+| 服务端 → 客户端 | `joined` | `{ protocol, clientId }` |
+| 服务端 → 客户端 | `sync` | `{ update }`（房间全量状态） |
+| 服务端 → 客户端 | `update` | `{ update }` |
+| 服务端 → 客户端 | `pong` | `{ at }` |
+| 服务端 → 客户端 | `error` | `{ code, message }`，`code` 为 `PROTOCOL_MISMATCH` / `BAD_FRAME` |
+
+`parseClientFrame` / `parseServerFrame` 做结构校验与版本判定；版本不匹配返回
+`PROTOCOL_MISMATCH`，客户端**不重试**（重试也不会成功），坏帧则断开后按退避重连。
+
+### 连接语义
+
+1. 连接建立 → 发 `join` → 收 `joined` + `sync` → 合并房间状态 → 状态置 `connected`；
+2. 之后本地更新直发、远端更新以 provider 自身为 Yjs origin 应用（不回播）；
+3. 断线期间本地更新进离线队列（`Y.mergeUpdates` 合并为一条），重连同步完成后一次补发；
+4. 队列超过 `maxQueueBytes`（缺省 1 MiB）改为补发 `encodeStateAsUpdate` 全量状态，
+   靠 Yjs 幂等合并保证不重复；**不允许静默丢更新**；
+5. 退避为指数 + 抖动（`nextReconnectDelay`，随机源可注入），连接成功后清零；
+6. 手动 `disconnect()` 不自动重连；握手超时（缺省 10s）按连接失败处理。
+
+诊断：`provider.diagnostics` 给出 `reconnectAttempts` / `lastError` / `serverClientId`。
+
+### 本地多标签
+
+- 连上后广播 `hello`，已在线标签定向回 `state`（全量），迟到加入者因此能拿到既有内容；
+- 本地更新以 `update` 广播；按 `from` 过滤自身消息，远端更新同样不回播；
+- 频道不可用时 `connect()` 抛错，不静默降级（换 `WebSocketProvider` 或注入 `channelFactory`）。
+
+### 参考服务端
+
+```bash
+# 先构建（bin 入口指向 dist），再启动；端口缺省 8787
+pnpm --filter @bibliotype/provider-websocket build
+pnpm --filter @bibliotype/provider-websocket serve 8787
+```
+
+```ts
+import { startReferenceServer } from '@bibliotype/provider-websocket/server';
+
+const server = await startReferenceServer({ port: 0 });   // 0 = 系统分配，测试友好
+console.log(server.url);                                   // ws://127.0.0.1:<port>
+await server.close();
+```
+
+按 `docId` 分房间、持有房间 `Y.Doc`、加入即回全量 `sync`；空房间保留状态以便重连。
+`ws` 是**可选 peer** + devDependency：客户端入口不依赖它，只有引入 `./server` 的宿主需要安装。
+
+边界：Awareness 远端光标（G3）暂缓，协议只留扩展位；参考服务端不做鉴权 / 持久化，
+生产请按自己的房间与权限模型替换。
+
 ## 用户身份（简化 Awareness）
 
 ```ts

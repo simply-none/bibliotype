@@ -22,7 +22,9 @@
       "@bibliotype/xref",
       "@bibliotype/textconvert",
       "@bibliotype/adapter-http",
-      "@bibliotype/exporter-site"
+      "@bibliotype/exporter-site",
+      "@bibliotype/provider-websocket",
+      "@bibliotype/adapter-sqlite"
     ]
   ],
   "linked": [],

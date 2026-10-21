@@ -105,6 +105,7 @@ instance.events.on('page:change', ({ pageIndex, totalPages }) => {
 | 修订 | `REVISION_MARK_TYPES` / `REVISION_VIEWS`、`collectRevisions` / `resolveMarksForView`、`acceptRevisions` / `rejectRevisions` / `projectRevisionView` |
 | 加密与脱敏 | `deriveKeyPbkdf2` / `createStringCipher` / `createByteCipher`、`createEncryptedStorageAdapter` / `createEncryptedAssetStore`、`CryptoError` / `CRYPTO_ERROR_CODES`、`redactDocument` / `redactAnnotations` |
 | 资产契约 | `AssetStore` / `AssetPayload` / `AssetRef` / `AssetKind`、`ASSET_KINDS`、`toAssetRef` / `hashAssetBytes` / `isAssetStore` |
+| 分片内核 | `CHUNK_BUDGET_BYTES`、`buildChunkedSnapshot` / `fromSkeleton`、`ChunkSlice` / `SkeletonNode` / `ChunkNodeMap`（IndexedDB / SQLite 共用） |
 | 锚点 | `Anchor` / `BlockAnchor` / `TextAnchor`、`ANCHOR_TYPES`、`createBlockAnchor` / `createTextAnchor`、`serializeAnchor` / `parseAnchor`、`resolveAnchor` / `clampAnchor`、`locateNode` / `nodePlainText` |
 | 校验与迁移 | `validateDocument` / `DOCUMENT_ISSUE_CODES`、`DocumentIssue` / `ValidationResult`、`migrateDocument` / `MigrationStep` / `MigrationPathError`、`readSchemaVersion` / `LEGACY_SCHEMA_VERSION` / `BUILTIN_MIGRATIONS` |
 
@@ -169,6 +170,16 @@ const secure = createEncryptedStorageAdapter({ inner: storage, cipher });
 - `.btbook` 与整库备份共用同一 `BookPackCodec` 端口，ZIP 由宿主注入；
 - 修订的 `insertion` / `deletion` / `format-change` 三种标记在 core 统一登记，接受 / 拒绝语义只有一份；
 - 快照与修订时间、加密随机源全部参数注入，产物可确定性复现。
+
+## 测试子入口
+
+`@bibliotype/core/testing` 提供存储适配器的公共契约套件（仅 ESM，依赖 `vitest`，不进主入口）：
+
+```ts
+import { runStorageContractTests, sampleDocument } from '@bibliotype/core/testing';
+
+runStorageContractTests({ name: 'MyAdapter', create: () => new MyAdapter() });
+```
 
 ## 相关
 

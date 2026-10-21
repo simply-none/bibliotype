@@ -55,8 +55,9 @@ const memory = new MemoryAdapter();
 对象引用 → 复用片 id 且跳过写入；结构变化（增删块）时用「片首节点引用」对齐旧片，
 只重切变化的那棵子树。写库只发生在真正变化的片上（通常 1 片、几 KB）。
 
-分片切分器 `buildChunkedSnapshot` / `fromSkeleton`（及 `CHUNK_BUDGET_BYTES`）也单独导出，
-供 SQLite / 文件系统等自定义适配器复用同一套增量策略。
+分片切分器 `buildChunkedSnapshot` / `fromSkeleton`（及 `CHUNK_BUDGET_BYTES`）的实现已上移到
+`@bibliotype/core`（`storage/chunking`），本包继续再导出，供 SQLite / 文件系统等自定义适配器
+复用同一套增量策略。
 
 ## 契约摘要（`StorageAdapter`）
 
@@ -96,8 +97,14 @@ await versions.pruneVersions('lunyu', { maxCount: 20, now: Date.now() });
 - 版本仓与文档库分开，避免快照把正文库撑大；`MemoryVersionStore` 供测试与 SSR 使用；
 - 存储实现只执行删除，保留策略的「该删哪些」由 core 的 `selectExpiredSnapshots` 决定。
 
-两个适配器共用 `src/__tests__/storage-contract.ts` 的公共契约套件（含可选能力探测），
-新增适配器建议直接复用该套件。
+两个适配器共用 `@bibliotype/core/testing` 的公共契约套件（含可选能力探测），
+新增适配器建议直接复用该套件：
+
+```ts
+import { runStorageContractTests } from '@bibliotype/core/testing';
+
+runStorageContractTests({ name: 'MyAdapter', create: () => new MyAdapter() });
+```
 
 ## 相关
 

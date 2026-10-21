@@ -385,6 +385,42 @@
   必要时从 `.btbook` 重新导入；
 - 保留策略非法（`maxCount < 1`、两个条件都不给）会抛 `RangeError`，这是防误清历史的保护。
 
+## 22. SQLite 适配器报「没有驱动」/ 事务没生效
+
+**现象**：`new SqliteAdapter({ driver })` 之后所有操作都报错；或以为 `close()` 会关库；
+或批量写入失败后留下半份数据。
+
+**根因**：适配器**不安装任何 SQLite 引擎**，`driver` 必须由宿主传入包装好的端口；
+`close()` 刻意不关闭宿主驱动（生命周期归宿主）。
+
+**处理与排查**：
+
+- Electron / Node：宿主装 `better-sqlite3`，用 `createBetterSqliteDriver(new Database(path))`；
+  浏览器 / 测试：装 `sql.js`，`createSqlJsDriver(new SQL.Database())`；
+- 打包器把 `better-sqlite3` 打进 renderer 会失败：数据库只能放主进程 / worker，
+  通过 IPC 暴露查询，或改用 sql.js；
+- 事务没生效：`driver.transaction` 不支持嵌套（嵌套直接抛错），所有写入放进同一个回调；
+- 半份数据：检查是否走了 `transaction`；单条 `run` 之外的多步写入都不具备原子性；
+- `clear()` 后资产 / 历史还在是**预期**：只清文档与片；`close()` 后仍可继续读写也是预期。
+
+## 23. 协同重连后出现重复段落 / 连不上
+
+**现象**：断网恢复后同一段内容出现两次；或一直 `connecting` / 反复断开；或换版本后
+客户端连不上服务端。
+
+**根因**：更新必须走 Yjs 合并（幂等）；协议版本不一致会被服务端拒绝且**不重试**；
+握手超时（缺省 10s）按连接失败处理。
+
+**处理与排查**：
+
+- 重复内容：确认离线期间没有把「全量 `encodeStateAsUpdate`」和增量同时当普通文本写回文档，
+  只应交给 Yjs `applyUpdate`；离线队列超限会自动改发全量，这是兜底不是重复发送；
+- 连不上：看 `provider.diagnostics.lastError`；`PROTOCOL_MISMATCH` 说明客户端 / 服务端
+  `COLLAB_PROTOCOL_VERSION` 不一致，升级两端而不是调大退避；
+- 反复重连：检查服务端是否在 `join` 前就要求鉴权、以及 `maxReconnectAttempts` 是否触顶；
+- 多标签不同步：`BroadcastChannel` 需要同源同频道名，且 `connect()` 后才会发 `hello`；
+- 手动 `disconnect()` 不重连是预期行为，需要恢复请再调 `connect()`。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

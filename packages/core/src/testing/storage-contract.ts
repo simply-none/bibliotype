@@ -1,28 +1,27 @@
 /**
- * 存储适配器公共契约测试套件
+ * 存储适配器公共契约测试套件（测试专用子入口）
  *
- * 目的：`memory` / `indexeddb` / 未来的 `sqlite` 共用同一套断言，
- * 避免每个实现各自复制 `sampleDoc()` 与断言导致口径分叉。
+ * 目的：`memory` / `indexeddb` / `sqlite` 共用同一套断言，
+ * 避免每个实现各自复制 `sampleDocument()` 与断言导致口径分叉。
  *
  * 用法（在各实现的测试文件里）：
  * ```ts
+ * import { runStorageContractTests } from '@bibliotype/core/testing';
+ *
  * runStorageContractTests({ name: 'MemoryAdapter', create: () => new MemoryAdapter() });
  * ```
- * 需要跨用例隔离的适配器（如 IndexedDB）由 `create` 保证每次返回新实例。
+ * 需要跨用例隔离的适配器（如 IndexedDB / SQLite）由 `create` 保证每次返回新实例。
+ *
+ * 注意：本模块依赖 vitest，只从 `@bibliotype/core/testing` 子入口导出，
+ * 主入口 `@bibliotype/core` 不引入它，避免污染生产产物。
  */
 import { describe, expect, it } from 'vitest';
-import {
-  NODE_TYPES,
-  createEmptyDocument,
-  isBookLibraryStore,
-  isBookSummaryStore,
-} from '@bibliotype/core';
-import type {
-  BookDocument,
-  BookLibraryStore,
-  BookSummaryStore,
-  StorageAdapter,
-} from '@bibliotype/core';
+import { createEmptyDocument } from '../ir/document.js';
+import { NODE_TYPES } from '../ir/node-types.js';
+import { isBookLibraryStore, isBookSummaryStore } from '../storage/query.js';
+import type { BookDocument } from '../ir/document.js';
+import type { BookLibraryStore, BookSummaryStore } from '../storage/query.js';
+import type { StorageAdapter } from '../storage/types.js';
 
 /** 契约套件可接受的适配器形态（可选能力按需探测） */
 export type ContractAdapter = StorageAdapter &

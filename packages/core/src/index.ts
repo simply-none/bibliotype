@@ -221,6 +221,20 @@ export type {
   SaveOptions,
 } from './storage/types.js';
 
+/* ---------- 分片存储内核（骨架 + 片；各适配器共用） ---------- */
+export {
+  CHUNK_BUDGET_BYTES,
+  buildChunkedSnapshot,
+  fromSkeleton,
+} from './storage/chunking.js';
+export type {
+  ChunkNodeMap,
+  ChunkSlice,
+  ChunkWrite,
+  ChunkedSnapshot,
+  SkeletonNode,
+} from './storage/chunking.js';
+
 /* ---------- 书架摘要与查询（纯函数 + 可选端口） ---------- */
 export type { BuildDocumentSummaryInput } from './storage/library.js';
 export {

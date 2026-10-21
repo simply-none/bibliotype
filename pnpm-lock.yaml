@@ -65,7 +65,7 @@ importers:
     devDependencies:
       '@vitejs/plugin-vue':
         specifier: ^5.2.0
-        version: 5.2.4(vite@5.4.21)(vue@3.5.43(typescript@5.9.3))
+        version: 5.2.4(vite@5.4.21(@types/node@26.6.5))(vue@3.5.43(typescript@5.9.3))
       fake-indexeddb:
         specifier: ^6.0.0
         version: 6.2.5
@@ -77,10 +77,10 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^5.4.11
-        version: 5.4.21
+        version: 5.4.21(@types/node@26.6.5)
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
       vue-tsc:
         specifier: ^2.1.10
         version: 2.2.12(typescript@5.9.3)
@@ -93,13 +93,13 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/adapter-indexeddb:
     dependencies:
@@ -112,13 +112,38 @@ importers:
         version: 6.2.5
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
+
+  packages/adapter-sqlite:
+    dependencies:
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      '@types/sql.js':
+        specifier: ^1.4.9
+        version: 1.4.11
+      sql.js:
+        specifier: ^1.12.0
+        version: 1.15.1
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@22.20.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.5)(happy-dom@15.11.7)
 
   packages/annotation:
     dependencies:
@@ -128,13 +153,13 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/classical:
     dependencies:
@@ -153,13 +178,13 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/collab:
     dependencies:
@@ -172,25 +197,25 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/core:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/editor:
     dependencies:
@@ -221,13 +246,13 @@ importers:
         version: 15.11.7
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/exporter-epub:
     dependencies:
@@ -246,13 +271,13 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/exporter-pdf:
     dependencies:
@@ -268,13 +293,13 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/exporter-site:
     dependencies:
@@ -287,13 +312,13 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/import:
     dependencies:
@@ -312,13 +337,13 @@ importers:
         version: 15.11.7
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/import-docx:
     dependencies:
@@ -349,13 +374,13 @@ importers:
         version: 15.11.7
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/import-epub:
     dependencies:
@@ -386,13 +411,13 @@ importers:
         version: 15.11.7
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/layout:
     dependencies:
@@ -402,13 +427,41 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
+
+  packages/provider-websocket:
+    dependencies:
+      '@bibliotype/collab':
+        specifier: workspace:*
+        version: link:../collab
+      '@bibliotype/core':
+        specifier: workspace:*
+        version: link:../core
+      yjs:
+        specifier: ^13.6.20
+        version: 13.6.33
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.5.12
+        version: 8.18.2
+      tsup:
+        specifier: ^8.3.0
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
+      ws:
+        specifier: ^8.18.0
+        version: 8.22.0
 
   packages/reader:
     dependencies:
@@ -421,37 +474,37 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/textconvert:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/typography-cjk:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
   packages/vue:
     dependencies:
@@ -482,7 +535,7 @@ importers:
     devDependencies:
       '@vitejs/plugin-vue':
         specifier: ^5.2.0
-        version: 5.2.4(vite@5.4.21)(vue@3.5.43(typescript@5.9.3))
+        version: 5.2.4(vite@5.4.21(@types/node@26.6.5))(vue@3.5.43(typescript@5.9.3))
       '@vue/language-core':
         specifier: ^2.1.10
         version: 2.2.12(typescript@5.9.3)
@@ -497,13 +550,13 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^5.4.11
-        version: 5.4.21
+        version: 5.4.21(@types/node@26.6.5)
       vite-plugin-dts:
         specifier: ^4.3.0
-        version: 4.5.4(rollup@4.64.5)(typescript@5.9.3)(vite@5.4.21)
+        version: 4.5.4(@types/node@26.6.5)(rollup@4.64.5)(typescript@5.9.3)(vite@5.4.21(@types/node@26.6.5))
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
       vue:
         specifier: ^3.5.13
         version: 3.5.43(typescript@5.9.3)
@@ -519,13 +572,13 @@ importers:
     devDependencies:
       tsup:
         specifier: ^8.3.0
-        version: 8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
+        version: 8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1)
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
-        version: 2.1.9(happy-dom@15.11.7)
+        version: 2.1.9(@types/node@26.6.5)(happy-dom@15.11.7)
 
 packages:
 
@@ -1177,8 +1230,23 @@ packages:
   '@types/argparse@1.0.38':
     resolution: {integrity: sha512-ebDJ9b0e702Yr7pWgB0jzm+CX4Srzz8RcXtLJDJB+BSccqMa36uyH/zUsSYao5+BD1ytv3k3rPYCq4mAE1hsXA==}
 
+  '@types/emscripten@1.41.6':
+    resolution: {integrity: sha512-uN+9i8bFT5CUcZfyIEYDrSueACEyKGbUs5kC/72DGlZZoinh84sJfVV0i8UOJD1asdzkvLPBRrKs41kZ8MdEXg==}
+
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+
+  '@types/node@22.20.5':
+    resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
+
+  '@types/node@26.6.5':
+    resolution: {integrity: sha512-uMzsv9stDdofIZBx4UGh4Z9ZgXnGC9seRDscilBcTHAeOFk67MZg/k9bWVfO+bk4qZmG+l52hRnLwUiH2LnJTg==}
+
+  '@types/sql.js@1.4.11':
+    resolution: {integrity: sha512-QXIx38p2ZThJaK9vP5ZdqdlRe1FG9I8SmCZOS7FHfB/2qPAjZwkL7/vlfPg6N/oWHuuOaGg/P/IRwfP2W0kWVQ==}
+
+  '@types/ws@8.18.2':
+    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
 
   '@vitejs/plugin-vue@5.2.4':
     resolution: {integrity: sha512-7Yx/SXSOcQq5HiiV3orevHUFn+pmMB4cgbEkDYgnkUWb0WfeQ/wa2yFv6D5ICiCQOVpjA7vYDXrC7AGO8yjDHA==}
@@ -1871,6 +1939,9 @@ packages:
   sprintf-js@1.0.3:
     resolution: {integrity: sha512-D9cPgkvLlV3t3IzL0D0YLvGA9Ahk4PcvVwUbN0dSGr1aP0Nrt4AEnTUbuGvquEC0mA64Gqt1fzirlRs5ibXx8g==}
 
+  sql.js@1.15.1:
+    resolution: {integrity: sha512-i0M/6s+lcl67Flm/1m8/AeVU5caDramlILXU/udUwpTQym2qKMSe2sJiXB5d5WXFB272aj4B2v1JbtQ93ID3Pg==}
+
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
 
@@ -1970,6 +2041,12 @@ packages:
 
   underscore@1.13.8:
     resolution: {integrity: sha512-DXtD3ZtEQzc7M8m4cXotyHR+FAS18C64asBYY5vqZexfYryNNnDc02W4hKg3rdQuqOYas1jkseX0+nZXjTXnvQ==}
+
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+
+  undici-types@8.9.0:
+    resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
   universalify@2.0.1:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
@@ -2083,6 +2160,18 @@ packages:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
     hasBin: true
+
+  ws@8.22.0:
+    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
 
   xmlbuilder@10.1.1:
     resolution: {integrity: sha512-OyzrcFLL/nb6fMGHbiRDuPup9ljBycsdCypwuyg5AAHvyWzGfChJpCXMG88AGTIMFhGZ9RccFN1e6lhg3hkwKg==}
@@ -2404,23 +2493,51 @@ snapshots:
       tinyglobby: 0.2.17
       yaml: 2.9.1
 
-  '@microsoft/api-extractor-model@7.33.15':
+  '@microsoft/api-extractor-model@7.33.15(@types/node@22.20.5)':
     dependencies:
       '@microsoft/tsdoc': 0.17.1
       '@microsoft/tsdoc-config': 0.18.3
-      '@rushstack/node-core-library': 5.25.1
+      '@rushstack/node-core-library': 5.25.1(@types/node@22.20.5)
+    transitivePeerDependencies:
+      - '@types/node'
+    optional: true
+
+  '@microsoft/api-extractor-model@7.33.15(@types/node@26.6.5)':
+    dependencies:
+      '@microsoft/tsdoc': 0.17.1
+      '@microsoft/tsdoc-config': 0.18.3
+      '@rushstack/node-core-library': 5.25.1(@types/node@26.6.5)
     transitivePeerDependencies:
       - '@types/node'
 
-  '@microsoft/api-extractor@7.59.4':
+  '@microsoft/api-extractor@7.59.4(@types/node@22.20.5)':
     dependencies:
-      '@microsoft/api-extractor-model': 7.33.15
+      '@microsoft/api-extractor-model': 7.33.15(@types/node@22.20.5)
       '@microsoft/tsdoc': 0.17.1
       '@microsoft/tsdoc-config': 0.18.3
-      '@rushstack/node-core-library': 5.25.1
+      '@rushstack/node-core-library': 5.25.1(@types/node@22.20.5)
       '@rushstack/rig-package': 0.7.4
-      '@rushstack/terminal': 0.24.7
-      '@rushstack/ts-command-line': 5.3.17
+      '@rushstack/terminal': 0.24.7(@types/node@22.20.5)
+      '@rushstack/ts-command-line': 5.3.17(@types/node@22.20.5)
+      diff: 8.0.4
+      minimatch: 10.2.3
+      resolve: 1.22.13
+      semver: 7.7.4
+      source-map: 0.6.1
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - '@types/node'
+    optional: true
+
+  '@microsoft/api-extractor@7.59.4(@types/node@26.6.5)':
+    dependencies:
+      '@microsoft/api-extractor-model': 7.33.15(@types/node@26.6.5)
+      '@microsoft/tsdoc': 0.17.1
+      '@microsoft/tsdoc-config': 0.18.3
+      '@rushstack/node-core-library': 5.25.1(@types/node@26.6.5)
+      '@rushstack/rig-package': 0.7.4
+      '@rushstack/terminal': 0.24.7(@types/node@26.6.5)
+      '@rushstack/ts-command-line': 5.3.17(@types/node@26.6.5)
       diff: 8.0.4
       minimatch: 10.2.3
       resolve: 1.22.13
@@ -2529,7 +2646,7 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.64.5':
     optional: true
 
-  '@rushstack/node-core-library@5.25.1':
+  '@rushstack/node-core-library@5.25.1(@types/node@22.20.5)':
     dependencies:
       ajv: 8.20.0
       ajv-draft-04: 1.0.0(ajv@8.20.0)
@@ -2539,23 +2656,67 @@ snapshots:
       jju: 1.4.0
       resolve: 1.22.13
       semver: 7.7.4
+    optionalDependencies:
+      '@types/node': 22.20.5
+    optional: true
 
-  '@rushstack/problem-matcher@0.2.1': {}
+  '@rushstack/node-core-library@5.25.1(@types/node@26.6.5)':
+    dependencies:
+      ajv: 8.20.0
+      ajv-draft-04: 1.0.0(ajv@8.20.0)
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      fs-extra: 11.3.6
+      import-lazy: 4.0.0
+      jju: 1.4.0
+      resolve: 1.22.13
+      semver: 7.7.4
+    optionalDependencies:
+      '@types/node': 26.6.5
+
+  '@rushstack/problem-matcher@0.2.1(@types/node@22.20.5)':
+    optionalDependencies:
+      '@types/node': 22.20.5
+    optional: true
+
+  '@rushstack/problem-matcher@0.2.1(@types/node@26.6.5)':
+    optionalDependencies:
+      '@types/node': 26.6.5
 
   '@rushstack/rig-package@0.7.4':
     dependencies:
       jju: 1.4.0
       resolve: 1.22.13
 
-  '@rushstack/terminal@0.24.7':
+  '@rushstack/terminal@0.24.7(@types/node@22.20.5)':
     dependencies:
-      '@rushstack/node-core-library': 5.25.1
-      '@rushstack/problem-matcher': 0.2.1
+      '@rushstack/node-core-library': 5.25.1(@types/node@22.20.5)
+      '@rushstack/problem-matcher': 0.2.1(@types/node@22.20.5)
       supports-color: 8.1.1
+    optionalDependencies:
+      '@types/node': 22.20.5
+    optional: true
 
-  '@rushstack/ts-command-line@5.3.17':
+  '@rushstack/terminal@0.24.7(@types/node@26.6.5)':
     dependencies:
-      '@rushstack/terminal': 0.24.7
+      '@rushstack/node-core-library': 5.25.1(@types/node@26.6.5)
+      '@rushstack/problem-matcher': 0.2.1(@types/node@26.6.5)
+      supports-color: 8.1.1
+    optionalDependencies:
+      '@types/node': 26.6.5
+
+  '@rushstack/ts-command-line@5.3.17(@types/node@22.20.5)':
+    dependencies:
+      '@rushstack/terminal': 0.24.7(@types/node@22.20.5)
+      '@types/argparse': 1.0.38
+      argparse: 1.0.10
+      string-argv: 0.3.2
+    transitivePeerDependencies:
+      - '@types/node'
+    optional: true
+
+  '@rushstack/ts-command-line@5.3.17(@types/node@26.6.5)':
+    dependencies:
+      '@rushstack/terminal': 0.24.7(@types/node@26.6.5)
       '@types/argparse': 1.0.38
       argparse: 1.0.10
       string-argv: 0.3.2
@@ -2582,11 +2743,31 @@ snapshots:
 
   '@types/argparse@1.0.38': {}
 
+  '@types/emscripten@1.41.6': {}
+
   '@types/estree@1.0.9': {}
 
-  '@vitejs/plugin-vue@5.2.4(vite@5.4.21)(vue@3.5.43(typescript@5.9.3))':
+  '@types/node@22.20.5':
     dependencies:
-      vite: 5.4.21
+      undici-types: 6.21.0
+
+  '@types/node@26.6.5':
+    dependencies:
+      undici-types: 8.9.0
+    optional: true
+
+  '@types/sql.js@1.4.11':
+    dependencies:
+      '@types/emscripten': 1.41.6
+      '@types/node': 22.20.5
+
+  '@types/ws@8.18.2':
+    dependencies:
+      '@types/node': 22.20.5
+
+  '@vitejs/plugin-vue@5.2.4(vite@5.4.21(@types/node@26.6.5))(vue@3.5.43(typescript@5.9.3))':
+    dependencies:
+      vite: 5.4.21(@types/node@26.6.5)
       vue: 3.5.43(typescript@5.9.3)
 
   '@vitest/expect@2.1.9':
@@ -2596,13 +2777,21 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 1.2.0
 
-  '@vitest/mocker@2.1.9(vite@5.4.21)':
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@22.20.5))':
     dependencies:
       '@vitest/spy': 2.1.9
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 5.4.21
+      vite: 5.4.21(@types/node@22.20.5)
+
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@26.6.5))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 5.4.21(@types/node@26.6.5)
 
   '@vitest/pretty-format@2.1.9':
     dependencies:
@@ -3327,6 +3516,8 @@ snapshots:
 
   sprintf-js@1.0.3: {}
 
+  sql.js@1.15.1: {}
+
   stackback@0.0.2: {}
 
   std-env@3.10.0: {}
@@ -3382,7 +3573,7 @@ snapshots:
 
   ts-interface-checker@0.1.13: {}
 
-  tsup@8.5.1(@microsoft/api-extractor@7.59.4)(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1):
+  tsup@8.5.1(@microsoft/api-extractor@7.59.4(@types/node@22.20.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1):
     dependencies:
       bundle-require: 5.1.0(esbuild@0.27.7)
       cac: 6.7.14
@@ -3402,7 +3593,36 @@ snapshots:
       tinyglobby: 0.2.17
       tree-kill: 1.2.2
     optionalDependencies:
-      '@microsoft/api-extractor': 7.59.4
+      '@microsoft/api-extractor': 7.59.4(@types/node@22.20.5)
+      postcss: 8.5.29
+      typescript: 5.9.3
+    transitivePeerDependencies:
+      - jiti
+      - supports-color
+      - tsx
+      - yaml
+
+  tsup@8.5.1(@microsoft/api-extractor@7.59.4(@types/node@26.6.5))(postcss@8.5.29)(typescript@5.9.3)(yaml@2.9.1):
+    dependencies:
+      bundle-require: 5.1.0(esbuild@0.27.7)
+      cac: 6.7.14
+      chokidar: 4.0.3
+      consola: 3.4.2
+      debug: 4.4.3
+      esbuild: 0.27.7
+      fix-dts-default-cjs-exports: 1.0.1
+      joycon: 3.1.1
+      picocolors: 1.1.1
+      postcss-load-config: 6.0.1(postcss@8.5.29)(yaml@2.9.1)
+      resolve-from: 5.0.0
+      rollup: 4.64.5
+      source-map: 0.7.6
+      sucrase: 3.35.1
+      tinyexec: 0.3.2
+      tinyglobby: 0.2.17
+      tree-kill: 1.2.2
+    optionalDependencies:
+      '@microsoft/api-extractor': 7.59.4(@types/node@26.6.5)
       postcss: 8.5.29
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -3426,17 +3646,22 @@ snapshots:
 
   underscore@1.13.8: {}
 
+  undici-types@6.21.0: {}
+
+  undici-types@8.9.0:
+    optional: true
+
   universalify@2.0.1: {}
 
   util-deprecate@1.0.2: {}
 
-  vite-node@2.1.9:
+  vite-node@2.1.9(@types/node@22.20.5):
     dependencies:
       cac: 6.7.14
       debug: 4.4.3
       es-module-lexer: 1.7.0
       pathe: 1.1.2
-      vite: 5.4.21
+      vite: 5.4.21(@types/node@22.20.5)
     transitivePeerDependencies:
       - '@types/node'
       - less
@@ -3448,9 +3673,27 @@ snapshots:
       - supports-color
       - terser
 
-  vite-plugin-dts@4.5.4(rollup@4.64.5)(typescript@5.9.3)(vite@5.4.21):
+  vite-node@2.1.9(@types/node@26.6.5):
     dependencies:
-      '@microsoft/api-extractor': 7.59.4
+      cac: 6.7.14
+      debug: 4.4.3
+      es-module-lexer: 1.7.0
+      pathe: 1.1.2
+      vite: 5.4.21(@types/node@26.6.5)
+    transitivePeerDependencies:
+      - '@types/node'
+      - less
+      - lightningcss
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+
+  vite-plugin-dts@4.5.4(@types/node@26.6.5)(rollup@4.64.5)(typescript@5.9.3)(vite@5.4.21(@types/node@26.6.5)):
+    dependencies:
+      '@microsoft/api-extractor': 7.59.4(@types/node@26.6.5)
       '@rollup/pluginutils': 5.4.0(rollup@4.64.5)
       '@volar/typescript': 2.4.28
       '@vue/language-core': 2.2.0(typescript@5.9.3)
@@ -3461,24 +3704,34 @@ snapshots:
       magic-string: 0.30.21
       typescript: 5.9.3
     optionalDependencies:
-      vite: 5.4.21
+      vite: 5.4.21(@types/node@26.6.5)
     transitivePeerDependencies:
       - '@types/node'
       - rollup
       - supports-color
 
-  vite@5.4.21:
+  vite@5.4.21(@types/node@22.20.5):
     dependencies:
       esbuild: 0.21.5
       postcss: 8.5.29
       rollup: 4.64.5
     optionalDependencies:
+      '@types/node': 22.20.5
       fsevents: 2.3.3
 
-  vitest@2.1.9(happy-dom@15.11.7):
+  vite@5.4.21(@types/node@26.6.5):
+    dependencies:
+      esbuild: 0.21.5
+      postcss: 8.5.29
+      rollup: 4.64.5
+    optionalDependencies:
+      '@types/node': 26.6.5
+      fsevents: 2.3.3
+
+  vitest@2.1.9(@types/node@22.20.5)(happy-dom@15.11.7):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21)
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.20.5))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9
@@ -3494,10 +3747,47 @@ snapshots:
       tinyexec: 0.3.2
       tinypool: 1.1.1
       tinyrainbow: 1.2.0
-      vite: 5.4.21
-      vite-node: 2.1.9
+      vite: 5.4.21(@types/node@22.20.5)
+      vite-node: 2.1.9(@types/node@22.20.5)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@types/node': 22.20.5
+      happy-dom: 15.11.7
+    transitivePeerDependencies:
+      - less
+      - lightningcss
+      - msw
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+
+  vitest@2.1.9(@types/node@26.6.5)(happy-dom@15.11.7):
+    dependencies:
+      '@vitest/expect': 2.1.9
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@26.6.5))
+      '@vitest/pretty-format': 2.1.9
+      '@vitest/runner': 2.1.9
+      '@vitest/snapshot': 2.1.9
+      '@vitest/spy': 2.1.9
+      '@vitest/utils': 2.1.9
+      chai: 5.3.3
+      debug: 4.4.3
+      expect-type: 1.4.0
+      magic-string: 0.30.21
+      pathe: 1.1.2
+      std-env: 3.10.0
+      tinybench: 2.9.0
+      tinyexec: 0.3.2
+      tinypool: 1.1.1
+      tinyrainbow: 1.2.0
+      vite: 5.4.21(@types/node@26.6.5)
+      vite-node: 2.1.9(@types/node@26.6.5)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 26.6.5
       happy-dom: 15.11.7
     transitivePeerDependencies:
       - less
@@ -3540,6 +3830,8 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  ws@8.22.0: {}
 
   xmlbuilder@10.1.1: {}
 

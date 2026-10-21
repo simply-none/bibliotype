@@ -36,8 +36,8 @@
 | [06 Vue 集成](06-vue-integration.md) | 组合式 API、组件、插件 | `@bibliotype/vue` |
 | [07 EPUB 导出](07-export-epub.md) | 章节规划、OPF/nav、打包 | `@bibliotype/exporter-epub` |
 | [08 PDF 与打印](08-export-pdf.md) | 打印 CSS、预分页、printBook | `@bibliotype/exporter-pdf` |
-| [09 协同编辑](09-collab.md) | Y.Doc 映射、会话、Provider | `@bibliotype/collab` |
-| [10 存储适配器](10-storage-adapters.md) | StorageAdapter 契约与实现 | `@bibliotype/adapter-indexeddb` |
+| [09 协同编辑](09-collab.md) | Y.Doc 映射、会话、Provider、网络传输 | `@bibliotype/collab` / `provider-websocket` |
+| [10 存储适配器](10-storage-adapters.md) | StorageAdapter 契约与实现 | `adapter-indexeddb` / `adapter-sqlite` |
 | [11 主题与令牌](11-theme-tokens.md) | 令牌体系、古典覆盖、自定义主题 | `core` / `classical` / `layout` |
 | [12 工程化与发布](12-release-and-ci.md) | 日期版本、Changesets、CI、npm 发布 | 全仓 |
 | [13 核心运行时](13-core-runtime.md) | 事件总线、节点注册、核心实例 | `@bibliotype/core` |
@@ -73,7 +73,9 @@ apps/demo                          ← 集成示例（Vue 3 + Vite）
 库与扩展（平行接入）
  ├── @bibliotype/classical         ← 古籍节点 / 主题 / 编辑命令（插件 + ./editor 子入口）
  ├── @bibliotype/collab            ← 协同（IR ⇄ Y.Doc）
+ ├── @bibliotype/provider-websocket ← 协同传输（WebSocket / 多标签 + 参考服务端）
  ├── @bibliotype/adapter-indexeddb ← 存储实现（IndexedDB / 内存）
+ ├── @bibliotype/adapter-sqlite    ← 存储实现（SQLite，驱动由宿主注入）
  ├── @bibliotype/adapter-http      ← 存储实现（远端 REST + 资产）
  ├── @bibliotype/annotation        ← 标注（高亮 / 书签 / 笔记 / 评论，基于 core 锚点）
  ├── @bibliotype/typography-cjk    ← 中文排印（禁则 / 挤压 / 混排，零依赖）

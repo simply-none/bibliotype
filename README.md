@@ -30,7 +30,9 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 | [`@bibliotype/reader`](packages/reader/README.md) | 阅读状态机：分页、翻页、目录、搜索、页码 |
 | [`@bibliotype/vue`](packages/vue/README.md) | Vue 3 组件与组合式 API（useReader / useEditorBinding 等） |
 | [`@bibliotype/collab`](packages/collab/README.md) | 协同：IR ⇄ Y.Doc 映射、协同会话、Provider 抽象 |
+| [`@bibliotype/provider-websocket`](packages/provider-websocket/README.md) | WebSocket / BroadcastChannel Provider（重连 + 离线队列）与参考服务端 |
 | [`@bibliotype/adapter-indexeddb`](packages/adapter-indexeddb/README.md) | IndexedDB / 内存存储适配器（core StorageAdapter 实现） |
+| [`@bibliotype/adapter-sqlite`](packages/adapter-sqlite/README.md) | SQLite 存储适配器（驱动由宿主注入，能力对齐 IndexedDB） |
 | [`@bibliotype/exporter-epub`](packages/exporter-epub/README.md) | EPUB 3 导出（IR → 语义 XHTML + OPF/nav 打包） |
 | [`@bibliotype/exporter-pdf`](packages/exporter-pdf/README.md) | PDF（打印）导出（@page 尺寸 / 预分页固定页） |
 | [`@bibliotype/exporter-site`](packages/exporter-site/README.md) | 静态站点导出（多页 HTML + 目录 + 搜索索引） |
@@ -47,7 +49,8 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 core → layout → reader → exporter-pdf / exporter-epub
 core → editor → classical（节点与命令扩展）
 core + editor + layout + reader → vue → apps/demo
-core → collab / adapter-indexeddb / adapter-http
+core → collab / adapter-indexeddb / adapter-sqlite / adapter-http
+collab → provider-websocket
 core → annotation / typography-cjk / textconvert
 core + layout → xref / exporter-site
 ```
@@ -116,8 +119,8 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [06 Vue 集成](docs/06-vue-integration.md) | useReader / 组件 / 插件安装 |
 | [07 EPUB 导出](docs/07-export-epub.md) | 章节规划、OPF/nav、打包 |
 | [08 PDF 与打印](docs/08-export-pdf.md) | 打印 CSS、预分页、printBook |
-| [09 协同编辑](docs/09-collab.md) | Y.Doc 映射、会话、Provider |
-| [10 存储适配器](docs/10-storage-adapters.md) | StorageAdapter 契约、IndexedDB / 内存实现 |
+| [09 协同编辑](docs/09-collab.md) | Y.Doc 映射、会话、Provider、WebSocket / 多标签传输 |
+| [10 存储适配器](docs/10-storage-adapters.md) | StorageAdapter 契约、IndexedDB / 内存 / SQLite 实现 |
 | [11 主题与令牌](docs/11-theme-tokens.md) | 令牌体系、古典覆盖、自定义主题 |
 | [12 工程化与发布](docs/12-release-and-ci.md) | 日期版本、Changesets、CI、npm 发布 |
 | [13 核心运行时](docs/13-core-runtime.md) | 事件总线、节点注册、核心实例 |

@@ -12,6 +12,8 @@
 | --- | --- |
 | `core` / `layout` / `reader` / `classical` / `collab` / `exporter-epub` / `exporter-pdf` / `editor` | Node 环境（纯函数与状态机） |
 | `adapter-indexeddb` | `fake-indexeddb` 注入 `factory`（仅 IndexedDB 相关用例；`MemoryAdapter` 零依赖） |
+| `adapter-sqlite` | `sql.js`（WASM，devDependency）建内存库跑真实 SQL；契约套件来自 `@bibliotype/core/testing` |
+| `provider-websocket` | Node 原生 `BroadcastChannel` + 假 socket 单测；e2e 用 `ws`（devDependency）起参考服务端（端口 0） |
 | `vue` | `happy-dom`（`vite.config.ts` 中 `test.environment`）+ `@vue/test-utils`；SFC 由 Vite 插件编译 |
 
 ## 常用命令

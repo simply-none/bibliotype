@@ -20,7 +20,13 @@
  * - `updatedAt` 由 `SaveOptions` 注入（缺省取 clock），保证可测与可回溯；
  * - `close()` 仅标记关闭，之后仍可继续使用（与 core 契约一致）。
  */
-import { isBookDocument, queryDocumentSummaries, toAssetRef } from '@bibliotype/core';
+import {
+  BIBLIOTYPE_ERROR_CODES,
+  BibliotypeError,
+  isBookDocument,
+  queryDocumentSummaries,
+  toAssetRef,
+} from '@bibliotype/core';
 import type {
   AssetPayload,
   AssetRef,
@@ -56,14 +62,20 @@ export interface HttpAdapterOptions {
 }
 
 /** 适配器错误 */
-export class HttpAdapterError extends Error {
+export class HttpAdapterError extends BibliotypeError {
   /** HTTP 状态码（网络错误为 0） */
   readonly status: number;
   /** 请求路径 */
   readonly path: string;
 
-  constructor(message: string, status: number, path: string) {
-    super(message);
+  constructor(message: string, status: number, path: string, cause?: unknown) {
+    super(BIBLIOTYPE_ERROR_CODES.HTTP_REQUEST_FAILED, message, {
+      details: { status, path },
+      hint: status === 0
+        ? '检查网络连接与服务端可达性后重试。'
+        : '根据 status 排查服务端响应；401/403 检查鉴权配置，404 检查端点路径。',
+      cause,
+    });
     this.name = 'HttpAdapterError';
     this.status = status;
     this.path = path;

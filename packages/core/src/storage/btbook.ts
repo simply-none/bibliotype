@@ -13,6 +13,7 @@
  * assets/<id>      资产二进制（可选，id 做百分号编码）
  * ```
  */
+import { BibliotypeError } from '../errors/bibliotype-error.js';
 import type { BookDocument } from '../ir/document.js';
 import { isBookDocument } from '../ir/document.js';
 import type { AssetPayload } from './asset.js';
@@ -50,13 +51,13 @@ export const BOOK_PACK_ERROR_CODES = {
 export type BookPackErrorCode =
   (typeof BOOK_PACK_ERROR_CODES)[keyof typeof BOOK_PACK_ERROR_CODES];
 
-/** 书档解析错误（中文信息 + 稳定错误码） */
-export class BookPackError extends Error {
+/** 书档解析错误（中文信息 + 稳定错误码；I8 起并入统一错误基类） */
+export class BookPackError extends BibliotypeError {
   /** 稳定错误码 */
-  readonly code: BookPackErrorCode;
+  override readonly code: BookPackErrorCode;
 
   constructor(code: BookPackErrorCode, message: string) {
-    super(message);
+    super(code, message);
     this.name = 'BookPackError';
     this.code = code;
   }

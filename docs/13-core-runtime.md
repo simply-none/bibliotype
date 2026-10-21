@@ -161,6 +161,43 @@ const instance = createBibliotype({
 > （`app.use(...)` 全局注册 Bt 组件，见 [06](06-vue-integration.md)）；本节的
 > `createBibliotype` 来自 `@bibliotype/core`，是核心运行时实例。
 
+## 统一错误（BibliotypeError，I8）
+
+全仓错误的共同基类：稳定 `code`（宿主分支处理）+ `details`（机器可读上下文）+
+`hint`（中文修复建议）+ `cause`（根因链）。core / editor / adapter-http 的既有
+错误类均已并入，**原 `instanceof` 断言、`name`、message 与既有稳定码全部不变**：
+
+| 错误类 | 归属包 | code（I8 登记值） |
+| --- | --- | --- |
+| `PluginConflictError` | core | `PLUGIN_CONFLICT` |
+| `NodeTypeConflictError` | core | `NODE_TYPE_CONFLICT` |
+| `MigrationPathError` | core | `MIGRATION_PATH_MISSING` |
+| `EditorSpecConflictError` | editor | `EDITOR_SPEC_CONFLICT` |
+| `HttpAdapterError` | adapter-http | `HTTP_REQUEST_FAILED` |
+| `CryptoError` | core | 既有码（`NOT_SUPPORTED` / `WRONG_KEY` 等，见 [10](10-storage-adapters.md)） |
+| `BookPackError` | core | 既有码（`INVALID_MANIFEST` 等，见 [10](10-storage-adapters.md)） |
+
+统一登记表为 `BIBLIOTYPE_ERROR_CODES`（`errors/error-codes.ts`）——新增错误必须
+在此登记并回写本表，避免字符串漂移。
+
+```ts
+import { BibliotypeError, isBibliotypeError, serializeBibliotypeError, deserializeBibliotypeError } from '@bibliotype/core';
+
+/* 抛错：code + 中文信息 + details / hint / cause */
+throw new BibliotypeError('MY_PLUGIN_FAILED', '示例失败。', {
+  details: { step: 'render' },
+  hint: '检查渲染入参后重试。',
+  cause: originalError,
+});
+
+/* 判定与还原：任意包抛出的错误都可用 isBibliotypeError 判定 */
+if (isBibliotypeError(error)) console.log(error.code, error.hint);
+
+/* 序列化往返（日志上报 / 跨进程传递）：JSON 安全，cause 链递归还原 */
+const payload = serializeBibliotypeError(error);
+const restored = deserializeBibliotypeError(JSON.parse(JSON.stringify(payload)));
+```
+
 ## 相关
 
 - 包参考：[`@bibliotype/core`](../packages/core/README.md)

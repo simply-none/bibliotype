@@ -3,7 +3,9 @@
  *
  * 约束：错误信息用中文并给出修复指向；错误码稳定，供宿主做分支处理
  * （如「口令错误」提示重试、「未解锁」引导输入口令）。
+ * I8：继承统一错误基类 BibliotypeError（code 值保持不变，见 docs/10）。
  */
+import { BibliotypeError } from '../errors/bibliotype-error.js';
 
 /** 加密错误码 */
 export const CRYPTO_ERROR_CODES = {
@@ -20,13 +22,13 @@ export const CRYPTO_ERROR_CODES = {
 /** 加密错误码联合 */
 export type CryptoErrorCode = (typeof CRYPTO_ERROR_CODES)[keyof typeof CRYPTO_ERROR_CODES];
 
-/** 加密错误（带稳定 code，便于宿主分支处理） */
-export class CryptoError extends Error {
+/** 加密错误（带稳定 code，便于宿主分支处理；I8 起并入统一错误基类） */
+export class CryptoError extends BibliotypeError {
   /** 稳定错误码 */
-  readonly code: CryptoErrorCode;
+  override readonly code: CryptoErrorCode;
 
   constructor(code: CryptoErrorCode, message: string) {
-    super(message);
+    super(code, message);
     this.name = 'CryptoError';
     this.code = code;
   }

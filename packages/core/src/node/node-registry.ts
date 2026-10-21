@@ -6,13 +6,20 @@
  * - 插件（如 classical）通过 register 批量补充；
  * - 注册冲突时抛出明确错误（含命名空间提示），避免静默覆盖。
  */
+import { BIBLIOTYPE_ERROR_CODES } from '../errors/error-codes.js';
+import { BibliotypeError } from '../errors/bibliotype-error.js';
 import type { NodeTypeDefinition } from './node-type.js';
 
 /** 注册冲突错误 */
-export class NodeTypeConflictError extends Error {
+export class NodeTypeConflictError extends BibliotypeError {
   constructor(type: string) {
     super(
+      BIBLIOTYPE_ERROR_CODES.NODE_TYPE_CONFLICT,
       `节点类型 "${type}" 已被注册。若为不同业务语义，请使用独立命名空间前缀（如 "classical:jiaozhu"）。`,
+      {
+        details: { type },
+        hint: '检查插件是否重复注册，或为不同语义的类型加命名空间前缀。',
+      },
     );
     this.name = 'NodeTypeConflictError';
   }

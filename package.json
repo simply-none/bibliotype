@@ -24,11 +24,14 @@
     "release:check": "node scripts/check-version.mjs && pnpm build && pnpm -r publish --dry-run --no-git-checks",
     "release:rc": "pnpm build && pnpm -r publish --tag rc --no-git-checks --access public",
     "release": "pnpm build && pnpm -r publish --tag latest --no-git-checks --access public",
-    "test:coverage": "turbo run test:coverage"
+    "test:coverage": "turbo run test:coverage",
+    "size": "size-limit"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
+    "@size-limit/preset-small-lib": "^11.2.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "size-limit": "^11.2.0",
     "turbo": "^2.3.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

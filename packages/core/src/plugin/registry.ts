@@ -6,12 +6,21 @@
  * - 安装失败时回滚（不保留半安装状态）；
  * - uninstall 时执行插件返回的 dispose 函数。
  */
+import { BIBLIOTYPE_ERROR_CODES } from '../errors/error-codes.js';
+import { BibliotypeError } from '../errors/bibliotype-error.js';
 import type { BibliotypeContext, BibliotypePlugin } from './types.js';
 
 /** 插件重复安装错误 */
-export class PluginConflictError extends Error {
+export class PluginConflictError extends BibliotypeError {
   constructor(name: string) {
-    super(`插件 "${name}" 已安装。请勿重复安装同名插件。`);
+    super(
+      BIBLIOTYPE_ERROR_CODES.PLUGIN_CONFLICT,
+      `插件 "${name}" 已安装。请勿重复安装同名插件。`,
+      {
+        details: { name },
+        hint: '先 uninstall 同名插件再安装，或改用其它插件名。',
+      },
+    );
     this.name = 'PluginConflictError';
   }
 }

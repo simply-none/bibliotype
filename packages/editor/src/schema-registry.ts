@@ -5,7 +5,7 @@
  * 古籍等插件包（如 @bibliotype/classical）在初始化时批量注册其专有节点，
  * 卸载时按命名空间注销，保证未安装插件时 editor 独立可用。
  */
-import { NODE_TYPES } from '@bibliotype/core';
+import { BIBLIOTYPE_ERROR_CODES, BibliotypeError, NODE_TYPES } from '@bibliotype/core';
 import {
   Schema,
   type DOMOutputSpec,
@@ -179,9 +179,16 @@ function withDefaultMarkDom(type: string, spec: MarkSpec): MarkSpec {
 }
 
 /** 规格注册冲突错误 */
-export class EditorSpecConflictError extends Error {
+export class EditorSpecConflictError extends BibliotypeError {
   constructor(kind: 'node' | 'mark', type: string) {
-    super(`编辑器 ${kind === 'node' ? '节点' : '标记'}规格 "${type}" 已注册。`);
+    super(
+      BIBLIOTYPE_ERROR_CODES.EDITOR_SPEC_CONFLICT,
+      `编辑器 ${kind === 'node' ? '节点' : '标记'}规格 "${type}" 已注册。`,
+      {
+        details: { kind, type },
+        hint: '检查插件是否重复注册同名规格，或改用其它 type。',
+      },
+    );
     this.name = 'EditorSpecConflictError';
   }
 }

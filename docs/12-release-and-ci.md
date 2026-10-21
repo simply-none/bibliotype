@@ -186,6 +186,25 @@ MR 运行；`release` 阶段为 manual job（同样经 `version.mjs` + `pnpm -r 
 - 根 README 快速开始与包一览：[README](../README.md)
 - Changesets 工作流速查：[.changeset/README.md](../.changeset/README.md)
 
+## 体积预算护栏（I3）
+
+根 `.size-limit.json` 登记四个核心包的 gzip 阈值（`pnpm size` 本地执行，CI 在
+build 后跑 `pnpm size` 门禁；超限失败并指出包名与超出量）：
+
+| 配置项 | 阈值 | 交付时基线（gzip，含依赖） |
+| --- | --- | --- |
+| `@bibliotype/core` | 32 KB（最严档） | 29.87 KB |
+| `@bibliotype/layout` | 13 KB | 11.71 KB |
+| `@bibliotype/editor` | 54 KB | 50.61 KB |
+| `@bibliotype/vue` | 165 KB | 154.31 KB |
+
+约定：
+
+- 有意扩容（新增功能带来合理增量）时**随功能提交一并上调阈值**，并在 changeset
+  描述中说明增量来源；
+- 阈值按基线上浮约 7–11% 设定，兼顾正常迭代与拦截意外膨胀；
+- `size-limit` 固定在 v11（v14 起要求 Node ≥ 22，本仓库 CI 矩阵含 Node 20）。
+
 ## EPUB 校验护栏（E9）
 
 CI 在 `pnpm build` 后执行 `packages/exporter-epub/bin/bt-validate-epub.mjs`：先用 `exportEpub` 生成样本并期望退出 0，再对非 ZIP 文件期望非 0（步骤失败即中断）。本地等价命令：

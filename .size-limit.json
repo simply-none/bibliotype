@@ -1,0 +1,26 @@
+[
+  {
+    "name": "@bibliotype/core（最严档）",
+    "path": "packages/core/dist/index.js",
+    "gzip": true,
+    "limit": "32 KB"
+  },
+  {
+    "name": "@bibliotype/layout（次档）",
+    "path": "packages/layout/dist/index.js",
+    "gzip": true,
+    "limit": "13 KB"
+  },
+  {
+    "name": "@bibliotype/editor（次档）",
+    "path": "packages/editor/dist/index.js",
+    "gzip": true,
+    "limit": "54 KB"
+  },
+  {
+    "name": "@bibliotype/vue（次档）",
+    "path": "packages/vue/dist/index.js",
+    "gzip": true,
+    "limit": "165 KB"
+  }
+]

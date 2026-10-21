@@ -12,6 +12,20 @@
 /* ---------- 版本 ---------- */
 export { VERSION } from './version.js';
 
+/* ---------- 统一错误（I8） ---------- */
+export {
+  BibliotypeError,
+  deserializeBibliotypeError,
+  isBibliotypeError,
+  serializeBibliotypeError,
+} from './errors/bibliotype-error.js';
+export { BIBLIOTYPE_ERROR_CODES } from './errors/error-codes.js';
+export type {
+  BibliotypeErrorOptions,
+  SerializedBibliotypeError,
+} from './errors/bibliotype-error.js';
+export type { BibliotypeErrorCode } from './errors/error-codes.js';
+
 /* ---------- IR ---------- */
 export type { NodeId, Timestamp, AttrValue, Attrs, TextRange } from './ir/types.js';
 export { NODE_TYPES, MARK_TYPES } from './ir/node-types.js';

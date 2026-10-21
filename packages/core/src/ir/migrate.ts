@@ -12,6 +12,9 @@
  * - 迁移完成后回填 schemaVersion 并做一次结构校验，问题随结果返回；
  * - 内置步骤表默认为空：`0.1.0` 是当前基线，历史数据的迁移步骤由调用方按需注册。
  */
+import { BIBLIOTYPE_ERROR_CODES } from '../errors/error-codes.js';
+import { BibliotypeError } from '../errors/bibliotype-error.js';
+import type { BibliotypeErrorOptions } from '../errors/bibliotype-error.js';
 import type { BookDocument } from './document.js';
 import { IR_SCHEMA_VERSION } from './document.js';
 import type { DocumentIssue } from './validate.js';
@@ -36,9 +39,9 @@ export interface MigrationStep {
 }
 
 /** 迁移路径错误 */
-export class MigrationPathError extends Error {
-  constructor(message: string) {
-    super(message);
+export class MigrationPathError extends BibliotypeError {
+  constructor(message: string, options: BibliotypeErrorOptions = {}) {
+    super(BIBLIOTYPE_ERROR_CODES.MIGRATION_PATH_MISSING, message, options);
     this.name = 'MigrationPathError';
   }
 }
@@ -129,6 +132,10 @@ export function migrateDocument(document: unknown, options: MigrateOptions = {})
     if (!step || applied.length >= guard) {
       throw new MigrationPathError(
         `迁移失败：缺少 ${version} → ${targetVersion} 的迁移步骤，请在 steps 中注册。`,
+        {
+          details: { from: version, to: targetVersion },
+          hint: '在 migrateDocument 的 steps 中注册缺失级别的迁移步骤。',
+        },
       );
     }
     current = { ...step.migrate(current), schemaVersion: step.to };

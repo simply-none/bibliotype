@@ -30,7 +30,7 @@
  * 编辑自动保存走「节流合并 + 空闲落盘 + 单飞去重」（composables/use-draft-autosave）：
  * 序列化与整本写入都不落在输入帧上；Ctrl/Cmd+S 立即保存，转入后台 / 关闭前兜底落盘。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch, type Ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect, type Ref } from 'vue';
 import {
   COLOR_TOKENS,
   DEFAULT_THEME,
@@ -88,6 +88,8 @@ import {
   type PdfAdapterOptions,
 } from '@bibliotype/exporter-pdf';
 import AppToast from './components/AppToast.vue';
+import AppIcon from './components/AppIcon.vue';
+import type { AppIconName } from './app-icons.js';
 import AsidePanels from './components/AsidePanels.vue';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
@@ -108,6 +110,19 @@ import {
   resolveActiveFontToken,
   resolveFacsimilePresetTokens,
 } from './facsimile-theme.js';
+import {
+  DEFAULT_UI_DENSITY,
+  DEFAULT_UI_MOTION,
+  DEFAULT_UI_SKIN,
+  isUiDensity,
+  isUiMotion,
+  isUiSkinKey,
+  resolveUiSkin,
+  UI_SKINS,
+  type UiDensity,
+  type UiMotion,
+  type UiSkinKey,
+} from './ui-skin.js';
 
 /* ---------------- 主题定义 ---------------- */
 
@@ -309,10 +324,61 @@ const mobileInspectorOpen = ref(false);
 /** H5：属性检视器 sheet 的吸附档位（B5：半屏 / 全屏） */
 const MOBILE_INSPECTOR_SNAPS: readonly string[] = ['48vh', '92vh'];
 
+/**
+ * H5：「更多」sheet 的吸附档位（P2）
+ *
+ * 传 snapHeights 不只是为了能拖：把手只在有档位时渲染，
+ * 「能拖」这个信号本身也得给用户看到。
+ */
+const MOBILE_MENU_SNAPS: readonly string[] = ['52vh', '88vh'];
+
 /* ---------------- 排版设置（夜间预设 + 面板补丁） ---------------- */
 
 /** 夜间阅读（仅覆盖阅读区配色令牌，位于令牌链最顶层） */
 const night = ref(false);
+
+/* ---------------- 界面皮肤（P0 / P4） ---------------- */
+
+/** 界面皮肤：只决定壳层观感，与阅读纸面主题正交 */
+const uiSkin = ref<UiSkinKey>(DEFAULT_UI_SKIN);
+/** 界面密度：只缩间距与行高，不动字号与 44px 触控目标 */
+const uiDensity = ref<UiDensity>(DEFAULT_UI_DENSITY);
+/** 动效偏好：auto 跟随系统，off 显式关闭 */
+const uiMotion = ref<UiMotion>(DEFAULT_UI_MOTION);
+
+/** 当前皮肤元数据（预览色 / 深色判定 / theme-color 同步） */
+const activeSkin = computed(() => resolveUiSkin(uiSkin.value));
+
+/**
+ * 皮肤 / 密度 / 动效 / 夜间落到 <html>
+ *
+ * 挂在文档根而非 `.app`：抽屉、设置、书籍信息都 Teleport 到 body，
+ * 只有根上的令牌才能穿过传送门；`data-night` 只供样式做纸张微调，
+ * 壳色永远由 `data-skin` 唯一决定（避免夜间开关把皮肤染回深色）。
+ * 同步写 `meta[name=theme-color]`：手机浏览器的地址栏 / 状态栏跟随壳色，
+ * 不会再出现“黑壳 + 白顶栏”的裂缝。
+ */
+watchEffect(() => {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.dataset.skin = uiSkin.value;
+  root.dataset.density = uiDensity.value;
+  root.dataset.motion = uiMotion.value;
+  root.dataset.night = night.value ? 'true' : 'false';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta instanceof HTMLMetaElement) meta.content = activeSkin.value.preview.canvas;
+});
+
+/**
+ * 切皮肤
+ *
+ * 深色皮肤选中时联动夜间纸面（否则黑壳 + 白纸的对比会刺眼）；
+ * 浅色皮肤不强行关夜间——用户可能就想白天用浅壳读深色纸。
+ */
+function setUiSkin(next: UiSkinKey): void {
+  uiSkin.value = next;
+  if (resolveUiSkin(next).dark) night.value = true;
+}
 
 /** 夜间配色覆盖（正文 / 背景 / 注文 / 强调） */
 const NIGHT_COLORS: Readonly<Record<string, string>> = {
@@ -762,7 +828,7 @@ const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
 /** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
 const SETTINGS_KEY = 'bibliotype-demo:settings';
 
-/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 翻页动效 / 属性栏折叠 */
+/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 翻页动效 / 属性栏折叠 / 界面皮肤 */
 interface SettingsSnapshot {
   themeKey: ThemeKey;
   night: boolean;
@@ -770,6 +836,12 @@ interface SettingsSnapshot {
   pageTransition: 'slide' | 'fade' | 'none';
   /** 编辑态右栏属性检视器折叠（true = 收成细条） */
   inspectorCollapsed: boolean;
+  /** 界面皮肤（壳层观感） */
+  uiSkin: UiSkinKey;
+  /** 界面密度 */
+  uiDensity: UiDensity;
+  /** 动效偏好 */
+  uiMotion: UiMotion;
 }
 
 /** 读取界面偏好快照（非法 / 缺失 → null，逐字段容错回退默认） */
@@ -796,6 +868,10 @@ function readSettingsSnapshot(): SettingsSnapshot | null {
       pageTransition:
         transitionValue === 'fade' || transitionValue === 'none' ? transitionValue : 'slide',
       inspectorCollapsed: parsed.inspectorCollapsed === true,
+      /* 新增字段逐项容错：旧快照没有这些键，一律回落默认 */
+      uiSkin: isUiSkinKey(parsed.uiSkin) ? parsed.uiSkin : DEFAULT_UI_SKIN,
+      uiDensity: isUiDensity(parsed.uiDensity) ? parsed.uiDensity : DEFAULT_UI_DENSITY,
+      uiMotion: isUiMotion(parsed.uiMotion) ? parsed.uiMotion : DEFAULT_UI_MOTION,
     };
   } catch {
     return null;
@@ -814,6 +890,9 @@ function applySettingsSnapshot(snapshot: SettingsSnapshot): void {
   viewMode.value = snapshot.viewMode;
   pageTransition.value = snapshot.pageTransition;
   inspectorCollapsed.value = snapshot.inspectorCollapsed;
+  uiSkin.value = snapshot.uiSkin;
+  uiDensity.value = snapshot.uiDensity;
+  uiMotion.value = snapshot.uiMotion;
 }
 
 /** 收集当前界面偏好并落盘 */
@@ -824,6 +903,9 @@ function persistSettingsSnapshot(): void {
     viewMode: viewMode.value,
     pageTransition: pageTransition.value,
     inspectorCollapsed: inspectorCollapsed.value,
+    uiSkin: uiSkin.value,
+    uiDensity: uiDensity.value,
+    uiMotion: uiMotion.value,
   };
   try {
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));
@@ -849,7 +931,7 @@ function persistSettingsSnapshot(): void {
  * 都即时写回 localStorage，无需调用方逐个补 `persistSettingsSnapshot()`。
  */
 watch(
-  [themeKey, night, viewMode, pageTransition, inspectorCollapsed],
+  [themeKey, night, viewMode, pageTransition, inspectorCollapsed, uiSkin, uiDensity, uiMotion],
   persistSettingsSnapshot,
 );
 
@@ -1355,13 +1437,13 @@ function onToolbarClickCapture(event: MouseEvent): void {
 type AsideTab = 'toc' | 'search' | 'bookmarks' | 'import' | 'suggestions';
 
 const activeTab = ref<AsideTab | null>('toc');
-/** 顶栏 tab 入口（顺序与左栏面板一致；「句读」仅编辑模式可见） */
-const ASIDE_TABS: ReadonlyArray<{ key: AsideTab; label: string }> = [
-  { key: 'toc', label: '目录' },
-  { key: 'search', label: '搜索' },
-  { key: 'bookmarks', label: '书签' },
-  { key: 'import', label: '导入' },
-  { key: 'suggestions', label: '句读' },
+/** 顶栏 tab 入口（顺序与左栏面板一致；「句读」仅编辑模式可见；icon 供 H5 sheet 行） */
+const ASIDE_TABS: ReadonlyArray<{ key: AsideTab; label: string; icon: AppIconName }> = [
+  { key: 'toc', label: '目录', icon: 'toc' },
+  { key: 'search', label: '搜索', icon: 'search' },
+  { key: 'bookmarks', label: '书签', icon: 'bookmark' },
+  { key: 'import', label: '导入', icon: 'upload' },
+  { key: 'suggestions', label: '句读', icon: 'edit' },
 ];
 /** 顶栏 tab 入口：点已开项即收起，否则切换 */
 function toggleTab(tab: AsideTab): void {
@@ -1711,7 +1793,7 @@ onBeforeUnmount(() => {
           title="查看书籍信息"
           @click="infoOpen = true"
         >
-          <span class="toolbar__book-icon" aria-hidden="true">📖</span>
+          <AppIcon class="toolbar__book-icon" name="book" :size="17" :stroke-width="1.6" />
           <strong>{{ bookTitle }}</strong>
         </button>
         <span
@@ -1805,7 +1887,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- H5（A1）：顶栏只留书名 + 保存状态 + 「更多」，全局动作收进菜单 sheet -->
+      <!-- H5（A1 / P1）：顶栏只留书名 + 保存状态 + 「更多」，全局动作收进菜单 sheet -->
       <div v-else class="toolbar__mobile">
         <span
           v-if="mode === 'edit'"
@@ -1821,7 +1903,8 @@ onBeforeUnmount(() => {
           :aria-expanded="mobileMenuOpen"
           @click="mobileMenuOpen = !mobileMenuOpen"
         >
-          更多
+          <AppIcon name="more" :size="20" />
+          <span class="toolbar__button-label">更多</span>
         </button>
       </div>
     </header>
@@ -1883,7 +1966,7 @@ onBeforeUnmount(() => {
           <span>{{ modeFallbackHint || '当前版式暂不支持流式阅读，已切换为分页阅读。' }}</span>
           <button type="button" class="app__mode-hint-close" @click="modeFallbackHint = ''">知道了</button>
         </div>
-        <div ref="editorStageRef" class="app__stage">
+        <div ref="editorStageRef" class="app__stage" :class="{ 'app__stage--read': mode === 'read' }">
           <BtBookView
             v-if="booted && mode === 'read'"
             :key="`${themeKey}-${readerEpoch}`"
@@ -1991,23 +2074,87 @@ onBeforeUnmount(() => {
     </aside>
 
     <!--
-      底部状态栏（A6）：阅读态桌面 = 进度 + 翻页 + 视图切换 + 对照；
-      H5 = 进度 + 翻页 + 「更多」（视图切换 / 对照收进菜单）；
-      编辑态桌面 = 页码 + 缩放；H5 = 页码 + 属性 + 「更多」。
+      底部状态栏（A6 / P1）：阅读态桌面 = 进度 + 翻页 + 视图切换 + 对照；
+      编辑态桌面 = 页码 + 缩放；
+      H5 = 通栏进度细线 + 翻页（或页码）+ 四个高频入口（目录 / 搜索 / 属性或设置 / 编辑），
+      重复的「更多」只留在顶栏，底栏不再摆第二个入口。
     -->
     <footer v-if="booted" class="statusbar" :class="{ 'statusbar--mobile': mobileShell }">
-      <template v-if="mode === 'read'">
+      <template v-if="mobileShell">
+        <ProgressBar
+          v-if="mode === 'read'"
+          :key="`${themeKey}-${readerEpoch}`"
+          class="statusbar__line"
+          :reader="reader"
+        />
+        <div class="statusbar__mobile-row">
+          <BtPager
+            v-if="mode === 'read'"
+            :key="`${themeKey}-${readerEpoch}`"
+            class="statusbar__pager"
+            :reader="reader"
+          />
+          <span v-else class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
+          <span class="statusbar__spacer" />
+          <button
+            type="button"
+            class="statusbar__icon"
+            aria-label="目录"
+            :aria-expanded="mobileAsideOpen"
+            @click="openMobileTab('toc')"
+          >
+            <AppIcon name="toc" />
+          </button>
+          <button
+            type="button"
+            class="statusbar__icon"
+            aria-label="搜索"
+            :aria-expanded="mobileAsideOpen"
+            @click="openMobileTab('search')"
+          >
+            <AppIcon name="search" />
+          </button>
+          <button
+            v-if="mode === 'edit' && inspectorBinding"
+            type="button"
+            class="statusbar__icon"
+            aria-label="属性"
+            :aria-expanded="mobileInspectorOpen"
+            @click="openMobileInspector"
+          >
+            <AppIcon name="grid" />
+          </button>
+          <button
+            v-if="mode === 'read'"
+            type="button"
+            class="statusbar__icon"
+            aria-label="设置"
+            :aria-expanded="settingsOpen"
+            @click="settingsOpen = true"
+          >
+            <AppIcon name="settings" />
+          </button>
+          <button
+            type="button"
+            class="statusbar__icon"
+            :aria-label="mode === 'edit' ? '保存并预览' : '编辑'"
+            @click="toggleEditMode"
+          >
+            <AppIcon name="edit" />
+          </button>
+        </div>
+      </template>
+      <template v-else-if="mode === 'read'">
         <div class="statusbar__cluster">
           <ProgressBar :key="`${themeKey}-${readerEpoch}`" class="statusbar__progress" :reader="reader" />
           <BtPager :key="`${themeKey}-${readerEpoch}`" class="statusbar__pager" :reader="reader" />
           <BtDocumentStats
-            v-if="!mobileShell"
             class="statusbar__stats"
             :stats="documentStats.stats.value"
             :compact="true"
           />
         </div>
-        <div v-if="!mobileShell" class="statusbar__cluster">
+        <div class="statusbar__cluster">
           <ToolbarUsageTip :usage="VIEW_MODE_USAGE">
             <button
               type="button"
@@ -2031,75 +2178,43 @@ onBeforeUnmount(() => {
             </button>
           </ToolbarUsageTip>
         </div>
-        <div v-else class="statusbar__cluster">
-          <button
-            type="button"
-            class="statusbar__button"
-            aria-label="更多"
-            :aria-expanded="mobileMenuOpen"
-            @click="mobileMenuOpen = true"
-          >
-            更多
-          </button>
-        </div>
       </template>
       <template v-else>
         <span class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
         <span class="statusbar__spacer" />
         <div class="statusbar__cluster">
           <button
-            v-if="mobileShell && inspectorBinding"
             type="button"
             class="statusbar__button"
-            aria-label="属性"
-            @click="openMobileInspector"
+            title="缩小"
+            @click="zoomStep(-0.1)"
           >
-            属性
+            −
           </button>
-          <template v-if="!mobileShell">
-            <button
-              type="button"
-              class="statusbar__button"
-              title="缩小"
-              @click="zoomStep(-0.1)"
-            >
-              −
-            </button>
-            <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
-            <button
-              type="button"
-              class="statusbar__button"
-              title="放大"
-              @click="zoomStep(0.1)"
-            >
-              +
-            </button>
-            <button
-              type="button"
-              class="statusbar__button"
-              title="恢复 100%"
-              @click="editorScale = 1"
-            >
-              100%
-            </button>
-            <button
-              type="button"
-              class="statusbar__button"
-              :title="railLayout ? '按高度缩放整页' : '按宽度缩放整页'"
-              @click="fitEditorWidth"
-            >
-              {{ railLayout ? '适应高度' : '适应宽度' }}
-            </button>
-          </template>
+          <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
           <button
-            v-else
             type="button"
             class="statusbar__button"
-            aria-label="更多"
-            :aria-expanded="mobileMenuOpen"
-            @click="mobileMenuOpen = true"
+            title="放大"
+            @click="zoomStep(0.1)"
           >
-            更多
+            +
+          </button>
+          <button
+            type="button"
+            class="statusbar__button"
+            title="恢复 100%"
+            @click="editorScale = 1"
+          >
+            100%
+          </button>
+          <button
+            type="button"
+            class="statusbar__button"
+            :title="railLayout ? '按高度缩放整页' : '按宽度缩放整页'"
+            @click="fitEditorWidth"
+          >
+            {{ railLayout ? '适应高度' : '适应宽度' }}
           </button>
         </div>
       </template>
@@ -2152,7 +2267,7 @@ onBeforeUnmount(() => {
       v-model:open="mobileMenuOpen"
       side="bottom"
       title="更多"
-      height="min(76vh, 560px)"
+      :snap-heights="MOBILE_MENU_SNAPS"
     >
       <div class="app__menu">
         <section class="app__menu-group">
@@ -2167,7 +2282,14 @@ onBeforeUnmount(() => {
               :class="{ 'app__menu-button--active': activeTab === tab.key }"
               @click="openMobileTab(tab.key)"
             >
-              {{ tab.label }}
+              <AppIcon class="app__menu-icon" :name="tab.icon" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">{{ tab.label }}</span>
+              <AppIcon
+                class="app__menu-trail"
+                :name="activeTab === tab.key ? 'check' : 'chevron-right'"
+                :size="16"
+                :stroke-width="1.7"
+              />
             </button>
           </div>
         </section>
@@ -2181,28 +2303,36 @@ onBeforeUnmount(() => {
               :class="{ 'app__menu-button--active': mode === 'edit' }"
               @click="onMobileAction(toggleEditMode)"
             >
-              {{ mode === 'edit' ? '保存并预览' : '编辑' }}
+              <AppIcon class="app__menu-icon" name="edit" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">{{ mode === 'edit' ? '保存并预览' : '编辑' }}</span>
+              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
             </button>
             <button
               type="button"
               class="app__menu-button"
               @click="onMobileAction(() => { libraryOpen = true; })"
             >
-              书库
+              <AppIcon class="app__menu-icon" name="library" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">书库</span>
+              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
             </button>
             <button
               type="button"
               class="app__menu-button"
               @click="onMobileAction(() => { settingsOpen = true; })"
             >
-              设置
+              <AppIcon class="app__menu-icon" name="settings" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">设置</span>
+              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
             </button>
             <button
               type="button"
               class="app__menu-button"
               @click="onMobileAction(() => { infoOpen = true; })"
             >
-              书籍信息
+              <AppIcon class="app__menu-icon" name="info" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">书籍信息</span>
+              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
             </button>
           </div>
         </section>
@@ -2218,7 +2348,34 @@ onBeforeUnmount(() => {
               :class="{ 'app__menu-button--active': themeKey === entry.key }"
               @click="onMobileAction(() => switchTheme(entry.key))"
             >
-              {{ entry.config.label }}
+              <AppIcon class="app__menu-icon" name="book" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">{{ entry.config.label }}</span>
+              <AppIcon
+                v-if="themeKey === entry.key"
+                class="app__menu-trail"
+                name="check"
+                :size="16"
+                :stroke-width="1.8"
+              />
+            </button>
+          </div>
+        </section>
+
+        <!-- 界面皮肤（P4）：H5 里也能一眼换壳，与设置面板「界面外观」同一份状态 -->
+        <section class="app__menu-group">
+          <h3 class="app__menu-title">界面皮肤</h3>
+          <div class="app__menu-grid app__menu-grid--compact">
+            <button
+              v-for="skin in UI_SKINS"
+              :key="skin.key"
+              type="button"
+              class="app__menu-chip"
+              :class="{ 'app__menu-chip--active': uiSkin === skin.key }"
+              :aria-pressed="uiSkin === skin.key"
+              @click="onMobileAction(() => setUiSkin(skin.key))"
+            >
+              <span class="app__menu-chip__dot" :style="{ background: skin.preview.accent }" />
+              {{ skin.label }}
             </button>
           </div>
         </section>
@@ -2231,7 +2388,8 @@ onBeforeUnmount(() => {
               class="app__menu-button"
               @click="onMobileAction(onExportEpub)"
             >
-              导出 EPUB
+              <AppIcon class="app__menu-icon" name="download" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">导出 EPUB</span>
             </button>
             <button
               type="button"
@@ -2239,15 +2397,26 @@ onBeforeUnmount(() => {
               :disabled="pdfExporting"
               @click="onMobileAction(onExportPdf)"
             >
-              {{ pdfExporting ? '导出中…' : '导出 PDF' }}
+              <AppIcon class="app__menu-icon" name="share" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">{{ pdfExporting ? '导出中…' : '导出 PDF' }}</span>
+            </button>
+          </div>
+          <div class="app__menu-segment" role="group" aria-label="PDF 导出方式">
+            <button
+              type="button"
+              class="app__menu-segment__item"
+              :class="{ 'app__menu-segment__item--on': pdfPagedMode }"
+              @click="pdfPagedMode = true"
+            >
+              逐页
             </button>
             <button
               type="button"
-              class="app__menu-button"
-              :class="{ 'app__menu-button--active': pdfPagedMode }"
-              @click="pdfPagedMode = !pdfPagedMode"
+              class="app__menu-segment__item"
+              :class="{ 'app__menu-segment__item--on': !pdfPagedMode }"
+              @click="pdfPagedMode = false"
             >
-              {{ pdfPagedMode ? '逐页' : '连续' }}
+              连续
             </button>
           </div>
         </section>
@@ -2262,7 +2431,9 @@ onBeforeUnmount(() => {
               :disabled="!flowSupported && viewMode === 'page'"
               @click="onMobileAction(cycleViewMode)"
             >
-              阅读形态：{{ viewModeLabel }}
+              <AppIcon class="app__menu-icon" name="list" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">阅读形态</span>
+              <span class="app__menu-value">{{ viewModeLabel }}</span>
             </button>
             <button
               type="button"
@@ -2270,18 +2441,55 @@ onBeforeUnmount(() => {
               :class="{ 'app__menu-button--active': compareOpen }"
               @click="onMobileAction(() => { compareOpen = !compareOpen; })"
             >
-              双页对照
+              <AppIcon class="app__menu-icon" name="compare" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">双页对照</span>
+              <AppIcon
+                v-if="compareOpen"
+                class="app__menu-trail"
+                name="check"
+                :size="16"
+                :stroke-width="1.8"
+              />
+            </button>
+            <button
+              type="button"
+              class="app__menu-button"
+              :class="{ 'app__menu-button--active': night }"
+              @click="onMobileAction(() => { night = !night; })"
+            >
+              <AppIcon class="app__menu-icon" :name="night ? 'moon' : 'sun'" :size="18" :stroke-width="1.7" />
+              <span class="app__menu-label">夜读纸色</span>
+              <AppIcon
+                v-if="night"
+                class="app__menu-trail"
+                name="check"
+                :size="16"
+                :stroke-width="1.8"
+              />
             </button>
           </div>
         </section>
 
         <section v-if="mode === 'edit'" class="app__menu-group">
           <h3 class="app__menu-title">缩放</h3>
-          <div class="app__menu-grid">
-            <button type="button" class="app__menu-button" @click="zoomStep(-0.1)">缩小</button>
-            <button type="button" class="app__menu-button" @click="zoomStep(0.1)">放大</button>
-            <button type="button" class="app__menu-button" @click="editorScale = 1">100%</button>
-            <button type="button" class="app__menu-button" @click="fitEditorWidth">适应宽度</button>
+          <div class="app__menu-grid app__menu-grid--compact">
+            <button type="button" class="app__menu-chip" aria-label="缩小" @click="zoomStep(-0.1)">
+              <AppIcon name="minus" :size="18" />
+            </button>
+            <button type="button" class="app__menu-chip" aria-label="放大" @click="zoomStep(0.1)">
+              <AppIcon name="plus" :size="18" />
+            </button>
+            <button type="button" class="app__menu-chip" aria-label="恢复 100%" @click="editorScale = 1">
+              <AppIcon name="refresh" :size="18" />
+            </button>
+            <button
+              type="button"
+              class="app__menu-chip"
+              :aria-label="railLayout ? '适应高度' : '适应宽度'"
+              @click="fitEditorWidth"
+            >
+              <AppIcon name="fit" :size="18" />
+            </button>
           </div>
         </section>
       </div>
@@ -2296,8 +2504,14 @@ onBeforeUnmount(() => {
       :document="reader.document ?? lunyuDocument"
       :night="night"
       :page-transition="pageTransition"
+      :ui-skin="uiSkin"
+      :ui-density="uiDensity"
+      :ui-motion="uiMotion"
       @update:night="night = $event; persistSettingsSnapshot()"
       @update:page-transition="pageTransition = $event; persistSettingsSnapshot()"
+      @update:ui-skin="setUiSkin($event)"
+      @update:ui-density="uiDensity = $event"
+      @update:ui-motion="uiMotion = $event"
       @apply-theme-tokens="onApplyThemeTokens"
       @close="closeSettings"
     />
@@ -2343,30 +2557,27 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100vh;
 
-  /* 演示界面配色令牌（夜间经 .app--night 覆盖；阅读区配色走主题令牌） */
-  --demo-bg: #efe9dd;
-  --demo-panel: #f4f0e8;
-  --demo-aside: #faf8f4;
-  --demo-border: #e2ddd2;
-  --demo-text: #3c3a34;
-  --demo-muted: #8a8578;
-  --demo-control: #fbf9f4;
-  --demo-control-border: #d8d2c4;
-  --demo-accent: #8c5a2b;
+  /*
+   * 演示界面配色令牌（P0）：全部改为设计令牌的别名，
+   * 换肤只改根上的 data-skin，现有 3000 行规则无需逐个改写；
+   * 新代码直接消费 --ui-*，不再新增 --demo-* 名字。
+   */
+  --demo-bg: var(--ui-canvas);
+  --demo-panel: var(--ui-surface);
+  --demo-aside: var(--ui-surface-raised);
+  --demo-border: var(--ui-border);
+  --demo-text: var(--ui-text);
+  --demo-muted: var(--ui-text-muted);
+  --demo-control: var(--ui-surface-raised);
+  --demo-control-border: var(--ui-divider);
+  --demo-accent: var(--ui-accent);
 }
 
 .app--night {
-  --demo-bg: #121110;
-  --demo-panel: #1d1c1a;
-  --demo-aside: #191816;
-  --demo-border: #33312d;
-  --demo-text: #cfcac2;
-  --demo-muted: #8a8578;
-  --demo-control: #262421;
-  --demo-control-border: #3d3a35;
-  --demo-accent: #c99a5b;
-
-  /* 编辑画布纸面（BtEditor 消费的 CSS 变量） */
+  /*
+   * 夜间只改阅读纸面与编辑画布（阅读区配色走主题令牌）；
+   * 壳色由 data-skin 唯一决定，深浅皮肤不靠夜间开关凑出来。
+   */
   --bt-editor-paper: #24231f;
   --bt-editor-ink: #cfcac2;
 }
@@ -2378,18 +2589,29 @@ onBeforeUnmount(() => {
   flex: none;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 7px 16px;
-  border-block-end: 1px solid var(--demo-border);
-  background: var(--demo-panel);
-  color: var(--demo-text);
+  gap: var(--ui-space-3);
+  min-height: var(--ui-bar-h);
+  padding: var(--ui-space-2) var(--ui-space-5);
+  border-block-end: var(--ui-border-width, 1px) solid var(--ui-border);
+  /*
+   * 应用栏常驻（P1）：半透明 + 模糊让正文滚到栏下时不硬碰；
+   * 先写实色再写 color-mix，不支持 color-mix 的内核直接拿实色，不会透成空栏。
+   */
+  position: sticky;
+  top: 0;
+  z-index: var(--ui-z-bar);
+  background: var(--ui-surface);
+  background: color-mix(in srgb, var(--ui-surface) 92%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  color: var(--ui-text);
 }
 
 .toolbar__title {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 10px;
+  gap: var(--ui-space-3);
 }
 
 /* 书名 chip：点击开书籍信息（主流阅读器把元数据入口挂在书名上） */
@@ -2402,32 +2624,49 @@ onBeforeUnmount(() => {
   color: inherit;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--ui-radius-sm);
   cursor: pointer;
 }
 
 .toolbar__book:hover {
-  background: rgba(127, 127, 127, 0.12);
-  border-color: var(--demo-control-border);
+  background: var(--ui-surface-sunken);
+  border-color: var(--ui-border);
+}
+
+.toolbar__book:active {
+  background: var(--ui-accent-weak);
+  border-color: var(--ui-accent);
 }
 
 .toolbar__book strong {
-  font-size: 16px;
+  font-size: var(--ui-font-lg);
+  font-weight: 600;
   letter-spacing: 0.08em;
 }
 
 .toolbar__book-icon {
-  font-size: 14px;
-  opacity: 0.75;
+  color: var(--ui-text-muted);
 }
 
 .toolbar__dirty {
-  font-size: 12px;
-  color: var(--demo-muted);
+  font-size: var(--ui-font-sm);
+  color: var(--ui-text-muted);
 }
 
+/* 未保存 / 保存失败：前置小圆点，比整段变红更早进入视线 */
 .toolbar__dirty--on {
-  color: #c0392b;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ui-danger);
+}
+
+.toolbar__dirty--on::before {
+  width: 6px;
+  height: 6px;
+  background: var(--ui-danger);
+  border-radius: 50%;
+  content: '';
 }
 
 /* H5 顶栏右侧：「保存状态 + 更多」（面板内容进抽屉，全局动作进菜单 sheet） */
@@ -2435,12 +2674,31 @@ onBeforeUnmount(() => {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: var(--ui-space-2);
 }
 
+/* 「更多」图标按钮：图形承担识别、文本承担可访问名（e2e 与读屏都靠这个名字） */
 .toolbar__button--menu {
-  min-height: 44px;
-  padding-inline: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--bt-touch-target, 44px);
+  min-height: var(--bt-touch-target, 44px);
+  padding: 0;
+  gap: 0;
+}
+
+/* 只给读屏与自动化留名字，视觉上不占位 */
+.toolbar__button-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .toolbar__actions {
@@ -2489,31 +2747,37 @@ onBeforeUnmount(() => {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 6px;
+  gap: var(--ui-space-2);
   white-space: nowrap;
 }
 
 /* 组间分隔线（Word / Chrome 工具栏惯例，替代纯间距） */
 .toolbar__group + .toolbar__group {
-  padding-inline-start: 12px;
-  border-inline-start: 1px solid var(--demo-control-border);
+  padding-inline-start: var(--ui-space-4);
+  border-inline-start: 1px solid var(--ui-divider);
 }
 
 .toolbar__button {
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 5px 11px;
-  font-size: 13px;
+  font-size: var(--ui-font-md);
   white-space: nowrap;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
+  color: var(--ui-text);
+  background: var(--ui-surface-raised);
+  border: var(--ui-border-width, 1px) solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  box-shadow: var(--ui-shadow-1);
   cursor: pointer;
 }
 
 .toolbar__button:hover:not(:disabled) {
-  border-color: var(--demo-accent);
-  color: var(--demo-accent);
+  background: var(--ui-surface-sunken);
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
 }
 
 .toolbar__button:disabled {
@@ -2522,13 +2786,14 @@ onBeforeUnmount(() => {
 }
 
 .toolbar__button--active {
-  color: #fff;
-  background: var(--demo-accent);
-  border-color: var(--demo-accent);
+  color: var(--ui-on-accent);
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
 }
 
 .toolbar__button--active:hover:not(:disabled) {
-  color: #fff;
+  color: var(--ui-on-accent);
+  background: var(--ui-accent-strong);
 }
 
 /* ---------- 主体布局 ---------- */
@@ -2567,7 +2832,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 20px;
+  padding: var(--ui-space-6);
 }
 
 .app__editor {
@@ -2582,9 +2847,9 @@ onBeforeUnmount(() => {
   gap: 6px;
   width: 280px;
   overflow-y: auto;
-  border-inline-start: 1px solid var(--demo-border);
-  background: var(--demo-aside);
-  color: var(--demo-text);
+  border-inline-start: 1px solid var(--ui-divider);
+  background: var(--ui-surface);
+  color: var(--ui-text);
   transition: width 0.16s ease;
 }
 
@@ -2597,22 +2862,25 @@ onBeforeUnmount(() => {
 .app__inspector__toggle {
   flex: none;
   align-self: flex-start;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   margin: 4px 4px 0;
   padding: 0;
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
-  background: var(--demo-control);
-  color: var(--demo-muted);
+  border: var(--ui-border-width, 1px) solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-muted);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
+  transition:
+    color var(--ui-dur-fast) var(--ui-ease),
+    border-color var(--ui-dur-fast) var(--ui-ease);
 }
 
 .app__inspector__toggle:hover {
-  color: var(--demo-accent);
-  border-color: var(--demo-accent);
+  color: var(--ui-accent);
+  border-color: var(--ui-accent);
 }
 
 /* ---------- 底部状态栏 ---------- */
@@ -2621,12 +2889,73 @@ onBeforeUnmount(() => {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 14px;
-  padding: 5px 16px;
-  border-block-start: 1px solid var(--demo-border);
-  background: var(--demo-panel);
-  color: var(--demo-text);
-  font-size: 12px;
+  gap: var(--ui-space-4);
+  padding: var(--ui-space-1) var(--ui-space-5);
+  border-block-start: var(--ui-border-width, 1px) solid var(--ui-border);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-size: var(--ui-font-sm);
+}
+
+/* H5 底栏（P1）：通栏进度细线在上，下面才是操作行 */
+.statusbar--mobile {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+
+.statusbar__line {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+}
+
+.statusbar__line :deep(.progress__text) {
+  display: none;
+}
+
+.statusbar__line :deep(.progress__track),
+.statusbar__line :deep(.progress__fill) {
+  border-radius: 0;
+}
+
+.statusbar__line :deep(.progress__track) {
+  block-size: 2px;
+  /* 只能写 background-color：`background` 简写会把触屏补偿用的
+     `background-clip: content-box` 重置回 border-box，细线变成 40px 高的色带 */
+  background-color: var(--ui-divider);
+}
+
+.statusbar__mobile-row {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ui-space-1);
+  min-height: var(--ui-bar-h-mobile);
+  padding: var(--ui-space-1) var(--ui-space-2);
+}
+
+/* 底栏图标按钮：只靠 44px 触控目标与强调色底做选中态 */
+.statusbar__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--bt-touch-target, 44px);
+  height: var(--bt-touch-target, 44px);
+  padding: 0;
+  color: var(--ui-text);
+  background: transparent;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  cursor: pointer;
+}
+
+.statusbar__icon:hover,
+.statusbar__icon:active {
+  color: var(--ui-accent);
+  background: var(--ui-accent-weak);
 }
 
 .statusbar__progress {
@@ -2634,18 +2963,78 @@ onBeforeUnmount(() => {
   min-width: 120px;
 }
 
-/* 进度条与翻页读数二选一：状态栏已有页码，隐翻页器文字段 */
-.statusbar__pager :deep(.bt-pager__status) {
+/* 桌面：进度条与翻页读数二选一（状态栏已有页码）；H5 底栏只剩翻页器，读数必须留 */
+.statusbar:not(.statusbar--mobile) .statusbar__pager :deep(.bt-pager__status) {
   display: none;
+}
+
+/*
+ * H5 底栏：翻页改纯图标
+ *
+ * 三字按钮在 375px 上会把整行挤到换行（行高溢出、按钮顶出底栏），
+ * 所以文案隐去、只画箭头；可访问名由 `BtPager` 自带的
+ * `aria-label="上一页 / 下一页"` 承担（e2e 按名点击不受影响）。
+ */
+.statusbar--mobile .statusbar__pager :deep(.bt-pager) {
+  gap: 0;
+}
+
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__button) {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--bt-touch-target, 44px);
+  height: var(--bt-touch-target, 44px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-text);
+  font-size: 0; /* 文案让位给图标 */
+  cursor: pointer;
+}
+
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__button)::before {
+  font-size: var(--ui-font-2xl);
+  line-height: 1;
+}
+
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:first-child)::before {
+  content: '\2039';
+}
+
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:last-child)::before {
+  content: '\203A';
+}
+
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:hover),
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:active) {
+  color: var(--ui-accent);
+  background: var(--ui-accent-weak);
+}
+
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:disabled) {
+  color: var(--ui-text-muted);
+  opacity: 0.5;
+}
+
+.statusbar--mobile .statusbar__pager :deep(.bt-pager__status) {
+  min-width: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-md);
+  font-variant-numeric: tabular-nums;
+  /* 不折行：读数换行会把 52px 的底栏顶高，整行错位 */
+  white-space: nowrap;
 }
 
 .statusbar__spacer {
   flex: 1;
 }
 
+/* 页码读数：等宽数字，翻页时不左右抖（P3 状态栏制式） */
 .statusbar__readout {
   flex: none;
-  color: var(--demo-muted);
+  color: var(--ui-text-muted);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -2653,7 +3042,7 @@ onBeforeUnmount(() => {
   flex: none;
   min-width: 40px;
   text-align: center;
-  color: var(--demo-muted);
+  color: var(--ui-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2665,22 +3054,23 @@ onBeforeUnmount(() => {
 .statusbar__button {
   flex: none;
   padding: 2px 10px;
-  font-size: 12px;
-  color: var(--demo-text);
+  font-size: var(--ui-font-sm);
+  color: var(--ui-text);
   background: transparent;
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
+  border: var(--ui-border-width, 1px) solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
   cursor: pointer;
 }
 
 .statusbar__button:hover {
-  border-color: var(--demo-accent);
-  color: var(--demo-accent);
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
 }
 
 .statusbar__button--on {
-  color: var(--demo-accent);
-  border-color: var(--demo-accent);
+  color: var(--ui-accent);
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-weak);
 }
 
 /* ---------- 直排：横排的每一「行」转成一条通高竖「列」 ---------- *
@@ -3024,19 +3414,28 @@ onBeforeUnmount(() => {
 }
 
 .app--mobile .toolbar {
-  gap: 8px;
-  padding: max(6px, env(safe-area-inset-top, 0px)) 12px 6px;
+  gap: var(--ui-space-2);
+  min-height: var(--ui-bar-h-mobile);
+  /* 上内边距 = 基础间距 + 刘海安全区（--bt-safe-top 已含 0px 兜底） */
+  padding: calc(var(--ui-space-2) + var(--bt-safe-top, 0px)) var(--ui-space-4) var(--ui-space-2);
 }
 
 .app--mobile .toolbar__title {
   flex: 1;
   min-width: 0;
+  /* 书名居中：右侧只剩一个图标，左对齐会把整个应用栏拉得偏左 */
+  justify-content: center;
+}
+
+.app--mobile .toolbar__book {
+  min-width: 0;
+  padding-inline: var(--ui-space-2);
 }
 
 .app--mobile .toolbar__book strong {
-  max-width: 46vw;
+  max-width: 52vw;
   overflow: hidden;
-  font-size: 15px;
+  font-size: var(--ui-font-lg);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3046,68 +3445,210 @@ onBeforeUnmount(() => {
 }
 
 .app--mobile .app__stage {
-  padding: 8px 8px 4px;
+  position: relative;
+  padding: var(--ui-space-3);
+}
+
+/* 上下 20px 渐变（仅阅读态）：暗示「还能翻」，不吃事件也不遮挡正文 */
+.app--mobile .app__stage--read::before,
+.app--mobile .app__stage--read::after {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 1;
+  height: var(--ui-space-6);
+  pointer-events: none;
+  content: '';
+}
+
+.app--mobile .app__stage--read::before {
+  top: 0;
+  background: linear-gradient(var(--ui-canvas), transparent);
+}
+
+.app--mobile .app__stage--read::after {
+  bottom: 0;
+  background: linear-gradient(transparent, var(--ui-canvas));
+}
+
+/*
+ * 页框浮起（P1）：只用圆角 + 投影，不加边框 —— border 会改变盒尺寸，
+ * 而分页量尺拿的正是页框尺寸，加了就会让每页行数漂一格。
+ */
+.app--mobile .app__stage :deep(.bt-reader-page) {
+  border-radius: var(--ui-radius-sm);
+  box-shadow: var(--ui-shadow-1);
 }
 
 .app--mobile .statusbar {
-  gap: 8px;
-  padding: 4px 10px calc(4px + env(safe-area-inset-bottom, 0px));
+  padding: 0 0 var(--bt-safe-bottom, 0px);
 }
 
-.app--mobile .statusbar__progress {
-  min-width: 60px;
+.app--mobile .statusbar__mobile-row {
+  padding-inline: var(--ui-space-3);
 }
 
-/* ---------- H5「更多」菜单 sheet（A1 / A6） ---------- */
+/* ---------- H5「更多」菜单 sheet（A1 / A6 / P2） ---------- *
+ * 一格一个方块在窄屏里既要读文字又要对齐，改成系统 sheet 的行制：
+ * 一组 = 一张卡片，一行 = 左图标 + 标签 + 右侧当前值或箭头。
+ */
 
 .app__menu {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  gap: var(--ui-space-4);
+  padding: var(--ui-space-3) var(--ui-space-4) calc(var(--ui-space-5) + var(--bt-safe-bottom, 0px));
 }
 
 .app__menu-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--ui-space-2);
 }
 
 .app__menu-title {
   margin: 0;
-  font-size: 11px;
+  padding-inline-start: var(--ui-space-1);
+  font-size: var(--ui-font-xs);
   font-weight: 600;
   letter-spacing: 0.18em;
-  color: var(--demo-muted);
+  color: var(--ui-text-muted);
 }
 
 .app__menu-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ui-surface-raised);
+  border: var(--ui-border-width, 1px) solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  box-shadow: var(--ui-shadow-1);
 }
 
 .app__menu-button {
-  min-height: var(--bt-touch-target, 44px);
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  min-height: var(--ui-row-height);
+  padding: var(--ui-space-2) var(--ui-space-4);
   font: inherit;
-  font-size: 13px;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 6px;
+  font-size: var(--ui-font-lg);
+  color: var(--ui-text);
+  text-align: start;
+  background: transparent;
+  border: 0;
   cursor: pointer;
 }
 
+/* 行与行之间用细分隔线，不再靠卡片间隙拼网格 */
+.app__menu-button + .app__menu-button {
+  border-block-start: 1px solid var(--ui-divider);
+}
+
+.app__menu-button:hover,
+.app__menu-button:active {
+  background: var(--ui-surface-sunken);
+}
+
+.app__menu-icon {
+  color: var(--ui-text-muted);
+}
+
+.app__menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行尾：当前值（文字）或下一级（箭头 / 对钩），都靠右对齐 */
+.app__menu-value,
+.app__menu-trail {
+  margin-inline-start: auto;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-md);
+}
+
 .app__menu-button--active {
-  color: #fff;
-  background: var(--demo-accent);
-  border-color: var(--demo-accent);
+  color: var(--ui-accent);
+  background: var(--ui-accent-weak);
+}
+
+.app__menu-button--active .app__menu-icon,
+.app__menu-button--active .app__menu-value,
+.app__menu-button--active .app__menu-trail {
+  color: var(--ui-accent);
 }
 
 .app__menu-button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* 紧凑行（缩放 / 皮肤）：横向等分小按钮，不卡片化 */
+.app__menu-grid--compact {
+  flex-direction: row;
+  gap: var(--ui-space-2);
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app__menu-chip {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ui-space-1);
+  min-height: var(--bt-touch-target, 44px);
+  padding: var(--ui-space-2);
+  font-size: var(--ui-font-md);
+  color: var(--ui-text);
+  background: var(--ui-surface-raised);
+  border: var(--ui-border-width, 1px) solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  box-shadow: var(--ui-shadow-1);
+  cursor: pointer;
+}
+
+.app__menu-chip--active {
+  color: var(--ui-on-accent);
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
+}
+
+.app__menu-chip__dot {
+  width: 10px;
+  height: 10px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
+/* 二选一的分段控件（PDF 逐页 / 连续） */
+.app__menu-segment {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--ui-surface-sunken);
+  border-radius: var(--ui-radius-pill);
+}
+
+.app__menu-segment__item {
+  flex: 1;
+  min-height: 36px;
+  font-size: var(--ui-font-md);
+  color: var(--ui-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--ui-radius-pill);
+  cursor: pointer;
+}
+
+.app__menu-segment__item--on {
+  color: var(--ui-text-strong);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-1);
 }
 
 /* 窄屏兜底：对照覆盖层贴边，标题栏可换行 */

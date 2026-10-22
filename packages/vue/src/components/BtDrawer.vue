@@ -12,6 +12,11 @@
  *
  * B5：`side="bottom"` 且传了 `snapHeights` 时，面板顶部出现拖拽把手，拖动改高度、
  * 松手吸附到最近档位（半屏 / 全屏），档位通过 `data-snap` 暴露给测试。
+ *
+ * 视觉变量（美化 P2，均带默认值，不传即保持库自身观感）：`--bt-drawer-bg` /
+ * `--bt-drawer-color` / `--bt-drawer-border` / `--bt-drawer-mask` / `--bt-drawer-shadow` /
+ * `--bt-drawer-radius`（底部 sheet 上圆角）/ `--bt-drawer-radius-sm` / `--bt-drawer-hover`。
+ * 入场动效只在 `prefers-reduced-motion: no-preference` 下生效（reduce 时整块关掉）。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useScrollLock } from '../use-scroll-lock.js';
@@ -338,7 +343,8 @@ onBeforeUnmount(() => {
 .bt-drawer__mask {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.38);
+  background: var(--bt-drawer-mask, rgba(0, 0, 0, 0.38));
+  animation: bt-drawer-fade 160ms ease-out;
 }
 
 .bt-drawer__panel {
@@ -352,9 +358,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background: var(--bt-drawer-bg, #faf8f4);
   color: var(--bt-drawer-color, #3c3a34);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.24);
+  box-shadow: var(--bt-drawer-shadow, 0 10px 40px rgba(0, 0, 0, 0.24));
   /* 刘海屏安全区（D3）：底部 / 左右各留 env 值 */
   padding-block-end: env(safe-area-inset-bottom, 0px);
+  animation: bt-drawer-slide 200ms var(--bt-drawer-ease, ease-out);
 }
 
 .bt-drawer--start .bt-drawer__panel {
@@ -367,8 +374,69 @@ onBeforeUnmount(() => {
 
 .bt-drawer--bottom .bt-drawer__panel {
   width: 100%;
-  border-start-start-radius: 12px;
-  border-start-end-radius: 12px;
+  /* sheet 上圆角：与手机系统弹层的贴合感对齐，宿主可用 --bt-drawer-radius 收到 0 */
+  border-start-start-radius: var(--bt-drawer-radius, 16px);
+  border-start-end-radius: var(--bt-drawer-radius, 16px);
+  box-shadow: var(--bt-drawer-shadow, 0 -8px 32px rgba(0, 0, 0, 0.24));
+  animation-name: bt-drawer-rise;
+}
+
+/* 入场位移沿面板贴边方向：侧滑抽屉从外侧推入，sheet 从下方升起 */
+@keyframes bt-drawer-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bt-drawer-slide {
+  from {
+    opacity: 0.6;
+    transform: translate3d(-16px, 0, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes bt-drawer-rise {
+  from {
+    opacity: 0.6;
+    transform: translate3d(0, 24px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.bt-drawer--end .bt-drawer__panel {
+  animation-name: bt-drawer-slide-end;
+}
+
+@keyframes bt-drawer-slide-end {
+  from {
+    opacity: 0.6;
+    transform: translate3d(16px, 0, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bt-drawer__mask,
+  .bt-drawer__panel {
+    animation: none;
+  }
 }
 
 .bt-drawer__grabber {
@@ -394,7 +462,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-block-end: 1px solid var(--bt-drawer-border, rgba(127, 127, 127, 0.22));
 }
 
@@ -402,8 +470,9 @@ onBeforeUnmount(() => {
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -414,11 +483,21 @@ onBeforeUnmount(() => {
   min-height: 32px;
   padding: 4px 10px;
   border: 1px solid var(--bt-drawer-border, rgba(127, 127, 127, 0.32));
-  border-radius: 6px;
+  border-radius: var(--bt-drawer-radius-sm, 8px);
   background: transparent;
   color: inherit;
   font-size: 13px;
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.bt-drawer__close:hover {
+  background: var(--bt-drawer-hover, rgba(127, 127, 127, 0.14));
+  border-color: var(--bt-accent, #8c5a2b);
+  color: var(--bt-accent, #8c5a2b);
 }
 
 .bt-drawer__body {

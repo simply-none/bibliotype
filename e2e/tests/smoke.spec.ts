@@ -7,10 +7,13 @@
  * 3. 宿主 PDF 桥（模拟 Electron preload）→ 导出 PDF 字节 + 打印 HTML 校验。
  *
  * 所有操作走用户可见入口；产物在 Node 侧解析（fflate），不依赖 demo 内部状态。
+ * 桌面顶栏与 H5「更多」sheet 的入口差异由 `clickGlobalAction` 吸收，
+ * 同一份用例在 `chromium` / `chromium-mobile` 两档都能跑。
  */
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 import {
+  clickGlobalAction,
   currentPageText,
   gotoNextPage,
   importBook,
@@ -60,7 +63,7 @@ test.describe('I1 主链路冒烟 @smoke', () => {
     /* ---------- 导出 EPUB 并校验产物 ---------- */
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: '导出 EPUB', exact: true }).click(),
+      clickGlobalAction(page, '导出 EPUB'),
     ]);
     expect(download.suggestedFilename()).toMatch(/\.epub$/);
     const path = await download.path();
@@ -123,7 +126,7 @@ test.describe('I1 主链路冒烟 @smoke', () => {
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: '导出 PDF', exact: true }).click(),
+      clickGlobalAction(page, '导出 PDF'),
     ]);
     expect(download.suggestedFilename()).toMatch(/\.pdf$/);
     const path = await download.path();

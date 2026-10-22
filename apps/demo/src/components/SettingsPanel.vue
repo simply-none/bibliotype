@@ -62,6 +62,8 @@ import {
 } from '@bibliotype/vue';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
 import { isFacsimilePresetModified } from '../facsimile-theme.js';
+import { UI_SKINS, type UiDensity, type UiMotion, type UiSkinKey } from '../ui-skin.js';
+import AppIcon from './AppIcon.vue';
 import FeatureStyleEditor from './FeatureStyleEditor.vue';
 
 const props = defineProps<{
@@ -79,12 +81,21 @@ const props = defineProps<{
   /** 翻页动效（D5；演示态快捷预设，不写入样式快照） */
   pageTransition?: 'slide' | 'fade' | 'none';
   night: boolean;
+  /** 界面皮肤（美化 P4）：壳层色板，与阅读纸色（主题令牌）互不干涉 */
+  uiSkin: UiSkinKey;
+  /** 界面密度：只缩放间距与行高，不动字号与 44px 触控目标 */
+  uiDensity: UiDensity;
+  /** 动效开关：auto = 跟随系统 prefers-reduced-motion */
+  uiMotion: UiMotion;
 }>();
 
 const emit = defineEmits<{
   'update:night': [value: boolean];
   /** 翻页动效切换（D5） */
   'update:page-transition': [value: 'slide' | 'fade' | 'none'];
+  'update:ui-skin': [value: UiSkinKey];
+  'update:ui-density': [value: UiDensity];
+  'update:ui-motion': [value: UiMotion];
   /** 主题预设应用（全量令牌，由 App 收敛为与基线的差量） */
   'apply-theme-tokens': [tokens: Record<string, string>];
   close: [];
@@ -106,6 +117,7 @@ type PanelSection =
   | 'layout'
   | 'chrome'
   | 'facsimile'
+  | 'appearance'
   | 'theme'
   | 'behavior'
   | 'presets';
@@ -121,6 +133,7 @@ const NAV: ReadonlyArray<{ id: PanelSection; label: string }> = [
   { id: 'layout', label: '版面与页面' },
   { id: 'chrome', label: '页眉页脚' },
   { id: 'facsimile', label: '古籍仿真' },
+  { id: 'appearance', label: '界面外观' },
   { id: 'theme', label: '外观主题' },
   { id: 'behavior', label: '编辑行为' },
   { id: 'presets', label: '预设管理' },
@@ -564,6 +577,20 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
   { value: 'none', label: '无' },
 ];
 
+/* ---------- 界面外观（美化 P4）：皮肤 / 密度 / 动效，即时生效不进样式草稿 ---------- */
+
+/** 密度选项 */
+const DENSITY_OPTIONS: ReadonlyArray<{ value: UiDensity; label: string }> = [
+  { value: 'comfortable', label: '舒适' },
+  { value: 'compact', label: '紧凑' },
+];
+
+/** 动效选项：auto 交给系统 prefers-reduced-motion 判定 */
+const MOTION_OPTIONS: ReadonlyArray<{ value: UiMotion; label: string }> = [
+  { value: 'auto', label: '跟随系统' },
+  { value: 'off', label: '关闭' },
+];
+
 /* ---------- 底部保存 / 关闭 ---------- */
 
 /** 是否存在未保存改动（草稿脏标记；非草稿模式回退常量 false） */
@@ -595,10 +622,14 @@ async function onSave(): Promise<void> {
   >
     <section class="panel">
       <header class="panel__header">
+        <!-- 关闭：桌面是右上角 ×，H5 换成左上角返回箭头（全屏页惯例），可访问名不变 -->
+        <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">
+          <AppIcon class="panel__close-back" name="arrow-left" :size="20" />
+          <span class="panel__close-cross" aria-hidden="true">×</span>
+        </button>
         <h2 class="panel__title">编辑设置</h2>
         <div class="panel__meta">
           <span class="panel__store">{{ api.storeName.value }}</span>
-          <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">×</button>
         </div>
       </header>
 
@@ -1082,6 +1113,83 @@ async function onSave(): Promise<void> {
             </p>
           </template>
 
+          <!-- ========== 界面外观（美化 P4） ========== -->
+          <template v-else-if="section === 'appearance'">
+            <p class="panel__hint">
+              皮肤只换壳层色板（顶栏 / 侧栏 / 抽屉 / 弹窗），不改纸张与墨色；
+              阅读纸色仍在「外观主题」里调，两者互不覆盖。选择即时生效并记入本地。
+            </p>
+
+            <div class="panel__field">
+              <span class="panel__label">界面皮肤</span>
+              <div class="panel__skins">
+                <button
+                  v-for="skin in UI_SKINS"
+                  :key="skin.key"
+                  type="button"
+                  class="panel__skin"
+                  :class="{ 'panel__skin--active': uiSkin === skin.key }"
+                  :data-skin-option="skin.key"
+                  :aria-pressed="uiSkin === skin.key"
+                  @click="emit('update:ui-skin', skin.key)"
+                >
+                  <span class="panel__skin-preview" aria-hidden="true">
+                    <i :style="{ background: skin.preview.canvas }" />
+                    <i :style="{ background: skin.preview.surface }" />
+                    <i :style="{ background: skin.preview.accent }" />
+                  </span>
+                  <span class="panel__skin-label">{{ skin.label }}</span>
+                  <AppIcon
+                    v-if="uiSkin === skin.key"
+                    class="panel__skin-check"
+                    name="check"
+                    :size="14"
+                    :stroke-width="2.2"
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div class="panel__field">
+              <span class="panel__label">界面密度（只缩放间距，不动字号）</span>
+              <div class="panel__chips">
+                <button
+                  v-for="item in DENSITY_OPTIONS"
+                  :key="item.value"
+                  type="button"
+                  class="panel__chip"
+                  :class="{ 'panel__chip--active': uiDensity === item.value }"
+                  :aria-pressed="uiDensity === item.value"
+                  @click="emit('update:ui-density', item.value)"
+                >
+                  {{ item.label }}
+                </button>
+              </div>
+            </div>
+
+            <div class="panel__field">
+              <span class="panel__label">动效（「跟随系统」即尊重 prefers-reduced-motion）</span>
+              <div class="panel__chips">
+                <button
+                  v-for="item in MOTION_OPTIONS"
+                  :key="item.value"
+                  type="button"
+                  class="panel__chip"
+                  :class="{ 'panel__chip--active': uiMotion === item.value }"
+                  :aria-pressed="uiMotion === item.value"
+                  @click="emit('update:ui-motion', item.value)"
+                >
+                  {{ item.label }}
+                </button>
+              </div>
+            </div>
+
+            <label class="panel__switch">
+              <input type="checkbox" :checked="night" @change="emit('update:night', ($event.target as HTMLInputElement).checked)" />
+              夜读纸色（只改阅读区与编辑画布，壳色仍由皮肤决定）
+            </label>
+          </template>
+
           <!-- ========== 外观主题（D10） ========== -->
           <template v-else-if="section === 'theme'">
             <p class="panel__hint">
@@ -1253,12 +1361,12 @@ async function onSave(): Promise<void> {
 .dialog {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--ui-z-sheet, 40);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: rgba(24, 21, 16, 0.45);
+  padding: var(--ui-space-6, 20px);
+  background: rgb(18 16 12 / 44%);
   backdrop-filter: blur(3px);
 }
 
@@ -1270,47 +1378,77 @@ async function onSave(): Promise<void> {
   max-width: 880px;
   height: min(82vh, 720px);
   overflow: hidden;
-  color: var(--demo-text);
+  color: var(--ui-text, #3c3a34);
   font-size: 12px;
-  background: var(--demo-panel, #f4f0e8);
-  border: 1px solid var(--demo-border, #e2ddd2);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-lg, 16px);
+  box-shadow: var(--ui-shadow-3, 0 14px 40px rgb(0 0 0 / 20%));
 }
 
 .panel__header {
   display: flex;
+  flex: none;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px 10px;
-  border-block-end: 1px solid var(--demo-border);
+  gap: var(--ui-space-2, 6px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-5, 20px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
 }
 
 .panel__title {
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  font-size: 14px;
+  overflow: hidden;
+  font-size: var(--ui-font-lg, 15px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .panel__meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ui-space-2, 6px);
 }
 
 .panel__store {
-  font-size: 10px;
-  color: var(--demo-muted);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 8px;
-  padding: 0 6px;
+  padding: 0 var(--ui-space-2, 6px);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-pill, 999px);
 }
 
+/* 关闭：桌面排在末尾（右上角 ×），H5 靠到左侧改返回箭头 */
 .panel__close {
-  border: none;
-  background: none;
+  order: 3;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   font-size: 16px;
-  color: var(--demo-muted);
+  line-height: 1;
+  color: var(--ui-text-muted, #7f7a6d);
+  background: none;
+  border: none;
+  border-radius: var(--ui-radius-sm, 8px);
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__close:hover {
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-surface-sunken, #e8e1d3);
+}
+
+/* 返回箭头只在 H5 出现，桌面继续用 × 字符 */
+.panel__close-back {
+  display: none;
 }
 
 .panel__body {
@@ -1323,91 +1461,186 @@ async function onSave(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 8px;
-  width: 132px;
-  flex: 0 0 132px;
-  border-inline-end: 1px solid var(--demo-border);
+  padding: var(--ui-space-3, 8px);
+  width: 148px;
+  flex: 0 0 148px;
+  border-inline-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
 }
 
 .panel__nav-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
-  padding: 5px 8px;
-  font-size: 12px;
+  gap: var(--ui-space-2, 6px);
+  min-height: 32px;
+  padding: 5px var(--ui-space-3, 8px);
+  font-size: var(--ui-font-sm, 12px);
   text-align: start;
-  color: var(--demo-text);
+  color: var(--ui-text, #3c3a34);
   background: none;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--ui-radius-sm, 8px);
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__nav-item:hover {
+  background: var(--ui-surface-sunken, #e8e1d3);
 }
 
 .panel__nav-item--active {
-  background: var(--demo-control);
-  color: var(--demo-accent);
+  background: var(--ui-accent-weak, rgb(140 90 43 / 12%));
+  color: var(--ui-accent, #8c5a2b);
   font-weight: 600;
 }
 
 .panel__nav-count {
-  font-size: 10px;
-  color: var(--demo-accent);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-accent, #8c5a2b);
 }
 
 .panel__content {
   flex: 1;
   min-width: 0;
-  padding: 12px 18px 18px;
+  padding: var(--ui-space-5, 20px);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ui-space-3, 8px);
 }
 
 .panel__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--ui-space-1, 4px);
 }
 
 .panel__chips--groups {
-  padding-block-end: 6px;
-  border-block-end: 1px dashed var(--demo-border);
+  padding-block-end: var(--ui-space-2, 6px);
+  border-block-end: 1px dashed var(--ui-divider, #d8d2c4);
 }
 
 .panel__chip {
-  padding: 3px 8px;
-  font-size: 12px;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
+  padding: 5px 10px;
+  min-height: 30px;
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border: var(--ui-border-width, 1px) solid transparent;
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__chip:hover {
+  border-color: var(--ui-accent, #8c5a2b);
 }
 
 .panel__chip--active {
-  color: #fff;
-  background: var(--demo-accent);
-  border-color: var(--demo-accent);
+  color: var(--ui-on-accent, #fff);
+  background: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
 }
 
 .panel__chip--dirty:not(.panel__chip--active) {
-  border-color: var(--demo-accent);
-  color: var(--demo-accent);
+  border-color: var(--ui-accent, #8c5a2b);
+  color: var(--ui-accent, #8c5a2b);
 }
 
+/* 皮肤卡：三格色块预览 + 名称，选中项描边 + 右上角对勾（P4） */
+.panel__skins {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--ui-space-2, 6px);
+}
+
+.panel__skin {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ui-space-2, 6px);
+  min-height: 72px;
+  padding: var(--ui-space-2, 6px);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-md, 12px);
+  cursor: pointer;
+  text-align: start;
+  transition:
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    box-shadow var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    transform var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__skin:hover {
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__skin:active {
+  transform: scale(0.98);
+}
+
+.panel__skin--active {
+  border-color: var(--ui-accent, #8c5a2b);
+  box-shadow: inset 0 0 0 1px var(--ui-accent, #8c5a2b);
+}
+
+.panel__skin-preview {
+  display: flex;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
+}
+
+.panel__skin-preview i {
+  flex: 1;
+}
+
+/* 强调色只占一格宽，预览里就能看出主色偏差 */
+.panel__skin-preview i:last-child {
+  flex: 0 0 28%;
+}
+
+.panel__skin-label {
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+}
+
+.panel__skin--active .panel__skin-label {
+  color: var(--ui-accent, #8c5a2b);
+  font-weight: 600;
+}
+
+.panel__skin-check {
+  position: absolute;
+  inset-block-start: 6px;
+  inset-inline-end: 6px;
+  color: var(--ui-accent, #8c5a2b);
+}
+
+/* 分组区段：每块表单用下沉底色裹成卡片，与「更多」sheet 的行制卡片同调 */
 .panel__field {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--ui-space-2, 6px);
   min-width: 0;
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-md, 12px);
 }
 
 .panel__row {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: var(--ui-space-3, 8px);
 }
 
 .panel__row > .panel__field {
@@ -1415,22 +1648,23 @@ async function onSave(): Promise<void> {
 }
 
 .panel__label {
-  font-size: 11px;
-  color: var(--demo-muted);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__group-title {
-  margin: 6px 0 2px;
-  font-size: 11px;
+  margin: var(--ui-space-3, 8px) 0 2px;
+  padding-block-start: var(--ui-space-3, 8px);
+  font-size: var(--ui-font-xs, 11px);
   font-weight: 600;
-  color: var(--demo-muted);
-  padding-block-start: 6px;
-  border-block-start: 1px dashed var(--demo-border);
+  letter-spacing: 0.18em;
+  color: var(--ui-text-muted, #7f7a6d);
+  border-block-start: 1px dashed var(--ui-divider, #d8d2c4);
 }
 
 .panel__sub-label {
-  font-size: 10px;
-  color: var(--demo-muted);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__stack {
@@ -1442,40 +1676,46 @@ async function onSave(): Promise<void> {
 .panel__input {
   width: 100%;
   min-width: 0;
-  padding: 4px 6px;
-  font-size: 12px;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
+  min-height: 32px;
+  padding: 5px var(--ui-space-2, 6px);
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
+  transition: border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__input:hover {
+  border-color: var(--ui-accent, #8c5a2b);
 }
 
 .panel__grid4 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
+  gap: var(--ui-space-2, 6px);
 }
 
 .panel__colors {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--ui-space-3, 8px);
 }
 
 .panel__color {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--demo-muted);
+  gap: var(--ui-space-1, 4px);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__color input {
-  width: 26px;
-  height: 22px;
+  width: 28px;
+  height: 26px;
   padding: 0;
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-xs, 4px);
   background: none;
   cursor: pointer;
 }
@@ -1483,40 +1723,60 @@ async function onSave(): Promise<void> {
 .panel__switch {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: var(--ui-space-2, 6px);
+  min-height: 32px;
+  padding: 0 var(--ui-space-3, 8px);
+  font-size: var(--ui-font-sm, 12px);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-sm, 8px);
   cursor: pointer;
 }
 
 .panel__hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--ui-font-xs, 11px);
   line-height: 1.6;
-  color: var(--demo-muted);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__hint--ok {
-  color: var(--demo-accent);
+  color: var(--ui-success, #3f7d4e);
 }
 
 .panel__primary,
 .panel__secondary,
 .panel__danger,
 .panel__mini {
-  font-size: 12px;
-  padding: 5px 10px;
-  border-radius: 4px;
+  font-size: var(--ui-font-sm, 12px);
+  min-height: 32px;
+  padding: 5px 12px;
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  color: var(--demo-text);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  color: var(--ui-text, #3c3a34);
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    transform var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__primary:active:not(:disabled),
+.panel__secondary:active:not(:disabled),
+.panel__mini:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .panel__primary {
-  color: #fff;
-  background: var(--demo-accent);
-  border-color: var(--demo-accent);
+  color: var(--ui-on-accent, #fff);
+  background: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
   flex: 0 0 auto;
+}
+
+.panel__primary:hover:not(:disabled) {
+  background: var(--ui-accent-strong, #734721);
+  border-color: var(--ui-accent-strong, #734721);
 }
 
 .panel__primary:disabled {
@@ -1524,15 +1784,23 @@ async function onSave(): Promise<void> {
   cursor: default;
 }
 
+.panel__secondary:hover,
+.panel__mini:hover {
+  color: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
 .panel__mini {
-  font-size: 11px;
-  padding: 2px 6px;
+  font-size: var(--ui-font-xs, 11px);
+  min-height: 26px;
+  padding: 2px 8px;
 }
 
 .panel__danger {
   width: 100%;
-  color: #c0392b;
-  border-color: #c0392b;
+  color: var(--ui-danger, #c0392b);
+  border-color: var(--ui-danger, #c0392b);
+  background: var(--ui-danger-weak, rgb(192 57 43 / 12%));
 }
 
 .panel__presets {
@@ -1541,15 +1809,15 @@ async function onSave(): Promise<void> {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .panel__preset {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  border-block-end: 1px dashed var(--demo-border);
+  gap: var(--ui-space-2, 6px);
+  padding: var(--ui-space-2, 6px) 0;
+  border-block-end: 1px dashed var(--ui-divider, #d8d2c4);
 }
 
 .panel__preset-name {
@@ -1561,39 +1829,41 @@ async function onSave(): Promise<void> {
 }
 
 .panel__preset-meta {
-  font-size: 10px;
-  color: var(--demo-muted);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__empty {
-  font-size: 11px;
-  color: var(--demo-muted);
+  padding: var(--ui-space-3, 8px) 0;
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__footer {
   margin-block-start: auto;
-  padding-block-start: 10px;
+  padding-block-start: var(--ui-space-3, 8px);
 }
 
 /* 底部动作条：与内容区分隔，保存（主）/ 关闭（次）右对齐 */
 .panel__actions {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  padding: 10px 18px;
-  border-block-start: 1px solid var(--demo-border);
-  background: var(--demo-panel, #f4f0e8);
+  gap: var(--ui-space-4, 12px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-5, 20px);
+  border-block-start: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
 }
 
 .panel__actions-hint {
-  font-size: 11px;
-  color: var(--demo-accent);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-danger, #c0392b);
 }
 
 .panel__actions-buttons {
   display: flex;
-  gap: 8px;
+  gap: var(--ui-space-2, 6px);
 }
 
 .panel__actions-buttons .panel__primary,
@@ -1602,10 +1872,11 @@ async function onSave(): Promise<void> {
 }
 
 /*
- * H5（C2）：窄屏模态转全屏页
+ * H5（C2 + 美化 P2）：窄屏模态转全屏页
  *
  * 遮罩内边距归零、卡片撑满视口并去掉圆角边框（与系统级全屏页一致）；
- * 纵向空间的分配改「导航横排 + 内容独占余量」，底部留安全区，
+ * 标题栏固定 56px 高并计入安全区，关闭改左上返回箭头、标题居中；
+ * 纵向空间改「导航横排 + 内容独占余量」，底部留安全区，
  * 保证刘海屏上「保存 / 关闭」不被 Home 指示条压住。
  */
 @media (max-width: 767px) {
@@ -1619,7 +1890,43 @@ async function onSave(): Promise<void> {
     height: 100%;
     border: none;
     border-radius: 0;
+    box-shadow: none;
     padding-block-end: env(safe-area-inset-bottom, 0px);
+  }
+
+  .panel__header {
+    position: relative;
+    min-height: 56px;
+    padding: var(--ui-space-2, 6px) var(--ui-space-3, 8px);
+    padding-block-start: calc(var(--ui-space-2, 6px) + var(--bt-safe-top, 0px));
+  }
+
+  .panel__close {
+    order: -1;
+    width: 44px;
+    height: 44px;
+  }
+
+  .panel__close-back {
+    display: block;
+  }
+
+  .panel__close-cross {
+    display: none;
+  }
+
+  .panel__title {
+    position: absolute;
+    left: 50%;
+    flex: none;
+    width: auto;
+    max-width: 56%;
+    transform: translateX(-50%);
+    text-align: center;
+  }
+
+  .panel__store {
+    display: none;
   }
 
   .panel__body {
@@ -1629,27 +1936,48 @@ async function onSave(): Promise<void> {
   .panel__nav {
     flex: none;
     flex-direction: row;
-    gap: 4px;
+    gap: var(--ui-space-1, 4px);
     width: 100%;
-    padding: 6px 10px;
+    padding: var(--ui-space-2, 6px) var(--ui-space-4, 12px);
     overflow-x: auto;
     overscroll-behavior-x: contain;
     border-inline-end: none;
-    border-block-end: 1px solid var(--demo-border);
+    border-block-end: 1px solid var(--ui-divider, #d8d2c4);
   }
 
   .panel__nav-item {
     flex: 0 0 auto;
+    min-height: 36px;
     white-space: nowrap;
   }
 
   .panel__content {
     min-height: 0;
-    padding: 12px 14px 16px;
+    padding: var(--ui-space-4, 12px) var(--ui-space-4, 12px) var(--ui-space-5, 20px);
+  }
+
+  .panel__chip {
+    min-height: 36px;
+  }
+
+  .panel__input {
+    min-height: 40px;
+    font-size: 14px;
+  }
+
+  .panel__primary,
+  .panel__secondary,
+  .panel__danger,
+  .panel__mini {
+    min-height: 40px;
+  }
+
+  .panel__row {
+    flex-wrap: wrap;
   }
 
   .panel__actions {
-    padding: 10px 14px;
+    padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
   }
 }
 </style>

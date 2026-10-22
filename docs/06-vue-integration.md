@@ -535,3 +535,59 @@ console.log(layout.height);
 测试口径：happy-dom 无 Canvas 2D，DOM 截图与长图合成只覆盖环境安全门（`IMAGE_EXPORT_UNSUPPORTED`）；
 截图编排经 `PageCapture` 端口注入假实现，覆盖 ZIP 条目 / 页序 / 进度 / 重试 / 回收；
 长图布局是纯函数，直接断言总高与分隔带位置（见 `packages/vue/src/__tests__/image-export.test.ts`）。
+
+## 视觉令牌与皮肤（美化 P0–P4）
+
+皮肤是**宿主职责**：`@bibliotype/vue` 只保证「颜色可被变量覆盖」，不引入主题状态与存储。
+令牌与注册表都在 demo 侧（`apps/demo/src/styles.css` + `apps/demo/src/ui-skin.ts`），
+库组件靠 `--bt-*` 变量的默认值跟随。
+
+### 两层令牌
+
+尺度令牌皮肤无关，写死在 `:root`；语义令牌只出现在 `[data-skin='…']` 块里，组件一律消费语义名，
+不得再写 `#fffdf8` 这类字面色。
+
+| 层 | 变量 | 取值 |
+| --- | --- | --- |
+| 间距 | `--ui-space-1..8` | 4 / 6 / 8 / 12 / 16 / 20 / 24 / 32 |
+| 圆角 | `--ui-radius-xs\|sm\|md\|lg\|pill` | 4 / 8 / 12 / 16 / 999 |
+| 动效 | `--ui-dur-fast` / `--ui-dur-base` / `--ui-ease` | 120ms / 200ms / `cubic-bezier(.2,.8,.2,1)` |
+| 投影 | `--ui-shadow-1\|2\|3` | 黑 6% / 12% / 20%（深色皮肤加深、高对比皮肤置 `none`） |
+| 字号 | `--ui-font-xs..2xl` | 11 / 12 / 13 / 15 / 17 / 20 |
+| 形态 | `--ui-row-height` / `--ui-bar-h` / `--ui-bar-h-mobile` / `--ui-border-width` | 48 / 48 / 52 / 1px |
+| 层级 | `--ui-z-bar\|sheet\|toast` | 20 / 40 / 60（抽屉取 `sheet + 10`，toast 最高） |
+| 语义色 | `--ui-canvas` `surface` `surface-raised` `surface-sunken` `border` `divider` `text-strong` `text` `text-muted` `text-inverse` `accent` `accent-weak` `accent-strong` `on-accent` `danger` `danger-weak` `success` `focus` | 由皮肤赋值；`:root` 的默认值即 `paper`，未挂 `data-skin` 也有完整回退 |
+
+### 四套皮肤
+
+`UI_SKINS` 是元数据源（名称 / `dark` / 预览色块），色值源是 `styles.css` 的 `[data-skin]` 块，
+两处同名同序；新增一套只需在两份文件各加一条，设置面板的皮肤卡由列表驱动自动出现。
+
+| key | 名称 | canvas / raised / accent | 圆角 | 备注 |
+| --- | --- | --- | --- | --- |
+| `paper` | 宣纸文墨（默认） | `#efe9dd` / `#faf8f4` / `#8c5a2b` | 8 / 12 / 16 | 沿用原有暖纸色，只补层次 |
+| `plain` | 素白现代 | `#f5f6f8` / `#ffffff` / `#3b6cf0` | 8 / 12 / 18 | 卡片化，轻投影 |
+| `ink` | 墨色专注 | `#121110` / `#262421` / `#c99a5b` | 8 / 12 / 16 | `dark: true` + `color-scheme: dark`，选中即联动夜读纸色 |
+| `contrast` | 高对比 | `#ffffff` / `#ffffff` / `#0b4fd6` | 4 / 6 / 8 | `--ui-border-width: 2px` 描边代替投影，阴影全关 |
+
+皮肤只管**壳层**（顶栏 / 底栏 / 抽屉 / 弹窗 / 控件），纸张与墨色仍由主题令牌（`ThemeKey` + 夜读）负责，
+两条链互不覆盖；`data-night` 只做纸面微调，不参与壳色判定。
+
+### 挂载点与覆盖方式
+
+```html
+<!-- 必须挂 <html>：抽屉、设置、书籍信息都 Teleport 到 body，只有根上的令牌能穿过传送门 -->
+<html data-skin="paper" data-density="comfortable" data-motion="auto" data-night="false">
+```
+
+- **宿主内**：直接消费 `var(--ui-*)`；旧 `--demo-*` 已全部改成别名（`--demo-panel: var(--ui-surface)` 等），
+  所以 `App.vue` 里三千行既有规则零改动即可换肤——新代码不要再新增 `--demo-*` 名字。
+- **库组件**：在 `:root` 重绑 `--bt-drawer-*` / `--bt-replace-menu-*` / `--bt-table-picker-*`；
+  本轮为 `BtDrawer` 补了 `--bt-drawer-mask`、`--bt-drawer-shadow`、`--bt-drawer-radius`、
+  `--bt-drawer-radius-sm`、`--bt-drawer-hover`、`--bt-drawer-ease`（都带默认值，不传即保持库自身观感），
+  并同时给抽屉 / sheet 加了入场动效（`prefers-reduced-motion: reduce` 下整块关掉）。
+- **密度**：`[data-density='compact']` 只把 `--ui-space-*` 缩到 ≈0.85 并压 `--ui-row-height`，
+  字号与 `--bt-touch-target: 44px` 不动。
+- **动效**：`prefers-reduced-motion: reduce` 与 `[data-motion='off']` 同口径把 `--ui-dur-*` 归零并禁用按压缩放。
+- **焦点**：`:focus-visible` 统一 `2px solid var(--ui-focus)`，图标按钮的可访问名（`aria-label`）不因换肤改变。
+

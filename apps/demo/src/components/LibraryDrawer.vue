@@ -452,10 +452,14 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/*
+ * 视觉全部走 `--ui-*` 令牌（美化 P2）：以前写死 #fffdf8 / #8c2f1f 之类的纸色，
+ * 皮肤切到墨色 / 素白时抽屉会跳回旧配色，现在跟着 <html data-skin> 走。
+ */
 .drawer {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: calc(var(--ui-z-sheet, 40) + 10);
   display: flex;
   justify-content: flex-end;
 }
@@ -463,7 +467,7 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(31, 27, 22, 0.32);
+  background: var(--bt-drawer-mask, rgb(18 16 12 / 44%));
   cursor: default;
 }
 .drawer__panel {
@@ -476,9 +480,11 @@ onMounted(() => {
   /* 安全区（D3）：右侧与底部避开刘海 / Home 指示条 */
   padding-inline-end: env(safe-area-inset-right, 0px);
   padding-block-end: env(safe-area-inset-bottom, 0px);
-  background: #fffdf8;
-  box-shadow: -12px 0 32px rgba(31, 27, 22, 0.16);
-  animation: drawer-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border-inline-start: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  box-shadow: var(--bt-drawer-shadow, var(--ui-shadow-3, 0 14px 40px rgb(0 0 0 / 20%)));
+  animation: drawer-in var(--ui-dur-base, 200ms) var(--ui-ease, cubic-bezier(0.2, 0.8, 0.2, 1));
 }
 @keyframes drawer-in {
   from {
@@ -492,67 +498,111 @@ onMounted(() => {
 }
 .drawer__head {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid #e4dbc9;
+  gap: var(--ui-space-2, 6px);
+  min-height: var(--ui-bar-h, 48px);
+  padding: var(--ui-space-2, 6px) var(--ui-space-4, 12px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
 }
 .drawer__tabs {
   display: flex;
-  gap: 4px;
+  gap: var(--ui-space-1, 4px);
 }
 .drawer__tab {
-  padding: 6px 12px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  min-height: 34px;
+  padding: 6px 14px;
+  border: var(--ui-border-width, 1px) solid transparent;
+  border-radius: var(--ui-radius-pill, 999px);
   background: transparent;
-  color: #5c5348;
+  color: var(--ui-text-muted, #7f7a6d);
   cursor: pointer;
   font: inherit;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+.drawer__tab:hover {
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-accent-weak, rgb(140 90 43 / 12%));
 }
 .drawer__tab--active {
-  border-color: #8c2f1f;
-  color: #8c2f1f;
+  border-color: var(--ui-accent, #8c5a2b);
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-accent-weak, rgb(140 90 43 / 12%));
+  font-weight: 600;
 }
 .drawer__close {
-  width: 28px;
-  height: 28px;
-  border: 1px solid #e4dbc9;
-  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--ui-radius-sm, 8px);
   background: transparent;
-  color: #5c5348;
+  color: var(--ui-text-muted, #7f7a6d);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+.drawer__close:hover {
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-surface-sunken, #e8e1d3);
 }
 .drawer__body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 .drawer__row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--ui-space-2, 6px);
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--ui-space-4, 12px) var(--ui-space-5, 20px);
 }
 .drawer__primary {
-  padding: 8px 16px;
-  border: 1px solid #8c2f1f;
-  border-radius: 6px;
-  background: #8c2f1f;
-  color: #fffdf8;
+  min-height: 36px;
+  padding: 8px 18px;
+  border: var(--ui-border-width, 1px) solid var(--ui-accent, #8c5a2b);
+  border-radius: var(--ui-radius-pill, 999px);
+  background: var(--ui-accent, #8c5a2b);
+  color: var(--ui-on-accent, #fff);
   cursor: pointer;
   font: inherit;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    transform var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+.drawer__primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.drawer__primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 .drawer__ghost {
-  padding: 7px 14px;
-  border: 1px solid #e4dbc9;
-  border-radius: 6px;
-  background: transparent;
-  color: #5c5348;
+  min-height: 36px;
+  padding: 7px 16px;
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-pill, 999px);
+  background: var(--ui-surface-raised, #faf8f4);
+  color: var(--ui-text, #3c3a34);
   cursor: pointer;
   font: inherit;
+  transition:
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+.drawer__ghost:hover:not(:disabled) {
+  color: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
 }
 .drawer__ghost:disabled {
   cursor: not-allowed;
@@ -560,15 +610,34 @@ onMounted(() => {
 }
 .drawer__error {
   margin: 0;
-  color: #a33a2a;
-  font-size: 12px;
+  color: var(--ui-danger, #c0392b);
+  font-size: var(--ui-font-sm, 12px);
 }
 @media (max-width: 767px) {
   .drawer__panel {
     width: 100%;
+    border-inline-start: none;
+  }
+  /* 标题栏计入刘海安全区，页签拥挤时整行横滑 */
+  .drawer__head {
+    min-height: 56px;
+    padding-block-start: calc(var(--ui-space-2, 6px) + var(--bt-safe-top, 0px));
+  }
+  .drawer__close {
+    width: var(--bt-touch-target, 44px);
+    height: var(--bt-touch-target, 44px);
   }
   .drawer__tabs {
     overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  .drawer__tab {
+    min-height: var(--bt-touch-target, 44px);
+    white-space: nowrap;
+  }
+  .drawer__primary,
+  .drawer__ghost {
+    min-height: 44px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

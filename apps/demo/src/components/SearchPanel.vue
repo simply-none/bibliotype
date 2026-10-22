@@ -110,120 +110,158 @@ function excerptParts(text: string): ReadonlyArray<{ text: string; hit: boolean 
 </template>
 
 <style scoped>
+/*
+ * 侧栏面板统一制式（美化 P3）
+ *
+ * 与设置面板 / 「更多」sheet 同源：输入框 36px（触屏 40px）、按钮胶囊化、
+ * 行高 32px、分隔线走 `--ui-divider`；颜色全取 `--ui-*`，切皮肤即跟手。
+ */
 .panel {
-  padding: 10px 12px 14px;
-  border-block-end: 1px solid var(--demo-border, #e2ddd2);
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px) var(--ui-space-5, 20px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
 }
 
 .panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-block-end: 8px;
+  margin-block-end: var(--ui-space-3, 8px);
 }
 
 .panel__title {
   margin: 0;
-  font-size: 13px;
-  letter-spacing: 0.2em;
-  color: var(--demo-text, #3c3a34);
+  font-size: var(--ui-font-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__searchbar {
   display: flex;
-  gap: 6px;
+  gap: var(--ui-space-2, 6px);
 }
 
 .panel__input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
-  font-size: 13px;
-  color: inherit;
-  background: var(--demo-control, #fbf9f4);
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  min-height: 36px;
+  padding: 5px var(--ui-space-3, 8px);
+  font-size: var(--ui-font-md, 13px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
+  transition: border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__input:hover {
+  border-color: var(--ui-accent, #8c5a2b);
 }
 
 .panel__submit {
   flex: none;
-  padding: 5px 10px;
-  font-size: 12px;
-  color: #fff;
-  background: var(--demo-accent, #8c5a2b);
+  min-height: 36px;
+  padding: 5px 14px;
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-on-accent, #fff);
+  background: var(--ui-accent, #8c5a2b);
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
+  transition: background var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__submit:hover {
+  background: var(--ui-accent-strong, #734721);
 }
 
 .panel__empty,
 .panel__count {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--demo-muted, #8a8578);
+  margin: var(--ui-space-3, 8px) 0 0;
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__list {
   list-style: none;
-  margin: 6px 0 0;
+  margin: var(--ui-space-2, 6px) 0 0;
   padding: 0;
 }
 
 .panel__item + .panel__item {
-  margin-block-start: 4px;
+  margin-block-start: 2px;
 }
 
 .panel__result {
   display: block;
   width: 100%;
-  padding: 6px 8px;
+  min-height: 32px;
+  padding: 6px var(--ui-space-3, 8px);
   font: inherit;
   color: inherit;
   text-align: start;
   background: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ui-radius-sm, 8px);
   cursor: pointer;
+  transition: background var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .panel__result:hover {
-  background: rgba(127, 127, 127, 0.12);
+  background: var(--ui-accent-weak, rgba(127, 127, 127, 0.12));
 }
 
 .panel__excerpt {
   display: block;
-  font-size: 12.5px;
+  font-size: var(--ui-font-md, 13px);
   line-height: 1.6;
 }
 
+/* 命中高亮：用 accent 轻色块，深色皮肤下不会像写死米黄那样刺眼 */
 .panel__hit {
   padding: 0 1px;
   color: inherit;
-  background: rgba(201, 154, 91, 0.4);
-  border-radius: 2px;
+  background: var(--ui-accent-weak, rgba(201, 154, 91, 0.4));
+  border-radius: var(--ui-radius-xs, 4px);
 }
 
 .panel__meta {
   display: block;
   margin-block-start: 2px;
-  font-size: 11px;
-  color: var(--demo-muted, #8a8578);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__clear {
   display: block;
-  margin: 8px auto 0;
-  padding: 3px 10px;
-  font-size: 12px;
-  color: var(--demo-muted, #8a8578);
+  margin: var(--ui-space-3, 8px) auto 0;
+  padding: 3px 12px;
+  min-height: 30px;
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text-muted, #7f7a6d);
   background: none;
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
+  transition:
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .panel__clear:hover {
-  color: var(--demo-accent, #8c5a2b);
-  border-color: var(--demo-accent, #8c5a2b);
+  color: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
+/* 触屏：侧栏控件顶到 40 / 44px，避免 320px 宽抽屉里点不准 */
+@media (pointer: coarse) {
+  .panel__input,
+  .panel__submit {
+    min-height: 40px;
+  }
+
+  .panel__result {
+    min-height: 44px;
+  }
 }
 </style>

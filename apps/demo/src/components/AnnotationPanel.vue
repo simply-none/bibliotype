@@ -96,7 +96,7 @@ async function addComment(): Promise<void> {
   <div class="panel">
     <div class="panel__head">
       <h3 class="panel__title">标注</h3>
-      <button type="button" class="panel__close" @click="emit('close')">×</button>
+      <button type="button" class="panel__close" aria-label="关闭" @click="emit('close')">×</button>
     </div>
 
     <div class="panel__actions">
@@ -116,30 +116,71 @@ async function addComment(): Promise<void> {
 </template>
 
 <style scoped>
+/* 侧栏面板统一制式（美化 P3）：分组标题 11px 字距 0.18em，动作按钮胶囊化 */
 .panel {
   display: flex;
   flex-direction: column;
   height: 100%;
+  color: var(--ui-text, #3c3a34);
 }
 .panel__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px;
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
 }
 .panel__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--ui-font-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ui-text-muted, #7f7a6d);
 }
 .panel__close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   border: none;
+  border-radius: var(--ui-radius-sm, 8px);
   background: transparent;
-  font-size: 18px;
+  color: var(--ui-text-muted, #7f7a6d);
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+.panel__close:hover {
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-surface-sunken, rgba(127, 127, 127, 0.15));
 }
 .panel__actions {
   display: flex;
-  gap: 4px;
-  padding: 0 8px 8px;
+  gap: var(--ui-space-1, 4px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+}
+.panel__actions button {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-accent-weak, rgba(140, 90, 43, 0.12));
+  border: var(--ui-border-width, 1px) solid transparent;
+  border-radius: var(--ui-radius-pill, 999px);
+  cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+.panel__actions button:hover {
+  border-color: var(--ui-accent, #8c5a2b);
+}
+@media (pointer: coarse) {
+  .panel__actions button {
+    min-height: 40px;
+  }
 }
 </style>

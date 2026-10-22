@@ -258,3 +258,35 @@ pnpm --filter @bibliotype/demo test   # 进度条拖动跳页（组件用 create
 
 demo 的 `vitest.config.ts` 已接入 `@vitejs/plugin-vue`，可直接测 `.vue` 单文件组件；
 happy-dom 无布局，需要尺寸的用例自己 mock `getBoundingClientRect()`。
+
+换肤后 e2e 冒烟跑**两档**（`chromium` 1280×900 + `chromium-mobile` iPhone 13 390×664，
+后者只 `testMatch` smoke，像素基线仍只出桌面档）；入口差异由 `tests/utils/demo.ts` 的
+`clickGlobalAction` 吸收（窄屏先开「更多」sheet）。详见 [e2e/README.md](../e2e/README.md)。
+
+## 界面皮肤与无闪烁初始化（美化 P0–P4）
+
+皮肤属于**宿主（demo）职责**，库侧只多暴露 CSS 变量，因此这类改动不应当触发 `@bibliotype/*` 的 major / minor，
+只有确实改了 `packages/*/src` 时才补 changeset（本轮 = `@bibliotype/vue` minor，仅 `BtDrawer` 的六个变量与入场动效）。
+
+| 约定 | 落地 |
+| --- | --- |
+| 色值唯一源 | `apps/demo/src/styles.css` 的 `[data-skin='…']` 块；组件内不得再写字面色，一律 `var(--ui-*)` |
+| 元数据源 | `apps/demo/src/ui-skin.ts` 的 `UI_SKINS`（名称 / `dark` / 预览色）；新增皮肤 = 两份文件各加一条，同键同名 |
+| 挂载点 | `data-skin` / `data-density` / `data-motion` / `data-night` 挂 `<html>`（不是 `.app`）：弹层都 Teleport 到 body，只有根上的令牌能穿过传送门 |
+| 持久化 | `localStorage['bibliotype-demo:settings']` 内的 `uiSkin` / `uiDensity` / `uiMotion`；读回逐字段容错，未知值回落默认，旧快照缺键也不报错 |
+| 无闪烁 | `index.html` 头部内联脚本（非 module）在样式生效前写同一批 `data-*` 与 `meta[name=theme-color]`，存储不可用时静默走默认皮肤 |
+| 主题色 | `meta[name="theme-color"]` 跟皮肤 `canvas` 色，避免手机上「黑壳 + 白顶栏」裂缝 |
+
+### 两处同改的陷阱
+
+内联脚本不能 `import`，所以合法值白名单（`paper|plain|ink|contrast` / `comfortable|compact` / `auto|off`）
+与 `ui-skin.ts` 是**手工同步**关系：改任一边必须同时改 `index.html`，否则首帧会被内联脚本“纠正”回默认皮肤
+（表现：刷新时先闪一下默认壳色）。`apps/demo/src/__tests__/ui-skin.test.ts` 只守注册表，测不到这段内联脚本。
+
+### 换肤不许改的 e2e 契约
+
+视觉重构不得重命名选择器与可访问名（`e2e/tests/utils/demo.ts` 靠它们驱动）：
+`.toolbar__book strong`、`.panel__field`、`.panel__actions .panel__primary`、`.panel__file-input`、`.panel__status`、
+`.bt-pager__status`（文本含「共」，因此 H5 底栏必须保留该读数）；
+以及「导入 / 设置 / 编辑 / 保存并预览 / 导出 EPUB / 导出 PDF / 上一页 / 下一页 / 主题名」等名称。
+图标一律 `aria-hidden`，可访问名由 `aria-label` 或文本承担，不得把文案换成图标。

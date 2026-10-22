@@ -57,6 +57,19 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } },
     },
+    /**
+     * H5 壳冒烟（美化 P5）：390×664 + 触屏
+     *
+     * 只看主链路在 `< md` 分支下跑得通（顶栏收缩、底栏图标、更多 sheet），
+     * 因此只跑 smoke；像素基线仍以桌面档为准（快照按 projectName 分目录，
+     * 新档不会改动已有基线）。`browserName` 强制回 chromium，
+     * 以免 `devices['iPhone 13']` 的 webkit 默认值拉进一个 CI 未安装的浏览器。
+     */
+    {
+      name: 'chromium-mobile',
+      use: { ...devices['iPhone 13'], browserName: 'chromium' },
+      testMatch: /smoke\.spec\.ts/,
+    },
   ],
   webServer: {
     command: `pnpm --dir apps/demo preview --host 127.0.0.1 --port ${PORT} --strictPort`,

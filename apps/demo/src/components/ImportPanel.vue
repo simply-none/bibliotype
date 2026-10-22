@@ -93,43 +93,49 @@ async function onFileChange(event: Event): Promise<void> {
 
 <style scoped>
 .panel {
-  padding: 10px 12px 14px;
-  border-block-end: 1px solid var(--demo-border, #e2ddd2);
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px) var(--ui-space-5, 20px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
 }
 
 .panel__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-block-end: 8px;
+  margin-block-end: var(--ui-space-3, 8px);
 }
 
 .panel__title {
   margin: 0;
-  font-size: 13px;
-  letter-spacing: 0.2em;
-  color: var(--demo-text, #3c3a34);
+  font-size: var(--ui-font-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
+/* 虚线投递区：做成卡片状的面板（圆角 md + accent 轻色底），不再是贴边的细虚线 */
 .panel__file {
   display: block;
   width: 100%;
-  padding: 6px 0;
-  font-size: 13px;
+  min-height: 44px;
+  padding: 10px 0;
+  font-size: var(--ui-font-md, 13px);
   text-align: center;
-  color: var(--demo-accent, #8c5a2b);
-  border: 1px dashed var(--demo-accent, #8c5a2b);
-  border-radius: 4px;
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-accent-weak, rgba(140, 90, 43, 0.08));
+  border: var(--ui-border-width, 1px) dashed var(--ui-accent, #8c5a2b);
+  border-radius: var(--ui-radius-md, 12px);
   cursor: pointer;
+  transition: background var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .panel__file:hover:not(.panel__file--busy) {
-  background: rgba(140, 90, 43, 0.08);
+  background: var(--ui-surface-sunken, rgba(140, 90, 43, 0.08));
 }
 
 .panel__file--busy {
-  color: var(--demo-muted, #8a8578);
-  border-color: var(--demo-control-border, #d8d2c4);
+  color: var(--ui-text-muted, #7f7a6d);
+  background: var(--ui-surface-sunken, transparent);
+  border-color: var(--ui-border, #e2ddd2);
   cursor: default;
 }
 
@@ -147,14 +153,18 @@ async function onFileChange(event: Event): Promise<void> {
 }
 
 .panel__hint {
-  margin: 8px 0 0;
-  font-size: 11px;
-  color: var(--demo-muted, #8a8578);
+  margin: var(--ui-space-3, 8px) 0 0;
+  font-size: var(--ui-font-xs, 11px);
+  line-height: 1.6;
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .panel__status {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--demo-text, #3c3a34);
+  margin: var(--ui-space-3, 8px) 0 0;
+  padding: var(--ui-space-2, 6px) var(--ui-space-3, 8px);
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-sm, 8px);
 }
 </style>

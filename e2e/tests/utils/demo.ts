@@ -24,6 +24,30 @@ export async function openDemo(page: Page): Promise<void> {
   await expect(page.locator('.bt-pager__status')).toContainText('共', { timeout: 60_000 });
 }
 
+/** H5 壳宽度上限：与 `App.vue` 的 `mobileShell`（`< md` = 768）同口径 */
+const MOBILE_MAX_WIDTH = 767;
+
+/** 当前是否跑在 H5 档（`chromium-mobile` 项目为 390px） */
+function isNarrow(page: Page): boolean {
+  return (page.viewportSize()?.width ?? MOBILE_MAX_WIDTH + 1) <= MOBILE_MAX_WIDTH;
+}
+
+/**
+ * 点一个「桌面在顶栏 / H5 在更多 sheet」的全局动作
+ *
+ * H5 顶栏只留书名与「更多」（`v-if="!mobileShell"` 把桌面动作整组移出 DOM），
+ * 所以下面这些名称在两档都只命中一个按钮，不存在 strict-mode 冲突；
+ * 行项点击后 `onMobileAction` 会先收起 sheet，不会与刚开的弹窗 / 抽屉叠层。
+ */
+export async function clickGlobalAction(page: Page, name: string): Promise<void> {
+  if (isNarrow(page)) {
+    const toggle = page.getByRole('button', { name: '更多', exact: true });
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+    await expect(page.locator('.app__menu')).toBeVisible();
+  }
+  await page.getByRole('button', { name, exact: true }).click();
+}
+
 /**
  * 等分页落定：去抖窗口 + 字体就绪 + 两帧渲染
  *
@@ -46,12 +70,20 @@ export async function importBook(
   name: string,
   expectText?: string,
 ): Promise<void> {
-  await page.getByRole('button', { name: '导入', exact: true }).click();
+  await clickGlobalAction(page, '导入');
   await page.locator('.panel__file-input').setInputFiles(fixture(name));
   await expect(page.locator('.panel__status')).toContainText('已导入', { timeout: 30_000 });
   if (expectText !== undefined) {
     await expect(page.locator('.bt-reader-page').first()).toContainText(expectText, {
       timeout: 30_000,
+    });
+  }
+  /* H5：面板装在模态抽屉里，遮罩会盖住底栏（后续的翻页 / 更多都点不动），收掉再继续；
+     桌面侧栏是内联列，不留这个动作 */
+  if (isNarrow(page)) {
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.bt-drawer[data-open="true"]')).toHaveCount(0, {
+      timeout: 10_000,
     });
   }
   await waitForPagingIdle(page);
@@ -78,9 +110,9 @@ export async function gotoPrevPage(page: Page): Promise<void> {
   await waitForPagingIdle(page);
 }
 
-/** 切主题（顶栏主题按钮，标签即主题名） */
+/** 切主题（桌面顶栏按钮 / H5 更多 sheet 行项，标签即主题名） */
 export async function switchTheme(page: Page, label: string): Promise<void> {
-  await page.getByRole('button', { name: label, exact: true }).click();
+  await clickGlobalAction(page, label);
   await waitForPagingIdle(page);
 }
 

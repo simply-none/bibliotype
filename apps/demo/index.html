@@ -15,6 +15,38 @@
     />
     <meta name="theme-color" content="#efe9dd" />
     <title>bibliotype · 论语阅读 Demo</title>
+    <!--
+      界面外观首帧初始化（美化 P4：无闪烁）
+      - 皮肤 / 密度 / 动效的色值真源在 styles.css 的 [data-skin='…'] 块，但「当前选哪套」
+        存在 localStorage，要等 App.vue 挂载才写回 <html>；直读会让首帧先闪一下默认皮肤。
+      - 因此这里在样式生效前同步打标；合法值口径必须与 src/ui-skin.ts 保持一致
+        （该文件是元数据源，内联脚本不能 import，只能复制白名单，改动时两处同改）。
+      - 整段包 try/catch：隐私模式禁用 storage 时静默走默认皮肤，不能阻塞首屏渲染。
+    -->
+    <script>
+      (function () {
+        var SKINS = ['paper', 'plain', 'ink', 'contrast'];
+        var DENSITIES = ['comfortable', 'compact'];
+        var MOTIONS = ['auto', 'off'];
+        var root = document.documentElement;
+        var saved = null;
+        try {
+          saved = JSON.parse(localStorage.getItem('bibliotype-demo:settings') || 'null');
+        } catch (e) {
+          saved = null;
+        }
+        var skin = saved && SKINS.indexOf(saved.uiSkin) > -1 ? saved.uiSkin : 'paper';
+        var density = saved && DENSITIES.indexOf(saved.uiDensity) > -1 ? saved.uiDensity : 'comfortable';
+        var motion = saved && MOTIONS.indexOf(saved.uiMotion) > -1 ? saved.uiMotion : 'auto';
+        root.setAttribute('data-skin', skin);
+        root.setAttribute('data-density', density);
+        root.setAttribute('data-motion', motion);
+        /* 地址栏 / 状态栏底色同步，避免 App 接管前后出现「白顶栏 + 深壳」裂缝 */
+        var CANVAS = { paper: '#efe9dd', plain: '#f5f6f8', ink: '#121110', contrast: '#ffffff' };
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', CANVAS[skin]);
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

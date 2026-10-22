@@ -1016,9 +1016,9 @@ function onWheel(event: WheelEvent): void {
   display: flex;
   flex: none;
   flex-direction: column;
-  border-block-end: 1px solid var(--demo-border);
-  background: var(--demo-panel);
-  color: var(--demo-text);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
+  color: var(--ui-text, #3c3a34);
 }
 
 .editor-toolbar__row {
@@ -1033,14 +1033,14 @@ function onWheel(event: WheelEvent): void {
 }
 
 .editor-toolbar__row + .editor-toolbar__row {
-  border-block-start: 1px solid var(--demo-border);
+  border-block-start: 1px solid var(--ui-divider, #d8d2c4);
 }
 
 .editor-toolbar__row-label {
   flex: none;
   padding-inline-end: 6px;
-  color: var(--demo-text-muted, #8a8f98);
-  font-size: 11px;
+  color: var(--ui-text-muted, #7f7a6d);
+  font-size: var(--ui-font-xs, 11px);
   white-space: nowrap;
   user-select: none;
 }
@@ -1050,44 +1050,51 @@ function onWheel(event: WheelEvent): void {
 }
 
 .editor-toolbar__row::-webkit-scrollbar-thumb {
-  background: var(--demo-border);
-  border-radius: 3px;
+  background: var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-xs, 4px);
 }
 
+/* 成组按钮（实用区）：下沉底 + 胶囊分段，与顶栏三态按钮同调 */
 .editor-toolbar__group {
   display: flex;
   flex: none;
   align-items: center;
   gap: 2px;
+  padding: 2px;
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-pill, 999px);
 }
 
 .editor-toolbar__group--end {
   margin-inline-start: auto;
-  padding-inline-start: 12px;
-  border-inline-start: 1px solid var(--demo-control-border);
+  padding-inline-start: 4px;
 }
 
 .editor-toolbar__row--readonly {
   opacity: 0.75;
 }
 
-/* ghost 按钮制式：平时无边框，悬停现浅底，激活现轻色块 */
+/* ghost 按钮制式：平时无边框，悬停现浅底，激活 accent 轻色块 + 描边 */
 .editor-toolbar__button {
   flex: none;
-  padding: 3px 9px;
+  padding: 3px 10px;
   font-size: 12.5px;
   white-space: nowrap;
-  color: var(--demo-text);
+  color: var(--ui-text, #3c3a34);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
+  border: var(--ui-border-width, 1px) solid transparent;
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .editor-toolbar__button:hover:not(:disabled) {
-  background: rgba(127, 127, 127, 0.12);
+  background: var(--ui-surface-sunken, rgba(127, 127, 127, 0.12));
   border-color: transparent;
-  color: var(--demo-text);
+  color: var(--ui-text, #3c3a34);
 }
 
 .editor-toolbar__button:disabled {
@@ -1096,13 +1103,14 @@ function onWheel(event: WheelEvent): void {
 }
 
 .editor-toolbar__button--active {
-  color: var(--demo-accent);
-  background: rgba(140, 90, 43, 0.14);
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-accent-weak, rgba(140, 90, 43, 0.14));
+  border-color: var(--ui-accent, #8c5a2b);
   font-weight: 600;
 }
 
 .editor-toolbar__button--active:hover:not(:disabled) {
-  color: var(--demo-accent);
+  color: var(--ui-accent, #8c5a2b);
 }
 
 /* ---------------- 触屏 / 窄屏（B2） ---------------- */
@@ -1136,6 +1144,11 @@ function onWheel(event: WheelEvent): void {
   }
 
   /* 实用区改普通间隔：自动外边距在横滚行里会把整段挤出视口 */
+  .editor-toolbar__group {
+    background: none;
+    padding: 0;
+  }
+
   .editor-toolbar__group--end {
     margin-inline-start: 0;
     padding-inline-start: 8px;
@@ -1146,9 +1159,9 @@ function onWheel(event: WheelEvent): void {
     position: sticky;
     right: 0;
     z-index: 1;
-    color: var(--demo-accent);
-    background: var(--demo-panel);
-    border-color: var(--demo-control-border);
+    color: var(--ui-accent, #8c5a2b);
+    background: var(--ui-surface, #f4f0e8);
+    border-color: var(--ui-border, #e2ddd2);
   }
 }
 </style>

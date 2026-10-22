@@ -23,6 +23,7 @@ import {
 } from '@bibliotype/editor';
 import type { NamedStyle } from '@bibliotype/core';
 import type { EditorBinding } from '@bibliotype/vue';
+import AppIcon from './AppIcon.vue';
 
 const props = defineProps<{
   binding: EditorBinding;
@@ -326,33 +327,43 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
         </label>
       </div>
     </template>
-    <p v-else class="inspector__empty">当前选区与光标祖先均无可编辑属性</p>
+    <p v-else class="inspector__empty">
+      <AppIcon name="info" :size="24" :stroke-width="1.6" />
+      <span>当前选区与光标祖先均无可编辑属性</span>
+    </p>
   </section>
 </template>
 
 <style scoped>
-/* 纵向 inspector：填满右栏列，分组自上而下流式 */
+/*
+ * 纵向 inspector：填满右栏列，分组自上而下流式
+ *
+ * 美化 P3：与侧栏 / 设置面板同一套控件尺寸与圆角口径，颜色全取 `--ui-*`，
+ * 因此切皮肤时属性栏不会留在旧纸色上。
+ */
 .inspector {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
-  padding: 12px;
-  color: var(--demo-text);
-  font-size: 12px;
+  gap: var(--ui-space-3, 8px);
+  padding: var(--ui-space-4, 12px);
+  color: var(--ui-text, #3c3a34);
+  font-size: var(--ui-font-sm, 12px);
 }
 
 .inspector__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-block-end: 6px;
-  border-block-end: 1px solid var(--demo-border);
+  padding-block-end: var(--ui-space-2, 6px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
 }
 
 .inspector__title {
-  font-size: 13px;
-  letter-spacing: 0.2em;
+  font-size: var(--ui-font-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 /* 每组一张小卡：标签页眉 + 字段纵向列表 */
@@ -360,20 +371,20 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--demo-border);
-  border-radius: 6px;
-  background: var(--demo-panel);
+  gap: var(--ui-space-2, 6px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-md, 12px);
+  background: var(--ui-surface-sunken, #e8e1d3);
 }
 
 .inspector__tag {
   align-self: flex-start;
   padding: 1px 8px;
-  border-radius: 10px;
-  background: var(--demo-accent);
-  color: #fff;
-  font-size: 11.5px;
+  border-radius: var(--ui-radius-pill, 999px);
+  background: var(--ui-accent, #8c5a2b);
+  color: var(--ui-on-accent, #fff);
+  font-size: var(--ui-font-xs, 11px);
   white-space: nowrap;
 }
 
@@ -386,26 +397,54 @@ function commit(group: AttrGroup, field: AttrField, raw: string | boolean): void
 }
 
 .inspector__label {
-  color: var(--demo-muted);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .inspector__input {
   width: 100%;
-  padding: 3px 6px;
-  font-size: 12px;
-  color: var(--demo-text);
-  background: var(--demo-control);
-  border: 1px solid var(--demo-control-border);
-  border-radius: 4px;
+  min-height: 32px;
+  padding: 4px var(--ui-space-2, 6px);
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
+  transition: border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.inspector__input:hover,
+.inspector__input:focus {
+  border-color: var(--ui-accent, #8c5a2b);
+  outline: none;
 }
 
 .inspector__input--num {
   width: 88px;
+  font-variant-numeric: tabular-nums;
 }
 
+/* 空态：图标 + 说明，不是一行灰字 */
 .inspector__empty {
-  margin: 4px 0 0;
-  color: var(--demo-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ui-space-2, 6px);
+  margin: 0;
+  padding: var(--ui-space-6, 20px) var(--ui-space-4, 12px);
+  font-size: var(--ui-font-sm, 12px);
   line-height: 1.6;
+  text-align: center;
+  color: var(--ui-text-muted, #7f7a6d);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-md, 12px);
+}
+
+/* 触屏：抽屉里的属性表也要能点准 */
+@media (pointer: coarse) {
+  .inspector__input {
+    min-height: 40px;
+    font-size: 14px;
+  }
 }
 </style>

@@ -143,92 +143,121 @@ void nextTick(() => inputRef.value?.focus());
 </template>
 
 <style scoped>
+/* 浮层卡片（美化 P3）：与 toast / 抽屉同制式——下沉投影 + 圆角 md */
 .replace {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--demo-border, #e2ddd2);
-  border-radius: 8px;
-  background: var(--demo-panel, #f4f0e8);
-  color: var(--demo-text, #3c3a34);
+  gap: var(--ui-space-3, 8px);
+  padding: var(--ui-space-4, 12px);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-md, 12px);
+  background: var(--ui-surface-raised, #faf8f4);
+  box-shadow: var(--ui-shadow-2, 0 6px 20px rgba(0, 0, 0, 0.12));
+  color: var(--ui-text, #3c3a34);
 }
 
 .replace__row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ui-space-3, 8px);
 }
 
 .replace__input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
-  font-size: 13px;
-  color: inherit;
-  background: var(--demo-control, #fbf9f4);
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  min-height: 34px;
+  padding: 5px var(--ui-space-3, 8px);
+  font-size: var(--ui-font-md, 13px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface, #f4f0e8);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
+  transition: border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.replace__input:hover,
+.replace__input:focus {
+  border-color: var(--ui-accent, #8c5a2b);
+  outline: none;
 }
 
 .replace__case {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--demo-muted, #8a8578);
+  gap: var(--ui-space-1, 4px);
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text-muted, #7f7a6d);
   white-space: nowrap;
   cursor: pointer;
 }
 
 .replace__close {
   flex: none;
-  width: 22px;
-  height: 22px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   font-size: 15px;
   line-height: 1;
-  color: var(--demo-muted, #8a8578);
+  color: var(--ui-text-muted, #7f7a6d);
   background: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ui-radius-sm, 8px);
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .replace__close:hover {
-  background: rgba(127, 127, 127, 0.15);
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-surface-sunken, rgba(127, 127, 127, 0.15));
 }
 
 .replace__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ui-space-2, 6px);
 }
 
+/* 命中读数用等宽数字，避免逐次替换时左右抖动 */
 .replace__readout {
   flex: 1;
-  font-size: 12px;
-  color: var(--demo-muted, #8a8578);
+  font-size: var(--ui-font-sm, 12px);
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .replace__button {
   flex: none;
-  padding: 4px 10px;
-  font-size: 12px;
-  color: var(--demo-text, #3c3a34);
-  background: var(--demo-control, #fbf9f4);
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface, #f4f0e8);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
+  transition:
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .replace__button:hover:not(:disabled) {
-  border-color: var(--demo-accent, #8c5a2b);
-  color: var(--demo-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
+  color: var(--ui-accent, #8c5a2b);
 }
 
 .replace__button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+@media (pointer: coarse) {
+  .replace__input,
+  .replace__button {
+    min-height: 40px;
+  }
 }
 </style>

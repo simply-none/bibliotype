@@ -26,6 +26,7 @@ import {
   type PublicationInfo,
 } from '@bibliotype/core';
 import { BT_BREAKPOINTS, useBreakpoint } from '@bibliotype/vue';
+import AppIcon from './AppIcon.vue';
 
 const props = defineProps<{ metadata: BookMetadata; editable?: boolean }>();
 const emit = defineEmits<{
@@ -369,6 +370,11 @@ function removeExtra(index: number): void {
   >
     <div class="dialog__panel">
       <header class="dialog__header">
+        <!-- 关闭：桌面在末尾（右上 ×），H5 换到左侧改返回箭头；可访问名不变 -->
+        <button type="button" class="dialog__close" aria-label="关闭" @click="emit('close')">
+          <AppIcon class="dialog__close-back" name="arrow-left" :size="20" />
+          <span class="dialog__close-cross" aria-hidden="true">×</span>
+        </button>
         <h2 class="dialog__title">书籍信息</h2>
         <div class="dialog__header-actions">
           <template v-if="!editing">
@@ -393,9 +399,6 @@ function removeExtra(index: number): void {
               保存
             </button>
           </template>
-          <button type="button" class="dialog__close" aria-label="关闭" @click="emit('close')">
-            ×
-          </button>
         </div>
       </header>
 
@@ -714,15 +717,16 @@ function removeExtra(index: number): void {
 </template>
 
 <style scoped>
+/* 遮罩：与 sheet / 抽屉同层级与同遮罩色，保证浮层之间不打架 */
 .dialog {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: var(--ui-z-sheet, 40);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: rgba(24, 21, 16, 0.45);
+  padding: var(--ui-space-6, 20px);
+  background: rgb(18 16 12 / 44%);
   backdrop-filter: blur(3px);
 }
 
@@ -733,109 +737,137 @@ function removeExtra(index: number): void {
   max-width: 560px;
   max-height: 80vh;
   overflow: hidden;
-  color: var(--demo-text, #3c3a34);
-  background: var(--demo-panel, #f4f0e8);
-  border: 1px solid var(--demo-border, #e2ddd2);
-  border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-lg, 16px);
+  box-shadow: var(--ui-shadow-3, 0 14px 40px rgb(0 0 0 / 20%));
 }
 
 .dialog__header {
   display: flex;
   flex: none;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-block-end: 1px solid var(--demo-border, #e2ddd2);
+  gap: var(--ui-space-2, 6px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
 }
 
 .dialog__title {
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  font-size: 15px;
-  letter-spacing: 0.15em;
+  overflow: hidden;
+  font-size: var(--ui-font-lg, 15px);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .dialog__header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ui-space-1, 4px);
 }
 
 .dialog__action {
-  padding: 3px 12px;
-  font-size: 13px;
-  color: inherit;
-  background: var(--demo-control, #fff);
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  padding: 5px 12px;
+  min-height: 32px;
+  font-size: var(--ui-font-md, 13px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .dialog__action:hover {
-  border-color: var(--demo-accent, #8c5a2b);
-  color: var(--demo-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
+  color: var(--ui-accent, #8c5a2b);
 }
 
 .dialog__action--primary {
-  color: #fff;
-  background: var(--demo-accent, #8c5a2b);
-  border-color: var(--demo-accent, #8c5a2b);
+  color: var(--ui-on-accent, #fff);
+  background: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
 }
 
 .dialog__action--primary:hover {
-  color: #fff;
+  color: var(--ui-on-accent, #fff);
+  background: var(--ui-accent-strong, #734721);
 }
 
+/* 关闭：桌面排在末尾（右上角 ×），H5 靠到左侧 */
 .dialog__close {
-  width: 28px;
-  height: 28px;
+  order: 3;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   font-size: 18px;
   line-height: 1;
-  color: inherit;
+  color: var(--ui-text-muted, #7f7a6d);
   background: none;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ui-radius-sm, 8px);
   cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
 }
 
 .dialog__close:hover {
-  background: rgba(127, 127, 127, 0.15);
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-surface-sunken, #e8e1d3);
+}
+
+/* 返回箭头只在 H5 出现 */
+.dialog__close-back {
+  display: none;
 }
 
 .dialog__body {
   flex: 1;
   min-height: 0;
-  padding: 8px 16px 16px;
+  padding: var(--ui-space-3, 8px) var(--ui-space-5, 20px) var(--ui-space-5, 20px);
   overflow-y: auto;
 }
 
 .dialog__section {
-  margin-block-start: 14px;
+  margin-block-start: var(--ui-space-4, 12px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-md, 12px);
 }
 
 .dialog__section-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0 0 6px;
-  font-size: 12px;
+  margin: 0 0 var(--ui-space-2, 6px);
+  font-size: var(--ui-font-xs, 11px);
   font-weight: 600;
-  letter-spacing: 0.2em;
-  color: var(--demo-accent, #8c5a2b);
+  letter-spacing: 0.18em;
+  color: var(--ui-accent, #8c5a2b);
 }
 
 .dialog__row {
   display: flex;
-  gap: 12px;
+  gap: var(--ui-space-4, 12px);
   padding: 3px 0;
-  font-size: 13px;
+  font-size: var(--ui-font-md, 13px);
   line-height: 1.6;
 }
 
 .dialog__label {
   flex: none;
   width: 72px;
-  color: var(--demo-muted, #8a8578);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .dialog__value {
@@ -846,23 +878,23 @@ function removeExtra(index: number): void {
 
 .dialog__add {
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: var(--ui-font-xs, 11px);
   letter-spacing: 0;
-  color: var(--demo-accent, #8c5a2b);
+  color: var(--ui-accent, #8c5a2b);
   background: none;
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-pill, 999px);
   cursor: pointer;
 }
 
 .dialog__add:hover {
-  border-color: var(--demo-accent, #8c5a2b);
+  background: var(--ui-accent-weak, rgb(140 90 43 / 12%));
 }
 
 .dialog__empty {
   margin: 4px 0;
-  font-size: 12px;
-  color: var(--demo-muted, #8a8578);
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 /* 表单控件 */
@@ -870,31 +902,37 @@ function removeExtra(index: number): void {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-block: 6px;
+  margin-block: var(--ui-space-2, 6px);
 }
 
 .field__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0 12px;
+  gap: 0 var(--ui-space-4, 12px);
 }
 
 .field__label {
-  font-size: 12px;
-  color: var(--demo-muted, #8a8578);
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text-muted, #7f7a6d);
 }
 
 .field__input {
-  padding: 5px 8px;
-  font-size: 13px;
-  color: inherit;
-  background: var(--demo-control, #fff);
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  min-height: 34px;
+  padding: 5px var(--ui-space-2, 6px);
+  font-size: var(--ui-font-md, 13px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
+  transition: border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.field__input:hover {
+  border-color: var(--ui-accent, #8c5a2b);
 }
 
 .field__input:focus {
-  border-color: var(--demo-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
   outline: none;
 }
 
@@ -905,7 +943,7 @@ function removeExtra(index: number): void {
 
 .rows__item {
   display: flex;
-  gap: 6px;
+  gap: var(--ui-space-2, 6px);
   align-items: center;
   margin-block: 4px;
 }
@@ -917,27 +955,29 @@ function removeExtra(index: number): void {
 
 .dialog__remove {
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   font-size: 15px;
   line-height: 1;
-  color: var(--demo-muted, #8a8578);
+  color: var(--ui-text-muted, #7f7a6d);
   background: none;
-  border: 1px solid var(--demo-control-border, #d8d2c4);
-  border-radius: 4px;
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
   cursor: pointer;
 }
 
 .dialog__remove:hover {
-  color: #b0413e;
-  border-color: #b0413e;
+  color: var(--ui-danger, #c0392b);
+  border-color: var(--ui-danger, #c0392b);
+  background: var(--ui-danger-weak, rgb(192 57 43 / 12%));
 }
 
 /*
- * H5（C2）：窄屏模态转全屏页
+ * H5（C2 + 美化 P2）：窄屏模态转全屏页
  *
- * 遮罩去内边距、面板撑满视口并去圆角，表单双列收成单列（375px 下双列会把
- * 输入框压到 130px 以内）；底部留安全区，避开 Home 指示条。
+ * 遮罩去内边距、面板撑满视口并去圆角；标题栏走三列网格（左 44px 返回、
+ * 中标题真居中、右 44px 占位），动作组整行换到第二行横向滑动，
+ * 避免 375px 下四个胶囊按钮挤成一堆；表单双列收成单列，底部避开 Home 指示条。
  */
 @media (max-width: 767px) {
   .dialog {
@@ -951,15 +991,68 @@ function removeExtra(index: number): void {
     height: 100%;
     border: none;
     border-radius: 0;
+    box-shadow: none;
     padding-block-end: env(safe-area-inset-bottom, 0px);
   }
 
+  .dialog__header {
+    display: grid;
+    grid-template-columns: var(--bt-touch-target, 44px) 1fr var(--bt-touch-target, 44px);
+    align-items: center;
+    gap: var(--ui-space-1, 4px) var(--ui-space-2, 6px);
+    min-height: 56px;
+    padding: var(--ui-space-2, 6px) var(--ui-space-3, 8px);
+    padding-block-start: calc(var(--ui-space-2, 6px) + var(--bt-safe-top, 0px));
+  }
+
+  .dialog__close {
+    grid-column: 1;
+    grid-row: 1;
+    order: 0;
+    width: var(--bt-touch-target, 44px);
+    height: var(--bt-touch-target, 44px);
+  }
+
+  .dialog__close-back {
+    display: block;
+  }
+
+  .dialog__close-cross {
+    display: none;
+  }
+
+  .dialog__title {
+    grid-column: 2;
+    grid-row: 1;
+    flex: none;
+    text-align: center;
+  }
+
+  .dialog__header-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-end;
+    padding-block-start: var(--ui-space-1, 4px);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .dialog__action {
+    min-height: 36px;
+    white-space: nowrap;
+  }
+
   .dialog__body {
-    padding: 8px 14px 16px;
+    padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px) var(--ui-space-5, 20px);
   }
 
   .field__grid {
     grid-template-columns: 1fr;
+  }
+
+  .field__input {
+    min-height: 40px;
+    font-size: 14px;
   }
 }
 </style>

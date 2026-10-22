@@ -1,0 +1,162 @@
+/**
+ * 编辑工具条样式（EditorToolbar 专用）
+ *
+ * 经组件的 `<style scoped src>` 引入，scoped 语义由引入方提供：只有 EditorToolbar
+ * 一个组件消费这些类，故编译产物中恰好一份副本（不像分区组件那样需要共享控制类）。
+ * 选择器与声明逐字保持拆分前口径，`app-vertical-rail.css` 的 `:deep(.editor-toolbar*)`
+ * 转置规则与 `(max-width: 767px), (pointer: coarse)` 的触控档都以这些类名为锚点。
+ */
+
+/* 二级功能区：整块扁平行条，不再是在画布上飘着的圆角卡片 */
+.editor-toolbar {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
+  color: var(--ui-text, #3c3a34);
+}
+
+.editor-toolbar__row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.editor-toolbar__row + .editor-toolbar__row {
+  border-block-start: 1px solid var(--ui-divider, #d8d2c4);
+}
+
+.editor-toolbar__row-label {
+  flex: none;
+  padding-inline-end: 6px;
+  color: var(--ui-text-muted, #7f7a6d);
+  font-size: var(--ui-font-xs, 11px);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.editor-toolbar__row::-webkit-scrollbar {
+  height: 6px;
+}
+
+.editor-toolbar__row::-webkit-scrollbar-thumb {
+  background: var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-xs, 4px);
+}
+
+/* 成组按钮（实用区）：下沉底 + 胶囊分段，与顶栏三态按钮同调 */
+.editor-toolbar__group {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-pill, 999px);
+}
+
+.editor-toolbar__group--end {
+  margin-inline-start: auto;
+  padding-inline-start: 4px;
+}
+
+.editor-toolbar__row--readonly {
+  opacity: 0.75;
+}
+
+/* ghost 按钮制式：平时无边框，悬停现浅底，激活 accent 轻色块 + 描边 */
+.editor-toolbar__button {
+  flex: none;
+  padding: 3px 10px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  color: var(--ui-text, #3c3a34);
+  background: transparent;
+  border: var(--ui-border-width, 1px) solid transparent;
+  border-radius: var(--ui-radius-pill, 999px);
+  cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.editor-toolbar__button:hover:not(:disabled) {
+  background: var(--ui-surface-sunken, rgba(127, 127, 127, 0.12));
+  border-color: transparent;
+  color: var(--ui-text, #3c3a34);
+}
+
+.editor-toolbar__button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.editor-toolbar__button--active {
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-accent-weak, rgba(140, 90, 43, 0.14));
+  border-color: var(--ui-accent, #8c5a2b);
+  font-weight: 600;
+}
+
+.editor-toolbar__button--active:hover:not(:disabled) {
+  color: var(--ui-accent, #8c5a2b);
+}
+
+/* ---------------- 触屏 / 窄屏（B2） ---------------- */
+
+/*
+ * 命中条件与 `useToolbarFold().compactToolbar` 同源：JS 侧取 `isMobile || coarsePointer`，
+ * 这里对应 `max-width: 767px` 与 `pointer: coarse`，两边必须同步改。
+ * 目标：每行折叠为「常用直出 + 更多」，按钮顶到 44px 触控目标，行内仍可横滚。
+ */
+@media (max-width: 767px), (pointer: coarse) {
+  .editor-toolbar__row {
+    gap: 4px;
+    padding: 2px 8px;
+    /* 触屏横滚不显滚动条，腾出竖向空间给 44px 按钮 */
+    scrollbar-width: none;
+  }
+
+  .editor-toolbar__row::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .editor-toolbar__button {
+    min-width: 40px;
+    min-height: var(--bt-touch-target, 44px);
+    padding-inline: 8px;
+    font-size: 13px;
+  }
+
+  .editor-toolbar__row-label {
+    display: none;
+  }
+
+  /* 实用区改普通间隔：自动外边距在横滚行里会把整段挤出视口 */
+  .editor-toolbar__group {
+    background: none;
+    padding: 0;
+  }
+
+  .editor-toolbar__group--end {
+    margin-inline-start: 0;
+    padding-inline-start: 8px;
+  }
+
+  /* 「更多 / 收起」吸在行尾：展开后按钮很多也不会跟着滑出屏幕 */
+  .editor-toolbar__button--fold {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    color: var(--ui-accent, #8c5a2b);
+    background: var(--ui-surface, #f4f0e8);
+    border-color: var(--ui-border, #e2ddd2);
+  }
+}

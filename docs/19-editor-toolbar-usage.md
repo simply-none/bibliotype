@@ -1,16 +1,17 @@
 # 19 编辑工具条使用说明（功能速查）
 
 > 适用对象：产品 / 测试 / 二次开发者。读完能回答「这个按钮点了会发生什么、要什么前提、为什么没反应」，
-> 不必翻 600 行的 `EditorToolbar.vue`。
-> 对应实现：`apps/demo/src/components/EditorToolbar.vue`（交互层）+ `packages/editor/src/commands.ts`
-> 与 `packages/classical/src/editor-commands.ts`（命令层）。
+> 不必翻组件源码找按钮定义。
+> 对应实现：`apps/demo/src/components/editor-toolbar/actions-*.ts`（交互层的按钮数据与 `usage`）
+> + `apps/demo/src/components/EditorToolbar.vue`（渲染与点击分发）
+> + `packages/editor/src/commands.ts` 与 `packages/classical/src/editor-commands.ts`（命令层）。
 
 ## 一、说明放在哪一层（改动前先看这里）
 
 | 层 | 写什么 | 位置 | 权威性 |
 | --- | --- | --- | --- |
 | 命令层 | 命令契约：前置条件、落点、返回 `false` 的原因、`attrs` 结构 | `packages/editor/src/commands.ts`、`packages/classical/src/editor-commands.ts` 的 JSDoc | **权威口径**，改语义必须同步 |
-| 交互层 | 按钮怎么用：要不要选中、快捷键、去属性栏补什么、为什么点了没反应 | `EditorToolbar.vue` 每个 `ToolbarAction.usage` | demo 的交互决策，不属于插件包 API |
+| 交互层 | 按钮怎么用：要不要选中、快捷键、去属性栏补什么、为什么点了没反应 | `components/editor-toolbar/actions-*.ts` 里每个 `ToolbarAction.usage` | demo 的交互决策，不属于插件包 API |
 | 本文档 | 全量速查表 | 本文件 | 索引，细节以代码注释为准 |
 
 `usage` 是**可插拔字段**：传了就由 `ToolbarUsageTip`（Vue 组件）在**鼠标悬浮 / 键盘聚焦**

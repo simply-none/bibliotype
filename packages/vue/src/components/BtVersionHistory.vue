@@ -423,5 +423,19 @@ function createSnapshot(): void {
     padding: 0 0 8px;
     max-height: 180px;
   }
+  /* H5（C1）：抽屉内交给外层滚动，不再限死变更列表高度 */
+  .ver__rows {
+    max-height: none;
+  }
+}
+
+/* H5（C1）：触控目标 ≥44px */
+@media (pointer: coarse) {
+  .ver button,
+  .ver__mode,
+  .ver__snap,
+  .ver__input {
+    min-height: var(--bt-touch-target, 44px);
+  }
 }
 </style>

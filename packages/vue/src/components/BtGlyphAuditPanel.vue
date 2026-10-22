@@ -198,4 +198,18 @@ function stageLabel(stage: GlyphIssue['stage']): string {
   color: var(--bt-color-note-text, #6b6b6b);
   font-size: 11px;
 }
+
+/* H5（C2）：缺字行改窄列并允许换行，触控目标 ≥44px */
+@media (max-width: 767px) {
+  .bt-glyph-audit__item {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+}
+
+@media (pointer: coarse) {
+  .bt-glyph-audit button {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

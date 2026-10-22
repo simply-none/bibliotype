@@ -215,3 +215,41 @@ node bin/bt-validate-epub.mjs <file.epub> [--json]
 ```
 
 `@bibliotype/exporter-epub` 的 `bin` 字段随 `files: ["dist", "bin"]` 一起发布。
+
+## H5 触控与安全区约定（D2 / D3 / D4）
+
+移动端不是另起一套，而是在桌面默认值之上叠加增量规则（`@media` / 运行时分支）：
+
+| 约定 | 落地 |
+| --- | --- |
+| 断点 | `BT_BREAKPOINTS`（640 / 768 / 1024）与 `--bt-bp-sm\|md\|lg` 同源；H5 一律以 `< 768px` 为界 |
+| 触控目标 | `BT_TOUCH_TARGET_MIN = 44` / `--bt-touch-target`；粗指针下用 `min-height` 补足，视觉尺寸不变 |
+| 粗指针 | `@media (pointer: coarse)` 只放「触屏专属」调整：禁用 hover 提示、隐藏拖宽把手、放大点击区 |
+| 安全区 | `viewport-fit=cover` + `env(safe-area-inset-*)`；抽屉 / 全屏模态 / 底栏在对应边留 `--bt-safe-*` |
+| 视口单位 | 用 `100dvh` 而非 `100vh`（移动浏览器地址栏收放会改变 `vh`） |
+| 软键盘 | `interactive-widget=resizes-content` + `visualViewport` 补偿（`useKeyboardInset`） |
+| 横滚条 | 工具条 / 顶栏窄屏改为单行横滚，隐滚动条，首尾按钮不随滚动滑出（`position: sticky`） |
+
+### viewport meta（demo）
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+```
+
+### 构建顺序注意
+
+组件库对外暴露的是 `dist`（vite + vite-plugin-dts）。改了 `packages/vue/src` 之后必须
+先 `pnpm --filter @bibliotype/vue build`，否则 demo 的 `vue-tsc` 会报「模块没有导出成员」；
+新增的断点 / 抽屉 / 锁滚类导出尤其容易踩。
+
+### 测试环境
+
+H5 行为靠语义钩子（aria / `data-*` / 类名）断言，均在 happy-dom 下跑：
+
+```bash
+pnpm --filter @bibliotype/vue test    # 断点 / 锁滚 / 抽屉 / 点按分区
+pnpm --filter @bibliotype/demo test   # 进度条拖动跳页（组件用 createApp 挂载）
+```
+
+demo 的 `vitest.config.ts` 已接入 `@vitejs/plugin-vue`，可直接测 `.vue` 单文件组件；
+happy-dom 无布局，需要尺寸的用例自己 mock `getBoundingClientRect()`。

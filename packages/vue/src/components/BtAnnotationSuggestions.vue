@@ -429,4 +429,17 @@ function onNameKind(item: AnnotationSuggestion, event: Event): void {
   font-size: 12px;
   text-align: center;
 }
+
+/* H5（C1）：抽屉内铺满宽度 + 触控目标 ≥44px */
+@media (max-width: 767px) {
+  .bt-suggestions {
+    width: 100%;
+  }
+}
+
+@media (pointer: coarse) {
+  .bt-suggestions button {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

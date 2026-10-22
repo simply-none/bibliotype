@@ -13,11 +13,26 @@
  * `getBoundingClientRect()` 贴其下方；下方空间不足时翻到上方，右侧溢出则右对齐。
  * 必须 Teleport：工具条自身 `overflow-x: auto` 会裁掉非 fixed 的溢出内容。
  * 页面滚动 / 窗口缩放时直接收起（比跟随重算更稳，也不会出现错位残影）。
+ *
+ * 触屏（H5 UI 改造 B2）：粗指针没有 hover，`focusin` 又常由点击触发 —— 卡片
+ * 会「粘住不回」并盖住按钮，所以触屏下整体禁用，说明改由按钮自身语义与
+ * 属性栏承担。判定与 `useBreakpoint().coarsePointer` 同源（都是
+ * `(pointer: coarse)`），但此处按需逐次读取而不订阅：工具条一轮要渲染几十个
+ * 实例，逐个注册媒体查询监听没有收益。
  */
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ToolbarUsage } from './toolbar-usage.js';
 
 const props = defineProps<{ usage?: ToolbarUsage }>();
+
+/** 当前是否触屏（粗指针；挂载后同步，仅作禁用判定与样式钩子） */
+const touch = ref(false);
+
+/** 读取粗指针媒体查询（无 window 环境按细指针处理） */
+function isCoarsePointer(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  return window.matchMedia('(pointer: coarse)').matches;
+}
 
 /** 悬浮触发区（包裹按钮的 span） */
 const anchorRef = ref<HTMLElement | null>(null);
@@ -58,9 +73,9 @@ function place(): void {
   placed.value = true;
 }
 
-/** 展开说明（无 usage 时不做任何事） */
+/** 展开说明（无 usage 或触屏时不做任何事） */
 async function reveal(): Promise<void> {
-  if (props.usage === undefined) return;
+  if (props.usage === undefined || touch.value) return;
   visible.value = true;
   placed.value = false;
   await nextTick();
@@ -78,9 +93,9 @@ function cancelShow(): void {
   }
 }
 
-/** 延迟展开（120ms） */
+/** 延迟展开（120ms；触屏直接跳过，不注册定时器） */
 function scheduleShow(): void {
-  if (props.usage === undefined) return;
+  if (props.usage === undefined || touch.value) return;
   // 先取消待收起：鼠标快速离开又回来时，卡片不应被之前的定时器关掉
   cancelHide();
   if (visible.value) return;
@@ -130,6 +145,7 @@ function hideOnViewportChange(): void {
 }
 
 onMounted(() => {
+  touch.value = isCoarsePointer();
   window.addEventListener('scroll', hideOnViewportChange, true);
   window.addEventListener('resize', hideOnViewportChange);
 });
@@ -146,6 +162,7 @@ onBeforeUnmount(() => {
   <span
     ref="anchorRef"
     class="usage-tip"
+    :data-touch="touch ? 'true' : 'false'"
     @mouseenter="scheduleShow"
     @mouseleave="scheduleHide"
     @focusin="scheduleShow"
@@ -214,6 +231,14 @@ onBeforeUnmount(() => {
 .usage-tip__card--placed {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* 触屏保险：脚本侧已在 reveal / scheduleShow 短路，这里再兜一层
+   （外接鼠标切回细指针时不会误伤，媒体查询随之失效） */
+@media (pointer: coarse) {
+  .usage-tip__card {
+    display: none;
+  }
 }
 
 .usage-tip__use {

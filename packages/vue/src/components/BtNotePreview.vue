@@ -8,7 +8,7 @@
  *
  * 触屏没有 hover：由组合式在点击注码后直接填充预览，锚点为被点的注码。
  */
-import { nextTick, ref, watch } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { placeFloating } from '../floating-position.js';
 import type { NotePreviewState } from '../use-note-interaction.js';
 
@@ -30,7 +30,12 @@ function place(): void {
   const rect = state.anchor.getBoundingClientRect();
   const width = box.offsetWidth;
   const height = box.offsetHeight;
-  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  // 软键盘弹出时 window.innerHeight 不变（iOS），用 visualViewport 取真实可视区（B1）
+  const visual = window.visualViewport;
+  const viewport = {
+    width: visual?.width ?? window.innerWidth,
+    height: visual?.height ?? window.innerHeight,
+  };
   const placement = placeFloating(
     { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
     { width, height },
@@ -38,6 +43,29 @@ function place(): void {
   );
   position.value = { top: `${Math.round(placement.top)}px`, left: `${Math.round(placement.left)}px` };
 }
+
+/** 滚动 / 旋转 / 软键盘弹出时重新贴靠锚点（A5：浮动层不脱离目标、不越界） */
+function onViewportChange(): void {
+  if (props.preview === null) return;
+  place();
+}
+
+onMounted(() => {
+  if (typeof window === 'undefined') return;
+  window.addEventListener('resize', onViewportChange);
+  // 捕获阶段：阅读区内部滚动容器也要重定位
+  window.addEventListener('scroll', onViewportChange, true);
+  window.visualViewport?.addEventListener('resize', onViewportChange);
+  window.visualViewport?.addEventListener('scroll', onViewportChange);
+});
+
+onBeforeUnmount(() => {
+  if (typeof window === 'undefined') return;
+  window.removeEventListener('resize', onViewportChange);
+  window.removeEventListener('scroll', onViewportChange, true);
+  window.visualViewport?.removeEventListener('resize', onViewportChange);
+  window.visualViewport?.removeEventListener('scroll', onViewportChange);
+});
 
 watch(
   () => props.preview,
@@ -69,6 +97,10 @@ watch(
   z-index: 40;
   box-sizing: border-box;
   max-width: min(320px, 80vw);
+  /* 窄屏 / 软键盘下卡片不超出视口：限高后内部滚动 */
+  max-height: min(60vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px 10px;
   border: 1px solid rgba(127, 127, 127, 0.22);
   border-radius: 8px;

@@ -385,3 +385,98 @@ props：`mode`（`columns` / `facing`）、`gap`、`leftLabel` / `rightLabel`；
 - 默认 `slide`：横排新页自右向左滑入 12% + 透明度 0.6→1，约 220ms；直排改为自下而上；
 - `fade`：仅透明度；`none` / 系统「减少动态效果」：完全瞬时切换（过渡 `none`）；
 - 过渡只加在页框外层，**不改变 `serializeNode` 产物与导出 HTML**。
+
+## H5 移动端（批 A–D）
+
+窄屏（`< 768px`）不是「把桌面压小」，而是换一套骨架：三栏 chrome 收进抽屉，阅读区满屏，
+工具条按组折叠。桌面默认值一律不动——H5 规则全部是增量（`@media` / 运行时分支）。
+
+### 断点与触控常量（D1 / D2）
+
+| 导出 | 值 | 用途 |
+| --- | --- | --- |
+| `BT_BREAKPOINTS` | `{ sm: 640, md: 768, lg: 1024 }` | 分档阈值（单一事实源） |
+| `BT_TOUCH_TARGET_MIN` | `44` | 粗指针下的点击区下限（px） |
+| `resolveBreakpointName(width)` | `'mobile' \| 'tablet' \| 'desktop'` | 纯函数分档 |
+| `useBreakpoint()` | 见下 | 视口 / 指针 / 朝向 |
+
+`useBreakpoint()` 返回 `width` / `height` / `name` / `isMobile` / `isTablet` / `isDesktop` /
+`coarsePointer` / `portrait` / `revision`。首帧固定桌面口径（1024×768、细指针、横屏），
+`onMounted` 后同步真实视口，之后由 `resize` / `orientationchange` 与媒体查询驱动；
+`revision` 在尺寸或朝向真实变化时自增，宿主可 `watch(revision)` 触发重排（D7）。
+测试可注入 `host`（`innerWidth` / `innerHeight` / `matchMedia` / `addEventListener` / rAF）。
+
+CSS 侧同源变量：`--bt-bp-sm|md|lg`、`--bt-touch-target: 44px`、
+`--bt-safe-top|right|bottom|left: env(safe-area-inset-*, 0px)`。
+**两边必须同步改**：`@media (max-width: 767px)` 与 `breakpoint.isMobile` 表达同一件事。
+
+### useScrollLock（D5）
+
+浮层打开时锁 body，避免 iOS 橡皮筋把 fixed 定位顶偏。计数锁是**模块级共享**的：多个浮层
+叠加只锁一次、全部关闭才还原（若放实例内，先关的那个会把自己那份「无锁」快照写回去，
+直接拆掉后关那本的锁）。快照原 inline 样式，解锁时原样写回并恢复 `scrollY`；
+作用域销毁自动解锁。
+
+### BtDrawer（A4 / C1 / D5）
+
+统一抽屉容器，`Teleport` 到 body：遮罩 + 侧滑面板 + 锁滚 + Esc / 遮罩关闭。
+
+| prop | 说明 |
+| --- | --- |
+| `open` / `update:open` | 受控开关（`v-model:open`） |
+| `side` | `'start'`（目录）/ `'end'`（标注等）/ `'bottom'`（sheet） |
+| `title` / `ariaLabel` | 标题栏与无障碍名称（缺省回退 `title`） |
+| `width` / `height` | 面板尺寸（CSS 长度） |
+| `snapHeights` | 底部 sheet 的高度档位（如 `['48vh', '92vh']`），给后出现拖拽把手 |
+| `maskClosable` / `edgeSwipe` | 遮罩关闭 / 关闭态边缘手势呼出（默认都开） |
+
+语义钩子：根 `.bt-drawer[data-side][data-open]`、面板 `role="dialog" aria-modal="true"`、
+把手 `role="separator" [data-snap]`。`snapHeights` 拖拽中跟手，松手吸附最近档位，
+关闭复位到第一档。Esc 与触摸手势分开绑定：打开态只挂键盘，关闭态只挂边缘手势。
+
+### BtBookView（A2 / A3）
+
+- 点按分区：左右各 20% 边缘翻页，中部 emit `tap-center`（宿主据此呼出 / 收起 chrome）；
+  有选区、刚完成滑动（350ms 内）、点中链接 / 表单控件时不分区；
+- 滑动翻页：横向位移 ≥ 50px（或 ≥ 24px 且时长 < 300ms 的轻扫）才触发，纵向位移更大时
+  让位给滚动；直排方向取反；
+- 双指缩放：emit `update:fontSize`，区间 12–32px。
+
+### 其他组件增量
+
+| 组件 | H5 增量 |
+| --- | --- |
+| `BtNotePreview` / `useNoteInteraction` | 触屏点按切换预览、点外部关闭；桌面保持 hover |
+| `BtSelectionReplaceMenu` | 触摸选区重算落点，防溢出翻转，滚动 / 失焦关闭 |
+| `BtTableSizePicker` | 网格触点补到 44px（视觉尺寸不变） |
+| `BtEditor` / `useKeyboardInset` | 监听 `visualViewport`，键盘弹出时补偿底部 padding 并滚动到光标 |
+| `BtSidebarResizer` | 触屏隐藏拖宽把手（拖拽会和页面手势互抢） |
+| `BtSpreadLayout` | `< 768px` 上下堆叠，中缝转横 |
+| `BtBookShelf` | 窄屏 2 列 |
+
+### demo 宿主（A1 / A2 / B2 / C2）
+
+- `App.vue`：`mobileShell`（`< md`）切单列骨架——顶栏压缩为「书名 + 保存状态 + 更多」，
+  左栏 `AsidePanels` 进 `BtDrawer`，右栏属性检视器进底部 sheet（两档吸附），
+  底栏只留进度 + 翻页器，其余收进「更多」；`railLayout = verticalRail && !mobileShell`，
+  H5 不做直排竖列转置。桌面侧栏与抽屉共用同一份 `AsidePanels`，避免模板漂移。
+- 版式预设：`mobileLayoutPatch` 以 `createPageSize('h5-mobile', 340, 560)` + `columns: 1`
+  压在用户补丁之上（仿真模板跳过 pageSize），375px 视口缩放系数≈1，等效字号 ≥ 14px。
+- `EditorToolbar`：`compactToolbar`（`isMobile || coarsePointer`）下每行只直出
+  「撤销 / 重做 / B / H1 / 注音」，其余收进行尾「更多」，展开后单行横滚，按钮 44px。
+- `ToolbarUsageTip`：粗指针下整体禁用（hover 卡片会「粘住不回」），暴露 `data-touch`。
+- `SettingsPanel` / `BookInfoDialog`：`< 768px` 全屏化（去圆角、导航横排 / 字段单列）。
+- 生命周期：`pagehide` 落盘、`pageshow` 重排、`blur` 触发自动保存（B6）。
+
+### 可断言钩子一览
+
+happy-dom 没有布局，H5 行为靠语义钩子验证：
+
+| 钩子 | 出处 |
+| --- | --- |
+| `.bt-drawer[data-side][data-open]` / `[data-snap]` | `BtDrawer` |
+| `role="slider"` + `aria-valuenow` / `aria-valuemax` | demo `ProgressBar` |
+| `emit('tap-center')` / `emit('update:page')` | `BtBookView` |
+| `.editor-toolbar[data-pointer]` / `[data-row][data-folded]` + `aria-expanded` | demo `EditorToolbar` |
+| `.usage-tip[data-touch]` | demo `ToolbarUsageTip` |
+| `.dialog--mobile` / `[data-mobile]` | demo 设置 / 书籍信息弹窗 |

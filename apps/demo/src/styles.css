@@ -26,6 +26,42 @@ body {
 }
 
 /**
+ * H5 基线（D2 / D3 / D4）
+ *
+ * - 断点变量与 `packages/vue/src/breakpoints.ts` 同源（sm / md / lg），
+ *   JS 侧 `useBreakpoint` 与 CSS 侧 `@media` 不得各自写魔法数；
+ * - `--bt-touch-target`：粗指针下的最小触控目标，组件与宿主统一消费；
+ * - `--bt-safe-*`：刘海屏 / 底部指示条安全区（需 viewport-fit=cover）；
+ * - `text-size-adjust` 禁止移动浏览器自行放大文字，系统字号仍由 rem / em 跟随。
+ */
+:root {
+  --bt-bp-sm: 640px;
+  --bt-bp-md: 768px;
+  --bt-bp-lg: 1024px;
+  --bt-touch-target: 44px;
+  --bt-safe-top: env(safe-area-inset-top, 0px);
+  --bt-safe-right: env(safe-area-inset-right, 0px);
+  --bt-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --bt-safe-left: env(safe-area-inset-left, 0px);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* D2：粗指针下全局兜底触控目标（只补点击区，不放大图标本身） */
+@media (pointer: coarse) {
+  button,
+  [role='button'],
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
+
+/**
  * 结构节点 title 属性徽标（演示层专属，编辑画布与阅读页双容器生效）
  *
  * attrs.title 的正式消费者是目录提取（resolveNodeTitle），不参与任何渲染；

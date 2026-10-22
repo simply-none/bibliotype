@@ -39,6 +39,8 @@ import {
   type FlowMetrics,
 } from '../flow-model.js';
 import { usePrefersReducedMotion } from '../prefers-reduced-motion.js';
+import { useBreakpoint } from '../use-breakpoint.js';
+import { BT_BREAKPOINTS } from '../breakpoints.js';
 import type { FlowChunk } from '@bibliotype/reader';
 import BtNotePreview from './BtNotePreview.vue';
 
@@ -118,6 +120,8 @@ const emit = defineEmits<{
   (event: 'update:page', value: number): void;
   /** 请求的阅读模式不被当前版式支持，已自动回落（D5） */
   (event: 'mode-fallback', payload: { requested: string; effective: string; reason: string }): void;
+  /** 点按阅读区中部（阅读器惯例：呼出 / 收起 chrome，H5 A3） */
+  (event: 'tap-center'): void;
 }>();
 
 const { layout, pagination, pageNumberText, currentPage, totalPages } = useReaderBinding(
@@ -234,8 +238,16 @@ function flowStyleOf(columns: number): Record<string, string> | undefined {
 /** 对页中缝宽度（px）：0 = 两页紧贴，呈真实书册跨页 */
 const SPREAD_GAP = 0;
 
-/** 是否启用对页（仅 page 模式） */
-const spreadEnabled = computed(() => props.spread === 'facing' && props.mode === 'page');
+/** 断点：窄屏（< md）对页并排放不下，自动降级单页（C4；宽视口自动还原） */
+const breakpoint = useBreakpoint();
+const spreadDowngraded = computed(
+  () => props.spread === 'facing' && breakpoint.width.value < BT_BREAKPOINTS.md,
+);
+
+/** 是否启用对页（仅 page 模式；窄屏降级为单页） */
+const spreadEnabled = computed(
+  () => props.spread === 'facing' && props.mode === 'page' && !spreadDowngraded.value,
+);
 
 /** 对页总宽（两页 + 中缝） */
 const spreadWidth = computed(() => pageSize.value.width * 2 + SPREAD_GAP);
@@ -569,8 +581,20 @@ function onPageKeydown(event: KeyboardEvent): void {
 /** 触屏滑动起点（px） */
 let touchStartX = 0;
 let touchStartY = 0;
-/** 触屏滑动判定阈值（px，小于此值视为点按 / 抖动） */
-const TOUCH_SWIPE_THRESHOLD = 40;
+/** 触屏滑动开始时刻（ms，速度方向判定用） */
+let touchStartAt = 0;
+/** 最近一次滑动的结束时刻（ms）：紧随其后的 click 不再当作点按 */
+let swipeEndedAt = 0;
+/** 滑动判定阈值（px，小于此值视为点按 / 抖动） */
+const TOUCH_SWIPE_THRESHOLD = 50;
+/** 快速轻扫位移阈值（px）：时长足够短（< 300ms）时按速度翻页，不必走满 50px */
+const TOUCH_FLICK_THRESHOLD = 24;
+/** 快速轻扫的时长上限（ms） */
+const TOUCH_FLICK_MS = 300;
+/** 边缘点击翻页区宽度（占阅读区宽度比）：阅读器惯例的左右边缘区 */
+const EDGE_TAP_RATIO = 0.2;
+/** 判定点按时距上次滑动结束的最小时长（ms） */
+const TAP_SUPPRESS_MS = 350;
 
 /** 正文字号可缩放区间（px） */
 const FONT_SIZE_MIN = 12;
@@ -606,6 +630,14 @@ function onPageTouchStart(event: TouchEvent): void {
   if (touch === undefined) return;
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
+  touchStartAt = Date.now();
+}
+
+/** 当前是否存在非塌陷选区（滑动翻页与文本选择互斥，A3） */
+function hasTextSelection(): boolean {
+  if (typeof window === 'undefined') return false;
+  const selection = window.getSelection?.();
+  return selection !== null && selection !== undefined && !selection.isCollapsed;
 }
 
 /**
@@ -630,24 +662,68 @@ function onPageTouchMove(event: TouchEvent): void {
  *
  * - 横排：左滑 = 下一页（手指把纸往左推）；
  * - 直排（vertical-rl）：右滑 = 下一页（行款自右向左）；
- * - 纵向位移大于横向时视为滚动意图，不翻页；不足阈值视为点按。
+ * - 判定：位移 ≥ 50px，或时长 < 300ms 的快速轻扫（≥ 24px）；纵向位移更大视为
+ *   滚动意图，不翻页；不足阈值视为点按；
+ * - 冲突消解：存在文本选区时不翻页（选择优先）。
  */
 function onPageTouchEnd(event: TouchEvent): void {
   // 双指手势结束后不把残留位移当成滑动翻页
   const wasPinch = pinchStartDistance > 0;
   pinchStartDistance = 0;
   if (wasPinch) return;
+  if (hasTextSelection()) return;
   const touch = event.changedTouches[0];
   if (touch === undefined) return;
   const dx = touch.clientX - touchStartX;
   const dy = touch.clientY - touchStartY;
-  if (Math.abs(dx) < TOUCH_SWIPE_THRESHOLD || Math.abs(dx) <= Math.abs(dy)) return;
+  const absX = Math.abs(dx);
+  if (absX <= Math.abs(dy)) return;
+  const elapsed = Date.now() - touchStartAt;
+  const far = absX >= TOUCH_SWIPE_THRESHOLD;
+  const flick = absX >= TOUCH_FLICK_THRESHOLD && elapsed <= TOUCH_FLICK_MS;
+  if (!far && !flick) return;
+  swipeEndedAt = Date.now();
   const forward = verticalWriting.value ? dx > 0 : dx < 0;
   if (forward) {
     props.reader.nextPage();
   } else {
     props.reader.prevPage();
   }
+}
+
+/**
+ * 单页模式点按分区（A3）
+ *
+ * 先交给注释委托（点击注码 / 回跳符号时由它消费并 preventDefault），未命中时按
+ * 位置分区：左右边缘（各 20%）翻页，中部上抛 `tap-center` 由宿主呼出 / 收起 chrome。
+ * 存在选区、刚完成滑动、点中链接或表单控件时不分区。
+ */
+function onPageTap(event: MouseEvent): void {
+  onNoteClick(event);
+  if (event.defaultPrevented) return;
+  if (hasTextSelection()) return;
+  if (Date.now() - swipeEndedAt < TAP_SUPPRESS_MS) return;
+  const target = event.target;
+  if (target instanceof Element) {
+    if (target.closest('a[href], button, input, select, textarea, [contenteditable="true"]') !== null) return;
+  }
+  const host = event.currentTarget;
+  if (!(host instanceof HTMLElement)) return;
+  const rect = host.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  const ratio = (event.clientX - rect.left) / rect.width;
+  // 直排自右向左续读：左缘继续「下一页」，右缘回「上一页」
+  const forwardZone = verticalWriting.value ? ratio <= EDGE_TAP_RATIO : ratio >= 1 - EDGE_TAP_RATIO;
+  const backwardZone = verticalWriting.value ? ratio >= 1 - EDGE_TAP_RATIO : ratio <= EDGE_TAP_RATIO;
+  if (backwardZone) {
+    props.reader.prevPage();
+    return;
+  }
+  if (forwardZone) {
+    props.reader.nextPage();
+    return;
+  }
+  emit('tap-center');
 }
 
 /**
@@ -971,8 +1047,8 @@ onBeforeUnmount(() => {
   }
 });
 
-// 缩放策略 / 页面尺寸变化：按当前模式重算对应缩放
-watch([() => props.fit, () => props.spread, pageSize], () => {
+// 缩放策略 / 页面尺寸 / 对页降级变化：按当前模式重算对应缩放
+watch([() => props.fit, () => props.spread, pageSize, spreadEnabled], () => {
   if (props.mode === 'scroll') updateScrollScale();
   else updateScale();
 });
@@ -1296,12 +1372,14 @@ defineExpose({
     tabindex="0"
     :aria-label="ariaLabel"
     :data-mode-fallback="mode === 'scroll-flow' ? 'paged' : undefined"
+    :data-spread="spreadEnabled ? 'facing' : 'single'"
+    :data-spread-downgraded="spreadDowngraded ? 'true' : undefined"
     @wheel="onPageWheel"
     @keydown="onPageKeydown"
     @touchstart.passive="onPageTouchStart"
     @touchmove="onPageTouchMove"
     @touchend="onPageTouchEnd"
-    @click="onNoteClick"
+    @click="onPageTap"
     @pointerover="onNotePointerOver"
     @pointerout="onNotePointerOut"
     @focusin="onNoteFocusIn"

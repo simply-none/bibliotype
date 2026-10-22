@@ -284,4 +284,13 @@ const VIEW_OPTIONS: { value: RevisionView; label: string }[] = [
     width: 100%;
   }
 }
+
+/* H5（C1）：抽屉内铺满高度 + 触控目标 ≥44px */
+@media (pointer: coarse) {
+  .rev button,
+  .rev__view,
+  .rev__switch {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

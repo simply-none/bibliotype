@@ -140,4 +140,21 @@ function onSelect(nodeId: string | undefined): void {
   font-variant-numeric: tabular-nums;
   opacity: 0.6;
 }
+
+/* H5（C2）：窄屏结构项允许换行，标题放宽到整行 */
+@media (max-width: 767px) {
+  .bt-doc-stats__structure {
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
+  .bt-doc-stats__structure-title {
+    max-width: 100%;
+  }
+}
+
+@media (pointer: coarse) {
+  .bt-doc-stats__structure-title {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

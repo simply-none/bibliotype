@@ -15,6 +15,7 @@ import {
   buildRevisionModel,
   buildVersionHistoryModel,
   diffSummaryText,
+  useScrollLock,
   type DiffRow,
 } from '@bibliotype/vue';
 import {
@@ -193,6 +194,20 @@ const revisionView = ref<RevisionView>('marked');
 const revisionTick = ref(0);
 let unsubscribeEditor: (() => void) | undefined;
 
+/* ---------- 滚动锁（D5） ---------- */
+
+/** 抽屉打开时锁住背景滚动，关闭后还原滚动位置（与 BtDrawer 同一套实现） */
+const scrollLock = useScrollLock();
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) scrollLock.lock();
+    else scrollLock.unlock();
+  },
+  { immediate: true },
+);
+
 watch(
   () => props.editor,
   (editor) => {
@@ -206,7 +221,10 @@ watch(
   { immediate: true },
 );
 
-onBeforeUnmount(() => unsubscribeEditor?.());
+onBeforeUnmount(() => {
+  scrollLock.unlock();
+  unsubscribeEditor?.();
+});
 
 const revisionModel = computed(() => {
   void revisionTick.value;
@@ -317,7 +335,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-if="props.open" class="drawer">
+  <div v-if="props.open" class="drawer" data-open="true" data-side="end">
     <button type="button" class="drawer__mask" aria-label="关闭书库" @click="emit('update:open', false)" />
     <section class="drawer__panel" role="dialog" aria-label="书库">
       <header class="drawer__head">
@@ -452,8 +470,12 @@ onMounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
   width: min(760px, 100%);
   height: 100%;
+  /* 安全区（D3）：右侧与底部避开刘海 / Home 指示条 */
+  padding-inline-end: env(safe-area-inset-right, 0px);
+  padding-block-end: env(safe-area-inset-bottom, 0px);
   background: #fffdf8;
   box-shadow: -12px 0 32px rgba(31, 27, 22, 0.16);
   animation: drawer-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);

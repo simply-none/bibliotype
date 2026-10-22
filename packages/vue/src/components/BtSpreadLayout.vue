@@ -5,8 +5,13 @@
  * 纯布局组件：左右两个插槽 + 中缝分隔 + 可选标签，不持有任何阅读逻辑。
  * `BtCompareView`（双文稿对照）与 `BtCollationCompare`（校勘对照）共用本组件，
  * 因此中缝、比例、响应式堆叠规则只有一套实现。
+ *
+ * H5（C4/C5）：窄屏（< md 768px）从并排改为上下堆叠（`bt-spread--stacked`），
+ * 中缝转为横线；宽视口自动还原并排，不留残留状态。
  */
 import { computed } from 'vue';
+import { useBreakpoint } from '../use-breakpoint.js';
+import { BT_BREAKPOINTS } from '../breakpoints.js';
 
 interface Props {
   /** 布局形态：columns 并列双栏 / facing 对页双栏 */
@@ -25,10 +30,20 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const rootStyle = computed(() => ({ gap: props.gap }));
+
+/** 窄屏堆叠（与 CSS 断点同源：~ md 阈值） */
+const breakpoint = useBreakpoint();
+const stacked = computed(() => breakpoint.width.value < BT_BREAKPOINTS.md);
 </script>
 
 <template>
-  <div class="bt-spread" :class="`bt-spread--${mode}`" :style="rootStyle" role="group">
+  <div
+    class="bt-spread"
+    :class="[`bt-spread--${mode}`, { 'bt-spread--stacked': stacked }]"
+    :data-stacked="stacked ? 'true' : undefined"
+    :style="rootStyle"
+    role="group"
+  >
     <div class="bt-spread__pane bt-spread__pane--left">
       <span v-if="leftLabel" class="bt-spread__label">{{ leftLabel }}</span>
       <div class="bt-spread__slot"><slot name="left" /></div>
@@ -72,8 +87,16 @@ const rootStyle = computed(() => ({ gap: props.gap }));
   background: currentColor;
   opacity: 0.18;
 }
-/* 窄窗（<720px）上下堆叠，标签保留 */
-@media (max-width: 720px) {
+/* 窄屏（< md 768px）上下堆叠，标签保留（JS 断点与 CSS 同源） */
+.bt-spread--stacked {
+  flex-direction: column;
+}
+.bt-spread--stacked .bt-spread__seam {
+  width: auto;
+  height: 1px;
+}
+
+@media (max-width: 768px) {
   .bt-spread {
     flex-direction: column;
   }

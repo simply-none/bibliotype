@@ -11,7 +11,7 @@
  * 跨页跳转只读 Reader 的定位表（`getPageOfNote` / `getPageOfNoteRef`），
  * 不扫文档树；高亮计时单实例、时长可注入（测试不必真等待）。
  */
-import { getCurrentScope, nextTick, onScopeDispose, ref, type Ref } from 'vue';
+import { getCurrentScope, nextTick, onScopeDispose, ref, watch, type Ref } from 'vue';
 import {
   collectNodeText,
   findNodeById,
@@ -318,6 +318,16 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
       const targetId = stripHash(noteref.getAttribute('href'));
       if (targetId === '') return;
       event.preventDefault();
+      // 触屏无 hover：再点同一个注码收起预览（点按切换，A5）
+      if (
+        isHoverless() &&
+        preview.value !== null &&
+        preview.value.noteId === targetId &&
+        preview.value.anchor === noteref
+      ) {
+        closePreview();
+        return;
+      }
       const found = goToNote(targetId);
       // 触屏无 hover：点击后直接预览，避免用户只有「跳过去」没有「读到注文」
       if (found && isHoverless()) showPreview(noteref, targetId, true);
@@ -399,8 +409,47 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
       cancelPreviewTimer();
       if (hideTimer !== undefined) clearTimeout(hideTimer);
       hideTimer = undefined;
+      unbindOutsideClose();
     });
   }
+
+  /**
+   * 触屏：点击卡片外区域关闭预览（A5）
+   *
+   * 捕获阶段检查，避免与页面自身的 click 逻辑抢顺序；点在同一注码上不关闭——
+   * 由 `onClick` 做「再点收起」的切换。
+   */
+  const onDocClick = (event: MouseEvent): void => {
+    if (preview.value === null) return;
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (preview.value.anchor.contains(target)) return;
+    if (
+      closest(event.target, NOTEREF_SELECTOR) !== null ||
+      closest(event.target, MARKER_SELECTOR) !== null
+    ) {
+      return;
+    }
+    closePreview();
+  };
+
+  let outsideBound = false;
+  function bindOutsideClose(): void {
+    if (outsideBound || typeof document === 'undefined') return;
+    document.addEventListener('click', onDocClick, true);
+    outsideBound = true;
+  }
+  function unbindOutsideClose(): void {
+    if (!outsideBound || typeof document === 'undefined') return;
+    document.removeEventListener('click', onDocClick, true);
+    outsideBound = false;
+  }
+
+  // 只在「触屏 + 预览可见」时挂外部点击监听，桌面悬浮预览仍由指针移出收起
+  watch(preview, (value) => {
+    if (value !== null && isHoverless()) bindOutsideClose();
+    else unbindOutsideClose();
+  });
 
   return {
     activeNoteId,

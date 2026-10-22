@@ -25,12 +25,22 @@ import {
   type Identifier,
   type PublicationInfo,
 } from '@bibliotype/core';
+import { BT_BREAKPOINTS, useBreakpoint } from '@bibliotype/vue';
 
 const props = defineProps<{ metadata: BookMetadata; editable?: boolean }>();
 const emit = defineEmits<{
   close: [];
   save: [patch: Partial<BookMetadata>];
 }>();
+
+/**
+ * H5 断点（C2）：窄屏模态转全屏页
+ *
+ * 与样式表的 `@media (max-width: 767px)` 同口径，另保留可断言的类名 / data 钩子
+ * ——happy-dom 不执行媒体查询，测试靠钩子判断布局分支。
+ */
+const breakpoint = useBreakpoint();
+const mobileLayout = computed(() => breakpoint.width.value < BT_BREAKPOINTS.md);
 
 /** extra 古籍著录键 → 中文标签（未映射键原样展示） */
 const EXTRA_LABELS: Readonly<Record<string, string>> = {
@@ -351,8 +361,10 @@ function removeExtra(index: number): void {
 <template>
   <div
     class="dialog"
+    :class="{ 'dialog--mobile': mobileLayout }"
     role="dialog"
     aria-modal="true"
+    :data-mobile="mobileLayout ? 'true' : 'false'"
     @click.self="editing ? undefined : emit('close')"
   >
     <div class="dialog__panel">
@@ -919,5 +931,35 @@ function removeExtra(index: number): void {
 .dialog__remove:hover {
   color: #b0413e;
   border-color: #b0413e;
+}
+
+/*
+ * H5（C2）：窄屏模态转全屏页
+ *
+ * 遮罩去内边距、面板撑满视口并去圆角，表单双列收成单列（375px 下双列会把
+ * 输入框压到 130px 以内）；底部留安全区，避开 Home 指示条。
+ */
+@media (max-width: 767px) {
+  .dialog {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .dialog__panel {
+    max-width: none;
+    max-height: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    padding-block-end: env(safe-area-inset-bottom, 0px);
+  }
+
+  .dialog__body {
+    padding: 8px 14px 16px;
+  }
+
+  .field__grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

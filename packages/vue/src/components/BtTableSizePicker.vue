@@ -7,6 +7,9 @@
  *
  * 定位复用 `placeFloating`（上/下翻转、水平夹紧），Teleport 到 body + fixed，
  * 不会被工具条横向滚动容器裁切。`trigger` 用于「点触发器再次关闭」时忽略外部点击。
+ *
+ * H5（B4）：触屏无 hover，网格单元放大到 44px 触控目标；点按改为两段式——
+ * 首次点按只预览高亮，再次点按同一格才确认插入（桌面 hover 预览 + 单击确认不变）。
  */
 import {
   computed,
@@ -18,6 +21,7 @@ import {
   type CSSProperties,
 } from 'vue';
 import { placeFloating, type FloatingRect } from '../floating-position.js';
+import { useBreakpoint } from '../use-breakpoint.js';
 
 const props = withDefaults(
   defineProps<{
@@ -56,6 +60,18 @@ const customRows = ref(props.rows);
 const customCols = ref(props.cols);
 let observer: ResizeObserver | null = null;
 
+/** 断点 / 触控指针探测：粗指针下放大网格并启用两段式点按 */
+const breakpoint = useBreakpoint();
+/** 触屏网格列数上限：44px 单元 + 间距后仍要放得进窄屏（6×44 + 5×6 ≈ 294px） */
+const TOUCH_GRID_MAX = 6;
+/** 实际渲染的网格行数 / 列数（触屏收窄） */
+const gridRows = computed(() =>
+  breakpoint.coarsePointer.value ? Math.min(props.maxRows, TOUCH_GRID_MAX) : props.maxRows,
+);
+const gridCols = computed(() =>
+  breakpoint.coarsePointer.value ? Math.min(props.maxCols, TOUCH_GRID_MAX) : props.maxCols,
+);
+
 function clamp(value: number, max: number): number {
   return Math.min(max, Math.max(1, Math.round(Number.isFinite(value) ? value : 1)));
 }
@@ -74,6 +90,24 @@ function choose(rows: number, cols: number): void {
   emit('select', { rows: clamp(rows, props.maxRows), cols: clamp(cols, props.maxCols) });
 }
 
+/**
+ * 网格单元点按
+ *
+ * 桌面：单击即插入（hover 已经给出预览）；
+ * 触屏：没有 hover，首次点按只把高亮移到该格，再次点按同一格才插入。
+ */
+function onCellClick(rows: number, cols: number): void {
+  if (!breakpoint.coarsePointer.value) {
+    choose(rows, cols);
+    return;
+  }
+  if (hoverRows.value === rows && hoverCols.value === cols) {
+    choose(rows, cols);
+    return;
+  }
+  hoverAt(rows, cols);
+}
+
 function submitCustom(): void {
   customRows.value = clamp(customRows.value, props.maxRows);
   customCols.value = clamp(customCols.value, props.maxCols);
@@ -88,7 +122,11 @@ function viewportSize(): { width: number; height: number } {
   if (typeof window === 'undefined') {
     return { width: 1024, height: 768 };
   }
-  return { width: window.innerWidth, height: window.innerHeight };
+  const viewport = window.visualViewport;
+  return {
+    width: viewport?.width ?? window.innerWidth,
+    height: viewport?.height ?? window.innerHeight,
+  };
 }
 
 const placed = computed(() => placeFloating(props.anchor, menuSize.value, viewportSize()));
@@ -162,28 +200,31 @@ onBeforeUnmount(() => {
     <div
       ref="menuRef"
       class="bt-table-picker"
+      :class="{ 'bt-table-picker--touch': breakpoint.coarsePointer.value }"
       role="dialog"
       aria-label="插入表格"
+      :data-pointer="breakpoint.coarsePointer.value ? 'coarse' : 'fine'"
       :style="menuStyle"
     >
       <div class="bt-table-picker__title">插入表格</div>
       <div class="bt-table-picker__hint">{{ hoverRows }} × {{ hoverCols }}</div>
       <div
         class="bt-table-picker__grid"
-        :style="{ gridTemplateColumns: `repeat(${maxCols}, 1fr)` }"
+        :style="{ gridTemplateColumns: `repeat(${gridCols}, 1fr)` }"
         @mouseleave="resetHover"
       >
-        <div v-for="r in maxRows" :key="`r-${r}`" class="bt-table-picker__row">
+        <div v-for="r in gridRows" :key="`r-${r}`" class="bt-table-picker__row">
           <button
-            v-for="c in maxCols"
+            v-for="c in gridCols"
             :key="`c-${c}`"
             type="button"
             class="bt-table-picker__cell"
             :class="{ 'bt-table-picker__cell--active': isActive(r, c) }"
             :aria-label="`${r} 行 ${c} 列`"
+            :aria-pressed="isActive(r, c)"
             tabindex="-1"
             @mouseenter="hoverAt(r, c)"
-            @click="choose(r, c)"
+            @click="onCellClick(r, c)"
           />
         </div>
       </div>
@@ -257,6 +298,38 @@ onBeforeUnmount(() => {
 .bt-table-picker__cell--active {
   border-color: var(--bt-table-picker-accent, #2563eb);
   background: var(--bt-table-picker-cell-active, rgba(37, 99, 235, 0.18));
+}
+
+/* H5（B4）：粗指针下网格单元放大到 44px 触控目标（桌面 18px 不变） */
+.bt-table-picker--touch .bt-table-picker__grid {
+  gap: 6px;
+}
+
+.bt-table-picker--touch .bt-table-picker__cell {
+  width: var(--bt-touch-target, 44px);
+  height: var(--bt-touch-target, 44px);
+  border-radius: 4px;
+}
+
+.bt-table-picker--touch .bt-table-picker__hint {
+  font-size: 13px;
+}
+
+.bt-table-picker--touch .bt-table-picker__submit {
+  min-height: var(--bt-touch-target, 44px);
+  padding-inline: 16px;
+}
+
+.bt-table-picker--touch .bt-table-picker__field input {
+  min-height: var(--bt-touch-target, 44px);
+  width: 64px;
+}
+
+@media (pointer: coarse) {
+  .bt-table-picker__cell {
+    width: var(--bt-touch-target, 44px);
+    height: var(--bt-touch-target, 44px);
+  }
 }
 
 .bt-table-picker__custom {

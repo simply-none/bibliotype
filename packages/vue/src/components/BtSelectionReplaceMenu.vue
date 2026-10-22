@@ -23,6 +23,7 @@ import {
   type CSSProperties,
 } from 'vue';
 import type { EditorBinding } from '../use-editor.js';
+import { useBreakpoint } from '../use-breakpoint.js';
 import { placeFloating } from '../floating-position.js';
 import {
   useSelectionReplace,
@@ -57,6 +58,9 @@ const menuRef = ref<HTMLElement | null>(null);
 const menuSize = ref({ width: 0, height: 0 });
 let observer: ResizeObserver | null = null;
 
+/** 粗指针（触屏）：菜单项放大到 44px，滚动时直接关闭（B3） */
+const breakpoint = useBreakpoint();
+
 /** 实测菜单尺寸（首次渲染后由 watch 触发） */
 function measure(): void {
   const el = menuRef.value;
@@ -69,12 +73,16 @@ function measure(): void {
   }
 }
 
-/** 视口尺寸（SSR 兜底） */
+/** 视口尺寸（SSR 兜底）：软键盘弹出时取 visualViewport（菜单不上移进键盘区） */
 function viewportSize(): { width: number; height: number } {
   if (typeof window === 'undefined') {
     return { width: 1024, height: 768 };
   }
-  return { width: window.innerWidth, height: window.innerHeight };
+  const visual = window.visualViewport;
+  return {
+    width: visual?.width ?? window.innerWidth,
+    height: visual?.height ?? window.innerHeight,
+  };
 }
 
 const placed = computed(() => {
@@ -142,15 +150,27 @@ watch(
   { flush: 'post' },
 );
 
+/**
+ * 触摸滚动时直接关闭（B3）
+ *
+ * 桌面由 `useSelectionReplace` 在滚动时重算位置（菜单跟随选区）；触屏滚动后选区
+ * 手柄与菜单同时漂移，体验更差，故触屏口径改为关闭，再次拖选时重新弹出。
+ */
+function onWindowScroll(): void {
+  if (breakpoint.coarsePointer.value && visible.value) close();
+}
+
 onMounted(() => {
   document.addEventListener('keydown', onKeydown, true);
   document.addEventListener('mousedown', onDocMousedown, true);
+  window.addEventListener('scroll', onWindowScroll, true);
 });
 
 onBeforeUnmount(() => {
   observer?.disconnect();
   document.removeEventListener('keydown', onKeydown, true);
   document.removeEventListener('mousedown', onDocMousedown, true);
+  window.removeEventListener('scroll', onWindowScroll, true);
 });
 </script>
 
@@ -160,6 +180,7 @@ onBeforeUnmount(() => {
       v-if="show"
       ref="menuRef"
       class="bt-replace-menu"
+      :class="{ 'bt-replace-menu--touch': breakpoint.coarsePointer.value }"
       role="toolbar"
       aria-label="替换为"
       :style="menuStyle"
@@ -260,6 +281,16 @@ onBeforeUnmount(() => {
 .bt-replace-menu__item--active {
   border-color: var(--bt-replace-menu-active, rgba(37, 99, 235, 0.65));
   color: var(--bt-replace-menu-active, #2563eb);
+}
+
+/* 触屏（D2）：菜单项点击区补到 44px（字号不变） */
+.bt-replace-menu--touch .bt-replace-menu__item {
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.bt-replace-menu--touch .bt-replace-menu__items {
+  gap: 6px;
 }
 
 @media (prefers-color-scheme: dark) {

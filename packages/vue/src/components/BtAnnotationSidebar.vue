@@ -194,4 +194,22 @@ function onReply(id: string, body: string): void {
   width: 100%;
   box-sizing: border-box;
 }
+
+/* H5（C1）：抽屉内铺满宽度 + 触控目标 ≥44px */
+@media (max-width: 767px) {
+  .bt-annotation-sidebar {
+    width: 100%;
+  }
+}
+
+@media (pointer: coarse) {
+  .bt-annotation-sidebar__tab,
+  .bt-annotation-sidebar__locate,
+  .bt-annotation-sidebar button {
+    min-height: var(--bt-touch-target, 44px);
+  }
+  .bt-annotation-sidebar__reply input {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

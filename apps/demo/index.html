@@ -2,7 +2,18 @@
 <html lang="zh-Hans">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      H5（D3 / D4）：viewport 定稿
+      - viewport-fit=cover：允许内容延伸到刘海 / 圆角区，安全区由 env(safe-area-inset-*) 接管；
+      - interactive-widget=resizes-content：软键盘弹出时缩小布局视口，
+        与 BtEditor 的 visualViewport 补偿同向，避免键盘盖住光标行；
+      - maximum-scale 不锁定，保留系统字号放大 / 页面缩放的无障碍能力。
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#efe9dd" />
     <title>bibliotype · 论语阅读 Demo</title>
   </head>
   <body>

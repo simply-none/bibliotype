@@ -52,10 +52,12 @@ import {
   type PageChromeField,
 } from '@bibliotype/layout';
 import {
+  BT_BREAKPOINTS,
   BtFontFallbackPanel,
   BtGlyphAuditPanel,
   BtThemePanel,
   splitFontFamilyList,
+  useBreakpoint,
   useGlyphAudit,
 } from '@bibliotype/vue';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
@@ -87,6 +89,15 @@ const emit = defineEmits<{
   'apply-theme-tokens': [tokens: Record<string, string>];
   close: [];
 }>();
+
+/**
+ * H5 断点（C2）：窄屏模态转全屏页
+ *
+ * 与样式表里的 `@media (max-width: 767px)` 同口径，额外落一个可断言的类名 /
+ * data 钩子——happy-dom 不会执行媒体查询，测试只能靠语义钩子判断布局分支。
+ */
+const breakpoint = useBreakpoint();
+const mobileLayout = computed(() => breakpoint.width.value < BT_BREAKPOINTS.md);
 
 /* ---------- 导航 ---------- */
 
@@ -574,7 +585,14 @@ async function onSave(): Promise<void> {
 
 <template>
   <!-- 模态弹窗：遮罩点击 / 关闭按钮 / Esc（父级统一处理）关闭 -->
-  <div class="dialog" role="dialog" aria-modal="true" @click.self="emit('close')">
+  <div
+    class="dialog"
+    :class="{ 'dialog--mobile': mobileLayout }"
+    role="dialog"
+    aria-modal="true"
+    :data-mobile="mobileLayout ? 'true' : 'false'"
+    @click.self="emit('close')"
+  >
     <section class="panel">
       <header class="panel__header">
         <h2 class="panel__title">编辑设置</h2>
@@ -1581,5 +1599,57 @@ async function onSave(): Promise<void> {
 .panel__actions-buttons .panel__primary,
 .panel__actions-buttons .panel__secondary {
   min-width: 72px;
+}
+
+/*
+ * H5（C2）：窄屏模态转全屏页
+ *
+ * 遮罩内边距归零、卡片撑满视口并去掉圆角边框（与系统级全屏页一致）；
+ * 纵向空间的分配改「导航横排 + 内容独占余量」，底部留安全区，
+ * 保证刘海屏上「保存 / 关闭」不被 Home 指示条压住。
+ */
+@media (max-width: 767px) {
+  .dialog {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .panel {
+    max-width: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    padding-block-end: env(safe-area-inset-bottom, 0px);
+  }
+
+  .panel__body {
+    flex-direction: column;
+  }
+
+  .panel__nav {
+    flex: none;
+    flex-direction: row;
+    gap: 4px;
+    width: 100%;
+    padding: 6px 10px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    border-inline-end: none;
+    border-block-end: 1px solid var(--demo-border);
+  }
+
+  .panel__nav-item {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .panel__content {
+    min-height: 0;
+    padding: 12px 14px 16px;
+  }
+
+  .panel__actions {
+    padding: 10px 14px;
+  }
 }
 </style>

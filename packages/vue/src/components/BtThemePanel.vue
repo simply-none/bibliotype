@@ -336,4 +336,13 @@ function onImport(): void {
     transition: none;
   }
 }
+
+/* H5（C2）：全屏模态内控件触控目标 ≥44px */
+@media (pointer: coarse) {
+  .bt-theme-panel button,
+  .bt-theme-panel input,
+  .bt-theme-panel select {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

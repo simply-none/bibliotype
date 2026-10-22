@@ -20,6 +20,9 @@
  * - 挂载时创建 EditorView，卸载时销毁；editor 实例替换时重建视图；
  * - 书册样式表以 `.bt-editor__canvas .ProseMirror` 为根容器注入（与 BtBookView
  *   的 buildBookCss 生成逻辑一致，节点 / 角色选择器限定在编辑画布内不外泄）。
+ *
+ * H5（B1）：监听 `visualViewport` 量化软键盘遮挡高度，以 `--bt-keyboard-inset`
+ * 给滚动区补底部空间，并在键盘弹出后把光标滚到键盘上方；收起后视口复位。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, LAYOUT_TOKENS } from '@bibliotype/core';
@@ -36,6 +39,7 @@ import type { BlockMeasureContext } from '@bibliotype/reader';
 import type { BookEditor } from '@bibliotype/editor';
 import type { Command } from 'prosemirror-state';
 import { useEditorBinding, type EditorBinding } from '../use-editor.js';
+import { useKeyboardInset, type CaretRect } from '../use-keyboard-inset.js';
 import PagedCanvas from '../paged-editor/PagedCanvas.vue';
 import { usePagedLayout } from '../paged-editor/use-paged-layout.js';
 import { locatePmPosition } from '../paged-editor/selection-bridge.js';
@@ -183,6 +187,50 @@ const firstLayoutDone = computed(() => paged.lastResult.value !== null);
 const showLoading = computed(
   () => props.loading === true && props.pagination === true && !firstLayoutDone.value,
 );
+
+/* ---------- H5（B1）：软键盘视口适配 ---------- */
+
+/**
+ * 当前编辑滚动容器
+ *
+ * 连续画布就是 `.bt-editor__scroll`；paged 态 PagedCanvas 自带内层滚动器
+ *（`.bt-paged`），光标滚动必须落在它上面才不会带动外层。
+ */
+function activeScroller(): HTMLElement | null {
+  const host = scrollRef.value;
+  if (host === null) return null;
+  if (!pagedActive.value) return host;
+  return host.querySelector<HTMLElement>('.bt-paged') ?? host;
+}
+
+/**
+ * 当前光标矩形（视口坐标）
+ *
+ * 优先读浏览器选区：连续画布与 paged 画布都是真实 DOM 文本；拿不到 DOM 选区
+ *（如刚重建片段）时回退 PM 位置坐标。
+ */
+function currentCaretRect(): CaretRect | null {
+  if (typeof window === 'undefined') return null;
+  const selection = window.getSelection?.();
+  if (selection !== undefined && selection !== null && selection.rangeCount > 0) {
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    if (rect.height > 0 || rect.width > 0) return { top: rect.top, bottom: rect.bottom };
+  }
+  const view = binding.view.value;
+  if (view === null) return null;
+  try {
+    const coords = view.coordsAtPos(view.state.selection.from);
+    return { top: coords.top, bottom: coords.bottom };
+  } catch {
+    return null;
+  }
+}
+
+const keyboard = useKeyboardInset({ scroller: activeScroller, caretRect: currentCaretRect });
+/** 键盘遮挡高度（px；模板经 `--bt-keyboard-inset` 下发给 CSS） */
+const keyboardInset = keyboard.inset;
+/** 键盘是否弹出（语义钩子 `data-keyboard`） */
+const keyboardOpen = keyboard.open;
 
 /**
  * paged 编辑事件桥（方案 S）：PagedCanvas 已把输入经 selection-bridge 落成
@@ -453,7 +501,11 @@ defineExpose({ goToNode });
 </script>
 
 <template>
-  <div class="bt-editor">
+  <div
+    class="bt-editor"
+    :data-keyboard="keyboardOpen ? 'open' : 'closed'"
+    :style="{ '--bt-keyboard-inset': `${keyboardInset}px` }"
+  >
     <div v-if="$slots.default" class="bt-editor__toolbar">
       <slot v-bind="slotBinding" />
     </div>
@@ -520,6 +572,9 @@ defineExpose({ goToNode });
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* H5（B1）：底部留出软键盘高度，光标可以滚到键盘上方（桌面恒为 0） */
+  padding-block-end: var(--bt-keyboard-inset, 0px);
+  scroll-padding-block-end: calc(var(--bt-keyboard-inset, 0px) + 24px);
   background: var(--bt-editor-stage, #dcd6c9);
 }
 

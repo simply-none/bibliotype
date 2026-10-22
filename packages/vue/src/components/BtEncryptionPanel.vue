@@ -291,4 +291,13 @@ function submit(): void {
   color: var(--ink-soft);
   cursor: pointer;
 }
+
+/* H5（C2）：全屏模态内控件触控目标 ≥44px */
+@media (pointer: coarse) {
+  .crypt button,
+  .crypt input,
+  .crypt select {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

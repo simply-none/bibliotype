@@ -216,3 +216,16 @@ export type {
 } from './use-selection-replace.js';
 
 export { createBibliotype } from './plugin.js';
+
+/* ---------- H5 UI 改造（D1 断点 / D2 触控 / D5 滚动锁 / C1 抽屉） ---------- */
+export {
+  BT_BREAKPOINTS,
+  BT_TOUCH_TARGET_MIN,
+  resolveBreakpointName,
+} from './breakpoints.js';
+export type { BreakpointName } from './breakpoints.js';
+export { useBreakpoint } from './use-breakpoint.js';
+export type { BreakpointHost, UseBreakpoint, UseBreakpointOptions } from './use-breakpoint.js';
+export { useScrollLock } from './use-scroll-lock.js';
+export type { UseScrollLock, UseScrollLockOptions } from './use-scroll-lock.js';
+export { default as BtDrawer } from './components/BtDrawer.vue';

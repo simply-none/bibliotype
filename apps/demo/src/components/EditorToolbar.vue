@@ -26,12 +26,17 @@
  * 行内标记的通用前提：`toggleMark` 在空光标下写 storedMarks（下次输入继承），
  * 因此「B / I / U / 高亮 / 注音 / 古籍标记」空光标可用；而删除线、行内代码显式传
  * `requireSelection=true`，空光标不执行（避免误清空待输入标记）。
+ *
+ * 触屏与窄屏（H5 UI 改造 B2）：工具条有近百个入口，平铺在 375px 视口里既挤不进
+ * 也靠不上悬浮说明。命中时每行只直出高频动作（撤 / 重 / B / H1 / 注音），
+ * 其余收进行尾「更多」，点开展开为单行横滚（按钮 44px 触控目标）。
  */
 import { computed, ref } from 'vue';
 import { MARK_TYPES, NODE_TYPES, type NamedStyle } from '@bibliotype/core';
 import {
   BtSelectionReplaceMenu,
   BtTableSizePicker,
+  useBreakpoint,
   type EditorBinding,
 } from '@bibliotype/vue';
 import {
@@ -122,6 +127,9 @@ interface ToolbarAction {
    */
   usage?: ToolbarUsage;
 }
+
+/** 工具行的形状（TOOLBAR_ROWS 的元素） */
+type ToolbarRow = { key: string; actions: readonly ToolbarAction[] };
 
 /** 执行命令（未生效时静默） */
 function execute(command: EditorCommand): void {
@@ -804,16 +812,62 @@ const styleActions = computed<ToolbarAction[]>(() => {
   return actions;
 });
 
-const TOOLBAR_ROWS = computed<ReadonlyArray<{ key: string; actions: readonly ToolbarAction[] }>>(
-  () => [
-    {
-      key: 'doc',
-      actions: [...historyActions, ...blockActions, ...inlineActions, ...styleActions.value],
-    },
-    { key: 'classical', actions: classicalActions },
-    { key: 'insert', actions: insertActions },
-  ],
+const TOOLBAR_ROWS = computed<readonly ToolbarRow[]>(() => [
+  {
+    key: 'doc',
+    actions: [...historyActions, ...blockActions, ...inlineActions, ...styleActions.value],
+  },
+  { key: 'classical', actions: classicalActions },
+  { key: 'insert', actions: insertActions },
+]);
+
+/* ---------------- H5 触屏折叠（B2） ---------------- */
+
+const breakpoint = useBreakpoint();
+
+/** 紧凑模式：窄屏或粗指针（触屏没有 hover，悬浮说明也不可用） */
+const compactToolbar = computed(
+  () => breakpoint.isMobile.value || breakpoint.coarsePointer.value,
 );
+
+/**
+ * 直出按钮白名单
+ *
+ * 清单要求「加粗 / 标题 / 注音保留为直出」，另把撤销 / 重做列入：
+ * 这两枚是纠错入口，藏进「更多」后误操作的恢复代价远高于收益。
+ */
+const PINNED_LABELS: ReadonlySet<string> = new Set(['撤销', '重做', 'B', 'H1', '注音']);
+
+/** 行标题（折叠按钮的无障碍名称） */
+const ROW_LABELS: Readonly<Record<string, string>> = {
+  doc: '正文与标记',
+  classical: '古籍标记',
+  insert: '插入',
+};
+
+/** 行展开态（按行 key；默认全部收起） */
+const expandedRows = ref<Record<string, boolean>>({});
+
+/** 某行是否已展开 */
+function isRowExpanded(key: string): boolean {
+  return expandedRows.value[key] === true;
+}
+
+/** 切换某行展开态（换新对象，确保触发依赖收集） */
+function toggleRow(key: string): void {
+  expandedRows.value = { ...expandedRows.value, [key]: !isRowExpanded(key) };
+}
+
+/** 当前应渲染的动作：收起态只留直出按钮 */
+function visibleActions(row: ToolbarRow): readonly ToolbarAction[] {
+  if (!compactToolbar.value || isRowExpanded(row.key)) return row.actions;
+  return row.actions.filter((action) => PINNED_LABELS.has(action.label));
+}
+
+/** 该行是否存在被收起的动作（决定是否常驻「更多」按钮） */
+function hasFoldedActions(row: ToolbarRow): boolean {
+  return row.actions.some((action) => !PINNED_LABELS.has(action.label));
+}
 
 /**
  * 右端三个手写按钮的悬浮说明
@@ -853,22 +907,27 @@ function onWheel(event: WheelEvent): void {
 </script>
 
 <template>
-  <div class="editor-toolbar">
+  <div class="editor-toolbar" :data-pointer="compactToolbar ? 'touch' : 'mouse'">
     <div
       v-for="row in TOOLBAR_ROWS"
       :key="row.key"
       class="editor-toolbar__row"
-      :class="{ 'editor-toolbar__row--readonly': isReadonly }"
+      :class="{
+        'editor-toolbar__row--readonly': isReadonly,
+        'editor-toolbar__row--folded': compactToolbar && !isRowExpanded(row.key),
+      }"
+      :data-row="row.key"
+      :data-folded="compactToolbar && !isRowExpanded(row.key) ? 'true' : 'false'"
       @wheel="onWheel"
     >
       <span
-        v-if="row.key === 'insert'"
+        v-if="row.key === 'insert' && !compactToolbar"
         class="editor-toolbar__row-label"
         title="不消费选区；选中文字请用「替换为」浮动菜单"
       >
         插入空容器（段后）
       </span>
-      <ToolbarUsageTip v-for="action in row.actions" :key="action.label" :usage="action.usage">
+      <ToolbarUsageTip v-for="action in visibleActions(row)" :key="action.label" :usage="action.usage">
         <button
           type="button"
           class="editor-toolbar__button"
@@ -881,6 +940,18 @@ function onWheel(event: WheelEvent): void {
           {{ action.label }}
         </button>
       </ToolbarUsageTip>
+      <!-- 触屏折叠开关（B2）：常驻行尾，不随横滚滑走；展开后该行回到全量可横滚 -->
+      <button
+        v-if="compactToolbar && hasFoldedActions(row)"
+        type="button"
+        class="editor-toolbar__button editor-toolbar__button--fold"
+        :aria-expanded="isRowExpanded(row.key)"
+        :aria-label="`${isRowExpanded(row.key) ? '收起' : '展开'}${ROW_LABELS[row.key] ?? '本行'}动作`"
+        @mousedown.prevent
+        @click="toggleRow(row.key)"
+      >
+        {{ isRowExpanded(row.key) ? '收起' : '更多' }}
+      </button>
       <!-- 实用区固定第二行右端 -->
       <div v-if="row.key === 'insert'" class="editor-toolbar__group editor-toolbar__group--end">
         <ToolbarUsageTip :usage="UTILITY_USAGES['查找替换']">
@@ -1032,5 +1103,52 @@ function onWheel(event: WheelEvent): void {
 
 .editor-toolbar__button--active:hover:not(:disabled) {
   color: var(--demo-accent);
+}
+
+/* ---------------- 触屏 / 窄屏（B2） ---------------- */
+
+/*
+ * 命中条件与 `compactToolbar` 同源：JS 侧取 `isMobile || coarsePointer`，
+ * 这里对应 `max-width: 767px` 与 `pointer: coarse`，两边必须同步改。
+ * 目标：每行折叠为「常用直出 + 更多」，按钮顶到 44px 触控目标，行内仍可横滚。
+ */
+@media (max-width: 767px), (pointer: coarse) {
+  .editor-toolbar__row {
+    gap: 4px;
+    padding: 2px 8px;
+    /* 触屏横滚不显滚动条，腾出竖向空间给 44px 按钮 */
+    scrollbar-width: none;
+  }
+
+  .editor-toolbar__row::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .editor-toolbar__button {
+    min-width: 40px;
+    min-height: var(--bt-touch-target, 44px);
+    padding-inline: 8px;
+    font-size: 13px;
+  }
+
+  .editor-toolbar__row-label {
+    display: none;
+  }
+
+  /* 实用区改普通间隔：自动外边距在横滚行里会把整段挤出视口 */
+  .editor-toolbar__group--end {
+    margin-inline-start: 0;
+    padding-inline-start: 8px;
+  }
+
+  /* 「更多 / 收起」吸在行尾：展开后按钮很多也不会跟着滑出屏幕 */
+  .editor-toolbar__button--fold {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    color: var(--demo-accent);
+    background: var(--demo-panel);
+    border-color: var(--demo-control-border);
+  }
 }
 </style>

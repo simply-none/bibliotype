@@ -56,6 +56,7 @@ import {
   FACSIMILE_BASE_LAYOUT,
   FACSIMILE_PRESETS,
   computeMetricsSignature,
+  createPageSize,
   isVerticalMode,
   mergeLayoutOptions,
   resolvePageCrossSize,
@@ -70,7 +71,7 @@ import {
   type BlockMeasureContext,
   type OutlineItem,
 } from '@bibliotype/reader';
-import { BtAnnotationSuggestions, BtBookView, BtCompareView, BtDocumentStats, BtEditor, BtPager, BtSidebarResizer, BtToc, createFontCheckProbe, measurePagination, disposeMeasureSheet, splitFontFamilyList, useAnnotationSuggestions, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
+import { BT_BREAKPOINTS, BtBookView, BtCompareView, BtDocumentStats, BtDrawer, BtEditor, BtPager, BtSidebarResizer, createFontCheckProbe, measurePagination, disposeMeasureSheet, splitFontFamilyList, useAnnotationSuggestions, useBreakpoint, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
 import {
   collectEpubGlyphProblems,
   exportEpub,
@@ -87,13 +88,11 @@ import {
   type PdfAdapterOptions,
 } from '@bibliotype/exporter-pdf';
 import AppToast from './components/AppToast.vue';
+import AsidePanels from './components/AsidePanels.vue';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
-import AnnotationPanel from './components/AnnotationPanel.vue';
 import EditorToolbar from './components/EditorToolbar.vue';
-import ImportPanel from './components/ImportPanel.vue';
 import ProgressBar from './components/ProgressBar.vue';
-import SearchPanel from './components/SearchPanel.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import LibraryDrawer from './components/LibraryDrawer.vue';
 import ToolbarUsageTip from './components/ToolbarUsageTip.vue';
@@ -206,6 +205,7 @@ function bookIdFromTitle(title: string | undefined): string {
 
 /** 《论语》样本书的固定 id（启动默认书） */
 const LUNYU_BOOK_ID = bookIdFromTitle(lunyuDocument.metadata.title);
+
 /**
  * 当前书籍 id（响应式）。切书时更新后，样式设置随之切到该书作用域并重新载入应用；
  * 设置面板维持现有草稿模式（改完点「保存」才落盘）。
@@ -224,9 +224,42 @@ const namedStyles = styleApi.namedStyles;
 /** 编辑行为设置 */
 const editing = styleApi.editing;
 
-/** 生效布局：主题基准 + 补丁覆写 */
+/* ---------------- H5 断点与版式预设（A1 / A2） ---------------- */
+
+/** 断点探测（D1）：宽度 < md（768px）视为 H5 单列骨架 */
+const breakpoint = useBreakpoint();
+
+/** 是否走 H5 单列骨架（375–768px） */
+const mobileShell = computed(() => breakpoint.width.value < BT_BREAKPOINTS.md);
+
+/** H5 开本：375px 视口下缩放系数趋近 1，正文按令牌原尺寸落地 */
+const MOBILE_PAGE_SIZE = createPageSize('h5-mobile', 340, 560);
+
+/**
+ * H5 版式预设（A2）
+ *
+ * 只叠在窄屏断点：窄页宽 + 单栏，使等比缩放的系数趋近 1、等效字号回到
+ * 令牌值（≥14px）；不写入用户补丁，回到宽视口即消失。
+ * 仿真模板自带版框与固定开本，覆盖页宽会破坏其几何，因此保持原样
+ * 交给它自身缩放。
+ */
+const mobileLayoutPatch = computed<Partial<LayoutOptions>>(() => {
+  if (!mobileShell.value) return {};
+  if (theme.value.layout.facsimile !== undefined) return {};
+  return { pageSize: MOBILE_PAGE_SIZE, columns: 1 };
+});
+
+/**
+ * 生效布局：主题基准 + 补丁覆写 + H5 版式预设
+ *
+ * 三层顺序：H5 预设压在最上，因为它不是用户意图而是「窄屏可读」的下限——
+ * 用户在桌面把页宽调到 600px 不应把手机也拖成缩放后的 8px 字。
+ */
 const effectiveLayout = computed<LayoutOptions>(() =>
-  mergeLayoutOptions(theme.value.layout, layoutPatch.value),
+  mergeLayoutOptions(
+    mergeLayoutOptions(theme.value.layout, layoutPatch.value),
+    mobileLayoutPatch.value,
+  ),
 );
 
 /** 当前仿真模板（由 `layout.facsimile.preset` 派生；未启用仿真版式时为 undefined） */
@@ -253,6 +286,28 @@ const activeFontToken = computed(() =>
  * 列内项目自上而下、文字竖写。横排保持原有「顶栏 + 画布 + 底栏 + 右栏」结构不变。
  */
 const verticalRail = computed(() => isVerticalMode(effectiveLayout.value.writingMode));
+
+/* ---------------- H5 单列骨架状态（A1 / A4 / A6 / B5） ---------------- */
+
+/**
+ * 直排竖列是否生效（A1）
+ *
+ * 五条通高竖列是把横排的五行旋 90° 排开，吃的是横向空间，窄屏摆不下；
+ * H5 一律按横排摆位渲染 chrome。书写方向本身仍由主题决定，正文不受影响。
+ */
+const railLayout = computed(() => verticalRail.value && !mobileShell.value);
+
+/** H5：左栏面板抽屉（目录 / 搜索 / 书签 / 导入 / 句读） */
+const mobileAsideOpen = ref(false);
+
+/** H5：「更多」菜单 sheet（全局动作 + 底栏次要控件） */
+const mobileMenuOpen = ref(false);
+
+/** H5：编辑态属性检视器 sheet */
+const mobileInspectorOpen = ref(false);
+
+/** H5：属性检视器 sheet 的吸附档位（B5：半屏 / 全屏） */
+const MOBILE_INSPECTOR_SNAPS: readonly string[] = ['48vh', '92vh'];
 
 /* ---------------- 排版设置（夜间预设 + 面板补丁） ---------------- */
 
@@ -622,9 +677,9 @@ function zoomStep(delta: number): void {
 function fitEditorWidth(): void {
   const el = editorStageRef.value;
   const page = effectiveLayout.value.pageSize;
-  const crossSize = verticalRail.value ? page.height : page.width;
+  const crossSize = railLayout.value ? page.height : page.width;
   if (el === null || crossSize <= 0) return;
-  const available = (verticalRail.value ? el.clientHeight : el.clientWidth) - 40;
+  const available = (railLayout.value ? el.clientHeight : el.clientWidth) - 40;
   const ratio = Math.round((available / crossSize) * 100) / 100;
   editorScale.value = Math.min(2, Math.max(0.2, ratio));
 }
@@ -991,6 +1046,8 @@ function onTocSelect(item: OutlineItem): void {
   if (mode.value === 'edit' && btEditorRef.value !== null) {
     btEditorRef.value.goToNode(item.nodeId ?? '');
   }
+  // H5（A4）：抽屉里点完条目就收起，把整屏还给正文
+  if (mobileAsideOpen.value) mobileAsideOpen.value = false;
 }
 
 /** 导入文档：载入阅读预览，若编辑器已建则同步内容（loadDocument 重置脏基准），并落盘草稿 + 重排 */
@@ -1311,6 +1368,34 @@ function toggleTab(tab: AsideTab): void {
   activeTab.value = activeTab.value === tab ? null : tab;
 }
 
+/**
+ * H5：从「更多」菜单 / 底栏打开面板（A1 / A4）
+ *
+ * 先定 tab 再开抽屉：抽屉内容由同一份 `AsidePanels` 渲染，`activeTab`
+ * 为 null 时没有可渲染的面板，所以两者必须一起切换。
+ */
+function openMobileTab(tab: AsideTab): void {
+  activeTab.value = tab;
+  mobileAsideOpen.value = true;
+  mobileMenuOpen.value = false;
+}
+
+/** H5：打开编辑态属性 sheet（B5，默认落在半屏档，拖拽把手上拉全屏） */
+function openMobileInspector(): void {
+  mobileInspectorOpen.value = true;
+}
+
+/** H5「更多」菜单：先收起 sheet 再执行动作（避免与新弹窗叠层） */
+function onMobileAction(action: () => void): void {
+  mobileMenuOpen.value = false;
+  action();
+}
+
+/** 当前面板标题（H5 抽屉标题栏；无选中面板时回退「面板」） */
+const activeTabLabel = computed(
+  () => ASIDE_TABS.find((tab) => tab.key === activeTab.value)?.label ?? '面板',
+);
+
 const settingsOpen = ref(false);
 const infoOpen = ref(false);
 
@@ -1374,15 +1459,7 @@ function runEditorCommand(command: EditorCommand): boolean {
  * 建议审阅状态：建议由 `classical` 纯函数生成，接受 / 拒绝 / 采纳为标点
  * 全部落到编辑器事务；库内不写存储，也不自动改正文。
  */
-const {
-  visible: suggestionVisible,
-  counts: suggestionCounts,
-  filter: suggestionFilter,
-  accept: acceptSuggestions,
-  reject: rejectSuggestions,
-  commitJudou: commitSuggestions,
-  setOverride: setSuggestionOverride,
-} = useAnnotationSuggestions({
+const suggestionApi = useAnnotationSuggestions({
   document: () => bookEditor.value?.getDocument() ?? undefined,
   revision: () => (slotBinding.value?.version.value ?? 0) + bookVersion.value,
   apply: {
@@ -1392,6 +1469,15 @@ const {
     remove: (options) => runEditorCommand(removeSuggestionMarks(options)),
   },
 });
+
+/* 解构出来给命令函数 / 模板绑定用；整体再留一份给 `AsidePanels`（抽屉与侧栏共用） */
+const {
+  filter: suggestionFilter,
+  accept: acceptSuggestions,
+  reject: rejectSuggestions,
+  commitJudou: commitSuggestions,
+  setOverride: setSuggestionOverride,
+} = suggestionApi;
 
 /** 接受建议（ids 为空表示当前可见列表） */
 function onAcceptSuggestions(ids: readonly string[]): void {
@@ -1520,6 +1606,27 @@ function onVisibilityChange(): void {
   if (document.visibilityState === 'hidden') void autosave.flush();
 }
 
+/**
+ * 页面被隐藏 / 回收前最后一次落盘（B6）
+ *
+ * 移动端 WebView 切应用、被系统回收时 `beforeunload` 经常不触发，
+ * `pagehide` 才是最后能写完的时机；与 visibilitychange 同一套 flush，
+ * 单飞去重保证不会重复写库。
+ */
+function onPageHide(): void {
+  void autosave.flush();
+}
+
+/** 从后台 / bfcache 返回：补一次重排（往返后视口尺寸可能已变） */
+function onPageShow(): void {
+  scheduleRemeasure();
+}
+
+/** 窗口失焦（软键盘收起 / 切应用）：作为一次节流保存触发点（B6） */
+function onWindowBlur(): void {
+  if (mode.value === 'edit') autosave.schedule();
+}
+
 /** 存在未保存变更时离开页面提示（并尽力落盘一轮） */
 function onBeforeUnload(event: BeforeUnloadEvent): void {
   if (!dirty.value) return;
@@ -1528,9 +1635,21 @@ function onBeforeUnload(event: BeforeUnloadEvent): void {
   event.returnValue = '';
 }
 
+/**
+ * 旋转 / 跨断点触发重排（D7）
+ *
+ * 只认「方向翻转」与「跨断点」两个语义信号，而不是任意 resize：软键盘弹出
+ * （`interactive-widget=resizes-content`）只改高度、不改宽度，方向与断点都不变，
+ * 因此不会被误判为旋转；重排本身再走 120ms 去抖（`scheduleRemeasure`）。
+ */
+watch([breakpoint.portrait, mobileShell], scheduleRemeasure);
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown);
   window.addEventListener('beforeunload', onBeforeUnload);
+  window.addEventListener('pagehide', onPageHide);
+  window.addEventListener('pageshow', onPageShow);
+  window.addEventListener('blur', onWindowBlur);
   document.addEventListener('visibilitychange', onVisibilityChange);
   // 开发期性能探针：控制台用 __btPerf.report() 看「重排 vs 落盘」耗时分布
   if (import.meta.env.DEV) perfProbe = installPerfProbe();
@@ -1553,6 +1672,9 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   window.removeEventListener('beforeunload', onBeforeUnload);
+  window.removeEventListener('pagehide', onPageHide);
+  window.removeEventListener('pageshow', onPageShow);
+  window.removeEventListener('blur', onWindowBlur);
   document.removeEventListener('visibilitychange', onVisibilityChange);
   removeToolbarDragListeners();
   if (measureTimer !== undefined) clearTimeout(measureTimer);
@@ -1576,8 +1698,10 @@ onBeforeUnmount(() => {
     class="app"
     :class="{
       'app--night': night,
-      'app--rail': verticalRail,
+      'app--rail': railLayout,
+      'app--mobile': mobileShell,
     }"
+    :data-layout="mobileShell ? 'mobile' : 'desktop'"
   >
     <header class="toolbar">
       <div class="toolbar__title">
@@ -1599,6 +1723,7 @@ onBeforeUnmount(() => {
         </span>
       </div>
       <div
+        v-if="!mobileShell"
         ref="toolbarActionsRef"
         class="toolbar__actions"
         @wheel="onToolbarWheel"
@@ -1679,6 +1804,26 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
+
+      <!-- H5（A1）：顶栏只留书名 + 保存状态 + 「更多」，全局动作收进菜单 sheet -->
+      <div v-else class="toolbar__mobile">
+        <span
+          v-if="mode === 'edit'"
+          class="toolbar__dirty"
+          :class="{ 'toolbar__dirty--on': dirty || saveFailed }"
+        >
+          {{ saveStatusText }}
+        </span>
+        <button
+          type="button"
+          class="toolbar__button toolbar__button--menu"
+          aria-label="更多"
+          :aria-expanded="mobileMenuOpen"
+          @click="mobileMenuOpen = !mobileMenuOpen"
+        >
+          更多
+        </button>
+      </div>
     </header>
 
     <!--
@@ -1686,7 +1831,7 @@ onBeforeUnmount(() => {
       独立为状态栏左侧的附加列；横排时工具条在画布上方，故直排时从原位移入此处）。
       列序自左向右对偶横排行序自上而下：顶栏 → 工具条三行 → 属性栏 → 状态栏。
     -->
-    <div v-if="verticalRail && mode === 'edit' && inspectorBinding" class="app__rail">
+    <div v-if="railLayout && mode === 'edit' && inspectorBinding" class="app__rail">
       <template v-if="mode === 'edit' && inspectorBinding">
         <EditorToolbar
           :binding="inspectorBinding"
@@ -1699,54 +1844,31 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="app__body" :style="{ '--bt-aside-width': `${tocWidth}px` }">
-      <aside v-show="asideVisible" class="app__aside">
-        <SearchPanel
-          v-if="activeTab === 'search'"
-          :key="`search-${themeKey}-${readerEpoch}`"
-          :reader="reader"
-          @close="activeTab = null"
-        />
-        <AnnotationPanel
-          v-if="activeTab === 'bookmarks'"
-          :key="`annotation-${themeKey}-${readerEpoch}`"
+      <!-- 桌面：左栏常驻；H5 同一份内容收进左抽屉（A1 / A4） -->
+      <aside v-if="!mobileShell" v-show="asideVisible" class="app__aside">
+        <AsidePanels
+          :tab="activeTab"
           :reader="reader"
           :document="reader.document ?? lunyuDocument"
           :book-id="currentBookId"
-          @close="activeTab = null"
-        />
-        <ImportPanel
-          v-if="activeTab === 'import'"
+          :mode="mode"
+          :theme-key="themeKey"
+          :reader-epoch="readerEpoch"
+          :expanded-keys="tocExpandedKeys"
+          :suggestions-api="suggestionApi"
           @close="activeTab = null"
           @imported="onImported"
+          @update:expanded-keys="setTocExpandedKeys"
+          @select="onTocSelect"
+          @accept="onAcceptSuggestions"
+          @reject="onRejectSuggestions"
+          @commit="onCommitSuggestions"
+          @override="setSuggestionOverride"
+          @update:filter="suggestionFilter = $event"
         />
-        <div v-show="activeTab === 'toc'" class="app__toc">
-          <BtToc
-            :key="`toc-${themeKey}-${readerEpoch}`"
-            :reader="reader"
-            :expanded-keys="tocExpandedKeys"
-            @update:expanded-keys="setTocExpandedKeys"
-            @select="onTocSelect"
-          />
-        </div>
-        <!-- 句读 / 专名建议（K3）：编辑模式面板，接受后才写入文档 -->
-        <div v-if="activeTab === 'suggestions'" class="app__suggestions">
-          <p v-if="mode !== 'edit'" class="app__suggestions-hint">
-            进入编辑模式后，可在此逐条接受句读与专名建议。
-          </p>
-          <BtAnnotationSuggestions
-            v-else
-            :suggestions="suggestionVisible"
-            :counts="suggestionCounts"
-            v-model:filter="suggestionFilter"
-            empty-text="当前段落没有待处理建议"
-            @accept="onAcceptSuggestions"
-            @reject="onRejectSuggestions"
-            @commit="onCommitSuggestions"
-            @override="setSuggestionOverride"
-          />
-        </div>
       </aside>
       <BtSidebarResizer
+        v-if="!mobileShell"
         v-show="asideVisible"
         v-model="tocWidth"
         class="app__aside-resizer"
@@ -1800,7 +1922,7 @@ onBeforeUnmount(() => {
           >
             <template #default="slotProps">
               <EditorToolbar
-                v-if="!verticalRail"
+                v-if="!railLayout"
                 :binding="captureSlotBinding(slotProps)"
                 :readonly="editorReadonly"
                 :named-styles="namedStyles.styles"
@@ -1821,9 +1943,9 @@ onBeforeUnmount(() => {
           </BtEditor>
         </div>
 
-        <!-- 编辑态右栏：属性检视器（横排置右且可折叠为细条；直排时整块已移入左侧设置列） -->
+        <!-- 编辑态右栏：属性检视器（桌面横排置右且可折叠；直排移入左侧设置列；H5 走底部 sheet） -->
         <aside
-          v-if="!verticalRail && mode === 'edit' && inspectorBinding"
+          v-if="!railLayout && !mobileShell && mode === 'edit' && inspectorBinding"
           class="app__inspector"
           :class="{ 'app__inspector--collapsed': inspectorCollapsed }"
         >
@@ -1849,7 +1971,7 @@ onBeforeUnmount(() => {
       状态栏为第五列、紧邻书页（grid 定位摆放，横排时源序即视觉序）。
     -->
     <aside
-      v-if="verticalRail && mode === 'edit' && inspectorBinding"
+      v-if="railLayout && mode === 'edit' && inspectorBinding"
       class="app__inspector app__inspector--rail"
       :class="{ 'app__inspector--collapsed': inspectorCollapsed }"
     >
@@ -1868,15 +1990,24 @@ onBeforeUnmount(() => {
       />
     </aside>
 
-    <!-- 底部状态栏：阅读态 = 进度 + 翻页 + 视图切换；编辑态 = 页码读数 + 缩放 -->
-    <footer v-if="booted" class="statusbar">
+    <!--
+      底部状态栏（A6）：阅读态桌面 = 进度 + 翻页 + 视图切换 + 对照；
+      H5 = 进度 + 翻页 + 「更多」（视图切换 / 对照收进菜单）；
+      编辑态桌面 = 页码 + 缩放；H5 = 页码 + 属性 + 「更多」。
+    -->
+    <footer v-if="booted" class="statusbar" :class="{ 'statusbar--mobile': mobileShell }">
       <template v-if="mode === 'read'">
         <div class="statusbar__cluster">
           <ProgressBar :key="`${themeKey}-${readerEpoch}`" class="statusbar__progress" :reader="reader" />
           <BtPager :key="`${themeKey}-${readerEpoch}`" class="statusbar__pager" :reader="reader" />
-          <BtDocumentStats class="statusbar__stats" :stats="documentStats.stats.value" :compact="true" />
+          <BtDocumentStats
+            v-if="!mobileShell"
+            class="statusbar__stats"
+            :stats="documentStats.stats.value"
+            :compact="true"
+          />
         </div>
-        <div class="statusbar__cluster">
+        <div v-if="!mobileShell" class="statusbar__cluster">
           <ToolbarUsageTip :usage="VIEW_MODE_USAGE">
             <button
               type="button"
@@ -1900,47 +2031,261 @@ onBeforeUnmount(() => {
             </button>
           </ToolbarUsageTip>
         </div>
+        <div v-else class="statusbar__cluster">
+          <button
+            type="button"
+            class="statusbar__button"
+            aria-label="更多"
+            :aria-expanded="mobileMenuOpen"
+            @click="mobileMenuOpen = true"
+          >
+            更多
+          </button>
+        </div>
       </template>
       <template v-else>
         <span class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
         <span class="statusbar__spacer" />
         <div class="statusbar__cluster">
           <button
+            v-if="mobileShell && inspectorBinding"
             type="button"
             class="statusbar__button"
-            title="缩小"
-            @click="zoomStep(-0.1)"
+            aria-label="属性"
+            @click="openMobileInspector"
           >
-            −
+            属性
           </button>
-          <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
+          <template v-if="!mobileShell">
+            <button
+              type="button"
+              class="statusbar__button"
+              title="缩小"
+              @click="zoomStep(-0.1)"
+            >
+              −
+            </button>
+            <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
+            <button
+              type="button"
+              class="statusbar__button"
+              title="放大"
+              @click="zoomStep(0.1)"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              class="statusbar__button"
+              title="恢复 100%"
+              @click="editorScale = 1"
+            >
+              100%
+            </button>
+            <button
+              type="button"
+              class="statusbar__button"
+              :title="railLayout ? '按高度缩放整页' : '按宽度缩放整页'"
+              @click="fitEditorWidth"
+            >
+              {{ railLayout ? '适应高度' : '适应宽度' }}
+            </button>
+          </template>
           <button
+            v-else
             type="button"
             class="statusbar__button"
-            title="放大"
-            @click="zoomStep(0.1)"
+            aria-label="更多"
+            :aria-expanded="mobileMenuOpen"
+            @click="mobileMenuOpen = true"
           >
-            +
-          </button>
-          <button
-            type="button"
-            class="statusbar__button"
-            title="恢复 100%"
-            @click="editorScale = 1"
-          >
-            100%
-          </button>
-          <button
-            type="button"
-            class="statusbar__button"
-            :title="verticalRail ? '按高度缩放整页' : '按宽度缩放整页'"
-            @click="fitEditorWidth"
-          >
-            {{ verticalRail ? '适应高度' : '适应宽度' }}
+            更多
           </button>
         </div>
       </template>
     </footer>
+
+    <!-- H5（A1 / A4）：目录 / 搜索 / 书签 / 导入 / 句读收进左抽屉，与桌面侧栏同一份内容 -->
+    <BtDrawer
+      v-if="mobileShell"
+      v-model:open="mobileAsideOpen"
+      side="start"
+      :title="activeTabLabel"
+      width="min(86vw, 340px)"
+    >
+      <AsidePanels
+        :tab="activeTab"
+        :reader="reader"
+        :document="reader.document ?? lunyuDocument"
+        :book-id="currentBookId"
+        :mode="mode"
+        :theme-key="themeKey"
+        :reader-epoch="readerEpoch"
+        :expanded-keys="tocExpandedKeys"
+        :suggestions-api="suggestionApi"
+        @close="mobileAsideOpen = false"
+        @imported="onImported"
+        @update:expanded-keys="setTocExpandedKeys"
+        @select="onTocSelect"
+        @accept="onAcceptSuggestions"
+        @reject="onRejectSuggestions"
+        @commit="onCommitSuggestions"
+        @override="setSuggestionOverride"
+        @update:filter="suggestionFilter = $event"
+      />
+    </BtDrawer>
+
+    <!-- H5（B5）：编辑态属性检视器——底部可拖拽 sheet（半屏 / 全屏两档吸附） -->
+    <BtDrawer
+      v-if="mobileShell && mode === 'edit' && inspectorBinding"
+      v-model:open="mobileInspectorOpen"
+      side="bottom"
+      title="属性"
+      :snap-heights="MOBILE_INSPECTOR_SNAPS"
+    >
+      <AttrInspector :binding="inspectorBinding" :named-styles="namedStyles.styles" />
+    </BtDrawer>
+
+    <!-- H5（A1 / A6）：更多菜单 sheet——全局动作与底栏次要控件 -->
+    <BtDrawer
+      v-if="mobileShell"
+      v-model:open="mobileMenuOpen"
+      side="bottom"
+      title="更多"
+      height="min(76vh, 560px)"
+    >
+      <div class="app__menu">
+        <section class="app__menu-group">
+          <h3 class="app__menu-title">面板</h3>
+          <div class="app__menu-grid">
+            <button
+              v-for="tab in ASIDE_TABS"
+              v-show="tab.key !== 'suggestions' || mode === 'edit'"
+              :key="tab.key"
+              type="button"
+              class="app__menu-button"
+              :class="{ 'app__menu-button--active': activeTab === tab.key }"
+              @click="openMobileTab(tab.key)"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+        </section>
+
+        <section class="app__menu-group">
+          <h3 class="app__menu-title">动作</h3>
+          <div class="app__menu-grid">
+            <button
+              type="button"
+              class="app__menu-button"
+              :class="{ 'app__menu-button--active': mode === 'edit' }"
+              @click="onMobileAction(toggleEditMode)"
+            >
+              {{ mode === 'edit' ? '保存并预览' : '编辑' }}
+            </button>
+            <button
+              type="button"
+              class="app__menu-button"
+              @click="onMobileAction(() => { libraryOpen = true; })"
+            >
+              书库
+            </button>
+            <button
+              type="button"
+              class="app__menu-button"
+              @click="onMobileAction(() => { settingsOpen = true; })"
+            >
+              设置
+            </button>
+            <button
+              type="button"
+              class="app__menu-button"
+              @click="onMobileAction(() => { infoOpen = true; })"
+            >
+              书籍信息
+            </button>
+          </div>
+        </section>
+
+        <section class="app__menu-group">
+          <h3 class="app__menu-title">主题</h3>
+          <div class="app__menu-grid">
+            <button
+              v-for="entry in THEME_ENTRIES"
+              :key="entry.key"
+              type="button"
+              class="app__menu-button"
+              :class="{ 'app__menu-button--active': themeKey === entry.key }"
+              @click="onMobileAction(() => switchTheme(entry.key))"
+            >
+              {{ entry.config.label }}
+            </button>
+          </div>
+        </section>
+
+        <section class="app__menu-group">
+          <h3 class="app__menu-title">导出</h3>
+          <div class="app__menu-grid">
+            <button
+              type="button"
+              class="app__menu-button"
+              @click="onMobileAction(onExportEpub)"
+            >
+              导出 EPUB
+            </button>
+            <button
+              type="button"
+              class="app__menu-button"
+              :disabled="pdfExporting"
+              @click="onMobileAction(onExportPdf)"
+            >
+              {{ pdfExporting ? '导出中…' : '导出 PDF' }}
+            </button>
+            <button
+              type="button"
+              class="app__menu-button"
+              :class="{ 'app__menu-button--active': pdfPagedMode }"
+              @click="pdfPagedMode = !pdfPagedMode"
+            >
+              {{ pdfPagedMode ? '逐页' : '连续' }}
+            </button>
+          </div>
+        </section>
+
+        <section v-if="mode === 'read'" class="app__menu-group">
+          <h3 class="app__menu-title">阅读</h3>
+          <div class="app__menu-grid">
+            <button
+              type="button"
+              class="app__menu-button"
+              :class="{ 'app__menu-button--active': viewMode !== 'page' }"
+              :disabled="!flowSupported && viewMode === 'page'"
+              @click="onMobileAction(cycleViewMode)"
+            >
+              阅读形态：{{ viewModeLabel }}
+            </button>
+            <button
+              type="button"
+              class="app__menu-button"
+              :class="{ 'app__menu-button--active': compareOpen }"
+              @click="onMobileAction(() => { compareOpen = !compareOpen; })"
+            >
+              双页对照
+            </button>
+          </div>
+        </section>
+
+        <section v-if="mode === 'edit'" class="app__menu-group">
+          <h3 class="app__menu-title">缩放</h3>
+          <div class="app__menu-grid">
+            <button type="button" class="app__menu-button" @click="zoomStep(-0.1)">缩小</button>
+            <button type="button" class="app__menu-button" @click="zoomStep(0.1)">放大</button>
+            <button type="button" class="app__menu-button" @click="editorScale = 1">100%</button>
+            <button type="button" class="app__menu-button" @click="fitEditorWidth">适应宽度</button>
+          </div>
+        </section>
+      </div>
+    </BtDrawer>
 
     <SettingsPanel
       v-if="settingsOpen"
@@ -2085,6 +2430,19 @@ onBeforeUnmount(() => {
   color: #c0392b;
 }
 
+/* H5 顶栏右侧：「保存状态 + 更多」（面板内容进抽屉，全局动作进菜单 sheet） */
+.toolbar__mobile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar__button--menu {
+  min-height: 44px;
+  padding-inline: 14px;
+}
+
 .toolbar__actions {
   display: flex;
   flex: 1;
@@ -2195,21 +2553,6 @@ onBeforeUnmount(() => {
 
 .app__aside-resizer {
   align-self: stretch;
-}
-
-.app__toc {
-  padding: 10px 4px 14px;
-}
-
-.app__suggestions {
-  padding: 10px 8px 14px;
-}
-
-.app__suggestions-hint {
-  margin: 0;
-  color: var(--demo-text-muted, #6b6b6b);
-  font-size: 12px;
-  line-height: 1.6;
 }
 
 .app__main {
@@ -2668,5 +3011,110 @@ onBeforeUnmount(() => {
 /* 画布上方原工具条插槽位整体收起（工具条已入左列，display:none 连带去掉 BtEditor 的行间距） */
 .app--rail :deep(.bt-editor__toolbar) {
   display: none;
+}
+
+/* ---------- H5 单列骨架（A1 / A6） ---------- *
+ * < md（768px）：顶栏 / 主区 / 底栏三段纵向堆叠，主区独占余量；
+ * 与 JS 断点同源（useBreakpoint < 768），桌面规则一律不动。
+ */
+.app--mobile {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app--mobile .toolbar {
+  gap: 8px;
+  padding: max(6px, env(safe-area-inset-top, 0px)) 12px 6px;
+}
+
+.app--mobile .toolbar__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.app--mobile .toolbar__book strong {
+  max-width: 46vw;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app--mobile .app__body {
+  min-height: 0;
+}
+
+.app--mobile .app__stage {
+  padding: 8px 8px 4px;
+}
+
+.app--mobile .statusbar {
+  gap: 8px;
+  padding: 4px 10px calc(4px + env(safe-area-inset-bottom, 0px));
+}
+
+.app--mobile .statusbar__progress {
+  min-width: 60px;
+}
+
+/* ---------- H5「更多」菜单 sheet（A1 / A6） ---------- */
+
+.app__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.app__menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app__menu-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--demo-muted);
+}
+
+.app__menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.app__menu-button {
+  min-height: var(--bt-touch-target, 44px);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--demo-text);
+  background: var(--demo-control);
+  border: 1px solid var(--demo-control-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.app__menu-button--active {
+  color: #fff;
+  background: var(--demo-accent);
+  border-color: var(--demo-accent);
+}
+
+.app__menu-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 窄屏兜底：对照覆盖层贴边，标题栏可换行 */
+@media (max-width: 767px) {
+  .app__compare-bar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
 }
 </style>

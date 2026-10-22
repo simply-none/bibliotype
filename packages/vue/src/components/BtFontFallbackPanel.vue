@@ -223,4 +223,13 @@ const summary = computed(() =>
 .bt-font-fallback__more {
   opacity: 0.75;
 }
+
+/* H5（C2）：全屏模态内控件触控目标 ≥44px */
+@media (pointer: coarse) {
+  .bt-font-fallback button,
+  .bt-font-fallback input,
+  .bt-font-fallback select {
+    min-height: var(--bt-touch-target, 44px);
+  }
+}
 </style>

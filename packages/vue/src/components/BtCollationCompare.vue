@@ -5,12 +5,17 @@
  * 只做阅读层：按 `pairId` 从 IR 筛出底本 / 校本段落，左右并排（`columns`）
  * 或双页（`facing`），悬浮 / 聚焦一侧时同一配对的两侧同步高亮。
  * 不新建排版内核——分页、注文、样式全部沿用既有 Reader / layout。
+ *
+ * H5（C5）：窄屏（< md 768px）双栏改上下堆叠，校本栏的分隔线由竖转横，
+ * 保证 375px 宽下两侧都完整可读。
  */
 import { computed, ref } from 'vue';
 import { isTextNode, type BookNode } from '@bibliotype/core';
 import { serializeNode } from '@bibliotype/layout/html';
 import type { Reader } from '@bibliotype/reader';
 import BtSpreadLayout from './BtSpreadLayout.vue';
+import { useBreakpoint } from '../use-breakpoint.js';
+import { BT_BREAKPOINTS } from '../breakpoints.js';
 
 /** 校勘标记（classical 插件节点，vue 不直接依赖该包，按 IR 类型名识别） */
 const COLLATION_MARK = 'collation-mark';
@@ -41,6 +46,10 @@ const props = withDefaults(
 
 /** 当前高亮配对 */
 const activePairId = ref<string | null>(null);
+
+/** 窄屏堆叠（C5） */
+const breakpoint = useBreakpoint();
+const stacked = computed(() => breakpoint.width.value < BT_BREAKPOINTS.md);
 
 /** 块内是否含指定配对的校勘标记（含角色） */
 function markRoleOf(node: BookNode): { pairId: string; role: string | null } | undefined {
@@ -118,7 +127,13 @@ const EMPTY_SIDE = '（本侧无校勘标记）';
 </script>
 
 <template>
-  <section class="bt-collation-compare" :data-mode="mode" aria-label="校勘对照">
+  <section
+    class="bt-collation-compare"
+    :class="{ 'bt-collation-compare--stacked': stacked }"
+    :data-mode="mode"
+    :data-stacked="stacked ? 'true' : undefined"
+    aria-label="校勘对照"
+  >
     <div v-if="pairs.length === 0" class="bt-collation-compare__empty">
       当前文档没有可对照的校勘配对。
     </div>
@@ -201,6 +216,25 @@ const EMPTY_SIDE = '（本侧无校勘标记）';
   border-inline-start: 1px solid currentColor;
   padding-inline-start: 1em;
   opacity: 0.86;
+}
+
+/* H5（C5）：窄屏堆叠——双栏改单列，校本栏分隔线由竖转横 */
+.bt-collation-compare--stacked .bt-collation-compare__pair {
+  grid-template-columns: 1fr;
+  gap: 0.8em;
+}
+
+.bt-collation-compare--stacked .bt-collation-compare__pane[data-role='variant'] {
+  border-inline-start: none;
+  border-block-start: 1px solid currentColor;
+  padding-inline-start: 0;
+  padding-block-start: 0.6em;
+}
+
+@media (max-width: 768px) {
+  .bt-collation-compare[data-mode='columns'] .bt-collation-compare__pair {
+    grid-template-columns: 1fr;
+  }
 }
 
 .bt-collation-compare__placeholder,

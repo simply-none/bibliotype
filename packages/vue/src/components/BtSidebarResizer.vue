@@ -4,7 +4,10 @@
  *
  * 纯受控组件：宽度经 `v-model` 进、`update:modelValue` 出，持久化由宿主负责
  * （库内不写 localStorage）。键盘可操作：方向键步进、Home/End 到极值、
- * Enter/空格或双击回到默认宽度；拖拽用 Pointer Events，触屏同样可用。
+ * Enter/空格或双击回到默认宽度；拖拽用 Pointer Events，桌面鼠标可用。
+ *
+ * H5（C3）：粗指针（触屏）下把手整体隐藏——抽屉 / sheet 自身接管宽高，
+ * 触屏拖宽既无意义又易误触；桌面行为不变。
  */
 import { computed, onBeforeUnmount, ref } from 'vue';
 import {
@@ -15,6 +18,7 @@ import {
   clampSidebarWidth,
   stepSidebarWidth,
 } from '../sidebar-width.js';
+import { useBreakpoint } from '../use-breakpoint.js';
 
 const props = withDefaults(
   defineProps<{
@@ -62,6 +66,12 @@ const dragging = ref(false);
 let startX = 0;
 let startWidth = 0;
 
+/** 触屏：把手隐藏且不参与拖拽 / 键盘调整（C3） */
+const breakpoint = useBreakpoint();
+const touchHidden = computed(() => breakpoint.coarsePointer.value);
+/** 实际生效的禁用态（显式 disabled 或触屏隐藏） */
+const inert = computed(() => props.disabled || touchHidden.value);
+
 const range = computed(() => ({ min: props.min, max: props.max }));
 const current = computed(() => clampSidebarWidth(props.modelValue, range.value));
 
@@ -76,7 +86,7 @@ function reset(): void {
 }
 
 function onPointerDown(event: PointerEvent): void {
-  if (props.disabled) return;
+  if (inert.value) return;
   event.preventDefault();
   dragging.value = true;
   startX = event.clientX;
@@ -108,7 +118,7 @@ function unbind(): void {
 
 /** 方向键语义跟随侧栏位置：向「远离正文」的方向变宽 */
 function onKeydown(event: KeyboardEvent): void {
-  if (props.disabled) return;
+  if (inert.value) return;
   const sign = props.side === 'end' ? -1 : 1;
   switch (event.key) {
     case 'ArrowLeft':
@@ -143,14 +153,20 @@ onBeforeUnmount(unbind);
 <template>
   <div
     class="bt-sidebar-resizer"
-    :class="{ 'bt-sidebar-resizer--dragging': dragging, 'bt-sidebar-resizer--disabled': disabled }"
+    :class="{
+      'bt-sidebar-resizer--dragging': dragging,
+      'bt-sidebar-resizer--disabled': disabled,
+      'bt-sidebar-resizer--touch-hidden': touchHidden,
+    }"
     role="separator"
     aria-orientation="vertical"
     :aria-label="label"
     :aria-valuemin="min"
     :aria-valuemax="max"
     :aria-valuenow="current"
-    :tabindex="disabled ? -1 : 0"
+    :aria-hidden="touchHidden ? 'true' : undefined"
+    :tabindex="inert ? -1 : 0"
+    :data-pointer="touchHidden ? 'coarse' : 'fine'"
     @pointerdown="onPointerDown"
     @dblclick="reset"
     @keydown="onKeydown"
@@ -193,6 +209,17 @@ onBeforeUnmount(unbind);
 .bt-sidebar-resizer--disabled {
   cursor: default;
   opacity: 0.4;
+}
+
+/* H5（C3）：触屏隐藏（渲染层仍保留但不占位、不可交互） */
+.bt-sidebar-resizer--touch-hidden {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .bt-sidebar-resizer {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

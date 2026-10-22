@@ -4,11 +4,15 @@
  *
  * 纯展示组件：网格 / 列表双视图、封面占位、进度条、标签筛选、检索框。
  * 数据与查询由 `useBookLibrary` 负责，本组件只发事件。
+ *
+ * H5（C6）：窄屏网格降为 2 列（<768px）；粗指针下切换 / 筛选 / 导入 / 导出
+ * 等按钮补到 44px 触控目标（视觉尺寸靠 padding 撑开，不改桌面样式）。
  */
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { DocumentSortKey } from '@bibliotype/core';
 import { SHELF_VIEW_MODES, type ShelfViewMode } from '../use-book-library.js';
 import type { ShelfCard, TagFacet } from '../book-shelf-model.js';
+import { useBreakpoint } from '../use-breakpoint.js';
 
 const props = withDefaults(
   defineProps<{
@@ -66,6 +70,10 @@ const SORT_OPTIONS: { value: DocumentSortKey; label: string }[] = [
 
 const fileInput = ref<HTMLInputElement | null>(null);
 
+/** 触屏：放大触控目标（C6） */
+const breakpoint = useBreakpoint();
+const touchMode = computed(() => breakpoint.coarsePointer.value);
+
 function onSearchInput(event: Event): void {
   emit('search', (event.target as HTMLInputElement).value);
 }
@@ -90,7 +98,11 @@ function pickFile(): void {
 </script>
 
 <template>
-  <section class="shelf">
+  <section
+    class="shelf"
+    :class="{ 'shelf--touch': touchMode }"
+    :data-pointer="touchMode ? 'coarse' : 'fine'"
+  >
     <header class="shelf__toolbar">
       <div class="shelf__search">
         <input
@@ -492,8 +504,49 @@ function pickFile(): void {
   .shelf__list--grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .shelf__skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .card__export {
     opacity: 1;
+  }
+}
+
+/* H5（C6）：粗指针下触控目标 ≥ 44px（JS 断点与 CSS 同源） */
+.shelf--touch .shelf__input,
+.shelf--touch .shelf__select,
+.shelf--touch .shelf__view,
+.shelf--touch .shelf__primary,
+.shelf--touch .shelf__tag {
+  min-height: var(--bt-touch-target, 44px);
+}
+.shelf--touch .shelf__view,
+.shelf--touch .shelf__primary {
+  padding-inline: 14px;
+}
+.shelf--touch .shelf__tag {
+  padding-inline: 14px;
+}
+.shelf--touch .card__export {
+  top: 4px;
+  right: 4px;
+  min-width: var(--bt-touch-target, 44px);
+  min-height: var(--bt-touch-target, 44px);
+  font-size: 12px;
+}
+
+@media (pointer: coarse) {
+  .shelf__input,
+  .shelf__select,
+  .shelf__view,
+  .shelf__primary,
+  .shelf__tag {
+    min-height: var(--bt-touch-target, 44px);
+  }
+  .card__export {
+    opacity: 1;
+    min-width: var(--bt-touch-target, 44px);
+    min-height: var(--bt-touch-target, 44px);
   }
 }
 @media (prefers-reduced-motion: reduce) {

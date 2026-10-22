@@ -1,0 +1,123 @@
+/**
+ * 应用骨架与壳层 chrome（根容器 / 顶栏 / 主体布局 / 状态栏 / 弹窗）
+ *
+ * 由 App.vue 的 <style scoped src> 引入：与本组件其余 scoped 块共用同一 scope id，
+ * 选择器语义与命中范围保持不变（拆分纯为文件组织，不改任何样式行为）。
+ */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+
+  /*
+   * 演示界面配色令牌（P0）：全部改为设计令牌的别名，
+   * 换肤只改根上的 data-skin，现有 3000 行规则无需逐个改写；
+   * 新代码直接消费 --ui-*，不再新增 --demo-* 名字。
+   */
+  --demo-bg: var(--ui-canvas);
+  --demo-panel: var(--ui-surface);
+  --demo-aside: var(--ui-surface-raised);
+  --demo-border: var(--ui-border);
+  --demo-text: var(--ui-text);
+  --demo-muted: var(--ui-text-muted);
+  --demo-control: var(--ui-surface-raised);
+  --demo-control-border: var(--ui-divider);
+  --demo-accent: var(--ui-accent);
+}
+
+.app--night {
+  /*
+   * 夜间只改阅读纸面与编辑画布（阅读区配色走主题令牌）；
+   * 壳色由 data-skin 唯一决定，深浅皮肤不靠夜间开关凑出来。
+   */
+  --bt-editor-paper: #24231f;
+  --bt-editor-ink: #cfcac2;
+}
+
+/* ---------- 主体布局 ---------- */
+
+.app__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.app__aside {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  /* 宽度由拖拽条写入 --bt-aside-width（缺省 280px，与旧版一致） */
+  width: var(--bt-aside-width, 280px);
+  overflow-y: auto;
+  border-inline-end: 1px solid var(--demo-border);
+  background: var(--demo-aside);
+  color: var(--demo-text);
+}
+
+.app__aside-resizer {
+  align-self: stretch;
+}
+
+.app__main {
+  display: flex;
+  flex: 1;
+  flex-direction: row;
+  min-width: 0;
+  background: var(--demo-bg);
+}
+
+.app__stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--ui-space-6);
+}
+
+.app__editor {
+  height: 100%;
+}
+
+/* 编辑态右栏：属性检视器列（与左栏同宽级，纵向流式）；宽度变更带过渡，折叠后只留把手 */
+.app__inspector {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  width: 280px;
+  overflow-y: auto;
+  border-inline-start: 1px solid var(--ui-divider);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  transition: width 0.16s ease;
+}
+
+.app__inspector--collapsed {
+  width: 30px;
+  overflow: hidden;
+}
+
+/* 折叠把手：栏首右上角小方块，与控件制式（ghost 按钮）一致 */
+.app__inspector__toggle {
+  flex: none;
+  align-self: flex-start;
+  width: 24px;
+  height: 24px;
+  margin: 4px 4px 0;
+  padding: 0;
+  border: var(--ui-border-width, 1px) solid var(--ui-border);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color var(--ui-dur-fast) var(--ui-ease),
+    border-color var(--ui-dur-fast) var(--ui-ease);
+}
+
+.app__inspector__toggle:hover {
+  color: var(--ui-accent);
+  border-color: var(--ui-accent);
+}

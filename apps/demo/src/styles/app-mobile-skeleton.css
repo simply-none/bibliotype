@@ -1,0 +1,99 @@
+/**
+ * H5 单列骨架与窄屏兜底（.app--mobile / 对照覆盖层）
+ *
+ * 由 App.vue 的 <style scoped src> 引入：与本组件其余 scoped 块共用同一 scope id，
+ * 选择器语义与命中范围保持不变（拆分纯为文件组织，不改任何样式行为）。
+ */
+
+/* ---------- H5 单列骨架（A1 / A6） ---------- *
+ * < md（768px）：顶栏 / 主区 / 底栏三段纵向堆叠，主区独占余量；
+ * 与 JS 断点同源（useBreakpoint < 768），桌面规则一律不动。
+ */
+.app--mobile {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app--mobile .toolbar {
+  gap: var(--ui-space-2);
+  min-height: var(--ui-bar-h-mobile);
+  /* 上内边距 = 基础间距 + 刘海安全区（--bt-safe-top 已含 0px 兜底） */
+  padding: calc(var(--ui-space-2) + var(--bt-safe-top, 0px)) var(--ui-space-4) var(--ui-space-2);
+}
+
+.app--mobile :deep(.toolbar__title) {
+  flex: 1;
+  min-width: 0;
+  /* 书名居中：右侧只剩一个图标，左对齐会把整个应用栏拉得偏左 */
+  justify-content: center;
+}
+
+.app--mobile :deep(.toolbar__book) {
+  min-width: 0;
+  padding-inline: var(--ui-space-2);
+}
+
+.app--mobile :deep(.toolbar__book strong) {
+  max-width: 52vw;
+  overflow: hidden;
+  font-size: var(--ui-font-lg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app--mobile .app__body {
+  min-height: 0;
+}
+
+.app--mobile .app__stage {
+  position: relative;
+  padding: var(--ui-space-3);
+}
+
+/* 上下 20px 渐变（仅阅读态）：暗示「还能翻」，不吃事件也不遮挡正文 */
+.app--mobile .app__stage--read::before,
+.app--mobile .app__stage--read::after {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 1;
+  height: var(--ui-space-6);
+  pointer-events: none;
+  content: '';
+}
+
+.app--mobile .app__stage--read::before {
+  top: 0;
+  background: linear-gradient(var(--ui-canvas), transparent);
+}
+
+.app--mobile .app__stage--read::after {
+  bottom: 0;
+  background: linear-gradient(transparent, var(--ui-canvas));
+}
+
+/*
+ * 页框浮起（P1）：只用圆角 + 投影，不加边框 —— border 会改变盒尺寸，
+ * 而分页量尺拿的正是页框尺寸，加了就会让每页行数漂一格。
+ */
+.app--mobile .app__stage :deep(.bt-reader-page) {
+  border-radius: var(--ui-radius-sm);
+  box-shadow: var(--ui-shadow-1);
+}
+
+.app--mobile .statusbar {
+  padding: 0 0 var(--bt-safe-bottom, 0px);
+}
+
+.app--mobile :deep(.statusbar__mobile-row) {
+  padding-inline: var(--ui-space-3);
+}
+
+
+/* 窄屏兜底：对照覆盖层贴边，标题栏可换行 */
+@media (max-width: 767px) {
+  .app__compare-bar {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+}

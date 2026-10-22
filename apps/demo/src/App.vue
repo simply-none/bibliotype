@@ -29,67 +29,28 @@
  * 刷新启动恢复上次会话：内容取 IndexedDB 草稿回写预览，页码取 localStorage 回跳。
  * 编辑自动保存走「节流合并 + 空闲落盘 + 单飞去重」（composables/use-draft-autosave）：
  * 序列化与整本写入都不落在输入帧上；Ctrl/Cmd+S 立即保存，转入后台 / 关闭前兜底落盘。
+ *
+ * 逻辑按注释分块抽离到 src/composables/（use-app-themes / use-app-skin /
+ * use-mobile-shell / use-layout-tokens / use-settings-snapshot / use-reader-session /
+ * use-edit-session / use-view-mode / use-editor-zoom / use-export /
+ * use-toolbar-scroll / use-suggestions / use-aside-tabs / use-book-meta /
+ * use-app-lifecycle），本文件只做组装接线与启动 / 卸载流程；组合式之间经参数
+ * 传递依赖（依赖注入），不互相 import 全局单例。
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect, type Ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue';
+import { type OutlineItem } from '@bibliotype/reader';
 import {
-  COLOR_TOKENS,
-  DEFAULT_THEME,
-  FONT_SIZE_TOKENS,
-  FONT_TOKENS,
-  LAYOUT_TOKENS,
-  type BookDocument,
-  type BookMetadata,
-} from '@bibliotype/core';
-import { CLASSICAL_THEME_OVERRIDES } from '@bibliotype/classical';
-import {
-  applyJudouSuggestions,
-  applyProperNameSuggestions,
-  buildClassicalEditorSchema,
-  commitJudouAsText,
-  removeSuggestionMarks,
-} from '@bibliotype/classical/editor';
-import { BookEditor, createBookEditorPlugins, createRevisionTrackingPlugin } from '@bibliotype/editor';
-import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
-import {
-  CLASSICAL_LAYOUT_OPTIONS,
-  DEFAULT_LAYOUT_OPTIONS,
-  FACSIMILE_BASE_LAYOUT,
-  FACSIMILE_PRESETS,
-  computeMetricsSignature,
-  createPageSize,
-  isVerticalMode,
-  mergeLayoutOptions,
-  resolvePageCrossSize,
-  resolvePageMainSize,
-  resolveBottomSlack,
-  type BlockAxis,
-  type LayoutOptions,
-} from '@bibliotype/layout';
-import {
-  DEFAULT_MEASURE_CONTEXT,
-  Reader,
-  type BlockMeasureContext,
-  type OutlineItem,
-} from '@bibliotype/reader';
-import { BT_BREAKPOINTS, BtBookView, BtCompareView, BtDocumentStats, BtDrawer, BtEditor, BtPager, BtSidebarResizer, createFontCheckProbe, measurePagination, disposeMeasureSheet, splitFontFamilyList, useAnnotationSuggestions, useBreakpoint, useDocumentStats, type EditorBinding } from '@bibliotype/vue';
-import {
-  collectEpubGlyphProblems,
-  exportEpub,
-  type ValidationProblem,
-} from '@bibliotype/exporter-epub';
-import {
-  collectPdfGlyphProblems,
-  createImageBlobRewriter,
-  downloadPdf,
-  exportPdfBytes,
-  printHtml,
-  renderPrintHtml,
-  summarizePdfGlyphProblems,
-  type PdfAdapterOptions,
-} from '@bibliotype/exporter-pdf';
+  BtBookView,
+  BtCompareView,
+  BtDocumentStats,
+  BtDrawer,
+  BtEditor,
+  BtPager,
+  BtSidebarResizer,
+  disposeMeasureSheet,
+} from '@bibliotype/vue';
 import AppToast from './components/AppToast.vue';
 import AppIcon from './components/AppIcon.vue';
-import type { AppIconName } from './app-icons.js';
 import AsidePanels from './components/AsidePanels.vue';
 import BookInfoDialog from './components/BookInfoDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
@@ -97,851 +58,124 @@ import EditorToolbar from './components/EditorToolbar.vue';
 import ProgressBar from './components/ProgressBar.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import LibraryDrawer from './components/LibraryDrawer.vue';
-import ToolbarUsageTip from './components/ToolbarUsageTip.vue';
-import type { ToolbarUsage } from './components/toolbar-usage.js';
-import { useDraftAutosave } from './composables/use-draft-autosave.js';
-import { useStyleSettings } from './composables/use-style-settings.js';
-import { useTocPrefs } from './composables/use-toc-prefs.js';
+import MobileInspectorSheet from './components/app/MobileInspectorSheet.vue';
+import MobileMoreSheet from './components/app/MobileMoreSheet.vue';
+import AppStatusBar from './components/app/AppStatusBar.vue';
+import AppTopBar from './components/app/AppTopBar.vue';
 import { useToast } from './composables/use-toast.js';
+import { useTocPrefs } from './composables/use-toc-prefs.js';
 import { installPerfProbe, type PerfProbe } from './composables/use-perf-probe.js';
 import { lunyuDocument } from './data/lunyu.js';
-import {
-  resolveActiveFacsimilePreset,
-  resolveActiveFontToken,
-  resolveFacsimilePresetTokens,
-} from './facsimile-theme.js';
-import {
-  DEFAULT_UI_DENSITY,
-  DEFAULT_UI_MOTION,
-  DEFAULT_UI_SKIN,
-  isUiDensity,
-  isUiMotion,
-  isUiSkinKey,
-  resolveUiSkin,
-  UI_SKINS,
-  type UiDensity,
-  type UiMotion,
-  type UiSkinKey,
-} from './ui-skin.js';
-
-/* ---------------- 主题定义 ---------------- */
-
-type ThemeKey = 'modern' | 'classical' | 'facsimile';
-
-interface ThemeConfig {
-  /** 工具栏展示名 */
-  label: string;
-  /** 布局选项（分区尺寸 / 书写方向 / 页码样式） */
-  layout: LayoutOptions;
-  /** 主题令牌值表 */
-  tokens: Readonly<Record<string, string | undefined>>;
-  /** 正文字体令牌键 */
-  fontToken: string;
-}
-
-/** 现代横排：默认布局 + 默认主题 */
-const MODERN_THEME: ThemeConfig = {
-  label: '现代横排',
-  layout: DEFAULT_LAYOUT_OPTIONS,
-  tokens: { ...DEFAULT_THEME },
-  fontToken: FONT_TOKENS.BODY,
-};
-
-/** 古籍直排：16 开直排 + 古典令牌覆盖（楷体系字体、无首行缩进、版框四周双边） */
-const CLASSICAL_THEME: ThemeConfig = {
-  label: '古籍直排',
-  layout: CLASSICAL_LAYOUT_OPTIONS,
-  tokens: {
-    ...DEFAULT_THEME,
-    ...CLASSICAL_THEME_OVERRIDES,
-    'page-border': '3px double #b09a76',
-  },
-  fontToken: FONT_TOKENS.CLASSICAL_BODY,
-};
-
-/**
- * 古籍仿真直排：与「古籍直排」并列的第三档主题
- *
- * 布局基准取第一个模板（进入即展示第一种模板的样式），令牌与字体由
- * `layout.facsimile.preset` 派生（见下方 facsimilePreset），因此切模板
- * 不会污染令牌补丁，切回「古籍直排」也不残留仿真纸色 / 框色。
- */
-const FACSIMILE_THEME: ThemeConfig = {
-  label: '古籍仿真直排',
-  layout: FACSIMILE_PRESETS[0]?.layout ?? FACSIMILE_BASE_LAYOUT,
-  tokens: { ...DEFAULT_THEME },
-  fontToken: FONT_TOKENS.CLASSICAL_BODY,
-};
-
-const THEMES: Record<ThemeKey, ThemeConfig> = {
-  modern: MODERN_THEME,
-  classical: CLASSICAL_THEME,
-  facsimile: FACSIMILE_THEME,
-};
-
-/** 工具栏按钮列表（key 显式携带，避免模板内索引推断） */
-const THEME_ENTRIES: ReadonlyArray<{ key: ThemeKey; config: ThemeConfig }> = [
-  { key: 'modern', config: MODERN_THEME },
-  { key: 'classical', config: CLASSICAL_THEME },
-  { key: 'facsimile', config: FACSIMILE_THEME },
-];
-
-const themeKey = ref<ThemeKey>('modern');
-const theme = computed<ThemeConfig>(() => THEMES[themeKey.value]);
-
-/* ---------------- 版式补丁（设置面板覆写主题基准） ---------------- */
-
-/**
- * 样式设置（三级作用域 + 自动持久化）
- *
- * 布局补丁 / 令牌补丁 / 功能样式 / 命名样式 / 编辑行为统一由它管理：
- * 草稿模式——设置弹窗内改动只写草稿（页面不重排），点「保存」才
- * 烘焙生效并落盘到本书作用域（IndexedDB 优先），下次打开沿用同一套样式。
- *
- * 每本书独立保存：bookId 取自已打开文档的书名（稳定哈希），设置落到
- * `book:<id>`；切书 / 重开各自恢复自己的那份，不再互相覆盖。
- */
-
-/** 字符串哈希（FNV-1a，转 36 进制）：把任意书名（含中文）映射成稳定的作用域键短串 */
-function hashString(input: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(36);
-}
-
-/** 由书名推导本书设置作用域 id（同名书复用同一份设置；标题缺失回落 'untitled'） */
-function bookIdFromTitle(title: string | undefined): string {
-  const normalized = (title ?? '').trim();
-  return normalized === '' ? 'untitled' : `t${hashString(normalized)}`;
-}
-
-/** 《论语》样本书的固定 id（启动默认书） */
-const LUNYU_BOOK_ID = bookIdFromTitle(lunyuDocument.metadata.title);
-
-/**
- * 当前书籍 id（响应式）。切书时更新后，样式设置随之切到该书作用域并重新载入应用；
- * 设置面板维持现有草稿模式（改完点「保存」才落盘）。
- */
-const currentBookId = ref(LUNYU_BOOK_ID);
-
-const styleApi = useStyleSettings({ bookId: currentBookId, draft: true });
-/** 布局补丁（含页面尺寸；主题切换时清空） */
-const layoutPatch = styleApi.layoutPatch as Ref<Partial<LayoutOptions>>;
-/** 令牌补丁（字号 / 行距 / 字体族 / 版式 / 颜色等） */
-const tokenPatch = styleApi.tokenPatch;
-/** 功能样式表（按功能粒度的样式覆盖） */
-const features = styleApi.features;
-/** 命名样式集合 */
-const namedStyles = styleApi.namedStyles;
-/** 编辑行为设置 */
-const editing = styleApi.editing;
-
-/* ---------------- H5 断点与版式预设（A1 / A2） ---------------- */
-
-/** 断点探测（D1）：宽度 < md（768px）视为 H5 单列骨架 */
-const breakpoint = useBreakpoint();
-
-/** 是否走 H5 单列骨架（375–768px） */
-const mobileShell = computed(() => breakpoint.width.value < BT_BREAKPOINTS.md);
-
-/** H5 开本：375px 视口下缩放系数趋近 1，正文按令牌原尺寸落地 */
-const MOBILE_PAGE_SIZE = createPageSize('h5-mobile', 340, 560);
-
-/**
- * H5 版式预设（A2）
- *
- * 只叠在窄屏断点：窄页宽 + 单栏，使等比缩放的系数趋近 1、等效字号回到
- * 令牌值（≥14px）；不写入用户补丁，回到宽视口即消失。
- * 仿真模板自带版框与固定开本，覆盖页宽会破坏其几何，因此保持原样
- * 交给它自身缩放。
- */
-const mobileLayoutPatch = computed<Partial<LayoutOptions>>(() => {
-  if (!mobileShell.value) return {};
-  if (theme.value.layout.facsimile !== undefined) return {};
-  return { pageSize: MOBILE_PAGE_SIZE, columns: 1 };
-});
-
-/**
- * 生效布局：主题基准 + 补丁覆写 + H5 版式预设
- *
- * 三层顺序：H5 预设压在最上，因为它不是用户意图而是「窄屏可读」的下限——
- * 用户在桌面把页宽调到 600px 不应把手机也拖成缩放后的 8px 字。
- */
-const effectiveLayout = computed<LayoutOptions>(() =>
-  mergeLayoutOptions(
-    mergeLayoutOptions(theme.value.layout, layoutPatch.value),
-    mobileLayoutPatch.value,
-  ),
-);
-
-/** 当前仿真模板（由 `layout.facsimile.preset` 派生；未启用仿真版式时为 undefined） */
-const facsimilePreset = computed(() => resolveActiveFacsimilePreset(effectiveLayout.value));
-
-/** 仿真模板令牌覆盖：只派生、不写入令牌补丁（切主题即消失，不污染古典） */
-const facsimilePresetTokens = computed<Readonly<Record<string, string>>>(() =>
-  resolveFacsimilePresetTokens(effectiveLayout.value),
-);
-
-/** 生效正文字体令牌键：仿真模板优先，其余仍取主题默认 */
-const activeFontToken = computed(() =>
-  resolveActiveFontToken(effectiveLayout.value, theme.value.fontToken),
-);
-
-/**
- * 界面外壳是否转为「左侧竖向设置列」
- *
- * 直排（vertical-rl / vertical-lr）自右向左起读，右缘是首列所在、也是视线落点，
- * 工具栏 / 属性栏放右侧会压住起始列；因此直排时顶栏、编辑工具条、属性栏、状态栏
- * 全部移到书页左侧。转置口径是「行 → 列」：横排的每一行各自变成一条通高竖列，
- * 列与列横向并排，列序自左向右还原横排的行序自上而下——顶栏 → 编辑工具条三行 →
- * 状态栏共五条列带；属性栏（横排在主区右侧、不属五行）为附加列紧随状态栏左侧，
- * 列内项目自上而下、文字竖写。横排保持原有「顶栏 + 画布 + 底栏 + 右栏」结构不变。
- */
-const verticalRail = computed(() => isVerticalMode(effectiveLayout.value.writingMode));
-
-/* ---------------- H5 单列骨架状态（A1 / A4 / A6 / B5） ---------------- */
-
-/**
- * 直排竖列是否生效（A1）
- *
- * 五条通高竖列是把横排的五行旋 90° 排开，吃的是横向空间，窄屏摆不下；
- * H5 一律按横排摆位渲染 chrome。书写方向本身仍由主题决定，正文不受影响。
- */
-const railLayout = computed(() => verticalRail.value && !mobileShell.value);
-
-/** H5：左栏面板抽屉（目录 / 搜索 / 书签 / 导入 / 句读） */
-const mobileAsideOpen = ref(false);
-
-/** H5：「更多」菜单 sheet（全局动作 + 底栏次要控件） */
-const mobileMenuOpen = ref(false);
-
-/** H5：编辑态属性检视器 sheet */
-const mobileInspectorOpen = ref(false);
-
-/** H5：属性检视器 sheet 的吸附档位（B5：半屏 / 全屏） */
-const MOBILE_INSPECTOR_SNAPS: readonly string[] = ['48vh', '92vh'];
-
-/**
- * H5：「更多」sheet 的吸附档位（P2）
- *
- * 传 snapHeights 不只是为了能拖：把手只在有档位时渲染，
- * 「能拖」这个信号本身也得给用户看到。
- */
-const MOBILE_MENU_SNAPS: readonly string[] = ['52vh', '88vh'];
-
-/* ---------------- 排版设置（夜间预设 + 面板补丁） ---------------- */
-
-/** 夜间阅读（仅覆盖阅读区配色令牌，位于令牌链最顶层） */
-const night = ref(false);
-
-/* ---------------- 界面皮肤（P0 / P4） ---------------- */
-
-/** 界面皮肤：只决定壳层观感，与阅读纸面主题正交 */
-const uiSkin = ref<UiSkinKey>(DEFAULT_UI_SKIN);
-/** 界面密度：只缩间距与行高，不动字号与 44px 触控目标 */
-const uiDensity = ref<UiDensity>(DEFAULT_UI_DENSITY);
-/** 动效偏好：auto 跟随系统，off 显式关闭 */
-const uiMotion = ref<UiMotion>(DEFAULT_UI_MOTION);
-
-/** 当前皮肤元数据（预览色 / 深色判定 / theme-color 同步） */
-const activeSkin = computed(() => resolveUiSkin(uiSkin.value));
-
-/**
- * 皮肤 / 密度 / 动效 / 夜间落到 <html>
- *
- * 挂在文档根而非 `.app`：抽屉、设置、书籍信息都 Teleport 到 body，
- * 只有根上的令牌才能穿过传送门；`data-night` 只供样式做纸张微调，
- * 壳色永远由 `data-skin` 唯一决定（避免夜间开关把皮肤染回深色）。
- * 同步写 `meta[name=theme-color]`：手机浏览器的地址栏 / 状态栏跟随壳色，
- * 不会再出现“黑壳 + 白顶栏”的裂缝。
- */
-watchEffect(() => {
-  if (typeof document === 'undefined') return;
-  const root = document.documentElement;
-  root.dataset.skin = uiSkin.value;
-  root.dataset.density = uiDensity.value;
-  root.dataset.motion = uiMotion.value;
-  root.dataset.night = night.value ? 'true' : 'false';
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta instanceof HTMLMetaElement) meta.content = activeSkin.value.preview.canvas;
-});
-
-/**
- * 切皮肤
- *
- * 深色皮肤选中时联动夜间纸面（否则黑壳 + 白纸的对比会刺眼）；
- * 浅色皮肤不强行关夜间——用户可能就想白天用浅壳读深色纸。
- */
-function setUiSkin(next: UiSkinKey): void {
-  uiSkin.value = next;
-  if (resolveUiSkin(next).dark) night.value = true;
-}
-
-/** 夜间配色覆盖（正文 / 背景 / 注文 / 强调） */
-const NIGHT_COLORS: Readonly<Record<string, string>> = {
-  [COLOR_TOKENS.BACKGROUND]: '#171614',
-  [COLOR_TOKENS.TEXT]: '#cec9c0',
-  [COLOR_TOKENS.NOTE_TEXT]: '#8f897d',
-  [COLOR_TOKENS.ACCENT]: '#c99a5b',
-};
-
-/**
- * 主题预设令牌（D10，仅由「外观主题」面板写入）
- *
- * 与样式快照（layout / features / namedStyles / tokenPatch）分开存放：
- * 主题只管纸色与墨色，样式预设只管排版，二者叠在不同层，互不覆盖。
- */
-const themePresetTokens = ref<Record<string, string>>({});
-
-/** 主题基线：切换主题 / 仿真模板后的「出厂色」，作为主题预设的重置目标 */
-const themeBaseTokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
-  ...theme.value.tokens,
-  ...facsimilePresetTokens.value,
-}));
-
-/**
- * 当前生效令牌：主题基础 → 仿真模板 → 用户补丁 → 主题预设 → 夜间覆盖
- *
- * 层序理由：
- * - 仿真模板给的是「版式基准」，用户单点微调（tokenPatch）优先于它；
- * - 主题预设代表用户显式选择的外观，压在用户补丁之上（否则在设置里改过颜色的
- *   用户会看到「主题不生效」）；它默认只写颜色，字号 / 行距仍由 tokenPatch 主导；
- * - 夜间是临时预览，永远压在最上层。
- */
-const tokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
-  ...theme.value.tokens,
-  ...facsimilePresetTokens.value,
-  ...tokenPatch.value,
-  ...themePresetTokens.value,
-  ...(night.value ? NIGHT_COLORS : {}),
-}));
-
-/**
- * 设置弹窗专用视图：在生效层上换成草稿补丁
- *
- * 弹窗内的点选先进草稿（不重排画布），选中态却读的是生效层，
- * 会导致「点了不高亮」；这里把布局 / 令牌切到面板视图（草稿模式 = 草稿），
- * 画布仍用 effectiveLayout / tokens，两互不干扰。
- * 仿真模板令牌也改由弹窗视图派生，切模板时面板内的令牌回显同步。
- */
-const panelLayout = computed<LayoutOptions>(() =>
-  mergeLayoutOptions(
-    mergeLayoutOptions(theme.value.layout, styleApi.panelLayoutPatch.value as Partial<LayoutOptions>),
-    mobileLayoutPatch.value,
-  ),
-);
-
-const panelTokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
-  ...theme.value.tokens,
-  ...resolveFacsimilePresetTokens(panelLayout.value),
-  ...styleApi.panelTokenPatch.value,
-  ...themePresetTokens.value,
-  ...(night.value ? NIGHT_COLORS : {}),
-}));
-
-/**
- * 应用主题预设（来自「外观主题」面板）
- *
- * 面板给的是全量令牌，这里只保留与基线的差量：既避免把默认值写死成补丁，
- * 也让「恢复默认」自然退化为空差量（用户补丁里的颜色随即恢复生效）。
- * 应用主题时顺手关掉夜间覆盖——否则夜间色永远压在预设之上，用户会以为没生效。
- *
- * @param next 面板计算出的全量令牌
- */
-function onApplyThemeTokens(next: Record<string, string>): void {
-  night.value = false;
-  const patch: Record<string, string> = {};
-  for (const [key, value] of Object.entries(next)) {
-    if (value !== themeBaseTokens.value[key]) patch[key] = value;
-  }
-  themePresetTokens.value = patch;
-}
-
-/** 解析令牌前导数值（非法回退默认） */
-function parseTokenNum(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseFloat(value ?? '');
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-/** 正文字号（px，tokens 视觉 + measure 估算双通道联动） */
-const fontSizeNum = computed(() =>
-  parseTokenNum(tokens.value[FONT_SIZE_TOKENS.BODY], 16),
-);
-
-/**
- * 双指缩放回调：写回令牌补丁并重排
- *
- * 组件只上抛字号，重排（重新量尺）由宿主负责 —— 与设置面板字号滑杆同一条通道。
- */
-function onFontSizeUpdate(next: number): void {
-  const clamped = Math.min(32, Math.max(12, Math.round(next)));
-  tokenPatch.value = { ...tokenPatch.value, [FONT_SIZE_TOKENS.BODY]: `${clamped}px` };
-  scheduleRemeasure();
-}
-/** 正文行高（可连续调节） */
-const lineHeightNum = computed(() =>
-  parseTokenNum(tokens.value[LAYOUT_TOKENS.LINE_HEIGHT], 1.9),
-);
-
-/* ---------------- Reader（主题切换时重建） ---------------- */
-
-/**
- * 估算上下文（与字号 / 行距 / 开本联动）
- *
- * 每行字数按页面交叉轴（横排取内容宽 / 直排取内容高）与字号折算，
- * 0.95 为 CJK 字宽近似因子（A5 @16px ≈ 26 字/行，与原默认一致）；
- * 行尺寸（主轴每行）= 字号 × 行距。预览 Reader 与编辑画布共用同一结果。
- *
- * 交叉轴走 `resolvePageCrossSize`：它会解析 page-margin 令牌、扣掉版框边框，
- * 并在**直排**下扣掉页眉 / 页脚占位（直排时它们吃的是每列行长，不是列数）。
- */
-function typographyMeasure(): Partial<BlockMeasureContext> {
-  const cross = resolvePageCrossSize(effectiveLayout.value, tokens.value);
-  return {
-    charsPerLine: Math.max(1, Math.round((cross / fontSizeNum.value) * 0.95)),
-    lineSize: Math.round(fontSizeNum.value * lineHeightNum.value),
-  };
-}
-
-/** 完整估算上下文（传给 BtEditor，与 Reader 内部 { ...DEFAULT, ...measure } 同值） */
-const measureContext = computed<BlockMeasureContext>(() => ({
-  ...DEFAULT_MEASURE_CONTEXT,
-  ...typographyMeasure(),
-}));
-
-/** 每页可用主轴尺寸（预览与编辑共用同一口径，保证分页归属一致） */
-const pageMainSize = computed(() =>
-  resolvePageMainSize(effectiveLayout.value, tokens.value),
-);
-
-/**
- * 页底溢出（px）：末行允许伸入下边距的深度（按「不压页码带」截断）
- *
- * 预览 / 编辑画布 / PDF 导出共用本值，三端逐页归属才能一致。
- */
-const bottomSlack = computed(() =>
-  resolveBottomSlack(effectiveLayout.value, tokens.value, typographyMeasure().lineSize ?? 30),
-);
-
-/**
- * DOM 实测块尺寸（块 id → 主轴尺寸 px）与每行起始字符偏移（块 id → number[]）
- *
- * 由量尺工作表对当前文档逐块实测产出，喂给 Reader（预览逐页）：
- * 尺寸定分页归属，行偏移定跨页块的真实行切片；直排 / 多栏回退估算（空映射）。
- * bodySizes（块体高，不含外边距）供 paginate 按体高计「往本页追加一块」的代价，
- * 消除每页虚耗一份块间距造成的页底空白。
- * BtEditor（paged 内核）自带同源量尺，不再消费此映射。
- */
-const blockSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
-const blockLineOffsets = shallowRef<ReadonlyMap<string, number[]>>(new Map());
-const blockLineSizes = shallowRef<ReadonlyMap<string, number>>(new Map());
-/** 逐行行盒尺寸（注音行不等高时按行判页；与 lineSizes 同源实测） */
-const blockLineMainSizes = shallowRef<ReadonlyMap<string, number[]>>(new Map());
-const blockBodySizes = shallowRef<ReadonlyMap<string, number>>(new Map());
-/** 量尺解析出的排文主轴（直排 column），透传给 Reader 的块 axis 标注 */
-const blockAxis = shallowRef<BlockAxis>('row');
-
-/** 重测当前 Reader 文档的块尺寸 / 行边界 / 真实行高并重排预览（DOM 实测，需已挂载；布局随补丁同步） */
-function remeasure(): void {
-  const doc = reader.value.document ?? lunyuDocument;
-  const { sizes, lineOffsets, lineSizes, lineMainSizes, bodySizes, axis } = measurePagination({
-    doc,
-    options: effectiveLayout.value,
-    tokens: tokens.value,
-    fontToken: activeFontToken.value,
-    measure: typographyMeasure(),
-  });
-  blockSizes.value = sizes;
-  blockLineOffsets.value = lineOffsets;
-  blockLineSizes.value = lineSizes;
-  blockLineMainSizes.value = lineMainSizes;
-  blockBodySizes.value = bodySizes;
-  blockAxis.value = axis;
-  reader.value.repaginate({
-    layout: effectiveLayout.value,
-    blockSizes: sizes,
-    lineOffsets,
-    lineSizes,
-    lineMainSizes,
-    bodySizes,
-    axis,
-    measure: typographyMeasure(),
-    pageMainSize: pageMainSize.value,
-    bottomSlack: bottomSlack.value,
-  });
-}
-
-/** 去抖重测（等 DOM / 布局稳定，避免拖动字号 / 开本时频繁量尺） */
-let measureTimer: number | undefined;
-function scheduleRemeasure(): void {
-  if (measureTimer !== undefined) clearTimeout(measureTimer);
-  measureTimer = window.setTimeout(() => {
-    measureTimer = undefined;
-    void nextTick(remeasure);
-  }, 120);
-}
-
-/**
- * Reader 实例代际（每次重建自增）
- *
- * 目录 / 搜索 / 书签 / 翻页 / 进度这些面板在 setup 里一次性订阅 Reader 事件，
- * 换实例不会自动重绑。若 `:key` 只跟主题，则「重建 Reader 但主题没变」（首次进入
- * 按草稿恢复、还原样册等）时面板仍绑在被弃用的初始 Reader 上，显示的是样章数据；
- * 之后任意一次主题切换重挂载，才会绑到真正在用的 Reader —— 目录于是从「正常」
- * 突变为「空白」。所以 key 必须同时随主题与代际变化。
- */
-const readerEpoch = ref(0);
-
-/** 创建已载入文档的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
-function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocument): Reader {
-  const r = new Reader({
-    layout,
-    measure: typographyMeasure(),
-    pageMainSize: pageMainSize.value,
-    bottomSlack: bottomSlack.value,
-    blockSizes: blockSizes.value,
-    lineOffsets: blockLineOffsets.value,
-    lineSizes: blockLineSizes.value,
-    lineMainSizes: blockLineMainSizes.value,
-    bodySizes: blockBodySizes.value,
-    axis: blockAxis.value,
-  });
-  r.loadDocument(document);
-  readerEpoch.value += 1;
-  return r;
-}
-
-const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
-
-/**
- * 书籍版本号（文档 / 元数据变更计数）
- *
- * `Reader` 与 `BookEditor` 都是普通类实例（非响应式），同一实例内的
- * `loadDocument` / `updateMetadata` 不会让 computed 失效。凡这类落点手动自增，
- * 供 `currentMetadata` / `bookTitle` 重新取值（顶部书名、书籍信息弹窗都依赖它）。
- */
-const bookVersion = ref(0);
-
-/** 当前文档引用（供统计组合式按引用变化重算） */
-const currentDocument = computed<BookDocument>(() => reader.value.document ?? lunyuDocument);
-/** 文档统计（状态栏）：300ms 防抖，随文档 / bookVersion 重算 */
-const documentStats = useDocumentStats({ document: currentDocument, revision: bookVersion });
-
-/**
- * 阅读预览的排版度量签名
- *
- * 只有「会影响分页结果」的配置变化才重测量尺并重排（字号 / 行距 / 页边距 /
- * 分栏 / 版框 / 功能样式里的度量类声明）；改颜色、线型等纯视觉参数不重排。
- */
-const readerMetricsSignature = computed(() =>
-  computeMetricsSignature({
-    tokens: tokens.value,
-    options: effectiveLayout.value,
-    features: features.value,
-  }),
-);
-
-/** 度量签名变化：重测块尺寸并原地重排（视觉由 tokens / 样式表联动） */
-watch(readerMetricsSignature, scheduleRemeasure);
-
-/** 是否存在任何覆写（夜间预设 / 布局补丁 / 令牌补丁 / 功能样式） */
-const customized = computed(
-  () =>
-    night.value ||
-    styleApi.customized.value ||
-    Object.keys(layoutPatch.value).length > 0,
-);
-
-/** 恢复全部默认：清空补丁 / 功能样式 / 命名样式 / 夜间 / 主题预设，并删除已存样式快照 */
-async function resetSettings(): Promise<void> {
-  night.value = false;
-  themePresetTokens.value = {};
-  await styleApi.resetAll();
-  persistSettingsSnapshot();
-}
-
-function switchTheme(key: ThemeKey): void {
-  if (key === themeKey.value) return;
-  /* 以当前阅读文档重建 Reader（保留已保存的编辑内容与字号设置），布局补丁随主题重置 */
-  const current = reader.value.document ?? lunyuDocument;
-  themeKey.value = key;
-  layoutPatch.value = {};
-  // 主题预设属于旧主题的配色差量，换主题即失效（否则会串味）
-  themePresetTokens.value = {};
-  reader.value = createReader(effectiveLayout.value, current);
-  // 重建后按新排版重测（直排主题会回退估算，空映射安全）
-  scheduleRemeasure();
-}
-
-/* ---------------- 编辑模式（编辑 → 回写预览） ---------------- */
-
-/** 当前界面模式：阅读 / 编辑 */
-const mode = ref<'read' | 'edit'>('read');
-
+import { UI_SKINS } from './ui-skin.js';
+import { useAppThemes } from './composables/use-app-themes.js';
+import { useAppSkin } from './composables/use-app-skin.js';
+import { useMobileShell } from './composables/use-mobile-shell.js';
+import { useLayoutTokens } from './composables/use-layout-tokens.js';
+import { useSettingsSnapshot, bookIdFromTitle } from './composables/use-settings-snapshot.js';
+import { useReaderSession } from './composables/use-reader-session.js';
+import { useEditSession } from './composables/use-edit-session.js';
+import { useViewMode } from './composables/use-view-mode.js';
+import { useEditorZoom } from './composables/use-editor-zoom.js';
+import { useSuggestions } from './composables/use-suggestions.js';
+import { useBookMeta } from './composables/use-book-meta.js';
+import { useExport } from './composables/use-export.js';
+import { useAsideTabs } from './composables/use-aside-tabs.js';
+import { useAppLifecycle } from './composables/use-app-lifecycle.js';
+
+/* ---------------- 组装接线：组合式（创建顺序 = 依赖顺序） ---------------- */
+
+/* 操作后的一次性反馈走右下角消息条：顶栏只承担书名与常驻状态，
+   不再追加会长期滞留、挤占排版的状态行。 */
+const { items: toasts, push: pushToast, dismiss: dismissToast } = useToast();
+
+/* 主题态（三档主题 + 夜间纸面）；theme 基准直接注入版式块 */
+const { themeKey, night, theme: themeBase } = useAppThemes();
+
+/* 界面皮肤 / 密度 / 动效（壳层观感与阅读纸面正交；<html> data-* 同步在块内） */
+const { uiSkin, uiDensity, uiMotion, setUiSkin } = useAppSkin({ night });
+
+/* H5 断点与单列骨架开合状态 */
+const { breakpoint, mobileShell, mobileAsideOpen, mobileMenuOpen, mobileInspectorOpen } =
+  useMobileShell();
+
+/* App 持有的跨块源状态（供界面偏好快照共享，组合式不各自建 ref） */
 /** 启动恢复完成（草稿内容 + 页码已回灌）；就绪前视图不渲染，避免样章闪烁 */
 const booted = ref(false);
-
 /** 阅读视图模式：单页翻页 / 连续滚动多页 / 流式阅读（D5） */
 const viewMode = ref<'page' | 'scroll' | 'scroll-flow'>('page');
-
-/**
- * 实际生效视图模式：流式阅读在直排 / 仿真版式下不被支持，自动回落单页翻页
- * （与 `BtBookView` 的 `flowSupported` 口径一致），并提示用户。
- */
-const effectiveViewMode = computed<'page' | 'scroll' | 'scroll-flow'>(() => {
-  if (viewMode.value !== 'scroll-flow') return viewMode.value;
-  if (verticalRail.value || facsimilePreset.value !== undefined) return 'page';
-  return 'scroll-flow';
-});
-
-/** 流式阅读回落提示（非空时界面顶部展示一条说明条） */
-const modeFallbackHint = ref('');
-
 /** 翻页动效：slide（默认）/ fade / none */
 const pageTransition = ref<'slide' | 'fade' | 'none'>('slide');
-
-/** 阅读位置持久化（D5）：以锚点为主，刷新 / 改字号后回到原句 */
-const POSITION_KEY = 'bibliotype-demo:position';
-const savedPosition = ref<string | undefined>(undefined);
-
 /** 编辑态右栏属性检视器是否折叠（收成细条只留展开把手；随界面偏好快照持久化） */
 const inspectorCollapsed = ref(false);
+/** 阅读位置持久化（D5）：以锚点为主，刷新 / 改字号后回到原句 */
+const savedPosition = ref<string | undefined>(undefined);
 
-/** 切换属性栏折叠并落盘 */
-function toggleInspector(): void {
-  inspectorCollapsed.value = !inspectorCollapsed.value;
-  persistSettingsSnapshot();
+/* 跨块回调晚绑定：layout 块构造时需要重排调度与界面偏好落盘，
+   但其目标分别来自更晚创建的 reader / snapshot 块（破除构造期循环） */
+let remeasureBound: () => void = () => undefined;
+let snapshotPersistBound: () => void = () => undefined;
+function scheduleRemeasureLate(): void {
+  remeasureBound();
+}
+function persistSnapshotLate(): void {
+  snapshotPersistBound();
 }
 
-/** 编辑器实例（首次进入编辑模式时惰性创建，之后复用） */
-const bookEditor = shallowRef<BookEditor | null>(null);
-
-/** BtEditor 组件实例（编辑态目录跳转等命令入口） */
-const btEditorRef = ref<InstanceType<typeof BtEditor> | null>(null);
-
-/** 书库抽屉是否展开（书架 / 备份 / 加密 / 修订 / 版本） */
-const libraryOpen = ref(false);
-
-/** 从书库打开一本书：阅读器与编辑器同步换文档 */
-function onLibraryBook(document: BookDocument): void {
-  reader.value.loadDocument(document);
-  bookVersion.value += 1;
-  bookEditor.value?.loadDocument(document);
-  pushToast(`已打开《${document.metadata.title}》`, 'success');
-}
-
-/** 编辑画布是否只读（false 可输入 / true 拒绝输入，仅编辑模式生效）
- *
- * 单一真相源为 `editing.readonly`（持久化）：设置面板「只读模式」勾选、
- * 工具条「只读」按钮、进编辑时的重置均经 `patchEditing` 落到该字段，
- * 本计算属性只读不写——之前用独立 ref 会导致设置面板勾选完全不生效。 */
-const editorReadonly = computed(() => editing.value.readonly === true);
-
-/** 编辑态视口页（PagedCanvas 回写；「保存并预览」时回定位到阅读该页，自 0 起） */
-const editorVisiblePage = ref(0);
-/** 进编辑时的定位页（阅读模式当前页；BtEditor 首轮分页就绪后滚到此页） */
-const editStartPage = ref(0);
-
-/* ---------- 编辑态缩放（透传 BtEditor.scale） ---------- */
-
-/** 缩放比例（默认 1） */
-const editorScale = ref(1);
-/** 编辑舞台元素（用于「适应宽度 / 适应高度」测量可用尺寸） */
-const editorStageRef = ref<HTMLElement | null>(null);
-
-/** 缩放步进（限幅 0.2~2，两位小数） */
-function zoomStep(delta: number): void {
-  const next = Math.round((editorScale.value + delta) * 100) / 100;
-  editorScale.value = Math.min(2, Math.max(0.2, next));
-}
-
-/**
- * 适应交叉轴：横排按舞台可用宽 / 页宽折算（适应宽度）；直排页沿水平排列，
- * 受整页高可见约束，改按舞台可用高 / 页高折算（适应高度）。
- * 扣除 .app__stage 对应方向内边距各 20px。
- */
-function fitEditorWidth(): void {
-  const el = editorStageRef.value;
-  const page = effectiveLayout.value.pageSize;
-  const crossSize = railLayout.value ? page.height : page.width;
-  if (el === null || crossSize <= 0) return;
-  const available = (railLayout.value ? el.clientHeight : el.clientWidth) - 40;
-  const ratio = Math.round((available / crossSize) * 100) / 100;
-  editorScale.value = Math.min(2, Math.max(0.2, ratio));
-}
-
-/* ---------- 脏标记 + 自动保存（IndexedDB 草稿，复用 adapter-indexeddb） ---------- */
-
-/** 草稿存储适配器：本地 IndexedDB 持久化（库 / 仓名与正式文档库区分） */
-const draftStore = new IndexedDbAdapter({
-  databaseName: 'bibliotype-demo',
-  storeName: 'drafts',
+/* 版式补丁与令牌层（样式作用域 / effectiveLayout / tokens / 面板视图） */
+const layout = useLayoutTokens({
+  theme: themeBase,
+  night,
+  mobileShell,
+  scheduleRemeasure: scheduleRemeasureLate,
+  persistSnapshot: persistSnapshotLate,
 });
-/** 草稿记录 id（Demo 单文档，固定键） */
-const DRAFT_ID = 'current';
+const {
+  currentBookId,
+  styleApi,
+  layoutPatch,
+  features,
+  namedStyles,
+  editing,
+  effectiveLayout,
+  facsimilePreset,
+  activeFontToken,
+  railLayout,
+  themePresetTokens,
+  themeBaseTokens,
+  tokens,
+  panelLayout,
+  panelTokens,
+  fontSizeNum,
+  onApplyThemeTokens,
+  onFontSizeUpdate,
+} = layout;
 
-/**
- * 自动保存调度器（策略见 composables/use-draft-autosave）：
- * 节流合并 + 空闲落盘 + 单飞去重——序列化与整本写入都不落在输入帧上。
- */
-const autosave = useDraftAutosave({
-  editor: () => bookEditor.value,
-  store: draftStore,
-  id: DRAFT_ID,
+/* 界面偏好快照与阅读位置持久化（localStorage 三键；读写上面的源 ref） */
+const {
+  readSettingsSnapshot,
+  applySettingsSnapshot,
+  persistSettingsSnapshot,
+  readLastPage,
+  writeLastPage,
+  readSavedPosition,
+  writeSavedPosition,
+} = useSettingsSnapshot({
+  themeKey,
+  night,
+  viewMode,
+  pageTransition,
+  inspectorCollapsed,
+  uiSkin,
+  uiDensity,
+  uiMotion,
 });
-
-/** 是否存在未保存变更（镜像 editor.isDirty，供工具栏展示） */
-const dirty = autosave.dirty;
-/** 最近一次成功落盘时刻（本地时间串；null 表示本次会话未成功落盘过） */
-const savedAt = autosave.savedAt;
-/** 是否正在落盘（工具栏展示「保存中…」） */
-const saving = autosave.saving;
-/** 最近一次落盘是否失败（配额 / 环境不支持时保持未保存并重试） */
-const saveFailed = autosave.failed;
-
-/** 保存状态文案（失败 > 写入中 > 未保存 > 已保存时刻） */
-const saveStatusText = computed<string>(() => {
-  if (saveFailed.value) return '保存失败，重试中';
-  if (saving.value) return '保存中…';
-  if (dirty.value) return '● 未保存';
-  return savedAt.value === null ? '已保存' : `已保存 ${savedAt.value}`;
-});
-
-/** 编辑器变更取消订阅句柄（卸载时清理） */
-let unsubscribeEditor: (() => void) | null = null;
-
-/** 开发期性能探针句柄（生产环境不安装，恒为 null） */
-let perfProbe: PerfProbe | null = null;
-
-/** 编辑器变更回调：同步脏标记并调度一轮合并落盘（决策与时限在 autosave 内） */
-function onEditorChange(): void {
-  autosave.schedule();
-}
-
-/** 立即落盘（Ctrl/Cmd+S）：跳过挂起调度，写一轮并刷新状态 */
-async function saveNow(): Promise<void> {
-  await autosave.flush();
-}
-
-/** 读取本地草稿（IndexedDB 异步；无 / 读取失败回 null） */
-async function readDraft(): Promise<BookDocument | null> {
-  try {
-    return (await draftStore.load(DRAFT_ID)) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/** 清除本地草稿（IndexedDB 删除记录） */
-async function clearDraft(): Promise<void> {
-  try {
-    await draftStore.delete(DRAFT_ID);
-  } catch {
-    /* 忽略 */
-  }
-}
-
-/* ---------- 启动恢复上次会话（内容 = 草稿，页码 = localStorage） ---------- */
-
-/** 阅读位置 localStorage 键（页码自 0 起；文档内容草稿在 IndexedDB） */
-const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
-/** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
-const SETTINGS_KEY = 'bibliotype-demo:settings';
-
-/** 界面偏好快照：主题键 + 夜间 / 视图模式 / 翻页动效 / 属性栏折叠 / 界面皮肤 */
-interface SettingsSnapshot {
-  themeKey: ThemeKey;
-  night: boolean;
-  viewMode: 'page' | 'scroll' | 'scroll-flow';
-  pageTransition: 'slide' | 'fade' | 'none';
-  /** 编辑态右栏属性检视器折叠（true = 收成细条） */
-  inspectorCollapsed: boolean;
-  /** 界面皮肤（壳层观感） */
-  uiSkin: UiSkinKey;
-  /** 界面密度 */
-  uiDensity: UiDensity;
-  /** 动效偏好 */
-  uiMotion: UiMotion;
-}
-
-/** 读取界面偏好快照（非法 / 缺失 → null，逐字段容错回退默认） */
-function readSettingsSnapshot(): SettingsSnapshot | null {
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
-    if (raw === null) return null;
-    const parsed = JSON.parse(raw) as Partial<SettingsSnapshot>;
-    /* 三档主题；旧快照 / 未知值一律回落 null（再走默认主题） */
-    if (
-      parsed.themeKey !== 'modern' &&
-      parsed.themeKey !== 'classical' &&
-      parsed.themeKey !== 'facsimile'
-    ) {
-      return null;
-    }
-    const viewModeValue = parsed.viewMode;
-    const transitionValue = parsed.pageTransition;
-    return {
-      themeKey: parsed.themeKey,
-      night: parsed.night === true,
-      viewMode:
-        viewModeValue === 'scroll' || viewModeValue === 'scroll-flow' ? viewModeValue : 'page',
-      pageTransition:
-        transitionValue === 'fade' || transitionValue === 'none' ? transitionValue : 'slide',
-      inspectorCollapsed: parsed.inspectorCollapsed === true,
-      /* 新增字段逐项容错：旧快照没有这些键，一律回落默认 */
-      uiSkin: isUiSkinKey(parsed.uiSkin) ? parsed.uiSkin : DEFAULT_UI_SKIN,
-      uiDensity: isUiDensity(parsed.uiDensity) ? parsed.uiDensity : DEFAULT_UI_DENSITY,
-      uiMotion: isUiMotion(parsed.uiMotion) ? parsed.uiMotion : DEFAULT_UI_MOTION,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 应用界面偏好快照
- *
- * 注意：**不含**布局 / 令牌补丁 —— 那部分由 `use-style-settings` 管理的
- * 样式快照负责（IndexedDB 本书作用域）。两边各存各的，避免互相覆盖。
- */
-function applySettingsSnapshot(snapshot: SettingsSnapshot): void {
-  themeKey.value = snapshot.themeKey;
-  night.value = snapshot.night;
-  viewMode.value = snapshot.viewMode;
-  pageTransition.value = snapshot.pageTransition;
-  inspectorCollapsed.value = snapshot.inspectorCollapsed;
-  uiSkin.value = snapshot.uiSkin;
-  uiDensity.value = snapshot.uiDensity;
-  uiMotion.value = snapshot.uiMotion;
-}
-
-/** 收集当前界面偏好并落盘 */
-function persistSettingsSnapshot(): void {
-  const snapshot: SettingsSnapshot = {
-    themeKey: themeKey.value,
-    night: night.value,
-    viewMode: viewMode.value,
-    pageTransition: pageTransition.value,
-    inspectorCollapsed: inspectorCollapsed.value,
-    uiSkin: uiSkin.value,
-    uiDensity: uiDensity.value,
-    uiMotion: uiMotion.value,
-  };
-  try {
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));
-  } catch {
-    /* 存储不可用环境忽略 */
-  }
-}
+snapshotPersistBound = persistSettingsSnapshot;
 
 /**
  * 应用界面偏好（主题 / 夜间 / 视图模式 / 参考线）
  *
  * 改造后版式与功能样式**自动落盘**（`use-style-settings`），不再需要「保存设置」按钮；
- * 分页重算由度量签名变化驱动（见 `readerMetricsSignature`）。
+ * 分页重算由度量签名变化驱动（见 use-reader-session 的 readerMetricsSignature）。
  */
 
 /**
@@ -958,189 +192,168 @@ watch(
   persistSettingsSnapshot,
 );
 
-/** 读取上次保存的页码（非法 / 不可用 → 0） */
-function readLastPage(): number {
-  try {
-    const raw = Number.parseInt(window.localStorage.getItem(LAST_PAGE_KEY) ?? '', 10);
-    return Number.isFinite(raw) && raw > 0 ? raw : 0;
-  } catch {
-    return 0;
-  }
-}
+/* Reader 会话：实例重建、DOM 实测重排与页态订阅 */
+const reader = useReaderSession({
+  effectiveLayout: layout.effectiveLayout,
+  tokens: layout.tokens,
+  activeFontToken: layout.activeFontToken,
+  fontSizeNum: layout.fontSizeNum,
+  lineHeightNum: layout.lineHeightNum,
+  features: layout.features,
+  layoutPatch,
+  themePresetTokens,
+  themeKey,
+  writeLastPage,
+  writeSavedPosition,
+  booted,
+});
+const {
+  reader: readerRef,
+  readerEpoch,
+  bookVersion,
+  currentDocument,
+  documentStats,
+  measureContext,
+  pageMainSize,
+  bottomSlack,
+  remeasure,
+  scheduleRemeasure,
+  clearRemeasureTimer,
+  createReader,
+  attachPageTracking,
+  detachPageTracking,
+  onReadingPosition,
+  switchTheme,
+} = reader;
+remeasureBound = scheduleRemeasure;
 
-/** 落盘当前页码（存储不可用环境静默失败） */
-function writeLastPage(pageIndex: number): void {
-  try {
-    window.localStorage.setItem(LAST_PAGE_KEY, String(pageIndex));
-  } catch {
-    /* 忽略 */
-  }
-}
-
-/** 读取上次保存的阅读位置（锚点 JSON；缺省 undefined 走旧页码回退） */
-function readSavedPosition(): string | undefined {
-  try {
-    const raw = window.localStorage.getItem(POSITION_KEY);
-    return raw === null ? undefined : raw;
-  } catch {
-    return undefined;
-  }
-}
-
-/** 落盘当前阅读位置（锚点 JSON；存储不可用环境静默失败） */
-function writeSavedPosition(json: string): void {
-  try {
-    window.localStorage.setItem(POSITION_KEY, json);
-  } catch {
-    /* 忽略 */
-  }
-}
-
-/** 页态订阅退订句柄（绑定当前 Reader 实例，实例重建时重挂） */
-let unsubscribePage: (() => void) | null = null;
-
-/** 订阅 Reader page:change → 页码持久化（翻页 / 滚动回写 / 目录书签跳转全覆盖） */
-function attachPageTracking(): void {
-  unsubscribePage?.();
-  unsubscribePage = reader.value.events.on('page:change', (payload) => {
-    writeLastPage(payload.pageIndex);
-  });
-}
-
-// 主题切换 / 保存设置等重建 Reader：启动完成后才重新订阅新实例
-watch(reader, () => {
-  if (booted.value) attachPageTracking();
+/* 编辑会话：编辑 ↔ 回写预览、脏标记 + 自动保存、启动草稿与文档导入 */
+const {
+  mode,
+  bookEditor,
+  btEditorRef,
+  libraryOpen,
+  editorReadonly,
+  editorVisiblePage,
+  editStartPage,
+  autosave,
+  dirty,
+  saveFailed,
+  saveStatusText,
+  saveNow,
+  readDraft,
+  onLibraryBook,
+  resetSample,
+  onImported,
+  toggleEditMode,
+  slotBinding,
+  captureSlotBinding,
+  inspectorBinding,
+  teardown,
+} = useEditSession({
+  reader: readerRef,
+  bookVersion,
+  styleApi,
+  currentBookId,
+  scheduleRemeasure,
+  pushToast,
 });
 
-/** 阅读位置变化（D5）：以锚点 JSON 持久化，刷新 / 改字号后回到原句 */
-function onReadingPosition(position: unknown): void {
-  if (position === undefined || position === null) return;
-  try {
-    writeSavedPosition(JSON.stringify(position));
-  } catch {
-    /* 序列化 / 存储失败时静默，不阻断阅读 */
-  }
-}
-
-/** 流式阅读不被当前版式支持，已回落分页：提示用户一次 */
-function onModeFallback(payload: { reason: string }): void {
-  modeFallbackHint.value = payload.reason;
-}
-
-/** 滚动模式是否支持流式阅读（直排 / 仿真版式下回落分页，与 BtBookView 口径一致） */
-const flowSupported = computed(
-  () => viewMode.value === 'scroll-flow' && !verticalRail.value && facsimilePreset.value === undefined,
-);
-
-/** 视图模式三态循环：page → scroll → scroll-flow → page（不支持的 scroll-flow 自动跳过） */
-function cycleViewMode(): void {
-  const order = ['page', 'scroll', 'scroll-flow'] as const;
-  const idx = order.indexOf(viewMode.value);
-  for (let step = 1; step <= order.length; step += 1) {
-    const next = order[(idx + step) % order.length]!;
-    if (next === 'scroll-flow' && !flowSupported.value) continue;
-    viewMode.value = next;
-    return;
-  }
-  viewMode.value = 'page';
-}
-
-/** 视图模式展示名 */
-const viewModeLabel = computed(() => {
-  if (viewMode.value === 'scroll-flow') return '流式阅读';
-  if (viewMode.value === 'scroll') return '连续滚动';
-  return '单页翻页';
+/* 视图模式三态循环与流式回落（viewMode 源状态在 App 持有） */
+const {
+  effectiveViewMode,
+  modeFallbackHint,
+  flowSupported,
+  cycleViewMode,
+  viewModeLabel,
+  onModeFallback,
+} = useViewMode({
+  viewMode,
+  verticalRail: layout.verticalRail,
+  facsimilePreset: layout.facsimilePreset,
 });
 
-/** 启动恢复：设置快照 + 草稿内容回灌并刷新书本 + 回跳上次阅读页；就绪后置 booted */
-async function bootstrap(): Promise<void> {
-  try {
-    const last = readLastPage();
-    const snapshot = readSettingsSnapshot();
-    if (snapshot !== null) applySettingsSnapshot(snapshot);
-    // 恢复锚点阅读位置（scroll-flow 模式据此回到原句；旧页码键仍作回退）
-    savedPosition.value = readSavedPosition();
-    const draft = await readDraft();
-    // 按恢复后的版式重建 Reader（初次创建仍是默认主题基准）并载入草稿内容
-    reader.value = createReader(
-      effectiveLayout.value,
-      draft ?? reader.value.document ?? lunyuDocument,
-    );
-    // 立即按实测重排，让恢复页码落在真实页数口径上（与编辑 / 导出同源）
-    remeasure();
-    const target = Math.min(last, Math.max(0, reader.value.totalPages - 1));
-    if (target > 0) reader.value.goToPage(target);
-    // 页数变少被限幅时回写，避免下次启动重复越界钳位
-    writeLastPage(target);
-  } finally {
-    booted.value = true;
-    // 恢复完成后才开始连续落盘，避免中间态覆盖保存值
-    attachPageTracking();
-  }
-}
+/* 编辑态缩放（透传 BtEditor.scale） */
+const { editorScale, editorStageRef, zoomStep, fitEditorWidth } = useEditorZoom({
+  railLayout: layout.railLayout,
+  effectiveLayout: layout.effectiveLayout,
+});
 
-/** 进入编辑模式：以草稿（若有）或当前阅读文档 + 古籍 schema 创建编辑器（惰性） */
-async function enterEdit(): Promise<void> {
-  if (bookEditor.value === null) {
-    const schema = buildClassicalEditorSchema();
-    const draft = await readDraft();
-    bookEditor.value = new BookEditor({
-      schema,
-      document: draft ?? reader.value.document ?? lunyuDocument,
-      plugins: [
-        ...createBookEditorPlugins(schema),
-        // 修订追踪默认关闭，由「书库 → 修订」页签开启（C5）
-        createRevisionTrackingPlugin({ author: 'demo' }),
-      ],
-    });
-    unsubscribeEditor = bookEditor.value.onChange(onEditorChange);
-    dirty.value = bookEditor.value.isDirty;
-  }
-  mode.value = 'edit';
-  styleApi.patchEditingDirect({ readonly: false });
-  // 位置记忆：进编辑定位到阅读模式当前页（分页三端同源，页码可直接对齐）
-  editStartPage.value = reader.value.currentPage;
-  editorVisiblePage.value = editStartPage.value;
-  // 进编辑前重测（编辑器由当前阅读文档创建，块 id 对齐 → 分页线与预览一致）
-  scheduleRemeasure();
-}
+/* 句读 / 专名建议（K3）：建议落到编辑器事务，单事务、可撤销 */
+const {
+  suggestionApi,
+  suggestionFilter,
+  setSuggestionOverride,
+  onAcceptSuggestions,
+  onRejectSuggestions,
+  onCommitSuggestions,
+} = useSuggestions({ bookEditor, slotBinding, bookVersion, pushToast });
 
-/** 保存并预览：编辑产物落盘 + 回写 Reader（全链路重排，页码重算）并返回阅读 */
-function saveAndPreview(): void {
-  const editor = bookEditor.value;
-  if (editor === null) return;
-  reader.value.loadDocument(editor.getDocument());
-  // 文档（含元数据）变更 → 顶部书名等派生值重新取值
-  bookVersion.value += 1;
-  // 位置记忆：回定位到编辑退出时的视口页（新文档页数可能变少，限幅后再跳）
-  const target = Math.min(editorVisiblePage.value, reader.value.totalPages - 1);
-  if (target >= 0) reader.value.goToPage(target);
-  // 取消挂起的合并落盘并立即写一轮（不等待：退出编辑的界面响应优先）
-  void autosave.flush();
-  mode.value = 'read';
-  // 文档变更 → 重测新文档块尺寸（旧 id 映射对新文档不适用）
-  scheduleRemeasure();
-}
+/* 书名 / 元数据派生与写回 */
+const { infoEditable, currentMetadata, bookTitle, onMetadataSave } = useBookMeta({
+  mode,
+  bookEditor,
+  reader: readerRef,
+  bookVersion,
+});
 
-/** 还原样册：编辑器内容重置为原始样例并清除草稿 */
-async function resetSample(): Promise<void> {
-  autosave.reset();
-  bookEditor.value?.loadDocument(lunyuDocument);
-  void clearDraft();
-  // 还原样册 = 回到《论语》，切回其设置作用域并重新载入
-  await switchBook(LUNYU_BOOK_ID);
-}
+/* 导出 / 打印（EPUB · PDF）：与屏幕预览同源消费 layout / reader */
+const { pdfExporting, pdfPagedMode, compareOpen, onExportEpub, onExportPdf } = useExport({
+  layout,
+  reader,
+  pushToast,
+});
 
-/**
- * 切换书籍：先把当前书已提交的配置落盘（flush 用的是切换前的 bookScope），
- * 再切到新书 id 并载入其设置、应用到画布（布局 / 令牌 / 功能样式随之更新）。
- */
-async function switchBook(newId: string): Promise<void> {
-  await styleApi.flush();
-  currentBookId.value = newId;
-  await styleApi.load();
-  scheduleRemeasure();
-}
+/* 左栏 tab / 弹窗开合 / 属性栏折叠（inspectorCollapsed 源状态在 App 持有） */
+const {
+  activeTab,
+  toggleTab,
+  openMobileTab,
+  openMobileInspector,
+  onMobileAction,
+  activeTabLabel,
+  settingsOpen,
+  infoOpen,
+  closeSettings,
+  toggleInspector,
+  asideVisible,
+} = useAsideTabs({
+  styleApi,
+  mobileAsideOpen,
+  mobileMenuOpen,
+  mobileInspectorOpen,
+  inspectorCollapsed,
+  persistSettingsSnapshot,
+});
+
+/* 全局键盘 / 可见性 / 卸载守卫（监听注册 / 清理在本文件的挂载钩子） */
+const {
+  onKeydown,
+  onVisibilityChange,
+  onPageHide,
+  onPageShow,
+  onWindowBlur,
+  onBeforeUnload,
+} = useAppLifecycle({
+  mode,
+  infoOpen,
+  settingsOpen,
+  reader: readerRef,
+  saveNow,
+  closeSettings,
+  autosave,
+  dirty,
+  scheduleRemeasure,
+});
+
+
+/* 目录面板偏好（展开集合 / 侧栏宽度）：库内不写存储，宿主落到 localStorage */
+const {
+  width: tocWidth,
+  expandedKeys: tocExpandedKeys,
+  setExpandedKeys: setTocExpandedKeys,
+  resetWidth: resetTocWidth,
+} = useTocPrefs();
 
 /**
  * 目录点击：阅读态经 BtToc 内置的 reader.goToNode 跳页（Reader 即当前可见视图）；
@@ -1155,589 +368,32 @@ function onTocSelect(item: OutlineItem): void {
   if (mobileAsideOpen.value) mobileAsideOpen.value = false;
 }
 
-/** 导入文档：载入阅读预览，若编辑器已建则同步内容（loadDocument 重置脏基准），并落盘草稿 + 重排 */
-async function onImported(doc: BookDocument): Promise<void> {
-  reader.value.loadDocument(doc);
-  // 新文档（含元数据）载入 → 顶部书名等派生值重新取值
-  bookVersion.value += 1;
-  if (bookEditor.value === null) {
-    // 编辑器尚未创建（进入编辑模式才惰性创建）：autosave 只能序列化已存在的编辑器，
-    // 若此处不落盘，enterEdit 从 IndexedDB 读到的仍是导入前的旧草稿，编辑区标题与正文
-    // 会显示成旧书。故导入书直接作为草稿基线写入，确保惰性创建的编辑器载入的是新书。
-    dirty.value = false;
-    await draftStore.save(DRAFT_ID, doc);
-  } else {
-    bookEditor.value.loadDocument(doc);
-    dirty.value = bookEditor.value.isDirty;
-    // 新内容立即落盘（导入即新基线；跳过「无待写」判定）
-    void autosave.flush({ force: true });
-  }
-  // 切到导入书的设置作用域（落盘旧书设置 + 载入新书设置并应用）
-  await switchBook(bookIdFromTitle(doc.metadata.title));
-  scheduleRemeasure();
-}
 
-/** 主工具栏「编辑 / 保存并预览」双向切换 */
-function toggleEditMode(): void {
-  if (mode.value === 'read') {
-    void enterEdit();
-  } else {
-    saveAndPreview();
-  }
-}
-
-/* ---------------- 导出 / 打印 ---------------- */
-
-/**
- * 导出前缺字检查（K6）：只警告、不阻断
- *
- * 探测走 `document.fonts.check`；缺字在阅读器与打印里都会变豆腐块，但补字是
- * 作者决策，所以只提示不拦截。宿主若登记了 IDS 描述，可在提示里看到「可合成」。
- */
-function warnGlyphProblems(kind: 'epub' | 'pdf'): void {
-  const book = reader.value.document ?? lunyuDocument;
-  const stack = tokens.value[activeFontToken.value] ?? DEFAULT_THEME[FONT_TOKENS.BODY] ?? '';
-  const families = splitFontFamilyList(stack);
-  const probe = createFontCheckProbe();
-
-  if (kind === 'epub') {
-    const problems = collectEpubGlyphProblems(book, { families, probe });
-    if (problems.length > 0) {
-      pushToast(
-        `导出含 ${problems.length} 处缺字（可先补字体）：${problems[0]?.message ?? ''}`,
-        'info',
-      );
-    }
-    return;
-  }
-
-  const issues = collectPdfGlyphProblems(book, { families, probe });
-  if (issues.length > 0) pushToast(summarizePdfGlyphProblems(issues), 'info');
-}
-
-/** 触发浏览器下载 */
-function download(filename: string, blob: Blob): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-/** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得；含已保存的编辑内容） */
-function onExportEpub(): void {
-  warnGlyphProblems('epub');
-  const fontToken = activeFontToken.value;
-  const layout = effectiveLayout.value;
-  const book = reader.value.document ?? lunyuDocument;
-  /* 导出前校验（epubcheck 规则子集）：error 级问题在此汇总提示，
-     避免「自研阅读器能开、京东读书 / 微信读书打不开」的兼容黑洞。 */
-  const problems: ValidationProblem[] = [];
-  const bytes = exportEpub(book, {
-    layout,
-    tokens: tokens.value,
-    fontToken,
-    features: features.value,
-    namedStyles: namedStyles.value,
-    onValidation: (list) => {
-      problems.push(...list);
-    },
-  });
-  download('论语.epub', new Blob([new Uint8Array(bytes)], { type: 'application/epub+zip' }));
-  reportExportProblems(problems);
-}
-
-/**
- * 导出校验结果 → 消息条
- *
- * 无问题：一条「已导出 EPUB」成功提示；有问题：按 error / warning 给不同语气，
- * 并把前 3 条明细带进文案（完整清单仍逐条打印到 console）。
- * 不再写顶栏状态行：那条文案会一直挂着，把顶栏挤成两行。
- */
-function reportExportProblems(problems: readonly ValidationProblem[]): void {
-  if (problems.length === 0) {
-    pushToast('已导出 EPUB（校验通过）', 'success');
-    return;
-  }
-  const errors = problems.filter((p) => p.severity === 'error');
-  const head = errors.length > 0 ? `导出校验 ${errors.length} 个错误` : '导出校验通过（有警告）';
-  const detail = problems
-    .slice(0, 3)
-    .map((p) => `${p.severity === 'error' ? '✕' : '!'} ${p.message}`)
-    .join('；');
-  pushToast(
-    `${head}：${detail}${problems.length > 3 ? ` 等 ${problems.length} 项` : ''}`,
-    errors.length > 0 ? 'error' : 'info',
-  );
-  for (const p of problems) {
-    const line = `[epub-export] ${p.severity} ${p.code}: ${p.message}${p.path !== undefined ? ` (${p.path})` : ''}`;
-    if (p.severity === 'error') console.error(line);
-    else console.warn(line);
-  }
-}
-
-/**
- * 宿主注入的 PDF 导出桥（Electron preload 挂载到 window.electronPdf）
- *
- * 契约见 docs/08-export-pdf.md：主进程以离屏窗口加载自包含 HTML 后
- * `webContents.printToPDF()`，经 IPC 回传 PDF 字节。浏览器无此桥。
- */
-interface ElectronPdfBridge {
-  exportPdf(html: string, options?: PdfAdapterOptions): Promise<Uint8Array>;
-}
-
-declare global {
-  interface Window {
-    electronPdf?: ElectronPdfBridge;
-  }
-}
-
-/** 宿主 PDF 桥（Electron 注入；浏览器为 undefined → 走降级） */
-function getElectronPdfBridge(): ElectronPdfBridge | undefined {
-  return typeof window !== 'undefined' ? window.electronPdf : undefined;
-}
-
-/**
- * 导出 PDF（替代原「打印 PDF」）
- *
- * 两条路径：
- * - **Electron 宿主**（window.electronPdf）：自包含 HTML（inline 图片）→
- *   宿主 printToPDF → PDF 字节直接下载。秒级、无对话框、矢量文本；
- * - **浏览器降级**：blob 化去重（重复 data URI 归一为 blob URL，HTML 与
- *   解码负担同步大降）→ 隐藏 iframe + window.print()。受 Chromium 打印
- *   管线限制，大书仍需数十秒。
- *
- * 分页模式（pdfPagedMode）：逐页（paged，与屏幕预览逐页同源）/ 连续（auto，更快）。
- */
-async function onExportPdf(): Promise<void> {
-  warnGlyphProblems('pdf');
-  const fontToken = activeFontToken.value;
-  const book = reader.value.document ?? lunyuDocument;
-  const base = {
-    layout: effectiveLayout.value,
-    tokens: tokens.value,
-    fontToken,
-    features: features.value,
-    namedStyles: namedStyles.value,
-    mode: (pdfPagedMode.value ? 'paged' : 'auto') as 'paged' | 'auto',
-  };
-  /* 逐页模式附带屏幕实测数据（与预览同源）；连续模式由打印引擎分页 */
-  const measured =
-    base.mode === 'paged'
-      ? {
-          pageMainSize: pageMainSize.value,
-          bottomSlack: bottomSlack.value,
-          context: typographyMeasure(),
-          blockSizes: blockSizes.value,
-          lineOffsets: blockLineOffsets.value,
-          lineSizes: blockLineSizes.value,
-          lineMainSizes: blockLineMainSizes.value,
-          bodySizes: blockBodySizes.value,
-        }
-      : {};
-
-  pdfExporting.value = true;
+/** 启动恢复：设置快照 + 草稿内容回灌并刷新书本 + 回跳上次阅读页；就绪后置 booted */
+async function bootstrap(): Promise<void> {
   try {
-    const bridge = getElectronPdfBridge();
-    if (bridge !== undefined) {
-      /* adapter 路径：自包含 HTML（不传 rewriteSrc，离屏窗口拿不到 blob: URL） */
-      const bytes = await exportPdfBytes(book, {
-        ...base,
-        ...measured,
-        adapter: { toPdf: (html, opts) => bridge.exportPdf(html, opts) },
-      });
-      downloadPdf(bytes, `${book.metadata.title || '书籍'}.pdf`);
-      pushToast('已导出 PDF（Electron 打印引擎）', 'success');
-      return;
-    }
-
-    /* 降级路径：blob 化去重 + iframe 打印 */
-    const rewriter = createImageBlobRewriter();
-    try {
-      const html = renderPrintHtml(book, { ...base, ...measured, rewriteSrc: rewriter.rewrite });
-      printHtml(html, { onAfterPrint: () => rewriter.revokeAll() });
-      pushToast(
-        `已打开打印对话框，请选择「另存为 PDF」；${rewriter.uniqueCount} 张唯一图片已去重，大书需数十秒`,
-        'info',
-        8000,
-      );
-    } catch (error) {
-      rewriter.revokeAll();
-      throw error;
-    }
-  } catch (error) {
-    pushToast(`导出 PDF 失败：${error instanceof Error ? error.message : String(error)}`, 'error');
+    const last = readLastPage();
+    const snapshotValue = readSettingsSnapshot();
+    if (snapshotValue !== null) applySettingsSnapshot(snapshotValue);
+    // 恢复锚点阅读位置（scroll-flow 模式据此回到原句；旧页码键仍作回退）
+    savedPosition.value = readSavedPosition();
+    const draft = await readDraft();
+    // 按恢复后的版式重建 Reader（初次创建仍是默认主题基准）并载入草稿内容
+    readerRef.value = createReader(
+      effectiveLayout.value,
+      draft ?? readerRef.value.document ?? lunyuDocument,
+    );
+    // 立即按实测重排，让恢复页码落在真实页数口径上（与编辑 / 导出同源）
+    remeasure();
+    const target = Math.min(last, Math.max(0, readerRef.value.totalPages - 1));
+    if (target > 0) readerRef.value.goToPage(target);
+    // 页数变少被限幅时回写，避免下次启动重复越界钳位
+    writeLastPage(target);
   } finally {
-    pdfExporting.value = false;
+    booted.value = true;
+    // 恢复完成后才开始连续落盘，避免中间态覆盖保存值
+    attachPageTracking();
   }
-}
-
-/* ---------------- 工具栏鼠标交互（横向滚动） ---------------- */
-
-/** 工具栏按钮区（横向滚动容器） */
-const toolbarActionsRef = ref<HTMLElement | null>(null);
-
-/** 纵向滚轮转横向滚动：无溢出、或横向手势（deltaX 主导）时不拦截 */
-function onToolbarWheel(event: WheelEvent): void {
-  const el = toolbarActionsRef.value;
-  if (el === null || el.scrollWidth <= el.clientWidth) return;
-  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-  /* deltaMode 为「行」时（少数桌面环境）按约一行 16px 折算为像素 */
-  const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY;
-  el.scrollLeft += delta;
-  event.preventDefault();
-}
-
-/** 拖动阈值（px）：超过才视为拖动，避免误伤按钮点击 */
-const DRAG_THRESHOLD = 5;
-
-/** 按住拖动状态（指针事件：鼠标 / 触控笔 / 触摸通用） */
-let drag: { pointerId: number; startX: number; startLeft: number; moved: boolean } | null = null;
-
-/** 拖动结束后的首次点击抑制标记 */
-let suppressClick = false;
-
-function removeToolbarDragListeners(): void {
-  window.removeEventListener('pointermove', onWindowPointerMove);
-  window.removeEventListener('pointerup', onWindowPointerUp);
-  window.removeEventListener('pointercancel', onWindowPointerUp);
-}
-
-function endToolbarDrag(pointerId: number): void {
-  if (drag === null || drag.pointerId !== pointerId) return;
-  const moved = drag.moved;
-  drag = null;
-  toolbarActionsRef.value?.classList.remove('toolbar__actions--dragging');
-  removeToolbarDragListeners();
-  if (moved) suppressClick = true;
-}
-
-function onWindowPointerMove(event: PointerEvent): void {
-  const el = toolbarActionsRef.value;
-  if (drag === null || el === null || event.pointerId !== drag.pointerId) return;
-  const dx = event.clientX - drag.startX;
-  if (!drag.moved) {
-    if (Math.abs(dx) < DRAG_THRESHOLD) return;
-    drag.moved = true;
-    el.classList.add('toolbar__actions--dragging');
-  }
-  el.scrollLeft = drag.startLeft - dx;
-}
-
-function onWindowPointerUp(event: PointerEvent): void {
-  endToolbarDrag(event.pointerId);
-}
-
-/** 按下：记录起点（仅左键、存在横向溢出且不在滚动条区域时进入拖动候选） */
-function onToolbarPointerDown(event: PointerEvent): void {
-  suppressClick = false;
-  const el = toolbarActionsRef.value;
-  if (el === null || event.button !== 0 || el.scrollWidth <= el.clientWidth) return;
-  if (event.clientY >= el.getBoundingClientRect().top + el.clientHeight) return;
-  drag = {
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startLeft: el.scrollLeft,
-    moved: false,
-  };
-  window.addEventListener('pointermove', onWindowPointerMove);
-  window.addEventListener('pointerup', onWindowPointerUp);
-  window.addEventListener('pointercancel', onWindowPointerUp);
-}
-
-/** 拖动后抑制一次点击（捕获阶段拦截，防位移松手误触按钮） */
-function onToolbarClickCapture(event: MouseEvent): void {
-  if (!suppressClick) return;
-  suppressClick = false;
-  event.stopPropagation();
-  event.preventDefault();
-}
-
-/* ---------------- 面板与键盘 ---------------- */
-
-/** 左栏标签面板（同屏仅一个，参照主流阅读器；null = 整栏收起） */
-type AsideTab = 'toc' | 'search' | 'bookmarks' | 'import' | 'suggestions';
-
-const activeTab = ref<AsideTab | null>('toc');
-/** 顶栏 tab 入口（顺序与左栏面板一致；「句读」仅编辑模式可见；icon 供 H5 sheet 行） */
-const ASIDE_TABS: ReadonlyArray<{ key: AsideTab; label: string; icon: AppIconName }> = [
-  { key: 'toc', label: '目录', icon: 'toc' },
-  { key: 'search', label: '搜索', icon: 'search' },
-  { key: 'bookmarks', label: '书签', icon: 'bookmark' },
-  { key: 'import', label: '导入', icon: 'upload' },
-  { key: 'suggestions', label: '句读', icon: 'edit' },
-];
-/** 顶栏 tab 入口：点已开项即收起，否则切换 */
-function toggleTab(tab: AsideTab): void {
-  activeTab.value = activeTab.value === tab ? null : tab;
-}
-
-/**
- * H5：从「更多」菜单 / 底栏打开面板（A1 / A4）
- *
- * 先定 tab 再开抽屉：抽屉内容由同一份 `AsidePanels` 渲染，`activeTab`
- * 为 null 时没有可渲染的面板，所以两者必须一起切换。
- */
-function openMobileTab(tab: AsideTab): void {
-  activeTab.value = tab;
-  mobileAsideOpen.value = true;
-  mobileMenuOpen.value = false;
-}
-
-/** H5：打开编辑态属性 sheet（B5，默认落在半屏档，拖拽把手上拉全屏） */
-function openMobileInspector(): void {
-  mobileInspectorOpen.value = true;
-}
-
-/** H5「更多」菜单：先收起 sheet 再执行动作（避免与新弹窗叠层） */
-function onMobileAction(action: () => void): void {
-  mobileMenuOpen.value = false;
-  action();
-}
-
-/** 当前面板标题（H5 抽屉标题栏；无选中面板时回退「面板」） */
-const activeTabLabel = computed(
-  () => ASIDE_TABS.find((tab) => tab.key === activeTab.value)?.label ?? '面板',
-);
-
-const settingsOpen = ref(false);
-const infoOpen = ref(false);
-
-/** 关闭设置弹窗：未保存的草稿改动直接丢弃（仅「保存」才生效） */
-function closeSettings(): void {
-  settingsOpen.value = false;
-  styleApi.discardDraft();
-}
-
-/** 捕获 BtEditor 默认插槽透传的 paged 感知 binding（供右栏属性检视器） */
-const slotBinding = shallowRef<EditorBinding | null>(null);
-/** 插槽渲染计数（非响应式；仅用于识别「首轮捕获」，避免逐事务重渲染） */
-let slotRenderCount = 0;
-function captureSlotBinding(binding: EditorBinding): EditorBinding {
-  slotRenderCount += 1;
-  if (slotBinding.value === null && slotRenderCount === 1) {
-    // 首次捕获：同步递增 version 让消费它的 computed 失效（仅在 null→有值时发生一次）
-    binding.version.value += 1;
-  }
-  slotBinding.value = binding;
-  return binding;
-}
-
-/**
- * 右栏检视器用的 binding
- *
- * 仅「未捕获 → 已捕获」一次切换会重渲染主区（slot 内容随之重建）；
- * 之后逐事务只走 version 自增，由 AttrInspector 内部 computed 自行响应。
- */
-const inspectorBinding = computed<EditorBinding | null>(() => {
-  if (slotBinding.value === null && mode.value === 'edit') {
-    void slotRenderCount; // 占位依赖：首次捕获前的空读不再触发额外逻辑
-  }
-  return mode.value === 'edit' ? slotBinding.value : null;
-});
-
-/* 导出 / 导入等**操作后**的一次性反馈走右下角消息条（composables/use-toast）：
-   顶栏只承担书名与常驻状态，不再追加会长期滞留、挤占排版的状态行。 */
-const { items: toasts, push: pushToast, dismiss: dismissToast } = useToast();
-
-/* 目录面板偏好（展开集合 / 侧栏宽度）：库内不写存储，宿主落到 localStorage */
-const {
-  width: tocWidth,
-  expandedKeys: tocExpandedKeys,
-  setExpandedKeys: setTocExpandedKeys,
-  resetWidth: resetTocWidth,
-} = useTocPrefs();
-
-/* ---------------- 句读 / 专名建议（K3） ---------------- */
-
-/** 编辑命令执行器：统一走 BookEditor 的 state + dispatch（单事务，可撤销） */
-type EditorCommand = ReturnType<typeof removeSuggestionMarks>;
-
-function runEditorCommand(command: EditorCommand): boolean {
-  const editor = bookEditor.value;
-  if (editor === null) return false;
-  return command(editor.editorState, (tr) => editor.dispatch(tr));
-}
-
-/**
- * 建议审阅状态：建议由 `classical` 纯函数生成，接受 / 拒绝 / 采纳为标点
- * 全部落到编辑器事务；库内不写存储，也不自动改正文。
- */
-const suggestionApi = useAnnotationSuggestions({
-  document: () => bookEditor.value?.getDocument() ?? undefined,
-  revision: () => (slotBinding.value?.version.value ?? 0) + bookVersion.value,
-  apply: {
-    judou: (items) => runEditorCommand(applyJudouSuggestions(items)),
-    properName: (items) => runEditorCommand(applyProperNameSuggestions(items)),
-    commitJudou: (options) => runEditorCommand(commitJudouAsText(options)),
-    remove: (options) => runEditorCommand(removeSuggestionMarks(options)),
-  },
-});
-
-/* 解构出来给命令函数 / 模板绑定用；整体再留一份给 `AsidePanels`（抽屉与侧栏共用） */
-const {
-  filter: suggestionFilter,
-  accept: acceptSuggestions,
-  reject: rejectSuggestions,
-  commitJudou: commitSuggestions,
-  setOverride: setSuggestionOverride,
-} = suggestionApi;
-
-/** 接受建议（ids 为空表示当前可见列表） */
-function onAcceptSuggestions(ids: readonly string[]): void {
-  const count = acceptSuggestions(ids.length === 0 ? undefined : ids);
-  if (count === 0) pushToast('没有可接受的建议', 'info');
-}
-
-/** 拒绝建议：未接受的本就只在内存里，接受后反悔会移除标记 */
-function onRejectSuggestions(ids: readonly string[]): void {
-  const count = rejectSuggestions(ids.length === 0 ? undefined : ids);
-  if (count === 0) pushToast('没有可拒绝的建议', 'info');
-}
-
-/** 采纳为标点：把已接受的句读标记落成真实字符（可撤销） */
-function onCommitSuggestions(ids: readonly string[]): void {
-  const count = commitSuggestions(ids.length === 0 ? undefined : ids);
-  pushToast(
-    count === 0 ? '先接受句读建议，再采纳为标点' : `已把 ${count} 处句读落成标点`,
-    count === 0 ? 'info' : 'success',
-  );
-}
-
-/*
- * 原先写在顶栏标题旁的用法说明，改挂到对应按钮的悬浮卡片上
- * （顶栏是放书名的，不该长期占着两行操作提示）。
- */
-
-/** 「编辑 / 保存并预览」按钮的悬浮说明（原：编辑模式 · 自动保存 · Ctrl/Cmd+S…） */
-const MODE_USAGE: ToolbarUsage = {
-  use: '进入编辑模式（分页画布编辑）；再点「保存并预览」回阅读态',
-  where: '编辑内容自动存入本地草稿；保存并预览会先落盘再刷新阅读视图',
-  key: 'Ctrl/Cmd+S 立即保存',
-  limit: '编辑态 ← / → 交给编辑器移动光标，不翻页',
-};
-
-/** 「单页翻页 / 滚动翻页」按钮的悬浮说明（原：←/→ 翻页） */
-const VIEW_MODE_USAGE: ToolbarUsage = {
-  use: '在「单页翻页」与「连续滚动多页」之间切换',
-  where: '阅读态用 ← / → 翻页；连续模式也可用滚轮上下浏览',
-};
-
-/** 双页对照（D5）：以当前文档左右对页演示对照容器 */
-const compareOpen = ref(false);
-const COMPARE_USAGE: ToolbarUsage = {
-  use: '打开双页对照视图：当前文档左右对页阅读（同书对照）；可接入两份文稿做底本 / 校本比对',
-  where: '对照视图由 BtSpreadLayout 承载，中缝分隔、标签固定',
-};
-
-const PREV_PAGE_USAGE: ToolbarUsage = {
-  use: '← / → 翻页（仅阅读态；编辑态方向键交给编辑器）',
-  key: '← / →',
-  limit: '编辑态不生效（方向键归编辑器）',
-};
-
-/** PDF 导出是否进行中（按钮置灰 + 文案切换） */
-const pdfExporting = ref(false);
-/** PDF 分页模式：true = 逐页（paged，与屏幕预览同源）/ false = 连续（auto，更快） */
-const pdfPagedMode = ref(true);
-
-/** 信息弹窗可编辑：仅编辑模式下（元数据写入 BookEditor.updateMetadata） */
-const infoEditable = computed(() => mode.value === 'edit' && bookEditor.value !== null);
-
-/** 当前元数据：编辑态取编辑器实时快照，阅读态取 Reader 文档（缺省样章） */
-const currentMetadata = computed<BookMetadata>(() => {
-  /* 显式依赖：实例内部变更不走响应式，靠版本号自增让它失效（见 bookVersion） */
-  void bookVersion.value;
-  return (
-    (mode.value === 'edit' && bookEditor.value !== null
-      ? bookEditor.value.getMetadata()
-      : reader.value.document?.metadata) ?? lunyuDocument.metadata
-  );
-});
-
-/** 顶部书名的兜底值（元数据缺失标题时使用） */
-const DEFAULT_BOOK_TITLE = '论语集解';
-
-/** 顶部书名：优先书籍元数据标题（编辑态随编辑器实时刷新），缺失 / 空白回退默认 */
-const bookTitle = computed<string>(() => {
-  const title = currentMetadata.value.title?.trim() ?? '';
-  return title === '' ? DEFAULT_BOOK_TITLE : title;
-});
-
-/** 元数据保存：写回编辑器（合并补丁 + 自动刷新 updatedAt）；阅读态不可达 */
-function onMetadataSave(patch: Partial<BookMetadata>): void {
-  bookEditor.value?.updateMetadata(patch);
-  // 元数据变更 → 顶部书名 / 书籍信息弹窗重新取值
-  bookVersion.value += 1;
-}
-
-/** 左栏是否可见（有任一 tab 激活；设置 / 书籍信息为弹窗不占左栏） */
-const asideVisible = computed(() => activeTab.value !== null);
-
-function onKeydown(event: KeyboardEvent): void {
-  /* 编辑模式 Ctrl/Cmd+S：立即落盘（拦截浏览器「保存网页」默认行为） */
-  if (
-    mode.value === 'edit' &&
-    (event.ctrlKey || event.metaKey) &&
-    !event.altKey &&
-    event.key.toLowerCase() === 's'
-  ) {
-    event.preventDefault();
-    void saveNow();
-    return;
-  }
-  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (infoOpen.value) {
-    if (event.key === 'Escape') infoOpen.value = false;
-    return;
-  }
-  /* 设置弹窗为模态：Esc 关闭（丢弃未保存改动），其余按键不外泄（避免背景页被翻页） */
-  if (settingsOpen.value) {
-    if (event.key === 'Escape') closeSettings();
-    return;
-  }
-  /* 编辑模式：← / → 交由编辑器移动光标，不翻页 */
-  if (mode.value === 'edit') return;
-  if (event.key === 'ArrowLeft') {
-    reader.value.prevPage();
-  } else if (event.key === 'ArrowRight') {
-    reader.value.nextPage();
-  }
-}
-
-/** 页面转入后台（切标签 / 最小化）：立即落盘，把握住真正能写完的时机 */
-function onVisibilityChange(): void {
-  if (document.visibilityState === 'hidden') void autosave.flush();
-}
-
-/**
- * 页面被隐藏 / 回收前最后一次落盘（B6）
- *
- * 移动端 WebView 切应用、被系统回收时 `beforeunload` 经常不触发，
- * `pagehide` 才是最后能写完的时机；与 visibilitychange 同一套 flush，
- * 单飞去重保证不会重复写库。
- */
-function onPageHide(): void {
-  void autosave.flush();
-}
-
-/** 从后台 / bfcache 返回：补一次重排（往返后视口尺寸可能已变） */
-function onPageShow(): void {
-  scheduleRemeasure();
-}
-
-/** 窗口失焦（软键盘收起 / 切应用）：作为一次节流保存触发点（B6） */
-function onWindowBlur(): void {
-  if (mode.value === 'edit') autosave.schedule();
-}
-
-/** 存在未保存变更时离开页面提示（并尽力落盘一轮） */
-function onBeforeUnload(event: BeforeUnloadEvent): void {
-  if (!dirty.value) return;
-  void autosave.flush();
-  event.preventDefault();
-  event.returnValue = '';
 }
 
 /**
@@ -1760,7 +416,7 @@ onMounted(async () => {
   if (import.meta.env.DEV) perfProbe = installPerfProbe();
   // 恢复上次会话内容，据此确定本书 id（草稿若是导入的书，沿用其设置作用域，避免混用）
   const draft = await readDraft();
-  const initialDoc = draft ?? reader.value.document ?? lunyuDocument;
+  const initialDoc = draft ?? readerRef.value.document ?? lunyuDocument;
   currentBookId.value = bookIdFromTitle(initialDoc.metadata.title);
   // 载入已保存的样式设置（本书作用域 → 全局 → 旧版迁移），加载完成后才允许落盘
   void styleApi.load().then(() => {
@@ -1781,21 +437,19 @@ onBeforeUnmount(() => {
   window.removeEventListener('pageshow', onPageShow);
   window.removeEventListener('blur', onWindowBlur);
   document.removeEventListener('visibilitychange', onVisibilityChange);
-  removeToolbarDragListeners();
-  if (measureTimer !== undefined) clearTimeout(measureTimer);
+  clearRemeasureTimer();
   perfProbe?.stop();
   perfProbe = null;
-  unsubscribeEditor?.();
-  unsubscribeEditor = null;
-  unsubscribePage?.();
-  unsubscribePage = null;
-  // 先等在飞落盘结束再关连接（避免关库打断正在提交的事务）
-  void autosave
-    .dispose()
-    .then(() => draftStore.close())
-    .catch(() => undefined);
+  // 退订页态（实例重建时内部已自动换绑，这里做最终清理）
+  detachPageTracking();
+  // 编辑器订阅与自动保存落盘、关库统一在编辑会话的 teardown 内
+  teardown();
+  // 释放量尺工作表
   disposeMeasureSheet();
 });
+
+/** 开发期性能探针句柄（生产环境不安装，恒为 null） */
+let perfProbe: PerfProbe | null = null;
 </script>
 
 <template>
@@ -1808,129 +462,27 @@ onBeforeUnmount(() => {
     }"
     :data-layout="mobileShell ? 'mobile' : 'desktop'"
   >
-    <header class="toolbar">
-      <div class="toolbar__title">
-        <button
-          type="button"
-          class="toolbar__book"
-          title="查看书籍信息"
-          @click="infoOpen = true"
-        >
-          <AppIcon class="toolbar__book-icon" name="book" :size="17" :stroke-width="1.6" />
-          <strong>{{ bookTitle }}</strong>
-        </button>
-        <span
-          v-if="mode === 'edit'"
-          class="toolbar__dirty"
-          :class="{ 'toolbar__dirty--on': dirty || saveFailed }"
-        >
-          {{ saveStatusText }}
-        </span>
-      </div>
-      <div
-        v-if="!mobileShell"
-        ref="toolbarActionsRef"
-        class="toolbar__actions"
-        @wheel="onToolbarWheel"
-        @pointerdown="onToolbarPointerDown"
-        @click.capture="onToolbarClickCapture"
-      >
-        <div class="toolbar__group">
-          <button
-            v-for="entry in THEME_ENTRIES"
-            :key="entry.key"
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': themeKey === entry.key }"
-            @click="switchTheme(entry.key)"
-          >
-            {{ entry.config.label }}
-          </button>
-        </div>
-        <div class="toolbar__group">
-          <ToolbarUsageTip :usage="MODE_USAGE">
-            <button
-              type="button"
-              class="toolbar__button"
-              :class="{ 'toolbar__button--active': mode === 'edit' }"
-              @click="toggleEditMode"
-            >
-              {{ mode === 'edit' ? '保存并预览' : '编辑' }}
-            </button>
-          </ToolbarUsageTip>
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': libraryOpen }"
-            @click="libraryOpen = !libraryOpen"
-          >
-            书库
-          </button>
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': settingsOpen }"
-            @click="settingsOpen = !settingsOpen"
-          >
-            设置
-          </button>
-        </div>
-        <div class="toolbar__group">
-          <button
-            v-for="tab in ASIDE_TABS"
-            v-show="tab.key !== 'suggestions' || mode === 'edit'"
-            :key="tab.key"
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': activeTab === tab.key }"
-            @click="toggleTab(tab.key)"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
-        <div class="toolbar__group">
-          <button type="button" class="toolbar__button" @click="onExportEpub">导出 EPUB</button>
-          <button
-            type="button"
-            class="toolbar__button"
-            :disabled="pdfExporting"
-            @click="onExportPdf"
-          >
-            {{ pdfExporting ? '导出中…' : '导出 PDF' }}
-          </button>
-          <button
-            type="button"
-            class="toolbar__button"
-            :class="{ 'toolbar__button--active': pdfPagedMode }"
-            title="逐页：与屏幕预览逐页同源（较慢）；连续：打印引擎自动分页（较快）"
-            @click="pdfPagedMode = !pdfPagedMode"
-          >
-            {{ pdfPagedMode ? '逐页' : '连续' }}
-          </button>
-        </div>
-      </div>
-
-      <!-- H5（A1 / P1）：顶栏只留书名 + 保存状态 + 「更多」，全局动作收进菜单 sheet -->
-      <div v-else class="toolbar__mobile">
-        <span
-          v-if="mode === 'edit'"
-          class="toolbar__dirty"
-          :class="{ 'toolbar__dirty--on': dirty || saveFailed }"
-        >
-          {{ saveStatusText }}
-        </span>
-        <button
-          type="button"
-          class="toolbar__button toolbar__button--menu"
-          aria-label="更多"
-          :aria-expanded="mobileMenuOpen"
-          @click="mobileMenuOpen = !mobileMenuOpen"
-        >
-          <AppIcon name="more" :size="20" />
-          <span class="toolbar__button-label">更多</span>
-        </button>
-      </div>
-    </header>
+    <AppTopBar
+      v-model:info-open="infoOpen"
+      v-model:library-open="libraryOpen"
+      v-model:settings-open="settingsOpen"
+      v-model:pdf-paged-mode="pdfPagedMode"
+      v-model:mobile-menu-open="mobileMenuOpen"
+      :mobile-shell="mobileShell"
+      :mode="mode"
+      :book-title="bookTitle"
+      :dirty="dirty"
+      :save-failed="saveFailed"
+      :save-status-text="saveStatusText"
+      :theme-key="themeKey"
+      :active-tab="activeTab"
+      :pdf-exporting="pdfExporting"
+      :switch-theme="switchTheme"
+      :toggle-edit-mode="toggleEditMode"
+      :toggle-tab="toggleTab"
+      :on-export-epub="onExportEpub"
+      :on-export-pdf="onExportPdf"
+    />
 
     <!--
       直排编辑态设置列组：编辑工具条的三行 → 第二 / 三 / 四列（属性栏已移出，
@@ -1954,8 +506,8 @@ onBeforeUnmount(() => {
       <aside v-if="!mobileShell" v-show="asideVisible" class="app__aside">
         <AsidePanels
           :tab="activeTab"
-          :reader="reader"
-          :document="reader.document ?? lunyuDocument"
+          :reader="readerRef"
+          :document="readerRef.document ?? lunyuDocument"
           :book-id="currentBookId"
           :mode="mode"
           :theme-key="themeKey"
@@ -1993,7 +545,7 @@ onBeforeUnmount(() => {
           <BtBookView
             v-if="booted && mode === 'read'"
             :key="`${themeKey}-${readerEpoch}`"
-            :reader="reader"
+            :reader="readerRef"
             :tokens="tokens"
             :font-token="activeFontToken"
             :features="features"
@@ -2096,152 +648,32 @@ onBeforeUnmount(() => {
       />
     </aside>
 
-    <!--
-      底部状态栏（A6 / P1）：阅读态桌面 = 进度 + 翻页 + 视图切换 + 对照；
-      编辑态桌面 = 页码 + 缩放；
-      H5 = 通栏进度细线 + 翻页（或页码）+ 四个高频入口（目录 / 搜索 / 属性或设置 / 编辑），
-      重复的「更多」只留在顶栏，底栏不再摆第二个入口。
-    -->
-    <footer v-if="booted" class="statusbar" :class="{ 'statusbar--mobile': mobileShell }">
-      <template v-if="mobileShell">
-        <ProgressBar
-          v-if="mode === 'read'"
-          :key="`${themeKey}-${readerEpoch}`"
-          class="statusbar__line"
-          :reader="reader"
-        />
-        <div class="statusbar__mobile-row">
-          <BtPager
-            v-if="mode === 'read'"
-            :key="`${themeKey}-${readerEpoch}`"
-            class="statusbar__pager"
-            :reader="reader"
-          />
-          <span v-else class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
-          <span class="statusbar__spacer" />
-          <button
-            type="button"
-            class="statusbar__icon"
-            aria-label="目录"
-            :aria-expanded="mobileAsideOpen"
-            @click="openMobileTab('toc')"
-          >
-            <AppIcon name="toc" />
-          </button>
-          <button
-            type="button"
-            class="statusbar__icon"
-            aria-label="搜索"
-            :aria-expanded="mobileAsideOpen"
-            @click="openMobileTab('search')"
-          >
-            <AppIcon name="search" />
-          </button>
-          <button
-            v-if="mode === 'edit' && inspectorBinding"
-            type="button"
-            class="statusbar__icon"
-            aria-label="属性"
-            :aria-expanded="mobileInspectorOpen"
-            @click="openMobileInspector"
-          >
-            <AppIcon name="grid" />
-          </button>
-          <button
-            v-if="mode === 'read'"
-            type="button"
-            class="statusbar__icon"
-            aria-label="设置"
-            :aria-expanded="settingsOpen"
-            @click="settingsOpen = true"
-          >
-            <AppIcon name="settings" />
-          </button>
-          <button
-            type="button"
-            class="statusbar__icon"
-            :aria-label="mode === 'edit' ? '保存并预览' : '编辑'"
-            @click="toggleEditMode"
-          >
-            <AppIcon name="edit" />
-          </button>
-        </div>
-      </template>
-      <template v-else-if="mode === 'read'">
-        <div class="statusbar__cluster">
-          <ProgressBar :key="`${themeKey}-${readerEpoch}`" class="statusbar__progress" :reader="reader" />
-          <BtPager :key="`${themeKey}-${readerEpoch}`" class="statusbar__pager" :reader="reader" />
-          <BtDocumentStats
-            class="statusbar__stats"
-            :stats="documentStats.stats.value"
-            :compact="true"
-          />
-        </div>
-        <div class="statusbar__cluster">
-          <ToolbarUsageTip :usage="VIEW_MODE_USAGE">
-            <button
-              type="button"
-              class="statusbar__button"
-              :class="{ 'statusbar__button--on': viewMode !== 'page' }"
-              :disabled="!flowSupported && viewMode === 'page'"
-              :title="flowSupported ? '切换阅读形态：单页 / 连续滚动 / 流式' : '当前版式（直排 / 仿真）不支持流式阅读'"
-              @click="cycleViewMode"
-            >
-              {{ viewModeLabel }}
-            </button>
-          </ToolbarUsageTip>
-          <ToolbarUsageTip :usage="COMPARE_USAGE">
-            <button
-              type="button"
-              class="statusbar__button"
-              :class="{ 'statusbar__button--on': compareOpen }"
-              @click="compareOpen = !compareOpen"
-            >
-              双页对照
-            </button>
-          </ToolbarUsageTip>
-        </div>
-      </template>
-      <template v-else>
-        <span class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
-        <span class="statusbar__spacer" />
-        <div class="statusbar__cluster">
-          <button
-            type="button"
-            class="statusbar__button"
-            title="缩小"
-            @click="zoomStep(-0.1)"
-          >
-            −
-          </button>
-          <span class="statusbar__zoom">{{ Math.round(editorScale * 100) }}%</span>
-          <button
-            type="button"
-            class="statusbar__button"
-            title="放大"
-            @click="zoomStep(0.1)"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            class="statusbar__button"
-            title="恢复 100%"
-            @click="editorScale = 1"
-          >
-            100%
-          </button>
-          <button
-            type="button"
-            class="statusbar__button"
-            :title="railLayout ? '按高度缩放整页' : '按宽度缩放整页'"
-            @click="fitEditorWidth"
-          >
-            {{ railLayout ? '适应高度' : '适应宽度' }}
-          </button>
-        </div>
-      </template>
-    </footer>
+    <AppStatusBar
+      v-if="booted"
+      v-model:settings-open="settingsOpen"
+      v-model:compare-open="compareOpen"
+      v-model:editor-scale="editorScale"
+      :mobile-shell="mobileShell"
+      :mode="mode"
+      :theme-key="themeKey"
+      :reader-epoch="readerEpoch"
+      :reader="readerRef"
+      :editor-visible-page="editorVisiblePage"
+      :mobile-aside-open="mobileAsideOpen"
+      :mobile-inspector-open="mobileInspectorOpen"
+      :stats="documentStats.stats.value"
+      :inspector-binding="inspectorBinding"
+      :view-mode="viewMode"
+      :flow-supported="flowSupported"
+      :view-mode-label="viewModeLabel"
+      :rail-layout="railLayout"
+      :open-mobile-tab="openMobileTab"
+      :open-mobile-inspector="openMobileInspector"
+      :toggle-edit-mode="toggleEditMode"
+      :cycle-view-mode="cycleViewMode"
+      :zoom-step="zoomStep"
+      :fit-editor-width="fitEditorWidth"
+    />
 
     <!-- H5（A1 / A4）：目录 / 搜索 / 书签 / 导入 / 句读收进左抽屉，与桌面侧栏同一份内容 -->
     <BtDrawer
@@ -2253,8 +685,8 @@ onBeforeUnmount(() => {
     >
       <AsidePanels
         :tab="activeTab"
-        :reader="reader"
-        :document="reader.document ?? lunyuDocument"
+        :reader="readerRef"
+        :document="readerRef.document ?? lunyuDocument"
         :book-id="currentBookId"
         :mode="mode"
         :theme-key="themeKey"
@@ -2274,249 +706,44 @@ onBeforeUnmount(() => {
     </BtDrawer>
 
     <!-- H5（B5）：编辑态属性检视器——底部可拖拽 sheet（半屏 / 全屏两档吸附） -->
-    <BtDrawer
+    <MobileInspectorSheet
       v-if="mobileShell && mode === 'edit' && inspectorBinding"
       v-model:open="mobileInspectorOpen"
-      side="bottom"
-      title="属性"
-      :snap-heights="MOBILE_INSPECTOR_SNAPS"
-    >
-      <AttrInspector :binding="inspectorBinding" :named-styles="namedStyles.styles" />
-    </BtDrawer>
+      :binding="inspectorBinding"
+      :named-styles="namedStyles.styles"
+    />
 
     <!-- H5（A1 / A6）：更多菜单 sheet——全局动作与底栏次要控件 -->
-    <BtDrawer
+    <MobileMoreSheet
       v-if="mobileShell"
       v-model:open="mobileMenuOpen"
-      side="bottom"
-      title="更多"
-      :snap-heights="MOBILE_MENU_SNAPS"
-    >
-      <div class="app__menu">
-        <section class="app__menu-group">
-          <h3 class="app__menu-title">面板</h3>
-          <div class="app__menu-grid">
-            <button
-              v-for="tab in ASIDE_TABS"
-              v-show="tab.key !== 'suggestions' || mode === 'edit'"
-              :key="tab.key"
-              type="button"
-              class="app__menu-button"
-              :class="{ 'app__menu-button--active': activeTab === tab.key }"
-              @click="openMobileTab(tab.key)"
-            >
-              <AppIcon class="app__menu-icon" :name="tab.icon" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">{{ tab.label }}</span>
-              <AppIcon
-                class="app__menu-trail"
-                :name="activeTab === tab.key ? 'check' : 'chevron-right'"
-                :size="16"
-                :stroke-width="1.7"
-              />
-            </button>
-          </div>
-        </section>
-
-        <section class="app__menu-group">
-          <h3 class="app__menu-title">动作</h3>
-          <div class="app__menu-grid">
-            <button
-              type="button"
-              class="app__menu-button"
-              :class="{ 'app__menu-button--active': mode === 'edit' }"
-              @click="onMobileAction(toggleEditMode)"
-            >
-              <AppIcon class="app__menu-icon" name="edit" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">{{ mode === 'edit' ? '保存并预览' : '编辑' }}</span>
-              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
-            </button>
-            <button
-              type="button"
-              class="app__menu-button"
-              @click="onMobileAction(() => { libraryOpen = true; })"
-            >
-              <AppIcon class="app__menu-icon" name="library" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">书库</span>
-              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
-            </button>
-            <button
-              type="button"
-              class="app__menu-button"
-              @click="onMobileAction(() => { settingsOpen = true; })"
-            >
-              <AppIcon class="app__menu-icon" name="settings" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">设置</span>
-              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
-            </button>
-            <button
-              type="button"
-              class="app__menu-button"
-              @click="onMobileAction(() => { infoOpen = true; })"
-            >
-              <AppIcon class="app__menu-icon" name="info" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">书籍信息</span>
-              <AppIcon class="app__menu-trail" name="chevron-right" :size="16" :stroke-width="1.7" />
-            </button>
-          </div>
-        </section>
-
-        <section class="app__menu-group">
-          <h3 class="app__menu-title">主题</h3>
-          <div class="app__menu-grid">
-            <button
-              v-for="entry in THEME_ENTRIES"
-              :key="entry.key"
-              type="button"
-              class="app__menu-button"
-              :class="{ 'app__menu-button--active': themeKey === entry.key }"
-              @click="onMobileAction(() => switchTheme(entry.key))"
-            >
-              <AppIcon class="app__menu-icon" name="book" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">{{ entry.config.label }}</span>
-              <AppIcon
-                v-if="themeKey === entry.key"
-                class="app__menu-trail"
-                name="check"
-                :size="16"
-                :stroke-width="1.8"
-              />
-            </button>
-          </div>
-        </section>
-
-        <!-- 界面皮肤（P4）：H5 里也能一眼换壳，与设置面板「界面外观」同一份状态 -->
-        <section class="app__menu-group">
-          <h3 class="app__menu-title">界面皮肤</h3>
-          <div class="app__menu-grid app__menu-grid--compact">
-            <button
-              v-for="skin in UI_SKINS"
-              :key="skin.key"
-              type="button"
-              class="app__menu-chip"
-              :class="{ 'app__menu-chip--active': uiSkin === skin.key }"
-              :aria-pressed="uiSkin === skin.key"
-              @click="onMobileAction(() => setUiSkin(skin.key))"
-            >
-              <span class="app__menu-chip__dot" :style="{ background: skin.preview.accent }" />
-              {{ skin.label }}
-            </button>
-          </div>
-        </section>
-
-        <section class="app__menu-group">
-          <h3 class="app__menu-title">导出</h3>
-          <div class="app__menu-grid">
-            <button
-              type="button"
-              class="app__menu-button"
-              @click="onMobileAction(onExportEpub)"
-            >
-              <AppIcon class="app__menu-icon" name="download" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">导出 EPUB</span>
-            </button>
-            <button
-              type="button"
-              class="app__menu-button"
-              :disabled="pdfExporting"
-              @click="onMobileAction(onExportPdf)"
-            >
-              <AppIcon class="app__menu-icon" name="share" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">{{ pdfExporting ? '导出中…' : '导出 PDF' }}</span>
-            </button>
-          </div>
-          <div class="app__menu-segment" role="group" aria-label="PDF 导出方式">
-            <button
-              type="button"
-              class="app__menu-segment__item"
-              :class="{ 'app__menu-segment__item--on': pdfPagedMode }"
-              @click="pdfPagedMode = true"
-            >
-              逐页
-            </button>
-            <button
-              type="button"
-              class="app__menu-segment__item"
-              :class="{ 'app__menu-segment__item--on': !pdfPagedMode }"
-              @click="pdfPagedMode = false"
-            >
-              连续
-            </button>
-          </div>
-        </section>
-
-        <section v-if="mode === 'read'" class="app__menu-group">
-          <h3 class="app__menu-title">阅读</h3>
-          <div class="app__menu-grid">
-            <button
-              type="button"
-              class="app__menu-button"
-              :class="{ 'app__menu-button--active': viewMode !== 'page' }"
-              :disabled="!flowSupported && viewMode === 'page'"
-              @click="onMobileAction(cycleViewMode)"
-            >
-              <AppIcon class="app__menu-icon" name="list" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">阅读形态</span>
-              <span class="app__menu-value">{{ viewModeLabel }}</span>
-            </button>
-            <button
-              type="button"
-              class="app__menu-button"
-              :class="{ 'app__menu-button--active': compareOpen }"
-              @click="onMobileAction(() => { compareOpen = !compareOpen; })"
-            >
-              <AppIcon class="app__menu-icon" name="compare" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">双页对照</span>
-              <AppIcon
-                v-if="compareOpen"
-                class="app__menu-trail"
-                name="check"
-                :size="16"
-                :stroke-width="1.8"
-              />
-            </button>
-            <button
-              type="button"
-              class="app__menu-button"
-              :class="{ 'app__menu-button--active': night }"
-              @click="onMobileAction(() => { night = !night; })"
-            >
-              <AppIcon class="app__menu-icon" :name="night ? 'moon' : 'sun'" :size="18" :stroke-width="1.7" />
-              <span class="app__menu-label">夜读纸色</span>
-              <AppIcon
-                v-if="night"
-                class="app__menu-trail"
-                name="check"
-                :size="16"
-                :stroke-width="1.8"
-              />
-            </button>
-          </div>
-        </section>
-
-        <section v-if="mode === 'edit'" class="app__menu-group">
-          <h3 class="app__menu-title">缩放</h3>
-          <div class="app__menu-grid app__menu-grid--compact">
-            <button type="button" class="app__menu-chip" aria-label="缩小" @click="zoomStep(-0.1)">
-              <AppIcon name="minus" :size="18" />
-            </button>
-            <button type="button" class="app__menu-chip" aria-label="放大" @click="zoomStep(0.1)">
-              <AppIcon name="plus" :size="18" />
-            </button>
-            <button type="button" class="app__menu-chip" aria-label="恢复 100%" @click="editorScale = 1">
-              <AppIcon name="refresh" :size="18" />
-            </button>
-            <button
-              type="button"
-              class="app__menu-chip"
-              :aria-label="railLayout ? '适应高度' : '适应宽度'"
-              @click="fitEditorWidth"
-            >
-              <AppIcon name="fit" :size="18" />
-            </button>
-          </div>
-        </section>
-      </div>
-    </BtDrawer>
+      v-model:night="night"
+      v-model:library-open="libraryOpen"
+      v-model:settings-open="settingsOpen"
+      v-model:info-open="infoOpen"
+      v-model:pdf-paged-mode="pdfPagedMode"
+      v-model:compare-open="compareOpen"
+      v-model:editor-scale="editorScale"
+      :mode="mode"
+      :active-tab="activeTab"
+      :theme-key="themeKey"
+      :ui-skin="uiSkin"
+      :pdf-exporting="pdfExporting"
+      :view-mode="viewMode"
+      :flow-supported="flowSupported"
+      :view-mode-label="viewModeLabel"
+      :rail-layout="railLayout"
+      :open-mobile-tab="openMobileTab"
+      :toggle-edit-mode="toggleEditMode"
+      :on-mobile-action="onMobileAction"
+      :switch-theme="switchTheme"
+      :set-ui-skin="setUiSkin"
+      :on-export-epub="onExportEpub"
+      :on-export-pdf="onExportPdf"
+      :cycle-view-mode="cycleViewMode"
+      :zoom-step="zoomStep"
+      :fit-editor-width="fitEditorWidth"
+    />
 
     <SettingsPanel
       v-if="settingsOpen"
@@ -2524,7 +751,7 @@ onBeforeUnmount(() => {
       :layout="panelLayout"
       :tokens="panelTokens"
       :theme-base-tokens="themeBaseTokens"
-      :document="reader.document ?? lunyuDocument"
+      :document="readerRef.document ?? lunyuDocument"
       :night="night"
       :page-transition="pageTransition"
       :ui-skin="uiSkin"
@@ -2565,7 +792,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="app__compare-body">
         <BtCompareView
-          :left="reader"
+          :left="readerRef"
           mode="page"
           :page-transition="pageTransition"
         />
@@ -2574,1111 +801,9 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
-<style scoped>
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
+<style scoped src="./styles/app-shell.css"></style>
 
-  /*
-   * 演示界面配色令牌（P0）：全部改为设计令牌的别名，
-   * 换肤只改根上的 data-skin，现有 3000 行规则无需逐个改写；
-   * 新代码直接消费 --ui-*，不再新增 --demo-* 名字。
-   */
-  --demo-bg: var(--ui-canvas);
-  --demo-panel: var(--ui-surface);
-  --demo-aside: var(--ui-surface-raised);
-  --demo-border: var(--ui-border);
-  --demo-text: var(--ui-text);
-  --demo-muted: var(--ui-text-muted);
-  --demo-control: var(--ui-surface-raised);
-  --demo-control-border: var(--ui-divider);
-  --demo-accent: var(--ui-accent);
-}
+<style scoped src="./styles/app-vertical-rail.css"></style>
 
-.app--night {
-  /*
-   * 夜间只改阅读纸面与编辑画布（阅读区配色走主题令牌）；
-   * 壳色由 data-skin 唯一决定，深浅皮肤不靠夜间开关凑出来。
-   */
-  --bt-editor-paper: #24231f;
-  --bt-editor-ink: #cfcac2;
-}
+<style scoped src="./styles/app-mobile-skeleton.css"></style>
 
-/* ---------- 顶栏（应用栏） ---------- */
-
-.toolbar {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ui-space-3);
-  min-height: var(--ui-bar-h);
-  padding: var(--ui-space-2) var(--ui-space-5);
-  border-block-end: var(--ui-border-width, 1px) solid var(--ui-border);
-  /*
-   * 应用栏常驻（P1）：半透明 + 模糊让正文滚到栏下时不硬碰；
-   * 先写实色再写 color-mix，不支持 color-mix 的内核直接拿实色，不会透成空栏。
-   */
-  position: sticky;
-  top: 0;
-  z-index: var(--ui-z-bar);
-  background: var(--ui-surface);
-  background: color-mix(in srgb, var(--ui-surface) 92%, transparent);
-  backdrop-filter: blur(12px) saturate(1.2);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  color: var(--ui-text);
-}
-
-.toolbar__title {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ui-space-3);
-}
-
-/* 书名 chip：点击开书籍信息（主流阅读器把元数据入口挂在书名上） */
-.toolbar__book {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 10px;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--ui-radius-sm);
-  cursor: pointer;
-}
-
-.toolbar__book:hover {
-  background: var(--ui-surface-sunken);
-  border-color: var(--ui-border);
-}
-
-.toolbar__book:active {
-  background: var(--ui-accent-weak);
-  border-color: var(--ui-accent);
-}
-
-.toolbar__book strong {
-  font-size: var(--ui-font-lg);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-}
-
-.toolbar__book-icon {
-  color: var(--ui-text-muted);
-}
-
-.toolbar__dirty {
-  font-size: var(--ui-font-sm);
-  color: var(--ui-text-muted);
-}
-
-/* 未保存 / 保存失败：前置小圆点，比整段变红更早进入视线 */
-.toolbar__dirty--on {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--ui-danger);
-}
-
-.toolbar__dirty--on::before {
-  width: 6px;
-  height: 6px;
-  background: var(--ui-danger);
-  border-radius: 50%;
-  content: '';
-}
-
-/* H5 顶栏右侧：「保存状态 + 更多」（面板内容进抽屉，全局动作进菜单 sheet） */
-.toolbar__mobile {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ui-space-2);
-}
-
-/* 「更多」图标按钮：图形承担识别、文本承担可访问名（e2e 与读屏都靠这个名字） */
-.toolbar__button--menu {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--bt-touch-target, 44px);
-  min-height: var(--bt-touch-target, 44px);
-  padding: 0;
-  gap: 0;
-}
-
-/* 只给读屏与自动化留名字，视觉上不占位 */
-.toolbar__button-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-.toolbar__actions {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-wrap: nowrap;
-  justify-content: flex-start;
-  gap: 6px 14px;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--demo-control-border) transparent;
-}
-
-/* 单行不换行：未溢出时由首组自动外边距把整排推到右端；溢出时外边距归零，从行首可滚动 */
-.toolbar__actions > .toolbar__group:first-child {
-  margin-inline-start: auto;
-}
-
-/* 鼠标可拖的细横向滚动条（WebKit/Blink），随演示配色令牌换色 */
-.toolbar__actions::-webkit-scrollbar {
-  height: 6px;
-}
-
-.toolbar__actions::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.toolbar__actions::-webkit-scrollbar-thumb {
-  background: var(--demo-control-border);
-  border-radius: 3px;
-}
-
-.toolbar__actions::-webkit-scrollbar-thumb:hover {
-  background: var(--demo-accent);
-}
-
-/* 拖动中：抓取光标 + 禁止选中文本（结束拖动后移除） */
-.toolbar__actions--dragging,
-.toolbar__actions--dragging .toolbar__button {
-  cursor: grabbing;
-  user-select: none;
-}
-
-.toolbar__group {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ui-space-2);
-  white-space: nowrap;
-}
-
-/* 组间分隔线（Word / Chrome 工具栏惯例，替代纯间距） */
-.toolbar__group + .toolbar__group {
-  padding-inline-start: var(--ui-space-4);
-  border-inline-start: 1px solid var(--ui-divider);
-}
-
-.toolbar__button {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 5px 11px;
-  font-size: var(--ui-font-md);
-  white-space: nowrap;
-  color: var(--ui-text);
-  background: var(--ui-surface-raised);
-  border: var(--ui-border-width, 1px) solid var(--ui-border);
-  border-radius: var(--ui-radius-sm);
-  box-shadow: var(--ui-shadow-1);
-  cursor: pointer;
-}
-
-.toolbar__button:hover:not(:disabled) {
-  background: var(--ui-surface-sunken);
-  border-color: var(--ui-accent);
-  color: var(--ui-accent);
-}
-
-.toolbar__button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.toolbar__button--active {
-  color: var(--ui-on-accent);
-  background: var(--ui-accent);
-  border-color: var(--ui-accent);
-}
-
-.toolbar__button--active:hover:not(:disabled) {
-  color: var(--ui-on-accent);
-  background: var(--ui-accent-strong);
-}
-
-/* ---------- 主体布局 ---------- */
-
-.app__body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.app__aside {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  /* 宽度由拖拽条写入 --bt-aside-width（缺省 280px，与旧版一致） */
-  width: var(--bt-aside-width, 280px);
-  overflow-y: auto;
-  border-inline-end: 1px solid var(--demo-border);
-  background: var(--demo-aside);
-  color: var(--demo-text);
-}
-
-.app__aside-resizer {
-  align-self: stretch;
-}
-
-.app__main {
-  display: flex;
-  flex: 1;
-  flex-direction: row;
-  min-width: 0;
-  background: var(--demo-bg);
-}
-
-.app__stage {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  padding: var(--ui-space-6);
-}
-
-.app__editor {
-  height: 100%;
-}
-
-/* 编辑态右栏：属性检视器列（与左栏同宽级，纵向流式）；宽度变更带过渡，折叠后只留把手 */
-.app__inspector {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 6px;
-  width: 280px;
-  overflow-y: auto;
-  border-inline-start: 1px solid var(--ui-divider);
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  transition: width 0.16s ease;
-}
-
-.app__inspector--collapsed {
-  width: 30px;
-  overflow: hidden;
-}
-
-/* 折叠把手：栏首右上角小方块，与控件制式（ghost 按钮）一致 */
-.app__inspector__toggle {
-  flex: none;
-  align-self: flex-start;
-  width: 24px;
-  height: 24px;
-  margin: 4px 4px 0;
-  padding: 0;
-  border: var(--ui-border-width, 1px) solid var(--ui-border);
-  border-radius: var(--ui-radius-sm);
-  background: var(--ui-surface-raised);
-  color: var(--ui-text-muted);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    color var(--ui-dur-fast) var(--ui-ease),
-    border-color var(--ui-dur-fast) var(--ui-ease);
-}
-
-.app__inspector__toggle:hover {
-  color: var(--ui-accent);
-  border-color: var(--ui-accent);
-}
-
-/* ---------- 底部状态栏 ---------- */
-
-.statusbar {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ui-space-4);
-  padding: var(--ui-space-1) var(--ui-space-5);
-  border-block-start: var(--ui-border-width, 1px) solid var(--ui-border);
-  background: var(--ui-surface);
-  color: var(--ui-text);
-  font-size: var(--ui-font-sm);
-}
-
-/* H5 底栏（P1）：通栏进度细线在上，下面才是操作行 */
-.statusbar--mobile {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  padding: 0;
-}
-
-.statusbar__line {
-  flex: none;
-  width: 100%;
-  min-width: 0;
-}
-
-.statusbar__line :deep(.progress__text) {
-  display: none;
-}
-
-.statusbar__line :deep(.progress__track),
-.statusbar__line :deep(.progress__fill) {
-  border-radius: 0;
-}
-
-.statusbar__line :deep(.progress__track) {
-  block-size: 2px;
-  /* 只能写 background-color：`background` 简写会把触屏补偿用的
-     `background-clip: content-box` 重置回 border-box，细线变成 40px 高的色带 */
-  background-color: var(--ui-divider);
-}
-
-.statusbar__mobile-row {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ui-space-1);
-  min-height: var(--ui-bar-h-mobile);
-  padding: var(--ui-space-1) var(--ui-space-2);
-}
-
-/* 底栏图标按钮：只靠 44px 触控目标与强调色底做选中态 */
-.statusbar__icon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: var(--bt-touch-target, 44px);
-  height: var(--bt-touch-target, 44px);
-  padding: 0;
-  color: var(--ui-text);
-  background: transparent;
-  border: 0;
-  border-radius: var(--ui-radius-sm);
-  cursor: pointer;
-}
-
-.statusbar__icon:hover,
-.statusbar__icon:active {
-  color: var(--ui-accent);
-  background: var(--ui-accent-weak);
-}
-
-.statusbar__progress {
-  flex: 1;
-  min-width: 120px;
-}
-
-/* 桌面：进度条与翻页读数二选一（状态栏已有页码）；H5 底栏只剩翻页器，读数必须留 */
-.statusbar:not(.statusbar--mobile) .statusbar__pager :deep(.bt-pager__status) {
-  display: none;
-}
-
-/*
- * H5 底栏：翻页改纯图标
- *
- * 三字按钮在 375px 上会把整行挤到换行（行高溢出、按钮顶出底栏），
- * 所以文案隐去、只画箭头；可访问名由 `BtPager` 自带的
- * `aria-label="上一页 / 下一页"` 承担（e2e 按名点击不受影响）。
- */
-.statusbar--mobile .statusbar__pager :deep(.bt-pager) {
-  gap: 0;
-}
-
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__button) {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: var(--bt-touch-target, 44px);
-  height: var(--bt-touch-target, 44px);
-  padding: 0;
-  border: 0;
-  border-radius: var(--ui-radius-sm);
-  color: var(--ui-text);
-  font-size: 0; /* 文案让位给图标 */
-  cursor: pointer;
-}
-
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__button)::before {
-  font-size: var(--ui-font-2xl);
-  line-height: 1;
-}
-
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:first-child)::before {
-  content: '\2039';
-}
-
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:last-child)::before {
-  content: '\203A';
-}
-
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:hover),
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:active) {
-  color: var(--ui-accent);
-  background: var(--ui-accent-weak);
-}
-
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__button:disabled) {
-  color: var(--ui-text-muted);
-  opacity: 0.5;
-}
-
-.statusbar--mobile .statusbar__pager :deep(.bt-pager__status) {
-  min-width: 0;
-  color: var(--ui-text-muted);
-  font-size: var(--ui-font-md);
-  font-variant-numeric: tabular-nums;
-  /* 不折行：读数换行会把 52px 的底栏顶高，整行错位 */
-  white-space: nowrap;
-}
-
-.statusbar__spacer {
-  flex: 1;
-}
-
-/* 页码读数：等宽数字，翻页时不左右抖（P3 状态栏制式） */
-.statusbar__readout {
-  flex: none;
-  color: var(--ui-text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.statusbar__zoom {
-  flex: none;
-  min-width: 40px;
-  text-align: center;
-  color: var(--ui-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-/* 缩放 / 视图控件分组：平时 contents 对父级 flex 完全透明，直排时才成换行子盒 */
-.statusbar__cluster {
-  display: contents;
-}
-
-.statusbar__button {
-  flex: none;
-  padding: 2px 10px;
-  font-size: var(--ui-font-sm);
-  color: var(--ui-text);
-  background: transparent;
-  border: var(--ui-border-width, 1px) solid var(--ui-border);
-  border-radius: var(--ui-radius-sm);
-  cursor: pointer;
-}
-
-.statusbar__button:hover {
-  border-color: var(--ui-accent);
-  color: var(--ui-accent);
-}
-
-.statusbar__button--on {
-  color: var(--ui-accent);
-  border-color: var(--ui-accent);
-  background: var(--ui-accent-weak);
-}
-
-/* ---------- 直排：横排的每一「行」转成一条通高竖「列」 ---------- *
- * 横排外壳共五行：顶栏 / 编辑工具条三行 / 状态栏。直排（.app--rail）不改内容，只把这五行
- * 整体旋 90°→ 五条通高竖列横向并排，任何一块都不再上下堆叠；列序自左向右还原横排的
- * 自上而下：①顶栏 → ②③④工具条三行 → ⑤状态栏（属性栏为附加列插在状态栏左侧，
- * 展开查找替换时再在其左侧多一列）。
- * grid 列（物理左 → 右）：编辑态 = 顶栏 | 工具条列组 | 属性栏 | 状态栏 | 主区；
- * 阅读态（无编辑列）= 顶栏 | 状态栏 | 主区。
- *
- * 实现口径：
- * 1. 面板外壳（.toolbar / .app__rail / .editor-toolbar）自身仍是 horizontal-tb 的 flex row，
- *    职责只是「把若干竖列横向并排」；真正的转置下沉到每一「行」级元素（.toolbar__title、
- *    .toolbar__actions、.editor-toolbar__row、.statusbar、.app__inspector--rail），由它们
- *    writing-mode: vertical-rl —— 转置后 flex 的 main axis 变垂直，row 即「自上而下」。
- * 2. 每列固定宽度（对偶于横排每行固定行高），列内项目按内容排，装不下就沿列方向滚动
- *    （对偶于横排行内横向滚动）→ flex-wrap 一律 nowrap，滚动轴是物理纵向 = overflow-y。
- * 3. vertical-rl 下逻辑边映射：block-start = 物理右、block-end = 物理左、
- *    inline-start = 物理上、inline-end = 物理下；组间分隔线（基线写的是逻辑属性）因此
- *    自动从竖线变横线，无需逐处重给；padding 是物理值，需按竖条重给。
- * 4. 例外：原生表单控件（input / select）无法竖写文字，局部回退 horizontal-tb。
- */
-.app--rail {
-  display: grid;
-  /* 各设置列带（宽度 = 各自固定列宽之和）+ 主区吃掉剩余宽度 */
-  grid-template-columns: auto auto auto auto minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
-}
-
-/* 第五列：状态栏（横排最底一行）紧邻书页左侧 */
-.app--rail .statusbar {
-  grid-column: 4;
-  grid-row: 1;
-}
-
-/* 附加列：属性栏（横排在主区右侧，不属五行），置于状态栏左侧 */
-.app--rail .app__inspector--rail {
-  grid-column: 3;
-  grid-row: 1;
-}
-
-/* 第二 ~ 四列：编辑工具条三行 */
-.app--rail .app__rail {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-/* 第一列：顶栏（书名 + 全局动作） */
-.app--rail .toolbar {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-/* 主区（正文 + 目录面板）占满设置列右侧的全部宽高 */
-.app--rail .app__body {
-  grid-column: 5;
-  grid-row: 1;
-  min-width: 0;
-}
-
-/* 标签面板（目录 / 搜索 / 书签 / 导入）仍在主区内侧向展开：窄窗时收窄，不挤掉书页 */
-.app--rail .app__aside {
-  width: min(var(--bt-aside-width, 280px), 46%);
-}
-
-/* 顶栏外壳：自身不转置，只把「书名列」与「按钮列」横向并排成两条竖列 */
-.app--rail .toolbar {
-  flex-direction: row;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 0;
-  min-height: 0;
-  padding: 8px 6px;
-  overflow: hidden;
-  /* 基线 border-block-end（横排底边）→ 与主区的分隔改挂物理右缘 */
-  border-block-end: 0;
-  border-inline-end: 1px solid var(--demo-border);
-}
-
-/* 书名 / 保存状态：一条竖列，自上而下，超长沿列滚动 */
-.app--rail .toolbar__title {
-  writing-mode: vertical-rl;
-  flex: none;
-  width: 38px;
-  gap: 8px;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-/* 书名 chip 的 padding 同为物理值：竖列里左右 = 竖条宽度，需收窄到 38px 列宽内 */
-.app--rail .toolbar__book {
-  padding: 4px 6px;
-}
-
-.app--rail .toolbar__book strong {
-  line-height: 1.7;
-  letter-spacing: 0.1em;
-}
-
-/* 按钮 padding 是物理值：竖排下左右 = 竖条宽度、上下 = 字距方向留白 */
-.app--rail .toolbar__button {
-  padding: 8px 4px;
-  line-height: 1.5;
-  letter-spacing: 0.06em;
-}
-
-/* 按钮区：一条竖列，四组自上而下相接（组间基线 border-inline-start 转置后即为横线） */
-.app--rail .toolbar__actions {
-  writing-mode: vertical-rl;
-  flex: none;
-  width: 46px;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 8px;
-  /* block-end = 物理左 → 此处即与书名列的竖分隔线 */
-  padding-block-end: 6px;
-  border-block-end: 1px solid var(--demo-border);
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-/* 基线的首组外边距 auto（横排靠右）转置后会把按钮推向列底 → 归零 */
-.app--rail .toolbar__actions > .toolbar__group:first-child {
-  margin-inline-start: 0;
-}
-
-/* 滚动条从横向改到纵向（基线规则给的是 height） */
-.app--rail .toolbar__actions::-webkit-scrollbar {
-  width: 6px;
-  height: auto;
-}
-
-/* 编辑态设置列组外壳：工具条三列 + 查找替换列横向并排（自身不转置；属性栏已独立成 grid 项） */
-.app__rail {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  min-height: 0;
-  overflow: hidden;
-  border-inline-end: 1px solid var(--demo-border);
-  background: var(--demo-panel);
-  color: var(--demo-text);
-  font-size: 12px;
-}
-
-/* 工具条外壳：column（横排三行堆叠）→ row（三条竖列并排） */
-.app__rail :deep(.editor-toolbar) {
-  flex-direction: row;
-  align-items: stretch;
-  border-block-end: 0;
-}
-
-/* 每一行 = 一条通高竖列：固定宽度、向下排、溢出沿列滚动 */
-.app__rail :deep(.editor-toolbar__row) {
-  writing-mode: vertical-rl;
-  flex: none;
-  width: 38px;
-  padding: 8px 4px;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-/* 行与行的分隔：基线 border-block-start 转置后 = 物理右缘，正好是列间竖线 */
-.app__rail :deep(.editor-toolbar__row::-webkit-scrollbar) {
-  width: 6px;
-  height: auto;
-}
-
-.app__rail :deep(.editor-toolbar__button) {
-  padding: 8px 3px;
-  line-height: 1.5;
-  letter-spacing: 0.06em;
-}
-
-/* 查找替换面板同样成一条竖列（横排它是画布上方的一条横带） */
-.app__rail :deep(.replace) {
-  writing-mode: vertical-rl;
-  flex: none;
-  flex-direction: row;
-  align-self: flex-start;
-  width: 44px;
-  margin-inline-start: 8px;
-}
-
-/* 属性栏：横排是主区右侧的一栏 → 直排独立成状态栏左侧的附加竖列 */
-.app__inspector--rail {
-  writing-mode: vertical-rl;
-  flex-direction: row;
-  flex: none;
-  width: 100px;
-  padding: 8px 6px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  border-inline-start: 0;
-  background: var(--demo-aside);
-  color: var(--demo-text);
-  font-size: 12px;
-}
-
-.app__inspector--rail.app__inspector--collapsed {
-  width: 34px;
-  padding: 8px 4px;
-}
-
-.app__inspector--rail .app__inspector__toggle {
-  width: auto;
-  height: auto;
-  margin: 0 0 6px;
-  padding: 6px 3px;
-  font-size: 12px;
-}
-
-/* 展开态不占额外位置：折叠只需点把手，直排下隐藏「折叠」按钮（收起态仍显示「展开」） */
-.app__inspector--rail:not(.app__inspector--collapsed) .app__inspector__toggle {
-  display: none;
-}
-
-/* 内部各层基线都是「纵向堆叠」的 column，而转置后 column = 水平→ 需改 row 才仍是向下堆叠 */
-.app__inspector--rail :deep(.inspector) {
-  flex-direction: row;
-  align-items: stretch;
-  gap: 8px;
-  padding: 4px 0 0;
-}
-
-.app__inspector--rail :deep(.inspector__header) {
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  padding-block-end: 0;
-  padding-inline-end: 6px;
-  border-block-end: 0;
-  border-inline-end: 1px solid var(--demo-border);
-}
-
-.app__inspector--rail :deep(.inspector__group) {
-  flex-direction: row;
-  align-items: stretch;
-  gap: 6px;
-  padding: 6px 8px;
-}
-
-.app__inspector--rail :deep(.inspector__field) {
-  flex-direction: row;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.app__inspector--rail :deep(.inspector__label),
-.app__inspector--rail :deep(.inspector__title),
-.app__inspector--rail :deep(.inspector__empty) {
-  line-height: 1.6;
-  letter-spacing: 0.06em;
-}
-
-.app__inspector--rail :deep(.inspector__tag) {
-  align-self: center;
-  padding: 1px 4px;
-}
-
-/* 原生控件不能竖写文字 → 局部回退 horizontal-tb，宽度随列宽自适应 */
-.app__inspector--rail :deep(.inspector__input),
-.app__inspector--rail :deep(.inspector__field select),
-.app__inspector--rail :deep(.inspector__input--num) {
-  writing-mode: horizontal-tb;
-  width: 100%;
-  min-width: 0;
-}
-
-/* 状态栏：横排最底一行 → 最左一条通高竖列（进度 / 翻页 / 视图切换自上而下） */
-.app--rail .statusbar {
-  writing-mode: vertical-rl;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 8px;
-  width: 46px;
-  padding: 8px 4px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  /* 基线 border-block-start（横排顶边）转置后 = 物理右缘 → 正好是与右侧列带的分隔 */
-}
-
-.app--rail .statusbar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.app--rail .statusbar__spacer {
-  display: none;
-}
-
-/* 进度条：长度沿列方向给（横排靠 flex: 1 吃掉行宽）；轨道与填充已改用逻辑尺寸→自动转竖 */
-.app--rail .statusbar__progress {
-  flex: none;
-  min-width: 0;
-  height: 15vh;
-  min-height: 90px;
-}
-
-.app--rail .statusbar__zoom {
-  min-width: 0;
-}
-
-.app--rail .statusbar__button,
-.app--rail .statusbar__readout,
-.app--rail :deep(.bt-pager__button) {
-  padding: 8px 4px;
-  line-height: 1.5;
-  letter-spacing: 0.06em;
-}
-
-.app--rail :deep(.bt-pager) {
-  gap: 8px;
-}
-
-.app--rail :deep(.progress__text) {
-  line-height: 1.6;
-}
-
-/* 直排下的 binding 捕获锚点：不可见不占位，仅在属性求值时顺带完成捕获 */
-.app__binding-anchor {
-  display: none;
-}
-
-/* 画布上方原工具条插槽位整体收起（工具条已入左列，display:none 连带去掉 BtEditor 的行间距） */
-.app--rail :deep(.bt-editor__toolbar) {
-  display: none;
-}
-
-/* ---------- H5 单列骨架（A1 / A6） ---------- *
- * < md（768px）：顶栏 / 主区 / 底栏三段纵向堆叠，主区独占余量；
- * 与 JS 断点同源（useBreakpoint < 768），桌面规则一律不动。
- */
-.app--mobile {
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
-}
-
-.app--mobile .toolbar {
-  gap: var(--ui-space-2);
-  min-height: var(--ui-bar-h-mobile);
-  /* 上内边距 = 基础间距 + 刘海安全区（--bt-safe-top 已含 0px 兜底） */
-  padding: calc(var(--ui-space-2) + var(--bt-safe-top, 0px)) var(--ui-space-4) var(--ui-space-2);
-}
-
-.app--mobile .toolbar__title {
-  flex: 1;
-  min-width: 0;
-  /* 书名居中：右侧只剩一个图标，左对齐会把整个应用栏拉得偏左 */
-  justify-content: center;
-}
-
-.app--mobile .toolbar__book {
-  min-width: 0;
-  padding-inline: var(--ui-space-2);
-}
-
-.app--mobile .toolbar__book strong {
-  max-width: 52vw;
-  overflow: hidden;
-  font-size: var(--ui-font-lg);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.app--mobile .app__body {
-  min-height: 0;
-}
-
-.app--mobile .app__stage {
-  position: relative;
-  padding: var(--ui-space-3);
-}
-
-/* 上下 20px 渐变（仅阅读态）：暗示「还能翻」，不吃事件也不遮挡正文 */
-.app--mobile .app__stage--read::before,
-.app--mobile .app__stage--read::after {
-  position: absolute;
-  inset-inline: 0;
-  z-index: 1;
-  height: var(--ui-space-6);
-  pointer-events: none;
-  content: '';
-}
-
-.app--mobile .app__stage--read::before {
-  top: 0;
-  background: linear-gradient(var(--ui-canvas), transparent);
-}
-
-.app--mobile .app__stage--read::after {
-  bottom: 0;
-  background: linear-gradient(transparent, var(--ui-canvas));
-}
-
-/*
- * 页框浮起（P1）：只用圆角 + 投影，不加边框 —— border 会改变盒尺寸，
- * 而分页量尺拿的正是页框尺寸，加了就会让每页行数漂一格。
- */
-.app--mobile .app__stage :deep(.bt-reader-page) {
-  border-radius: var(--ui-radius-sm);
-  box-shadow: var(--ui-shadow-1);
-}
-
-.app--mobile .statusbar {
-  padding: 0 0 var(--bt-safe-bottom, 0px);
-}
-
-.app--mobile .statusbar__mobile-row {
-  padding-inline: var(--ui-space-3);
-}
-
-/* ---------- H5「更多」菜单 sheet（A1 / A6 / P2） ---------- *
- * 一格一个方块在窄屏里既要读文字又要对齐，改成系统 sheet 的行制：
- * 一组 = 一张卡片，一行 = 左图标 + 标签 + 右侧当前值或箭头。
- */
-
-.app__menu {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ui-space-4);
-  padding: var(--ui-space-3) var(--ui-space-4) calc(var(--ui-space-5) + var(--bt-safe-bottom, 0px));
-}
-
-.app__menu-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ui-space-2);
-}
-
-.app__menu-title {
-  margin: 0;
-  padding-inline-start: var(--ui-space-1);
-  font-size: var(--ui-font-xs);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--ui-text-muted);
-}
-
-.app__menu-grid {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--ui-surface-raised);
-  border: var(--ui-border-width, 1px) solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-  box-shadow: var(--ui-shadow-1);
-}
-
-.app__menu-button {
-  display: flex;
-  align-items: center;
-  gap: var(--ui-space-3);
-  min-height: var(--ui-row-height);
-  padding: var(--ui-space-2) var(--ui-space-4);
-  font: inherit;
-  font-size: var(--ui-font-lg);
-  color: var(--ui-text);
-  text-align: start;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-/* 行与行之间用细分隔线，不再靠卡片间隙拼网格 */
-.app__menu-button + .app__menu-button {
-  border-block-start: 1px solid var(--ui-divider);
-}
-
-.app__menu-button:hover,
-.app__menu-button:active {
-  background: var(--ui-surface-sunken);
-}
-
-.app__menu-icon {
-  color: var(--ui-text-muted);
-}
-
-.app__menu-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 行尾：当前值（文字）或下一级（箭头 / 对钩），都靠右对齐 */
-.app__menu-value,
-.app__menu-trail {
-  margin-inline-start: auto;
-  color: var(--ui-text-muted);
-  font-size: var(--ui-font-md);
-}
-
-.app__menu-button--active {
-  color: var(--ui-accent);
-  background: var(--ui-accent-weak);
-}
-
-.app__menu-button--active .app__menu-icon,
-.app__menu-button--active .app__menu-value,
-.app__menu-button--active .app__menu-trail {
-  color: var(--ui-accent);
-}
-
-.app__menu-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-/* 紧凑行（缩放 / 皮肤）：横向等分小按钮，不卡片化 */
-.app__menu-grid--compact {
-  flex-direction: row;
-  gap: var(--ui-space-2);
-  overflow: visible;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.app__menu-chip {
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: var(--ui-space-1);
-  min-height: var(--bt-touch-target, 44px);
-  padding: var(--ui-space-2);
-  font-size: var(--ui-font-md);
-  color: var(--ui-text);
-  background: var(--ui-surface-raised);
-  border: var(--ui-border-width, 1px) solid var(--ui-border);
-  border-radius: var(--ui-radius-sm);
-  box-shadow: var(--ui-shadow-1);
-  cursor: pointer;
-}
-
-.app__menu-chip--active {
-  color: var(--ui-on-accent);
-  background: var(--ui-accent);
-  border-color: var(--ui-accent);
-}
-
-.app__menu-chip__dot {
-  width: 10px;
-  height: 10px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-}
-
-/* 二选一的分段控件（PDF 逐页 / 连续） */
-.app__menu-segment {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--ui-surface-sunken);
-  border-radius: var(--ui-radius-pill);
-}
-
-.app__menu-segment__item {
-  flex: 1;
-  min-height: 36px;
-  font-size: var(--ui-font-md);
-  color: var(--ui-text-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--ui-radius-pill);
-  cursor: pointer;
-}
-
-.app__menu-segment__item--on {
-  color: var(--ui-text-strong);
-  background: var(--ui-surface-raised);
-  box-shadow: var(--ui-shadow-1);
-}
-
-/* 窄屏兜底：对照覆盖层贴边，标题栏可换行 */
-@media (max-width: 767px) {
-  .app__compare-bar {
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-}
-</style>

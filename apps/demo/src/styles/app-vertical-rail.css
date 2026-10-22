@@ -1,0 +1,336 @@
+/**
+ * 直排版面：把横排的各行整体旋 90° 转成通高竖列的转置样式（.app--rail）
+ *
+ * 由 App.vue 的 <style scoped src> 引入：与本组件其余 scoped 块共用同一 scope id，
+ * 选择器语义与命中范围保持不变（拆分纯为文件组织，不改任何样式行为）。
+ */
+
+/* ---------- 直排：横排的每一「行」转成一条通高竖「列」 ---------- *
+ * 横排外壳共五行：顶栏 / 编辑工具条三行 / 状态栏。直排（.app--rail）不改内容，只把这五行
+ * 整体旋 90°→ 五条通高竖列横向并排，任何一块都不再上下堆叠；列序自左向右还原横排的
+ * 自上而下：①顶栏 → ②③④工具条三行 → ⑤状态栏（属性栏为附加列插在状态栏左侧，
+ * 展开查找替换时再在其左侧多一列）。
+ * grid 列（物理左 → 右）：编辑态 = 顶栏 | 工具条列组 | 属性栏 | 状态栏 | 主区；
+ * 阅读态（无编辑列）= 顶栏 | 状态栏 | 主区。
+ *
+ * 实现口径：
+ * 1. 面板外壳（.toolbar / .app__rail / .editor-toolbar）自身仍是 horizontal-tb 的 flex row，
+ *    职责只是「把若干竖列横向并排」；真正的转置下沉到每一「行」级元素（.toolbar__title、
+ *    .toolbar__actions、.editor-toolbar__row、.statusbar、.app__inspector--rail），由它们
+ *    writing-mode: vertical-rl —— 转置后 flex 的 main axis 变垂直，row 即「自上而下」。
+ * 2. 每列固定宽度（对偶于横排每行固定行高），列内项目按内容排，装不下就沿列方向滚动
+ *    （对偶于横排行内横向滚动）→ flex-wrap 一律 nowrap，滚动轴是物理纵向 = overflow-y。
+ * 3. vertical-rl 下逻辑边映射：block-start = 物理右、block-end = 物理左、
+ *    inline-start = 物理上、inline-end = 物理下；组间分隔线（基线写的是逻辑属性）因此
+ *    自动从竖线变横线，无需逐处重给；padding 是物理值，需按竖条重给。
+ * 4. 例外：原生表单控件（input / select）无法竖写文字，局部回退 horizontal-tb。
+ */
+.app--rail {
+  display: grid;
+  /* 各设置列带（宽度 = 各自固定列宽之和）+ 主区吃掉剩余宽度 */
+  grid-template-columns: auto auto auto auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* 第五列：状态栏（横排最底一行）紧邻书页左侧 */
+.app--rail .statusbar {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+/* 附加列：属性栏（横排在主区右侧，不属五行），置于状态栏左侧 */
+.app--rail .app__inspector--rail {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+/* 第二 ~ 四列：编辑工具条三行 */
+.app--rail .app__rail {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+/* 第一列：顶栏（书名 + 全局动作） */
+.app--rail .toolbar {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* 主区（正文 + 目录面板）占满设置列右侧的全部宽高 */
+.app--rail .app__body {
+  grid-column: 5;
+  grid-row: 1;
+  min-width: 0;
+}
+
+/* 标签面板（目录 / 搜索 / 书签 / 导入）仍在主区内侧向展开：窄窗时收窄，不挤掉书页 */
+.app--rail .app__aside {
+  width: min(var(--bt-aside-width, 280px), 46%);
+}
+
+/* 顶栏外壳：自身不转置，只把「书名列」与「按钮列」横向并排成两条竖列 */
+.app--rail .toolbar {
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  min-height: 0;
+  padding: 8px 6px;
+  overflow: hidden;
+  /* 基线 border-block-end（横排底边）→ 与主区的分隔改挂物理右缘 */
+  border-block-end: 0;
+  border-inline-end: 1px solid var(--demo-border);
+}
+
+/* 书名 / 保存状态：一条竖列，自上而下，超长沿列滚动 */
+.app--rail :deep(.toolbar__title) {
+  writing-mode: vertical-rl;
+  flex: none;
+  width: 38px;
+  gap: 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 书名 chip 的 padding 同为物理值：竖列里左右 = 竖条宽度，需收窄到 38px 列宽内 */
+.app--rail :deep(.toolbar__book) {
+  padding: 4px 6px;
+}
+
+.app--rail :deep(.toolbar__book strong) {
+  line-height: 1.7;
+  letter-spacing: 0.1em;
+}
+
+/* 按钮 padding 是物理值：竖排下左右 = 竖条宽度、上下 = 字距方向留白 */
+.app--rail :deep(.toolbar__button) {
+  padding: 8px 4px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+}
+
+/* 按钮区：一条竖列，四组自上而下相接（组间基线 border-inline-start 转置后即为横线） */
+.app--rail :deep(.toolbar__actions) {
+  writing-mode: vertical-rl;
+  flex: none;
+  width: 46px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
+  /* block-end = 物理左 → 此处即与书名列的竖分隔线 */
+  padding-block-end: 6px;
+  border-block-end: 1px solid var(--demo-border);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 基线的首组外边距 auto（横排靠右）转置后会把按钮推向列底 → 归零 */
+.app--rail :deep(.toolbar__actions > .toolbar__group:first-child) {
+  margin-inline-start: 0;
+}
+
+/* 滚动条从横向改到纵向（基线规则给的是 height） */
+.app--rail :deep(.toolbar__actions::-webkit-scrollbar) {
+  width: 6px;
+  height: auto;
+}
+
+/* 编辑态设置列组外壳：工具条三列 + 查找替换列横向并排（自身不转置；属性栏已独立成 grid 项） */
+.app__rail {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+  border-inline-end: 1px solid var(--demo-border);
+  background: var(--demo-panel);
+  color: var(--demo-text);
+  font-size: 12px;
+}
+
+/* 工具条外壳：column（横排三行堆叠）→ row（三条竖列并排） */
+.app__rail :deep(.editor-toolbar) {
+  flex-direction: row;
+  align-items: stretch;
+  border-block-end: 0;
+}
+
+/* 每一行 = 一条通高竖列：固定宽度、向下排、溢出沿列滚动 */
+.app__rail :deep(.editor-toolbar__row) {
+  writing-mode: vertical-rl;
+  flex: none;
+  width: 38px;
+  padding: 8px 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* 行与行的分隔：基线 border-block-start 转置后 = 物理右缘，正好是列间竖线 */
+.app__rail :deep(.editor-toolbar__row::-webkit-scrollbar) {
+  width: 6px;
+  height: auto;
+}
+
+.app__rail :deep(.editor-toolbar__button) {
+  padding: 8px 3px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+}
+
+/* 查找替换面板同样成一条竖列（横排它是画布上方的一条横带） */
+.app__rail :deep(.replace) {
+  writing-mode: vertical-rl;
+  flex: none;
+  flex-direction: row;
+  align-self: flex-start;
+  width: 44px;
+  margin-inline-start: 8px;
+}
+
+/* 属性栏：横排是主区右侧的一栏 → 直排独立成状态栏左侧的附加竖列 */
+.app__inspector--rail {
+  writing-mode: vertical-rl;
+  flex-direction: row;
+  flex: none;
+  width: 100px;
+  padding: 8px 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-inline-start: 0;
+  background: var(--demo-aside);
+  color: var(--demo-text);
+  font-size: 12px;
+}
+
+.app__inspector--rail.app__inspector--collapsed {
+  width: 34px;
+  padding: 8px 4px;
+}
+
+.app__inspector--rail .app__inspector__toggle {
+  width: auto;
+  height: auto;
+  margin: 0 0 6px;
+  padding: 6px 3px;
+  font-size: 12px;
+}
+
+/* 展开态不占额外位置：折叠只需点把手，直排下隐藏「折叠」按钮（收起态仍显示「展开」） */
+.app__inspector--rail:not(.app__inspector--collapsed) .app__inspector__toggle {
+  display: none;
+}
+
+/* 内部各层基线都是「纵向堆叠」的 column，而转置后 column = 水平→ 需改 row 才仍是向下堆叠 */
+.app__inspector--rail :deep(.inspector) {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  padding: 4px 0 0;
+}
+
+.app__inspector--rail :deep(.inspector__header) {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding-block-end: 0;
+  padding-inline-end: 6px;
+  border-block-end: 0;
+  border-inline-end: 1px solid var(--demo-border);
+}
+
+.app__inspector--rail :deep(.inspector__group) {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.app__inspector--rail :deep(.inspector__field) {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.app__inspector--rail :deep(.inspector__label),
+.app__inspector--rail :deep(.inspector__title),
+.app__inspector--rail :deep(.inspector__empty) {
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+}
+
+.app__inspector--rail :deep(.inspector__tag) {
+  align-self: center;
+  padding: 1px 4px;
+}
+
+/* 原生控件不能竖写文字 → 局部回退 horizontal-tb，宽度随列宽自适应 */
+.app__inspector--rail :deep(.inspector__input),
+.app__inspector--rail :deep(.inspector__field select),
+.app__inspector--rail :deep(.inspector__input--num) {
+  writing-mode: horizontal-tb;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 状态栏：横排最底一行 → 最左一条通高竖列（进度 / 翻页 / 视图切换自上而下） */
+.app--rail .statusbar {
+  writing-mode: vertical-rl;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  width: 46px;
+  padding: 8px 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 基线 border-block-start（横排顶边）转置后 = 物理右缘 → 正好是与右侧列带的分隔 */
+}
+
+.app--rail .statusbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.app--rail :deep(.statusbar__spacer) {
+  display: none;
+}
+
+/* 进度条：长度沿列方向给（横排靠 flex: 1 吃掉行宽）；轨道与填充已改用逻辑尺寸→自动转竖 */
+.app--rail :deep(.statusbar__progress) {
+  flex: none;
+  min-width: 0;
+  height: 15vh;
+  min-height: 90px;
+}
+
+.app--rail :deep(.statusbar__zoom) {
+  min-width: 0;
+}
+
+.app--rail :deep(.statusbar__button),
+.app--rail :deep(.statusbar__readout),
+.app--rail :deep(.bt-pager__button) {
+  padding: 8px 4px;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+}
+
+.app--rail :deep(.bt-pager) {
+  gap: 8px;
+}
+
+.app--rail :deep(.progress__text) {
+  line-height: 1.6;
+}
+
+/* 直排下的 binding 捕获锚点：不可见不占位，仅在属性求值时顺带完成捕获 */
+.app__binding-anchor {
+  display: none;
+}
+
+/* 画布上方原工具条插槽位整体收起（工具条已入左列，display:none 连带去掉 BtEditor 的行间距） */
+.app--rail :deep(.bt-editor__toolbar) {
+  display: none;
+}

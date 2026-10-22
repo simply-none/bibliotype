@@ -1,6 +1,6 @@
 # 28 静态站点导出
 
-> 涉及包：`@bibliotype/exporter-site`（依赖 `@bibliotype/core` + `@bibliotype/layout`）
+> 涉及包：`@bibliotype/exporter-site`（依赖 `@bibliotype/core` + `@bibliotype/layout` + `@bibliotype/fonts`）
 > 相关篇目：[05 版式与 HTML](05-layout-and-html.md) · [07 EPUB 导出](07-export-epub.md) · [26 交叉引用](26-cross-reference.md)
 
 把一本书导出成**可直接上传静态托管**的站点：目录页 + 每节一页 + 样式 + 搜索索引 + IR 原文。
@@ -30,7 +30,8 @@ import { dirname, join } from 'node:path';
 for (const file of files) {
   const target = join('dist-site', file.path);
   await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, file.text, 'utf8');
+  /* 字体内嵌时 `data` 为二进制（`text` 为空串），其余产物写 `text` */
+  await writeFile(target, file.data ?? file.text, 'utf8');
 }
 ```
 
@@ -43,6 +44,8 @@ for (const file of files) {
 | `style.css` | `buildBookCss` 书册样式（作用域 `.bt-reader-page`）+ 站点框架样式 |
 | `search-index.json` | `{ version, entries: [{ id, title, path, text }] }`（按 id 升序） |
 | `book.json` | IR 原文，便于二次加工（可关） |
+| `fonts/bt-*.woff2` | 子集字体二进制（仅传 `fonts` 时；`SiteFile.data` 持字节） |
+| `fonts/LICENSE.txt` | 字体许可声明（仅传 `fonts` 且声明许可时） |
 
 ## 三、分节规则
 
@@ -100,3 +103,31 @@ serializeSearchIndex(entries);                                // 确定性 JSON
 | 标题显示「（空）」 | 结构节点没有子内容 | 补内容或删掉占位章 |
 | 页面没有版式 | `style.css` 未随文件一起部署 | 确保同目录相对路径可用 |
 | 输出两次不一致 | 调用了导出后又改了 IR | 导出是纯快照；改 IR 后重新导出 |
+
+## 八、字体内嵌与子集化（E3）
+
+与 EPUB 同一套内核：宿主先 `await prepareFontBundle()`（异步子集化），再把结果传给
+同步的 `exportSite()`。
+
+```ts
+import { prepareFontBundle } from '@bibliotype/fonts';
+import { exportSite } from '@bibliotype/exporter-site';
+
+const fonts = await prepareFontBundle(document, fontAssets, {
+  backend: subsetBackend,              // 可插拔：subset-font / fonttools
+  fallbackStack: "'Classical Kai', serif",
+});
+
+const { files, warnings } = exportSite(document, { fonts });
+// warnings 已并入缺后端 / 缺字回退 / 未声明许可告警
+```
+
+- **样式**：`@font-face` 前置到 `style.css`（子集字体优先于主题字体栈），后接
+  `buildBookCss` 与站点框架样式；`url()` 相对站点根（`fonts/...`）。
+- **文件**：字体以 `{ path, mediaType, text: '', data }` 输出（`data` 为 `Uint8Array`），
+  许可输出为 `fonts/LICENSE.txt`；未传 `fonts` 时零残留。
+- **告警**：`prepareFontBundle` 的 `warnings` 并入 `SiteExportResult.warnings`，
+  与分节告警同列；缺字不会静默上线。
+- **体积**：`fonts.report` 给出源 / 子集字节与下降比例，可用于构建日志。
+- **部署**：静态托管需允许 `.woff2` MIME（绝大多数默认支持）；字体文件与
+  `style.css` 的相对位置不可拆开单独上传。

@@ -29,6 +29,13 @@ export interface OpfInput {
   metadata: BookMetadata;
   /** 语言标记（BCP 47） */
   language: string;
+  /**
+   * 版权 / 许可声明（`dc:rights`，可选）
+   *
+   * 内嵌字体时由 `@bibliotype/fonts` 生成的简短版权行写入（如
+   * `Classical Kai：SIL Open Font License 1.1`）；EPUB 2 / 3 均支持。
+   */
+  rights?: string;
   /** dcterms:modified（ISO 8601；内部会规范化到 CCYY-MM-DDThh:mm:ssZ） */
   modified: string;
   manifest: readonly OpfManifestItem[];
@@ -166,6 +173,10 @@ export function buildOpf(input: OpfInput): string {
   const publisher = metadata.publication?.publisher;
   if (publisher !== undefined && publisher !== '') {
     metaLines.push(`    <dc:publisher>${escapeXml(publisher)}</dc:publisher>`);
+  }
+  /* 版权 / 许可声明（内嵌字体许可可追溯；EPUB 2 同样认 dc:rights） */
+  if (input.rights !== undefined && input.rights.trim() !== '') {
+    metaLines.push(`    <dc:rights>${escapeXml(input.rights)}</dc:rights>`);
   }
   /* 修改时间：EPUB 2（京东读书等 RMSDK）用 dc:date；EPUB 3 额外保留 dcterms:modified。
      RMSDK 的 OPF 解析器不识别 <meta property>，遇之可能解析失败导致整本书打不开，

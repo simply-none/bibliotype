@@ -1,7 +1,7 @@
 {
   "name": "@bibliotype/exporter-site",
   "version": "0.1.0",
-  "description": "静态站点导出（多页 HTML + 目录 + 搜索索引）- bibliotype 导出包",
+  "description": "静态站点导出（多页 HTML + 目录 + 搜索索引，可选内嵌子集字体）- bibliotype 导出包",
   "type": "module",
   "license": "MIT",
   "author": "bibliotype contributors",
@@ -41,6 +41,7 @@
   },
   "dependencies": {
     "@bibliotype/core": "workspace:*",
+    "@bibliotype/fonts": "workspace:*",
     "@bibliotype/layout": "workspace:*"
   },
   "devDependencies": {

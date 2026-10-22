@@ -3,9 +3,14 @@
  *
  * 纯函数：IR + 选项 → `SiteFile[]`，不触磁盘 / 网络（写入由调用方决定，
  * 浏览器可打包 ZIP，Node 可 `fs.writeFile`）。产物确定性：无时间戳、按节序编号。
+ *
+ * 字体内嵌（E3）：子集化异步（后端可能是 wasm / 子进程），由宿主调用
+ * `@bibliotype/fonts` 的 `prepareFontBundle()` 完成后以 `fonts` 选项传入；
+ * 本导出器保持同步，只负责写 CSS / 二进制文件 / 许可。
  */
 import { DEFAULT_THEME, NODE_TYPES } from '@bibliotype/core';
 import type { BookDocument, BookNode } from '@bibliotype/core';
+import type { FontBundle } from '@bibliotype/fonts';
 import { DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
 import { serializeNode } from '@bibliotype/layout/html';
 import { planSections } from './plan.js';
@@ -33,7 +38,8 @@ export function exportSite(
   options: SiteExportOptions = {},
 ): SiteExportResult {
   const plan = planSections(document);
-  const warnings = [...plan.warnings];
+  /* 字体告警（缺后端 / 缺字回退 / 未声明许可）与分节告警合并报告 */
+  const warnings = [...plan.warnings, ...(options.fonts?.warnings ?? [])];
 
   /* 评论聚合：导出期追加「读者评论」页，不改动原文档 */
   if (options.includeComments === true && options.comments !== undefined && options.comments.length > 0) {
@@ -96,11 +102,25 @@ export function exportSite(
     mediaType: 'text/html',
     text: renderIndexPage({ siteTitle, language, sections }),
   });
+  const siteCss = buildSiteCss({ layout, tokens, containerSelector: selector });
+  const fontCss = options.fonts?.css ?? '';
   files.push({
     path: 'style.css',
     mediaType: 'text/css',
-    text: buildSiteCss({ layout, tokens, containerSelector: selector }),
+    /* @font-face 必须排在书册样式之前：同族名后出现的声明会覆盖前面的 src，
+       保证子集字体优先于主题字体栈里的同名项。 */
+    text: fontCss === '' ? siteCss : `${fontCss}\n\n${siteCss}`,
   });
+
+  /* 字体（E3）：二进制资源 + 许可文件；未传 fonts 时零残留 */
+  for (const face of options.fonts?.faces ?? []) {
+    files.push({ path: face.href, mediaType: face.mediaType, text: '', data: face.bytes });
+  }
+  const fontLicense = options.fonts?.license;
+  const fontLicensePath = options.fonts?.licensePath;
+  if (fontLicense !== undefined && fontLicensePath !== undefined) {
+    files.push({ path: fontLicensePath, mediaType: 'text/plain', text: fontLicense });
+  }
 
   if (options.searchIndex !== false) {
     files.push({

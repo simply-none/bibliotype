@@ -2,20 +2,28 @@
  * 静态站点导出类型
  *
  * 产物是「可上传到任意静态托管」的文件集合：`index.html`（目录）+ 每节一页 +
- * `style.css` + `search-index.json`（可选）+ `book.json`（IR 原文，可选）。
- * 全部为文本文件，输出确定性（无时间戳、路径按节序编号）。
+ * `style.css` + `search-index.json`（可选）+ `book.json`（IR 原文，可选）+ 内嵌字体
+ * （可选）。文本产物确定性（无时间戳、路径按节序编号）。
  */
 import type { ExportComment, RevisionView } from '@bibliotype/core';
+import type { FontBundle } from '@bibliotype/fonts';
 import type { LayoutOptions } from '@bibliotype/layout';
 
-/** 站点文件（全部为文本） */
+/** 站点文件（文本产物；字体等二进制资源用 `data`） */
 export interface SiteFile {
   /** 相对路径（如 `section-1.html`） */
   path: string;
   /** MIME 类型 */
   mediaType: string;
-  /** 文本内容 */
+  /** 文本内容（二进制资源为空串，内容在 `data`） */
   text: string;
+  /**
+   * 二进制内容（可选，如子集字体）
+   *
+   * 文本文件不设此字段；写入方按 `data ?? text` 选择落盘方式
+   * （Node `fs.writeFile` 两种都接受，浏览器 ZIP 打包需区分）。
+   */
+  data?: Uint8Array;
 }
 
 /** 站点目录项（每项对应一个页面） */
@@ -56,6 +64,15 @@ export interface SiteExportOptions {
   tokens?: Readonly<Record<string, string | undefined>>;
   /** 样式作用域容器选择器（缺省 `.bt-reader-page`） */
   containerSelector?: string;
+  /**
+   * 字体包（E3，缺省不内嵌字体）
+   *
+   * 由 `@bibliotype/fonts` 的 `prepareFontBundle()` 预先生成（子集化异步，导出保持同步）：
+   * `@font-face` 前置到 style.css，字体字节作为二进制文件写入 `<字体目录>/`，
+   * 许可写入 `fonts/LICENSE.txt`；`warnings`（缺后端 / 缺字回退 / 未声明许可）
+   * 一并并入 `SiteExportResult.warnings`。
+   */
+  fonts?: FontBundle;
   /** 是否输出 `book.json`（IR 原文，缺省 true） */
   includeBookJson?: boolean;
   /**

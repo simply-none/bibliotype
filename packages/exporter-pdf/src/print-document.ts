@@ -38,7 +38,7 @@ import {
   type BlockMeasureContext,
   type BlockSizeEstimator,
 } from '@bibliotype/reader';
-import { buildPrintCss, type PrintMode } from './print-styles.js';
+import { buildPrintCss, type PrintFacingOptions, type PrintMode } from './print-styles.js';
 
 /** 打印文档生成选项 */
 export interface PrintDocumentOptions {
@@ -123,6 +123,27 @@ export interface PrintDocumentOptions {
   features?: FeatureStyleSheet;
   /** 命名样式集合（`[data-style-id]` 规则） */
   namedStyles?: NamedStyleSet;
+  /**
+   * 对页镜像（E8）：奇数页（右页 / recto）装订边在左、偶数页在右
+   *
+   * `true` 等价 `{}`；`gutter` 为中缝装订补偿（px），加在内侧页边距上。
+   * paged 模式逐页打 `bt-page-recto / bt-page-verso` 标记；auto 模式走
+   * `@page :right / :left`（Chromium 对页选择器支持有限，需要精确对页
+   * 时用 paged 模式）。
+   */
+  facing?: boolean | PrintFacingOptions;
+  /**
+   * 出血（mm，单边）：页面四周外扩，版心位置与尺寸不变
+   *
+   * paged 模式下 `.bt-page` 与 `@page` 同步放大、padding 补回出血；
+   * auto 模式额外下发 `marks` / `bleed` 描述符（Chromium 忽略，
+   * 交给 Prince / Vivliostyle 等支持 CSS Paged Media 的引擎）。
+   */
+  bleed?: number;
+  /** 是否输出四角裁切标记（仅 paged 模式且出血 > 0） */
+  cropMarks?: boolean;
+  /** 是否输出图片打印尺寸规则（按版心等比缩小，不裁切） */
+  imageRules?: boolean;
 }
 
 /** 生成打印文档（完整 HTML 字符串） */
@@ -145,7 +166,15 @@ export function renderPrintHtml(
     pageDecoration: mode === 'paged' && layout.facsimile !== undefined,
     /* 书册根规则仍挂 body（既有口径不变），装饰逐页挂 .bt-page */
     decorationSelector: mode === 'paged' ? '.bt-page' : undefined,
-  })}\n${buildPrintCss({ options: layout, tokens, mode })}`;
+  })}\n${buildPrintCss({
+    options: layout,
+    tokens,
+    mode,
+    ...(options.facing === undefined ? {} : { facing: options.facing }),
+    ...(options.bleed === undefined ? {} : { bleed: options.bleed }),
+    ...(options.cropMarks === undefined ? {} : { cropMarks: options.cropMarks }),
+    ...(options.imageRules === undefined ? {} : { imageRules: options.imageRules }),
+  })}`;
 
   const body =
     mode === 'paged' ? renderPagedBody(book, layout, tokens, options) : renderFlowBody(book, options);
@@ -205,7 +234,7 @@ function renderPagedBody(
 
   /* 空书：保证至少一页，打印文档结构完整 */
   if (pages.length === 0) {
-    return '<section class="bt-page" data-page="1"></section>';
+    return `<section class="bt-page${pageSideClass(options, 0)}" data-page="1">${cropMarksOverlay(options)}</section>`;
   }
 
   return pages
@@ -246,12 +275,24 @@ function renderPagedBody(
               )}</div>\n`
             : '';
       return (
-        `<section class="bt-page" data-page="${page.index + 1}">\n` +
+        `<section class="bt-page${pageSideClass(options, page.index)}" data-page="${page.index + 1}">\n` +
         `${content}\n` +
-        `${gutter}${header}${footer}</section>`
+        `${gutter}${header}${footer}${cropMarksOverlay(options)}</section>`
       );
     })
     .join('\n');
+}
+
+/** 对页标记类（第 1 页为右页 / recto；未启用对页时为空串） */
+function pageSideClass(options: PrintDocumentOptions, pageIndex: number): string {
+  if (options.facing === undefined || options.facing === false) return '';
+  return pageIndex % 2 === 0 ? ' bt-page-recto' : ' bt-page-verso';
+}
+
+/** 裁切标记覆盖层（仅 paged + 出血 > 0 + 显式开启；四角各一条 L 形标记） */
+function cropMarksOverlay(options: PrintDocumentOptions): string {
+  if (options.cropMarks !== true || (options.bleed ?? 0) <= 0) return '';
+  return '<div class="bt-crop-marks" aria-hidden="true"><i></i><i></i><i></i><i></i></div>';
 }
 
 /** 每页可用主轴尺寸（与 reader / 编辑画布同源：resolvePageMainSize，含页边距与版框边框扣除） */

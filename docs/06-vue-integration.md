@@ -480,3 +480,58 @@ happy-dom 没有布局，H5 行为靠语义钩子验证：
 | `.editor-toolbar[data-pointer]` / `[data-row][data-folded]` + `aria-expanded` | demo `EditorToolbar` |
 | `.usage-tip[data-touch]` | demo `ToolbarUsageTip` |
 | `.dialog--mobile` / `[data-mobile]` | demo 设置 / 书籍信息弹窗 |
+
+## P4 导出扩展（E7）：图片 / 长图导出
+
+把分页结果渲染成图片：单页 PNG / JPEG、按章批量截图打 ZIP、多页竖向拼接的分享长图。
+全部导出集中在 `@bibliotype/vue`（`src/image-export.ts`），**不引第三方运行时依赖**；
+文件下载与存储由宿主完成（与「库内不下载文件」的既有约定一致）。
+
+| 导出 | 用途 | 关键参数 / 返回值 |
+| --- | --- | --- |
+| `exportChapterImages(reader, options?)` | 按章截图 → ZIP | `image?`（DPR / 格式 / 质量 / 底色）、`capture?`、`retries?`、`chapterLevel?`、`onProgress?`；返回 `chapters` / `pages` / `zip` |
+| `exportLongImage(reader, options?)` | 截图 → 竖向拼接 → 图片字节 | 同上 + `longImage?`（`pageGap` / `chapterGap` / `padding` / 章名样式）；返回 `chapters` / `pages` / `layout` / `data` |
+| `planChapterImages(reader, { level? })` | 按目录把分页结果分组 | 返回 `ChapterImagePlan[]`（`title` / `startPage` / `endPage`）；首章吞并封面 / 前置页，无目录退化为单章 |
+| `layoutLongImage(chapters, options?)` | 长图布局（纯函数） | 页位置 + 分隔带位置；高度 = Σ页高 + 页间距 + 分隔带 + 上下留白 |
+| `createDomPageCapture(reader, options?)` | 浏览器端单页截图器 | 离屏 `.bt-reader-page` + SVG `foreignObject`，字体就绪后栅格化 |
+| `composeLongImage(layout, images, options?)` | 长图合成（Canvas） | 分隔带绘制章名 |
+| `createStoredZip(files)` | STORE（不压缩）ZIP | 固定时间戳，同一输入产物逐字节一致 |
+| `canvasToBytes` / `waitForFonts` / `resolvePageImageOptions` / `resolvePagePixelSize` / `chapterFolderName` / `pageFileName` / `sanitizeImagePathSegment` | 编码 / 字体 / 选项 / 命名工具 | 均可在 Node / happy-dom 直接调用 |
+
+要点：
+
+- **截图口径与 `BtBookView` 同源**：离屏页框套 `buildBookCss({ containerSelector: '.bt-reader-page' })` +
+  `buildPageStyle` / `buildRootStyle`，页眉页脚、页底注区、版心多栏随页渲染——长图里也带页眉页脚；
+- **零运行时依赖**：页框克隆进 SVG `foreignObject` 后经 `Image` + Canvas 栅格化；跨域外链图会污染画布，
+  IR 约定正文图片内联为 data URI，命中时按截图失败重试；
+- 截图前等待 `document.fonts.ready`，字体未就绪不会截出回退字形；
+- 按章 ZIP 文件名为 `01-章名/001.png`（页序全书连续、章名经文件系统安全清洗）；PNG / JPEG 本身已压缩，
+  ZIP 走 STORE，省 CPU 且产物可复现；
+- 长图高度公式：`Σ页高 + 同章页间距 × (页数 − 章数) + 分隔带 × (章数 − 1) + 2 × padding`，
+  分隔带可绘制章名，`chapterGap: 0` 关闭；
+- 整书页数很多时高度会撞浏览器画布上限（Chrome ≈ 32767px），此时改用按章 ZIP；
+- 失败统一为 `BibliotypeError`：单页重试（`retries`，缺省 1）用尽抛 `IMAGE_EXPORT_FAILED`
+  （`details.pageIndex` / `attempts`，`cause` 保留根因）；无 DOM / Canvas 环境抛 `IMAGE_EXPORT_UNSUPPORTED`。
+
+```ts
+import { exportChapterImages, exportLongImage } from '@bibliotype/vue';
+
+// 按章 ZIP（进度 + 重试）
+const { zip, chapters } = await exportChapterImages(reader, {
+  image: { dpr: 3, format: 'png' },
+  retries: 2,
+  onProgress: ({ phase, done, total }) => console.log(phase, `${done}/${total}`),
+});
+host.save(zip, '全书分章.zip'); // 文件 IO 由宿主完成
+
+// 分享长图（含页眉页脚 + 分章分隔）
+const { data, layout } = await exportLongImage(reader, {
+  image: { dpr: 2, format: 'jpeg', quality: 0.9 },
+  longImage: { pageGap: 16, chapterGap: 48, padding: 12 },
+});
+console.log(layout.height);
+```
+
+测试口径：happy-dom 无 Canvas 2D，DOM 截图与长图合成只覆盖环境安全门（`IMAGE_EXPORT_UNSUPPORTED`）；
+截图编排经 `PageCapture` 端口注入假实现，覆盖 ZIP 条目 / 页序 / 进度 / 重试 / 回收；
+长图布局是纯函数，直接断言总高与分隔带位置（见 `packages/vue/src/__tests__/image-export.test.ts`）。

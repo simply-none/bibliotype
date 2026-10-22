@@ -18,6 +18,12 @@ export const BIBLIOTYPE_ERROR_CODES = {
   EDITOR_SPEC_CONFLICT: 'EDITOR_SPEC_CONFLICT',
   /** HTTP 请求失败（adapter-http，网络错误 status=0） */
   HTTP_REQUEST_FAILED: 'HTTP_REQUEST_FAILED',
+  /** 图片导出失败（vue / image-export，单页截图或打包失败） */
+  IMAGE_EXPORT_FAILED: 'IMAGE_EXPORT_FAILED',
+  /** 图片导出环境不可用（vue / image-export，无 DOM / Canvas） */
+  IMAGE_EXPORT_UNSUPPORTED: 'IMAGE_EXPORT_UNSUPPORTED',
+  /** 字体子集化失败（fonts，后端抛错或产物为空） */
+  FONT_SUBSET_FAILED: 'FONT_SUBSET_FAILED',
 } as const;
 
 /** 统一错误码联合 */

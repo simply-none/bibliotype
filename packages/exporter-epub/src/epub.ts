@@ -2,7 +2,11 @@
  * EPUB 导出主流程
  *
  * 链路：BookDocument → 章节规划（sections）→ XHTML 序列化（layout/html）
- * → OPF / nav / 样式 → 媒体打包 → 导出前校验 → fflate 打包为 EPUB（Uint8Array）。
+ * → OPF / nav / 样式 → 媒体 / 字体打包 → 导出前校验 → fflate 打包为 EPUB（Uint8Array）。
+ *
+ * 字体内嵌（E3）：子集化是异步的（后端可能是 wasm / 子进程），由宿主调用
+ * `@bibliotype/fonts` 的 `prepareFontBundle()` 完成后以 `fonts` 选项传入；
+ * 本导出器保持同步，只负责写 CSS / manifest / 字节 / 许可声明。
  *
  * 浏览器与 Node 同构：不依赖 DOM 与文件系统，产物由调用方保存 / 下载。
  * mimetype 按 OCF 规范以首条目、STORE（不压缩）方式写入。
@@ -31,6 +35,7 @@ import {
   type RevisionView,
 } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
+import type { FontBundle } from '@bibliotype/fonts';
 import { DEFAULT_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
 import { resolveNodeTitle } from '@bibliotype/reader';
@@ -56,6 +61,15 @@ export interface EpubExportOptions {
   tokens?: Readonly<Record<string, string | undefined>>;
   /** 正文字体令牌键（缺省 FONT_TOKENS.BODY；古籍传 FONT_TOKENS.CLASSICAL_BODY） */
   fontToken?: string;
+  /**
+   * 字体包（E3，缺省不内嵌字体）
+   *
+   * 由 `@bibliotype/fonts` 的 `prepareFontBundle()` 预先生成——子集化是异步的，
+   * 导出器保持同步只消费结果：`@font-face` 前置到 style.css，字体字节写入
+   * `OEBPS/<字体目录>/`，manifest 登记，许可声明写入 `dc:rights` 并随包携带
+   * 许可文件；`warnings`（缺后端 / 缺字回退 / 未声明许可）经 `onValidation` 报告。
+   */
+  fonts?: FontBundle;
   /** 语言标记（缺省 metadata.language，再缺省 zh-Hans） */
   language?: string;
   /** 唯一标识符（缺省 metadata.identifiers 首项，再缺省确定性 urn；裸 ISBN 自动归一为 urn:isbn:） */
@@ -329,7 +343,7 @@ export function exportEpub(
     uid: identifier,
     items: navItems,
   });
-  const css = buildBookCss({
+  const bookCss = buildBookCss({
     tokens: options.tokens ?? DEFAULT_THEME,
     options: layout,
     fontToken: options.fontToken,
@@ -340,6 +354,15 @@ export function exportEpub(
     flatten: true,
   });
 
+  /* ---------- 字体（E3：导出前已按用字统计子集化） ---------- */
+  const fontFaces = options.fonts?.faces ?? [];
+  const fontLicense = options.fonts?.license;
+  const fontLicensePath = options.fonts?.licensePath;
+  const fontCss = options.fonts?.css ?? '';
+  /* @font-face 必须排在书稿样式之前：同族名后出现的 @font-face 会覆盖前面的 src，
+     保证子集字体优先于主题字体栈里的同名项。空串时不插入多余空行。 */
+  const css = fontCss === '' ? bookCss : `${fontCss}\n\n${bookCss}`;
+
   /* ---------- OPF ---------- */
   const mediaManifest: OpfManifestItem[] = media.mediaItems.map((item) => ({
     id: item.id,
@@ -349,6 +372,15 @@ export function exportEpub(
       ? 'cover-image'
       : undefined,
   }));
+  /* 字体 manifest：href 相对 OPF（如 `fonts/bt-kai-400-1a2b3c4d.woff2`），EPUB 2 同样支持字体条目 */
+  const fontManifest: OpfManifestItem[] = fontFaces.map((face, index) => ({
+    id: `font-${index + 1}`,
+    href: face.href,
+    mediaType: face.mediaType,
+  }));
+  if (fontLicense !== undefined && fontLicensePath !== undefined) {
+    fontManifest.push({ id: 'font-license', href: fontLicensePath, mediaType: 'text/plain' });
+  }
   const opf = buildOpf({
     identifier,
     metadata,
@@ -363,6 +395,7 @@ export function exportEpub(
         properties: epubVersion === '3.0' ? 'nav' : undefined,
       },
       { id: 'style', href: 'style.css', mediaType: 'text/css' },
+      ...fontManifest,
       ...mediaManifest,
       ...manifest,
     ],
@@ -370,6 +403,7 @@ export function exportEpub(
     version: epubVersion,
     ncxId: 'ncx',
     coverItemId: coverItem?.id,
+    rights: options.fonts?.rights,
     pageProgressionDirection: pageDirection,
     /* guide 仅 EPUB 2 输出（EPUB 3 已用 nav + landmarks 取代，写了只会多一条弃用告警） */
     guide:
@@ -397,16 +431,30 @@ export function exportEpub(
   for (const item of media.mediaItems) {
     files[`OEBPS/${item.href}`] = [item.bytes, { mtime }];
   }
+  for (const face of fontFaces) {
+    files[`OEBPS/${face.href}`] = [face.bytes, { mtime }];
+  }
+  if (fontLicense !== undefined && fontLicensePath !== undefined) {
+    files[`OEBPS/${fontLicensePath}`] = [strToU8(fontLicense), { mtime }];
+  }
   for (const [name, entry] of Object.entries(textEntries)) {
     files[name] = entry;
   }
 
   /* ---------- 导出前校验（不中断导出，问题经回调透出） ---------- */
+  /* 字体告警（缺后端 / 缺字回退 / 未声明许可）是「导出前报告」的核心内容：
+     即使显式关闭校验也要透出，否则缺字会静默上线。 */
+  const fontProblems: ValidationProblem[] = (options.fonts?.warnings ?? []).map((message) => ({
+    severity: 'warning',
+    code: 'FONT-REPORT',
+    message,
+  }));
   if (options.validate !== false) {
     /* 校验视图：同一批字节引用（不拷贝），仅换掉 zip 选项包装 */
     const entries: Record<string, Uint8Array> = {};
     for (const [name, entry] of Object.entries(files)) entries[name] = entry[0];
     const problems: ValidationProblem[] = [
+      ...fontProblems,
       /* 媒体收集告警（外链 / 易失地址 / 相对死链 / 超限）并入报告；IMG- 前缀与校验器的 MEDIA- 码区分 */
       ...media.mediaProblems.map((p) => ({
         severity: p.severity,
@@ -420,6 +468,8 @@ export function exportEpub(
       }),
     ];
     options.onValidation?.(problems);
+  } else if (fontProblems.length > 0) {
+    options.onValidation?.(fontProblems);
   }
 
   const zipBytes = zipSync(files);

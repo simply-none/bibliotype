@@ -8,5 +8,5 @@ export default defineConfig({
   clean: true,
   treeshake: true,
   target: 'es2020',
-  external: ['@bibliotype/core', '@bibliotype/layout'],
+  external: ['@bibliotype/core', '@bibliotype/fonts', '@bibliotype/layout'],
 });

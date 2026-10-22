@@ -1,0 +1,51 @@
+{
+  "name": "@bibliotype/fonts",
+  "version": "0.1.0",
+  "description": "字体内嵌与子集化：用字统计、可插拔子集后端、@font-face 与许可声明 - bibliotype 内核包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/fonts"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/fonts#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@bibliotype/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

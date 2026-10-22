@@ -2,7 +2,8 @@
 
 PDF 导出：IR → 打印文档（`@page` 尺寸 / 预分页固定页）+ 浏览器打印辅助（`window.print`），
 并支持**宿主适配器直出文件**（Electron `printToPDF` / Node 无头浏览器，`exportPdfBytes` →
-`downloadPdf`，秒级、矢量、无打印对话框）。
+`downloadPdf`，秒级、矢量、无打印对话框）。印前精排：对页镜像、出血与裁切标记、
+图片 DPI 检查、CMYK 转色提示（E8）。
 
 两条导出路径：
 
@@ -86,11 +87,34 @@ const css = buildPrintCss({ options: layout, tokens: DEFAULT_THEME, mode: 'paged
 | `estimator` / `context` | 自定义块尺寸估算器 / 估算上下文覆盖（仅 paged） |
 | `tagOverrides` | 节点类型 → 标签覆盖（透传序列化器） |
 | `rewriteSrc` | 图片 src 改写回调（浏览器降级路径做 data URI → blob URL 去重） |
+| `facing` | 对页镜像（`true` 或 `{ gutter }`）：奇数页装订边在左、偶数页在右 |
+| `bleed` | 出血（mm，单边）：页面四周外扩，版心位置不变 |
+| `cropMarks` | 四角裁切标记（仅 paged 且 `bleed > 0`） |
+| `imageRules` | 图片按版心等比缩小（`max-width` / `max-height`，不裁切） |
 
 ### `PrintCssOptions`（`buildPrintCss`）
 
 `options`（布局）、`tokens`（令牌）、`mode`（模式）——生成 `@page` 尺寸、页边距等打印样式，
-与书册样式表叠加使用。
+与书册样式表叠加使用。精排选项（均可选，缺省不输出）：`facing`（对页镜像）、
+`bleed`（出血 mm）、`cropMarks`（裁切标记）、`imageRules`（图片版心约束）。
+
+### 精排（对页 / 出血 / 裁切线）
+
+```ts
+const html = renderPrintHtml(document, {
+  mode: 'paged',
+  facing: { gutter: 40 },  // 中缝装订补偿 40px：右页加左内边距、左页加右内边距
+  bleed: 3,                // 出血 3mm：页面四周外扩 11px，版心尺寸不变
+  cropMarks: true,         // 四角 L 形裁切标记
+  imageRules: true,        // 图片等比缩到版心内（不裁切、不放大）
+});
+```
+
+- `paged` 逐页打 `bt-page-recto / bt-page-verso`（第 1 页为右页），裁切标记为
+  `.bt-crop-marks` 覆盖层；`auto` 走 `@page :right / :left`，出血另下发
+  `marks: crop cross` / `bleed` 说明符（Chromium 忽略，供 Prince / Vivliostyle）。
+- 宿主打印引擎的纸张尺寸、边距必须留空或跟随 CSS（`preferCssPageSize: true`），
+  否则出血 / 对页白做。
 
 ### `PrintHtmlOptions`（`printHtml`）
 
@@ -113,6 +137,28 @@ summarizePdfGlyphProblems(issues); // '缺字 2 处：𫞩（U+2B7A9，可 IDS �
 
 只警告、不阻断导出；`stage: 'ids'` 表示可用 IDS 合成显示，`'tofu'` 表示会显示豆腐块。
 探测端口缺省时视为全部命中（宁漏报不误报）。
+
+### 图片 DPI 与印前色彩提示（E8）
+
+```ts
+import {
+  collectPdfImageProblems,
+  summarizePdfImageProblems,
+  collectPrintColorAdvice,
+  summarizePrintColorAdvice,
+} from '@bibliotype/exporter-pdf';
+
+const images = collectPdfImageProblems(document, { minDpi: 300 });
+// IMAGE-OVERSIZE（超出版心、缩放不裁切）、IMAGE-LOW-DPI（低于阈值）、
+// IMAGE-UNMEASURED（外链 / SVG 等无法量测）
+summarizePdfImageProblems(images); // '图片检查 3 条：低 DPI 2 张；超出版面 1 张'
+
+const advice = collectPrintColorAdvice(document, { hasIccProfile: false });
+// PRINT-CMYK-UNSUPPORTED / PRINT-ICC-MISSING / PRINT-RGB-IMAGE
+```
+
+浏览器打印管线只输出 DeviceRGB PDF，**不能直出 CMYK**：印前需下游按 ICC 转换，
+高饱和色会有色域压缩。两类报告与缺字报告同口径——只提示、不阻断导出。
 
 ### `PdfExportAdapter`（`exportPdfBytes`）
 

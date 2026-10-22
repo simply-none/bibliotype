@@ -8,5 +8,5 @@ export default defineConfig({
   clean: true,
   treeshake: true,
   target: 'es2020',
-  external: ['@bibliotype/core', '@bibliotype/layout', '@bibliotype/reader', 'fflate'],
+  external: ['@bibliotype/core', '@bibliotype/fonts', '@bibliotype/layout', '@bibliotype/reader', 'fflate'],
 });

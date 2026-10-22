@@ -119,7 +119,7 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 | [05 版式与 HTML](docs/05-layout-and-html.md) | 布局选项、样式构建、HTML 序列化 |
 | [06 Vue 集成](docs/06-vue-integration.md) | useReader / 组件 / 插件安装 |
 | [07 EPUB 导出](docs/07-export-epub.md) | 章节规划、OPF/nav、打包 |
-| [08 PDF 与打印](docs/08-export-pdf.md) | 打印 CSS、预分页、printBook |
+| [08 PDF 与打印](docs/08-export-pdf.md) | 打印 CSS、预分页、对页 / 出血 / 裁切线、图片 DPI 与 CMYK 提示 |
 | [09 协同编辑](docs/09-collab.md) | Y.Doc 映射、会话、Provider、WebSocket / 多标签传输 |
 | [10 存储适配器](docs/10-storage-adapters.md) | StorageAdapter 契约、IndexedDB / 内存 / SQLite 实现 |
 | [11 主题与令牌](docs/11-theme-tokens.md) | 令牌体系、古典覆盖、自定义主题 |

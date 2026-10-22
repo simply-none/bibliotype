@@ -12,7 +12,7 @@
 | 做编辑与插件 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [03 古籍](03-classical-layout.md) → [19 工具条使用说明](19-editor-toolbar-usage.md) → [20 选区替换为](20-selection-replace.md) → [21 表格编辑](21-table-editing.md) |
 | 做插件扩展（事件 / 自定义节点） | [01](01-document-model.md) → [13 核心运行时](13-core-runtime.md) → [02 编辑器与插件](02-editor-and-plugins.md) |
 | 做阅读器与版式 | [01](01-document-model.md) → [04 阅读与分页](04-reader-and-pagination.md) → [05 版式与 HTML](05-layout-and-html.md) → [11 主题令牌](11-theme-tokens.md) → [22 古籍仿真直排](22-facsimile-vertical.md) |
-| 做导出 | [05](05-layout-and-html.md) → [07 EPUB](07-export-epub.md) → [08 PDF 与打印](08-export-pdf.md) |
+| 做导出 | [05](05-layout-and-html.md) → [07 EPUB（含字体内嵌）](07-export-epub.md) → [08 PDF 与打印（含精排）](08-export-pdf.md) → [32 DOCX](32-export-docx.md) → [06 图片 / 长图](06-vue-integration.md) |
 | 做文档导入 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [17 文档导入](17-document-import.md) |
 | 做协同与存储 | [01](01-document-model.md) → [09 协同](09-collab.md) → [10 存储](10-storage-adapters.md) → [29 远端适配器](29-adapter-http.md) |
 | 做标注与位置恢复 | [23 锚点](23-ir-validation-and-migration.md) → [24 标注](24-annotation.md) |
@@ -33,9 +33,9 @@
 | [03 古籍排版](03-classical-layout.md) | 古籍节点、标记、主题、编辑命令 | `@bibliotype/classical` |
 | [04 阅读器与分页](04-reader-and-pagination.md) | 块抽取、贪心分页、目录、搜索、页码 | `reader` / `layout` |
 | [05 版式与 HTML](05-layout-and-html.md) | 布局选项、样式构建、HTML 序列化 | `@bibliotype/layout` |
-| [06 Vue 集成](06-vue-integration.md) | 组合式 API、组件、插件 | `@bibliotype/vue` |
-| [07 EPUB 导出](07-export-epub.md) | 章节规划、OPF/nav、打包 | `@bibliotype/exporter-epub` |
-| [08 PDF 与打印](08-export-pdf.md) | 打印 CSS、预分页、printBook | `@bibliotype/exporter-pdf` |
+| [06 Vue 集成](06-vue-integration.md) | 组合式 API、组件、图片 / 长图导出 | `@bibliotype/vue` |
+| [07 EPUB 导出](07-export-epub.md) | 章节规划、OPF/nav、打包、字体内嵌与子集化 | `@bibliotype/exporter-epub` / `@bibliotype/fonts` |
+| [08 PDF 与打印](08-export-pdf.md) | 打印 CSS、预分页、对页 / 出血 / 裁切线、图片 DPI 与 CMYK 提示 | `@bibliotype/exporter-pdf` |
 | [09 协同编辑](09-collab.md) | Y.Doc 映射、会话、Provider、网络传输 | `@bibliotype/collab` / `provider-websocket` |
 | [10 存储适配器](10-storage-adapters.md) | StorageAdapter 契约与实现 | `adapter-indexeddb` / `adapter-sqlite` |
 | [11 主题与令牌](11-theme-tokens.md) | 令牌体系、古典覆盖、自定义主题 | `core` / `classical` / `layout` |
@@ -55,10 +55,11 @@
 | [25 中文排印](25-cjk-typography.md) | 禁则避头尾、标点挤压、中西文混排间距、CSS 声明 | `@bibliotype/typography-cjk` |
 | [26 交叉引用](26-cross-reference.md) | 两遍排版页码索引、「参见第 X 页」占位替换与标签登记 | `@bibliotype/xref` |
 | [27 文本转换](27-text-conversion.md) | 繁简 / 异体字转换、命中记录、OpenCC 接入、反向表 | `@bibliotype/textconvert` |
-| [28 静态站点导出](28-site-export.md) | 目录页 + 分节页 + 样式 + 搜索索引，纯函数导出 | `@bibliotype/exporter-site` |
+| [28 静态站点导出](28-site-export.md) | 目录页 + 分节页 + 样式 + 搜索索引 + 字体，纯函数导出 | `@bibliotype/exporter-site` / `@bibliotype/fonts` |
 | [29 远端存储适配器](29-adapter-http.md) | REST 文档 / 资产端点契约、错误语义、fetch 注入 | `@bibliotype/adapter-http` |
 | [30 文档统计与词表检查](30-document-stats.md) | 字数 / 词数 / 阅读时长 / 章节分布、错别字与敏感词检查 | `@bibliotype/core` |
 | [31 注释](31-notes.md) | 脚注 / 尾注 / 边注的类型归属、注码与编号、插入命令、`epub:type` 输出 | `core` / `editor` / `layout` / `exporter-epub` |
+| [32 DOCX 导出](32-export-docx.md) | IR → `.docx`：标题层级 / 命名样式 / 脚注 / 表格 / 图片，降级问题码与 mammoth 往返校验 | `@bibliotype/exporter-docx` |
 
 ## 架构总览
 
@@ -82,6 +83,7 @@ apps/demo                          ← 集成示例（Vue 3 + Vite）
  ├── @bibliotype/xref              ← 交叉引用（两遍排版页码索引）
  ├── @bibliotype/textconvert       ← 繁简 / 异体字转换
  ├── @bibliotype/exporter-epub / exporter-pdf ← 导出（依赖 core / layout / reader）
+ ├── @bibliotype/exporter-docx      ← DOCX 导出（依赖 core）
  └── @bibliotype/exporter-site     ← 静态站点导出（依赖 core / layout）
 ```
 

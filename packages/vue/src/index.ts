@@ -229,3 +229,47 @@ export type { BreakpointHost, UseBreakpoint, UseBreakpointOptions } from './use-
 export { useScrollLock } from './use-scroll-lock.js';
 export type { UseScrollLock, UseScrollLockOptions } from './use-scroll-lock.js';
 export { default as BtDrawer } from './components/BtDrawer.vue';
+
+/* ---------- 图片 / 长图导出（E7） ---------- */
+export {
+  DEFAULT_PAGE_IMAGE_OPTIONS,
+  canvasToBytes,
+  chapterFolderName,
+  composeLongImage,
+  createDomPageCapture,
+  createStoredZip,
+  exportChapterImages,
+  exportLongImage,
+  layoutLongImage,
+  pageFileName,
+  planChapterImages,
+  resolvePageImageOptions,
+  resolvePagePixelSize,
+  sanitizeImagePathSegment,
+  waitForFonts,
+} from './image-export.js';
+export type {
+  CapturedPageImage,
+  ChapterImageExportOptions,
+  ChapterImageExportResult,
+  ChapterImagePlan,
+  ChapterPlanOptions,
+  DomPageCaptureOptions,
+  ImageCaptureSourceOptions,
+  ImageExportFormat,
+  ImageExportProgress,
+  LongImageChapterInput,
+  LongImageExportOptions,
+  LongImageExportResult,
+  LongImageLayout,
+  LongImageLayoutOptions,
+  LongImageOptions,
+  LongImagePageImage,
+  LongImagePagePlacement,
+  LongImageSeparatorPlacement,
+  PageCapture,
+  PageImageInfo,
+  PageImageOptions,
+  ResolvedPageImageOptions,
+  ZipFileInput,
+} from './image-export.js';

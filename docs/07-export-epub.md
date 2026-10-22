@@ -283,3 +283,71 @@ const problems = collectEpubGlyphProblems(document, {
 - 无 `volume` 节点时返回单卷，字节与 `exportEpub` 完全一致；`exportEpub` 签名不变。
 - 前置页（封面 / 书名页 / 版权页 / 封底）各成独立 XHTML（`FRONT_MATTER_TYPES`），spine 顺序保持原文档顺序，且不进 nav / ncx 目录；`body` 输出 `epub:type="cover" / "titlepage" / "copyright-page"`，封底不标注。
 - 既有 EPUB 的文件数会因前置页独立而增加；正文序列化未变。
+
+## 字体内嵌与子集化（E3）
+
+古籍字体动辄 10MB 级，全量嵌入会让 EPUB 超出平台上传上限。E3 按**全书用字**
+子集化字体，再以 `@font-face` 内嵌：80 万字文档（8 个唯一字）实测体积下降 ≥60%。
+
+子集化是异步能力（后端可能是 wasm 或子进程），而导出器保持同步。因此拆成两段：
+
+```ts
+import { prepareFontBundle, type FontSubsetBackend } from '@bibliotype/fonts';
+import { exportEpub } from '@bibliotype/exporter-epub';
+
+/* 1) 宿主注入子集后端（示例：harfbuzz wasm 封装；也可用 fonttools 子进程） */
+const subsetFont: FontSubsetBackend = {
+  name: 'subset-font',
+  async subset({ bytes, chars }) {
+    const out = await subsetFontWasm(bytes, chars);
+    return { bytes: out, missingChars: checkMissing(chars) };
+  },
+};
+
+/* 2) 导出前准备字体包（用字统计 → 子集化 → @font-face / 许可 / 报告） */
+const fonts = await prepareFontBundle(document, [
+  {
+    id: 'font-kai',
+    family: 'Classical Kai',
+    bytes: await readAsset('font-kai'),
+    format: 'ttf',
+    weight: 400,
+    license: { name: 'SIL Open Font License 1.1', copyright: '© 2026 Example' },
+  },
+], {
+  backend: subsetFont,
+  fallbackStack: "'Classical Kai', 'Noto Serif SC', serif",
+  fontDirectory: 'fonts/', // CSS url 前缀，缺省即 fonts/
+});
+
+/* 3) 同步导出（只消费结果） */
+const bytes = exportEpub(document, {
+  fonts,
+  onValidation: (problems) => console.table(problems), // FONT-REPORT 告警
+});
+```
+
+产物增量（不传 `fonts` 时零残留）：
+
+| 路径 | 内容 |
+| --- | --- |
+| `OEBPS/style.css` | `@font-face` 声明前置（子集字体优先于主题字体栈），后接 `buildBookCss` 产物 |
+| `OEBPS/fonts/bt-<族>-<字重><i>-<hash8>.<ext>` | 子集字体字节（内容散列命名，同输入产物逐字节一致） |
+| `OEBPS/fonts/LICENSE.txt` | 许可声明（族名 / 许可 / 地址 / 版权；无任何许可时不写） |
+| `OEBPS/content.opf` | manifest 增加 `font-N`（`font/woff2` 等）与 `font-license`（`text/plain`）；许可行写入 `dc:rights` |
+
+要点与边界：
+
+- **用字统计**：遍历 IR 文本节点（ruby / 标题 / 注文均在内），过滤控制符、保留空白与标点，去重升序后交给后端；`extraChars` 可并入 UI 文案等固定字符。
+- **缺字回退**：后端返回 `missingChars` 时，告警按主题字体栈给出降级链
+  （如「已按回退链降级：Noto Serif SC → serif」），与 [K6 缺字报告](#导出前缺字报告k6)
+  同口径；后端未返回覆盖信息时提示「报告可能不完整」，不做假阴性判断。
+- **告警透出**：缺后端 / 缺字 / 未声明许可均以 `code: 'FONT-REPORT'` 经
+  `onValidation` 报告，**即使 `validate: false` 也报告**（缺字不能静默上线）。
+  级别均为 `warning`，不阻断导出。
+- **体积口径**：`bundle.report` 给出 `sourceBytes / subsetBytes / reduction /
+  families[].missingChars / fallbackChain`，宿主可先看报告再决定是否导出。
+- **EPUB 2**：字体 manifest 与 `dc:rights` 同样输出；不写任何 EPUB 3 专属 `meta`。
+- **不内置二进制**：`@bibliotype/fonts` 只定义 `FontSubsetBackend` 端口，`subset-font` /
+  `fonttools` 由宿主适配；无后端时导出仍可完成（原字节嵌入 + 告警）。
+

@@ -1,0 +1,54 @@
+{
+  "name": "@bibliotype/exporter-docx",
+  "version": "0.1.0",
+  "description": "DOCX 导出：IR → WordprocessingML（标题层级 / 命名样式 / 脚注 / 表格 / 图片），供传统出版投稿 - bibliotype 导出包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/exporter-docx"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/exporter-docx#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@bibliotype/core": "workspace:*",
+    "docx": "^9.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "mammoth": "^1.13.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

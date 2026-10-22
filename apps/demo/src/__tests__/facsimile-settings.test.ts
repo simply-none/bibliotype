@@ -7,6 +7,9 @@
  * 3. 手改结构令牌（字号）判定为「已修改」，纯颜色改动不算；
  * 4. 切回「古籍直排」后模板派生为空、字体回主题基线，无残留。
  *
+ * 另守护弹窗回显：草稿模式下 panelLayoutPatch 跟随草稿（点了即高亮），
+ * 源状态 layoutPatch 不提前变（画布不重排），discardDraft 后回落。
+ *
  * 面板 dirty 判定与模板派生都在 `facsimile-theme.ts` 的纯函数里，
  * 因此无需挂载组件即可覆盖。
  */
@@ -67,6 +70,34 @@ describe('古籍仿真模板区', () => {
       reloaded.layoutPatch.value as Partial<LayoutOptions>,
     );
     expect(restored.facsimile?.preset).toBe(THIRD_PRESET.id);
+  });
+
+  it('草稿模式：点模板后面板视图立即跟随，源状态不提前生效，丢弃后回落', async () => {
+    const api = useStyleSettings({
+      bookId: ref('demo'),
+      draft: true,
+      store: new MemoryStyleStore(),
+    });
+    await api.load();
+
+    api.patchLayout(THIRD_PRESET.layout as unknown as Record<string, unknown>);
+
+    /* 面板视图（弹窗高亮读这里）：草稿已含新模板 */
+    const panelView = mergeLayoutOptions(
+      DEFAULT_PRESET.layout,
+      api.panelLayoutPatch.value as Partial<LayoutOptions>,
+    );
+    expect(panelView.facsimile?.preset).toBe(THIRD_PRESET.id);
+    /* 源状态（画布读这里）：未保存前不变 */
+    expect((api.layoutPatch.value as Partial<LayoutOptions>).facsimile?.preset).not.toBe(
+      THIRD_PRESET.id,
+    );
+
+    /* 关闭弹窗 = 丢弃草稿：面板视图同步回落，高亮不会残留 */
+    api.discardDraft();
+    expect(
+      (api.panelLayoutPatch.value as Partial<LayoutOptions>).facsimile?.preset,
+    ).not.toBe(THIRD_PRESET.id);
   });
 
   it('手改字号判定为已修改，纯颜色改动不算', () => {

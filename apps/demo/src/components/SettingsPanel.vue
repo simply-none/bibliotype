@@ -6,7 +6,8 @@
  * - 左导航：功能样式 / 版面与页面 / 页眉页脚 / 编辑行为 / 预设管理；
  * - 右侧：所选分组的表单；功能分组内先选分组、再选功能（胶囊），然后逐项改细节；
  * - 改动先进 `use-style-settings` 草稿（api 处于 draft 模式）：面板内部可感知
- *   变化，但页面 / 画布不重排；底部「保存」烘焙生效并落盘，「关闭」直接丢弃
+ *   变化（选中态读 api 的面板视图与父级传入的草稿层合并结果），但页面 / 画布
+ *   不重排；底部「保存」烘焙生效并落盘，「关闭」直接丢弃
  *   未保存改动（丢弃由父级调 api.discardDraft 完成）。
  *
  * 参数表来自 `use-style-schema.ts`，表单由 `FeatureStyleEditor` 通用渲染，
@@ -145,10 +146,10 @@ const groupFeatures = computed(() =>
 );
 
 const featureLabel = computed(() => FEATURE_STYLE_META[activeFeature.value].label);
-const featureDeclarations = computed(() => props.api.features.value[activeFeature.value] ?? {});
+const featureDeclarations = computed(() => props.api.panelFeatures.value[activeFeature.value] ?? {});
 
 /** 已覆盖的功能数量（导航角标） */
-const overriddenFeatures = computed(() => Object.keys(props.api.features.value).length);
+const overriddenFeatures = computed(() => Object.keys(props.api.panelFeatures.value).length);
 
 /* ---------- 外观主题（D10）：只读令牌 + 主题预设，与样式草稿互不影响 ---------- */
 
@@ -509,7 +510,7 @@ const styleName = ref('');
  * 「依据」候选：排除自身，以及以自身为祖先的样式（选中会造成继承环）。
  */
 function basedOnCandidates(styleId: string) {
-  const set = props.api.namedStyles.value;
+  const set = props.api.panelNamedStyles.value;
   return set.styles.filter((candidate) => {
     if (candidate.id === styleId) return false;
     return !resolveNamedStyleChain(set, candidate.id).some((item) => item.id === styleId);
@@ -676,7 +677,7 @@ async function onSave(): Promise<void> {
                 class="panel__chip"
                 :class="{
                   'panel__chip--active': activeFeature === id,
-                  'panel__chip--dirty': api.features.value[id] !== undefined,
+                  'panel__chip--dirty': api.panelFeatures.value[id] !== undefined,
                 }"
                 @click="openFeature(id)"
               >
@@ -1217,17 +1218,17 @@ async function onSave(): Promise<void> {
           <!-- ========== 编辑行为 ========== -->
           <template v-else-if="section === 'behavior'">
             <label class="panel__switch">
-              <input type="checkbox" :checked="api.editing.value.readonly"
+              <input type="checkbox" :checked="api.panelEditing.value.readonly"
                 @change="api.patchEditing({ readonly: ($event.target as HTMLInputElement).checked })" />
               只读模式（禁止输入 / 粘贴 / 拖拽）
             </label>
             <label class="panel__switch">
-              <input type="checkbox" :checked="api.editing.value.pagination"
+              <input type="checkbox" :checked="api.panelEditing.value.pagination"
                 @change="api.patchEditing({ pagination: ($event.target as HTMLInputElement).checked })" />
               书页分页（关闭 = 连续画布）
             </label>
             <label class="panel__switch">
-              <input type="checkbox" :checked="api.editing.value.inheritBlockType"
+              <input type="checkbox" :checked="api.panelEditing.value.inheritBlockType"
                 @change="api.patchEditing({ inheritBlockType: ($event.target as HTMLInputElement).checked })" />
               回车后继承当前块类型
             </label>
@@ -1236,20 +1237,20 @@ async function onSave(): Promise<void> {
               <label class="panel__field">
                 <span class="panel__label">自动保存间隔 ms</span>
                 <input type="number" class="panel__input" min="500" max="10000" step="100"
-                  :value="api.editing.value.autosaveDelay"
+                  :value="api.panelEditing.value.autosaveDelay"
                   @input="api.patchEditing({ autosaveDelay: Number(($event.target as HTMLInputElement).value) })" />
               </label>
               <label class="panel__field">
                 <span class="panel__label">撤销合并 ms</span>
                 <input type="number" class="panel__input" min="100" max="2000" step="50"
-                  :value="api.editing.value.historyGroupDelay"
+                  :value="api.panelEditing.value.historyGroupDelay"
                   @input="api.patchEditing({ historyGroupDelay: Number(($event.target as HTMLInputElement).value) })" />
               </label>
             </div>
 
             <label class="panel__field">
               <span class="panel__label">粘贴策略</span>
-              <select class="panel__input" :value="api.editing.value.pasteMode"
+              <select class="panel__input" :value="api.panelEditing.value.pasteMode"
                 @change="api.patchEditing({ pasteMode: ($event.target as HTMLSelectElement).value as 'rich' | 'plain' | 'structure' })">
                 <option value="rich">保留样式</option>
                 <option value="structure">仅结构（丢内联样式）</option>
@@ -1271,7 +1272,7 @@ async function onSave(): Promise<void> {
               </button>
             </div>
             <ul class="panel__presets">
-              <li v-for="style in api.namedStyles.value.styles" :key="style.id" class="panel__preset">
+              <li v-for="style in api.panelNamedStyles.value.styles" :key="style.id" class="panel__preset">
                 <input
                   class="panel__input panel__preset-name"
                   :value="style.name"
@@ -1291,7 +1292,7 @@ async function onSave(): Promise<void> {
                 </select>
                 <button type="button" class="panel__mini" @click="api.deleteNamedStyle(style.id)">删除</button>
               </li>
-              <li v-if="api.namedStyles.value.styles.length === 0" class="panel__empty">还没有命名样式</li>
+              <li v-if="api.panelNamedStyles.value.styles.length === 0" class="panel__empty">还没有命名样式</li>
             </ul>
 
             <h5 class="panel__group-title">样式预设</h5>

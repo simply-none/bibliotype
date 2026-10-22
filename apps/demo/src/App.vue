@@ -420,6 +420,29 @@ const tokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
 }));
 
 /**
+ * 设置弹窗专用视图：在生效层上换成草稿补丁
+ *
+ * 弹窗内的点选先进草稿（不重排画布），选中态却读的是生效层，
+ * 会导致「点了不高亮」；这里把布局 / 令牌切到面板视图（草稿模式 = 草稿），
+ * 画布仍用 effectiveLayout / tokens，两互不干扰。
+ * 仿真模板令牌也改由弹窗视图派生，切模板时面板内的令牌回显同步。
+ */
+const panelLayout = computed<LayoutOptions>(() =>
+  mergeLayoutOptions(
+    mergeLayoutOptions(theme.value.layout, styleApi.panelLayoutPatch.value as Partial<LayoutOptions>),
+    mobileLayoutPatch.value,
+  ),
+);
+
+const panelTokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
+  ...theme.value.tokens,
+  ...resolveFacsimilePresetTokens(panelLayout.value),
+  ...styleApi.panelTokenPatch.value,
+  ...themePresetTokens.value,
+  ...(night.value ? NIGHT_COLORS : {}),
+}));
+
+/**
  * 应用主题预设（来自「外观主题」面板）
  *
  * 面板给的是全量令牌，这里只保留与基线的差量：既避免把默认值写死成补丁，
@@ -2498,8 +2521,8 @@ onBeforeUnmount(() => {
     <SettingsPanel
       v-if="settingsOpen"
       :api="styleApi"
-      :layout="effectiveLayout"
-      :tokens="tokens"
+      :layout="panelLayout"
+      :tokens="panelTokens"
       :theme-base-tokens="themeBaseTokens"
       :document="reader.document ?? lunyuDocument"
       :night="night"

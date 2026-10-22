@@ -456,6 +456,20 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     },
   );
 
+  /* ---------- 面板视图（草稿模式下面板的回显来源） ---------- */
+
+  /**
+   * 面板视图补丁 / 状态
+   *
+   * 草稿模式下读的是草稿（点选即时高亮，画布不重排），非草稿模式即源状态。
+   * 设置弹窗的选中态必须从这里取，否则草稿模式下点了胶囊不会高亮。
+   */
+  const panelLayoutPatch = computed<Record<string, unknown>>(() => panelBody().layout);
+  const panelTokenPatch = computed<Record<string, string>>(() => panelBody().tokens);
+  const panelFeatures = computed<FeatureStyleSheet>(() => panelBody().features);
+  const panelNamedStyles = computed<NamedStyleSet>(() => panelBody().namedStyles);
+  const panelEditing = computed<EditingSettings>(() => panelBody().editing);
+
   /* ---------- 编辑行为 ---------- */
 
   /** 改编辑行为（逐字段合并） */
@@ -684,6 +698,12 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     loaded,
     storeName,
     customized,
+    /* 面板视图（草稿模式 = 草稿；设置弹窗回显专用） */
+    panelLayoutPatch,
+    panelTokenPatch,
+    panelFeatures,
+    panelNamedStyles,
+    panelEditing,
     /* 草稿 */
     draftMode,
     draftDirty,

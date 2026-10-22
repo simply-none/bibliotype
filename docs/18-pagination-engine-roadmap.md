@@ -87,6 +87,43 @@ pnpm bench:update # 跑基准并把结果写为新基线（基线带 node 版本
 - CI 不设 per-PR 时序门禁（噪声大）；可选接法：夜间任务跑 `pnpm bench` 并把
   `bench/report.md` 作为 artifact 归档，或仅在 release 分支启用。
 
+## 直排像素回归（B3）
+
+直排列级拆分（`axis: 'column'`）的最终验收在**真实浏览器**里：happy-dom 不产生布局盒，
+CSS 文本哈希只能锁样式字符串。用例在 `e2e/tests/vertical-pixel.spec.ts`，三组固定 fixture：
+
+| 用例 | fixture | 版式 | 验证重点 |
+| --- | --- | --- | --- |
+| `c1-classical-1col` | `vertical-01.md` | 古籍直排单栏 | 单栏竖行的列级拆分基线 |
+| `c2-facsimile-1col` | `vertical-02.md` | 古籍仿真直排（版框 / 界行） | 绘制层几何与正文列不互相侵占 |
+| `c3-classical-lr` | `vertical-03.md` | 竖排左起 | 书写方向反转后列序 / 断行与栏分桶仍稳定 |
+
+双层断言：
+
+1. **结构**（`toMatchSnapshot`）：`e2e/tests/utils/vertical.ts` 用 Range 逐字测量行盒，
+   按「交叉轴对齐」聚类成行 —— 直排取 `left`、横排取 `top`（容差 1.5px）；行内按主轴
+   升序拼出实际文字。输出列数、每栏行数（按 inline 轴分桶）与逐行文本（即断行位置），
+   第 1 / 2 页各存一份基线。**断行变化（字体替换、字号 / 行距改动、分页算法回退）
+   会直接失败**；
+2. **几何**（`toHaveScreenshot`）：截图前注入「文字透明」样式，只比页框 / 界行 /
+   分栏的像素几何（容差 `maxDiffPixelRatio: 0.02`）。字形不进像素图，因此基线可跨
+   平台复用；列宽、版框、页边距变化仍会失败并可查看 diff。
+
+取舍：为什么不做「带字形的整页像素基线」——仓库不携带字体文件，CI（Linux，
+字形来自系统 / Noto）与开发者本机（Windows / macOS）字形不同，整页基线必然漂移。
+三组 fixture 只用等宽 CJK 字符（无比例宽度拉丁文与标点），断行对字体不敏感，
+故「结构锁断行 + 像素锁几何」能同时覆盖两类回归且跨平台可比。
+
+多栏直排为何不在本批：分栏数取自 IR 结构节点（`chapter` / `section`）的
+`attrs.columns`（`document-blocks` 的 `structureColumnsOf`），导入链路不写该属性、
+预览侧也无写入 UI；更关键的是分页容量按 `pageMainSize × columns` 计算，隐含
+「栏沿交叉轴并列、每栏主轴容量不变」的横排语义——直排下栏把页宽均分，主轴
+（页高）容量不翻倍，该式会低估页数。容量模型按书写方向区分前，用例不设
+依赖块级分栏的伪场景；多栏落地后另立 `c4` 用例并补 `flowStyleOf` 的直排分支覆盖。
+
+运行与基线更新：`pnpm build && pnpm e2e:pixel`；改动分页 / 量尺 / 版式后若确认
+差异符合预期，用 `pnpm e2e:update` 重写基线并在 changeset 中说明。
+
 ## 性能探针与可观测（I7）
 
 `@bibliotype/core` 新增可插拔 Profiler（替代散落的全局开关）：

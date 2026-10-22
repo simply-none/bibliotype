@@ -26,6 +26,29 @@ pnpm --filter @bibliotype/core exec vitest            # 单包 watch 模式
 pnpm --filter @bibliotype/layout exec vitest run book-css   # 指定文件
 ```
 
+## 端到端（I1 / B3）
+
+单元测试跑在 Node / happy-dom，**不产生布局盒**；分页翻页、编辑器落字、导出下载与
+直排列宽等真实浏览器行为由独立工作区 [`e2e/`](../e2e/README.md)（Playwright）覆盖。
+
+```bash
+pnpm build            # 必须先构建：e2e 的 webServer 用 vite preview 消费 demo dist
+pnpm e2e:install      # 首次：下载 Chromium
+pnpm e2e:smoke        # I1 主链路（导入 / 翻页 / 编辑 / 导出 EPUB、PDF）
+pnpm e2e:pixel        # B3 直排像素回归（三组 fixture）
+pnpm e2e              # 全部
+```
+
+| Tag | 覆盖 | 断言口径 |
+| --- | --- | --- |
+| `@smoke` | Markdown 导入 → 翻页 → 编辑落字 → 保存并预览 → 导出 EPUB；TXT 导入 → 直排；宿主 PDF 桥 → 导出 PDF | 用 `fflate` 解包导出产物，校验 `mimetype` / OPF / 章节 XHTML 含编辑落字；PDF 桥校验字节头与打印 HTML 含 `@page` |
+| `@pixel` | 单栏直排 / 仿真版框 / 竖排左起三组 fixture | 结构快照（列数 / 每栏行数 / 逐行文本）+ 几何截图（文字透明，只比页框与界行） |
+
+基线口径与取舍见 [18 直排像素回归](18-pagination-engine-roadmap.md#直排像素回归b3) 与
+[e2e/README](../e2e/README.md)；基线更新用 `pnpm e2e:update`，人工核对后提交。
+CI 的 `e2e` job 在 build 后分别执行 `pnpm e2e:smoke` / `pnpm e2e:pixel`，失败产物
+（trace / video / screenshot / html 报告）归档为 artifact。
+
 ## 覆盖率（I4）
 
 统一配置在根 `vitest.shared.ts` 的 `createVitestConfig()` 工厂：v8 provider、

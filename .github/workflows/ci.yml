@@ -1,4 +1,4 @@
-# 持续集成：构建 · 测试 · 覆盖率 · 类型检查
+# 持续集成：构建 · 测试 · 覆盖率 · 类型检查 · e2e
 #
 # 触发：master 分支 push 与任意 PR。
 # 步骤：安装依赖（冻结锁文件）→ 全量构建 → 全量测试（覆盖率 + 阈值拦截，I4）→ 全量类型检查。
@@ -85,3 +85,47 @@ jobs:
 
       - name: 类型检查
         run: pnpm typecheck
+
+  # I1 / B3：端到端冒烟与直排像素回归（Playwright）
+  # - webServer 用 `vite preview` 消费 apps/demo/dist（上一步 build 的产物）；
+  # - 冒烟与像素分两步，`--grep` 分级，任一失败都可单独定位；
+  # - 失败留存 trace / video / screenshot / html 报告，供下载复查。
+  e2e:
+    name: e2e（I1 冒烟 + B3 直排像素回归）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建（turbo 全量）
+        run: pnpm build
+
+      # Chromium 与系统依赖（Playwright 官方镜像内已含，显式安装避免漂移）
+      - name: 安装 Chromium
+        run: pnpm --filter @bibliotype/e2e exec playwright install --with-deps chromium
+
+      - name: e2e 冒烟（I1）
+        run: pnpm e2e:smoke
+
+      - name: 直排像素回归（B3）
+        run: pnpm e2e:pixel
+
+      - name: 归档 e2e 失败产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7

@@ -27,7 +27,12 @@
     "test:coverage": "turbo run test:coverage",
     "size": "size-limit",
     "bench": "node bench/run.mjs",
-    "bench:update": "node bench/run.mjs --update"
+    "bench:update": "node bench/run.mjs --update",
+    "e2e": "pnpm --filter @bibliotype/e2e e2e",
+    "e2e:smoke": "pnpm --filter @bibliotype/e2e e2e:smoke",
+    "e2e:pixel": "pnpm --filter @bibliotype/e2e e2e:pixel",
+    "e2e:update": "pnpm --filter @bibliotype/e2e e2e:update",
+    "e2e:install": "pnpm --filter @bibliotype/e2e e2e:install"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",

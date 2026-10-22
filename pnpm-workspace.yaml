@@ -1,3 +1,5 @@
 packages:
   - packages/*
   - apps/*
+  # e2e 是独立测试工作区（Playwright），不参与包发布
+  - e2e

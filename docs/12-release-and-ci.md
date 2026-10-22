@@ -107,6 +107,11 @@ node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
 lcov 报告归档为 artifact）→ `typecheck`。**Node 20/22 双版本矩阵**（`fail-fast: false`，
 I9），并保留 E9 的 EPUB 校验 CLI 护栏步骤。
 
+另有独立的 `e2e` job（批 4）：`build` → `playwright install --with-deps chromium` →
+`pnpm e2e:smoke` → `pnpm e2e:pixel`，失败产物（trace / video / screenshot / html 报告）
+`if: always()` 归档；用例分层与基线口径见 [16 测试](16-testing.md#端到端i1--b3) 与
+[e2e/README](../e2e/README.md)。注意 e2e 消费 demo 的 `vite preview` 产物，故必须先 build。
+
 `.github/workflows/release.yml`：`workflow_dispatch` 手动触发，输入 `channel`（rc / latest）：
 
 ```text

@@ -1,0 +1,22 @@
+{
+  "name": "@bibliotype/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "bibliotype 端到端冒烟与直排像素回归（Playwright；独立工作区，不进发布产物）",
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:smoke": "playwright test --grep @smoke",
+    "e2e:pixel": "playwright test --grep @pixel",
+    "e2e:update": "playwright test --grep @pixel --update-snapshots",
+    "e2e:install": "playwright install chromium",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^20.17.0",
+    "fflate": "^0.8.2",
+    "typescript": "^5.6.0"
+  }
+}

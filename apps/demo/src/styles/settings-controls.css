@@ -1,0 +1,292 @@
+/**
+ * 设置面板共享控制样式
+ *
+ * 供 SettingsPanel 与各分区子组件经 `<style scoped src>` 引入：选择器与
+ * 声明逐字保持拆分前口径（类名不改、DOM 不改），scoped 语义由引入方组件提供。
+ */
+
+/* ---------- 胶囊与容器 ---------- */
+
+.panel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-1, 4px);
+}
+
+.panel__chip {
+  padding: 5px 10px;
+  min-height: 30px;
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border: var(--ui-border-width, 1px) solid transparent;
+  border-radius: var(--ui-radius-pill, 999px);
+  cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__chip:hover {
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__chip--active {
+  color: var(--ui-on-accent, #fff);
+  background: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__chip--dirty:not(.panel__chip--active) {
+  border-color: var(--ui-accent, #8c5a2b);
+  color: var(--ui-accent, #8c5a2b);
+}
+
+/* ---------- 表单分组 ---------- */
+
+/* 分组区段：每块表单用下沉底色裹成卡片，与「更多」sheet 的行制卡片同调 */
+.panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-2, 6px);
+  min-width: 0;
+  padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-md, 12px);
+}
+
+.panel__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ui-space-3, 8px);
+}
+
+.panel__row > .panel__field {
+  flex: 1;
+}
+
+.panel__label {
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
+}
+
+.panel__group-title {
+  margin: var(--ui-space-3, 8px) 0 2px;
+  padding-block-start: var(--ui-space-3, 8px);
+  font-size: var(--ui-font-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ui-text-muted, #7f7a6d);
+  border-block-start: 1px dashed var(--ui-divider, #d8d2c4);
+}
+
+.panel__sub-label {
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
+}
+
+.panel__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel__input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px var(--ui-space-2, 6px);
+  font-size: var(--ui-font-sm, 12px);
+  color: var(--ui-text, #3c3a34);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-sm, 8px);
+  transition: border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__input:hover {
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ui-space-2, 6px);
+}
+
+.panel__colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3, 8px);
+}
+
+.panel__color {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-1, 4px);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
+}
+
+.panel__color input {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-xs, 4px);
+  background: none;
+  cursor: pointer;
+}
+
+.panel__switch {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2, 6px);
+  min-height: 32px;
+  padding: 0 var(--ui-space-3, 8px);
+  font-size: var(--ui-font-sm, 12px);
+  background: var(--ui-surface-sunken, #e8e1d3);
+  border-radius: var(--ui-radius-sm, 8px);
+  cursor: pointer;
+}
+
+.panel__hint {
+  margin: 0;
+  font-size: var(--ui-font-xs, 11px);
+  line-height: 1.6;
+  color: var(--ui-text-muted, #7f7a6d);
+}
+
+.panel__hint--ok {
+  color: var(--ui-success, #3f7d4e);
+}
+
+/* ---------- 按钮制式 ---------- */
+
+.panel__primary,
+.panel__secondary,
+.panel__danger,
+.panel__mini {
+  font-size: var(--ui-font-sm, 12px);
+  min-height: 32px;
+  padding: 5px 12px;
+  border-radius: var(--ui-radius-pill, 999px);
+  cursor: pointer;
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  color: var(--ui-text, #3c3a34);
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    transform var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__primary:active:not(:disabled),
+.panel__secondary:active:not(:disabled),
+.panel__mini:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.panel__primary {
+  color: var(--ui-on-accent, #fff);
+  background: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
+  flex: 0 0 auto;
+}
+
+.panel__primary:hover:not(:disabled) {
+  background: var(--ui-accent-strong, #734721);
+  border-color: var(--ui-accent-strong, #734721);
+}
+
+.panel__primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.panel__secondary:hover,
+.panel__mini:hover {
+  color: var(--ui-accent, #8c5a2b);
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__mini {
+  font-size: var(--ui-font-xs, 11px);
+  min-height: 26px;
+  padding: 2px 8px;
+}
+
+.panel__danger {
+  width: 100%;
+  color: var(--ui-danger, #c0392b);
+  border-color: var(--ui-danger, #c0392b);
+  background: var(--ui-danger-weak, rgb(192 57 43 / 12%));
+}
+
+/* ---------- 预设 / 命名样式列表 ---------- */
+
+.panel__presets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel__preset {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2, 6px);
+  padding: var(--ui-space-2, 6px) 0;
+  border-block-end: 1px dashed var(--ui-divider, #d8d2c4);
+}
+
+.panel__preset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel__preset-meta {
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
+}
+
+.panel__empty {
+  padding: var(--ui-space-3, 8px) 0;
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
+}
+
+.panel__footer {
+  margin-block-start: auto;
+  padding-block-start: var(--ui-space-3, 8px);
+}
+
+/* ---------- H5 触控放大（与拆分前同口径） ---------- */
+
+@media (max-width: 767px) {
+  .panel__chip {
+    min-height: 36px;
+  }
+
+  .panel__input {
+    min-height: 40px;
+    font-size: 14px;
+  }
+
+  .panel__primary,
+  .panel__secondary,
+  .panel__danger,
+  .panel__mini {
+    min-height: 40px;
+  }
+
+  .panel__row {
+    flex-wrap: wrap;
+  }
+}

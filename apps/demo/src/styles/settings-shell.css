@@ -1,0 +1,284 @@
+/**
+ * 设置面板壳层样式（遮罩 / 卡片 / 头部 / 左导航 / 内容容器 / 底部动作条）
+ *
+ * 由 SettingsPanel.vue 的 <style scoped src> 引入：与本组件其余 scoped 块共用
+ * 同一 scope id，选择器与命中范围逐字保持拆分前口径（纯文件组织，不改行为）。
+ */
+
+/* 遮罩层：固定居中，点击遮罩关闭（面板自身吞掉点击）；模糊遮罩与正文分层（主流弹窗惯例） */
+.dialog {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ui-z-sheet, 40);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ui-space-6, 20px);
+  background: rgb(18 16 12 / 44%);
+  backdrop-filter: blur(3px);
+}
+
+/* 弹窗卡片：定宽 + 限高，内容区独立滚动 */
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 880px;
+  height: min(82vh, 720px);
+  overflow: hidden;
+  color: var(--ui-text, #3c3a34);
+  font-size: 12px;
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-lg, 16px);
+  box-shadow: var(--ui-shadow-3, 0 14px 40px rgb(0 0 0 / 20%));
+}
+
+.panel__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ui-space-2, 6px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-5, 20px);
+  border-block-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
+}
+
+.panel__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--ui-font-lg, 15px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.panel__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2, 6px);
+}
+
+.panel__store {
+  padding: 0 var(--ui-space-2, 6px);
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-text-muted, #7f7a6d);
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-pill, 999px);
+}
+
+/* 关闭：桌面排在末尾（右上角 ×），H5 靠到左侧改返回箭头 */
+.panel__close {
+  order: 3;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ui-text-muted, #7f7a6d);
+  background: none;
+  border: none;
+  border-radius: var(--ui-radius-sm, 8px);
+  cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__close:hover {
+  color: var(--ui-accent, #8c5a2b);
+  background: var(--ui-surface-sunken, #e8e1d3);
+}
+
+/* 返回箭头只在 H5 出现，桌面继续用 × 字符 */
+.panel__close-back {
+  display: none;
+}
+
+.panel__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.panel__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--ui-space-3, 8px);
+  width: 148px;
+  flex: 0 0 148px;
+  border-inline-end: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
+}
+
+.panel__nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-2, 6px);
+  min-height: 32px;
+  padding: 5px var(--ui-space-3, 8px);
+  font-size: var(--ui-font-sm, 12px);
+  text-align: start;
+  color: var(--ui-text, #3c3a34);
+  background: none;
+  border: none;
+  border-radius: var(--ui-radius-sm, 8px);
+  cursor: pointer;
+  transition:
+    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__nav-item:hover {
+  background: var(--ui-surface-sunken, #e8e1d3);
+}
+
+.panel__nav-item--active {
+  background: var(--ui-accent-weak, rgb(140 90 43 / 12%));
+  color: var(--ui-accent, #8c5a2b);
+  font-weight: 600;
+}
+
+.panel__nav-count {
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--ui-space-5, 20px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-3, 8px);
+}
+
+/* 功能分组胶囊行：与下方功能列表用虚线分隔（仅功能样式区） */
+.panel__chips--groups {
+  padding-block-end: var(--ui-space-2, 6px);
+  border-block-end: 1px dashed var(--ui-divider, #d8d2c4);
+}
+
+/* 底部动作条：与内容区分隔，保存（主）/ 关闭（次）右对齐 */
+.panel__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ui-space-4, 12px);
+  padding: var(--ui-space-3, 8px) var(--ui-space-5, 20px);
+  border-block-start: 1px solid var(--ui-divider, #d8d2c4);
+  background: var(--ui-surface, #f4f0e8);
+}
+
+.panel__actions-hint {
+  font-size: var(--ui-font-xs, 11px);
+  color: var(--ui-danger, #c0392b);
+}
+
+.panel__actions-buttons {
+  display: flex;
+  gap: var(--ui-space-2, 6px);
+}
+
+.panel__actions-buttons .panel__primary,
+.panel__actions-buttons .panel__secondary {
+  min-width: 72px;
+}
+
+/*
+ * H5（C2 + 美化 P2）：窄屏模态转全屏页
+ *
+ * 遮罩内边距归零、卡片撑满视口并去掉圆角边框（与系统级全屏页一致）；
+ * 标题栏固定 56px 高并计入安全区，关闭改左上返回箭头、标题居中；
+ * 纵向空间改「导航横排 + 内容独占余量」，底部留安全区，
+ * 保证刘海屏上「保存 / 关闭」不被 Home 指示条压住。
+ */
+@media (max-width: 767px) {
+  .dialog {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .panel {
+    max-width: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding-block-end: env(safe-area-inset-bottom, 0px);
+  }
+
+  .panel__header {
+    position: relative;
+    min-height: 56px;
+    padding: var(--ui-space-2, 6px) var(--ui-space-3, 8px);
+    padding-block-start: calc(var(--ui-space-2, 6px) + var(--bt-safe-top, 0px));
+  }
+
+  .panel__close {
+    order: -1;
+    width: 44px;
+    height: 44px;
+  }
+
+  .panel__close-back {
+    display: block;
+  }
+
+  .panel__close-cross {
+    display: none;
+  }
+
+  .panel__title {
+    position: absolute;
+    left: 50%;
+    flex: none;
+    width: auto;
+    max-width: 56%;
+    transform: translateX(-50%);
+    text-align: center;
+  }
+
+  .panel__store {
+    display: none;
+  }
+
+  .panel__body {
+    flex-direction: column;
+  }
+
+  .panel__nav {
+    flex: none;
+    flex-direction: row;
+    gap: var(--ui-space-1, 4px);
+    width: 100%;
+    padding: var(--ui-space-2, 6px) var(--ui-space-4, 12px);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    border-inline-end: none;
+    border-block-end: 1px solid var(--ui-divider, #d8d2c4);
+  }
+
+  .panel__nav-item {
+    flex: 0 0 auto;
+    min-height: 36px;
+    white-space: nowrap;
+  }
+
+  .panel__content {
+    min-height: 0;
+    padding: var(--ui-space-4, 12px) var(--ui-space-4, 12px) var(--ui-space-5, 20px);
+  }
+
+  .panel__actions {
+    padding: var(--ui-space-3, 8px) var(--ui-space-4, 12px);
+  }
+}

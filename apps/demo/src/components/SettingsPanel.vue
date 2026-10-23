@@ -26,6 +26,7 @@ import {
 } from '@bibliotype/core';
 import type { LayoutOptions } from '@bibliotype/layout';
 import { BT_BREAKPOINTS, useBreakpoint } from '@bibliotype/vue';
+import type { PdfExportMode } from '../composables/use-settings-snapshot.js';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
 import type { UiDensity, UiMotion, UiSkinKey } from '../ui-skin.js';
 import AppIcon from './AppIcon.vue';
@@ -33,6 +34,7 @@ import FeatureStyleEditor from './FeatureStyleEditor.vue';
 import SettingsAppearance from './settings/SettingsAppearance.vue';
 import SettingsFacsimile from './settings/SettingsFacsimile.vue';
 import SettingsLayoutSection from './settings/SettingsLayoutSection.vue';
+import SettingsMisc from './settings/SettingsMisc.vue';
 import SettingsPageChrome from './settings/SettingsPageChrome.vue';
 import SettingsStylesSection from './settings/SettingsStylesSection.vue';
 import SettingsUiSkin from './settings/SettingsUiSkin.vue';
@@ -59,6 +61,8 @@ const props = defineProps<{
   uiDensity: UiDensity;
   /** 动效开关：auto = 跟随系统 prefers-reduced-motion */
   uiMotion: UiMotion;
+  /** PDF 导出方式（「其他」分区；应用级偏好，Electron 宿主不受影响） */
+  pdfExportMode: PdfExportMode;
 }>();
 
 const emit = defineEmits<{
@@ -68,6 +72,8 @@ const emit = defineEmits<{
   'update:ui-skin': [value: UiSkinKey];
   'update:ui-density': [value: UiDensity];
   'update:ui-motion': [value: UiMotion];
+  /** PDF 导出方式切换（「其他」分区） */
+  'update:pdf-export-mode': [value: PdfExportMode];
   /** 主题预设应用（全量令牌，由 App 收敛为与基线的差量） */
   'apply-theme-tokens': [tokens: Record<string, string>];
   close: [];
@@ -92,7 +98,8 @@ type PanelSection =
   | 'appearance'
   | 'theme'
   | 'behavior'
-  | 'presets';
+  | 'presets'
+  | 'misc';
 
 const section = ref<PanelSection>('features');
 /** 功能分组（features 面板内再分） */
@@ -109,6 +116,7 @@ const NAV: ReadonlyArray<{ id: PanelSection; label: string }> = [
   { id: 'theme', label: '外观主题' },
   { id: 'behavior', label: '编辑行为' },
   { id: 'presets', label: '预设管理' },
+  { id: 'misc', label: '其他' },
 ];
 
 /** 当前分组的功能列表 */
@@ -322,10 +330,17 @@ async function onSave(): Promise<void> {
 
           <!-- ========== 预设管理 ========== -->
           <SettingsStylesSection
-            v-else
+            v-else-if="section === 'presets'"
             :api="api"
             :active-feature="activeFeature"
             :feature-label="featureLabel"
+          />
+
+          <!-- ========== 其他（导出偏好等） ========== -->
+          <SettingsMisc
+            v-else
+            :pdf-export-mode="pdfExportMode"
+            @update:pdf-export-mode="emit('update:pdf-export-mode', $event)"
           />
         </div>
       </div>

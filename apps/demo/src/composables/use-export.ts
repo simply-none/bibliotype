@@ -3,8 +3,12 @@
  *
  * EPUB：按当前主题、字号行距与配色令牌所见即所得导出（含已保存编辑内容），
  * 导出前跑 epubcheck 规则子集校验，error 汇总提示（避免「自研能开、第三方打不开」）。
- * PDF：两条路径——Electron 宿主（window.electronPdf）自包含 HTML → printToPDF 秒级
- * 直出；浏览器降级 blob 化去重 + 隐藏 iframe 打印。缺字（K6）只警告、不阻断。
+ * PDF 三条路径——
+ * 1. Electron 宿主（window.electronPdf）：自包含 HTML → printToPDF 矢量直出，恒定可用；
+ * 2. 浏览器「应用内直出」（pdfExportMode 缺省）：exportRasterPdf 逐页光栅化后
+ *    经 pdf-lib 拼成 PDF 直接下载，免打印对话框、带进度可中止，大部头显著更快；
+ * 3. 浏览器「浏览器对话框导出」：blob 化去重 + 隐藏 iframe 打印（需手动另存为 PDF）。
+ * 缺字（K6）只警告、不阻断。
  *
  * 消费 layout / reader 两块产出的响应式引用，保证与屏幕预览同源。
  */
@@ -20,6 +24,7 @@ import {
   createImageBlobRewriter,
   downloadPdf,
   exportPdfBytes,
+  exportRasterPdf,
   printHtml,
   renderPrintHtml,
   summarizePdfGlyphProblems,
@@ -27,6 +32,7 @@ import {
 } from '@bibliotype/exporter-pdf';
 import { createFontCheckProbe, splitFontFamilyList } from '@bibliotype/vue';
 import { lunyuDocument } from '../data/lunyu.js';
+import type { PdfExportMode } from './use-settings-snapshot.js';
 import type { LayoutTokensApi } from './use-layout-tokens.js';
 import type { ReaderSessionApi } from './use-reader-session.js';
 import type { useToast } from './use-toast.js';
@@ -51,14 +57,20 @@ export interface ExportDeps {
   layout: LayoutTokensApi;
   reader: ReaderSessionApi;
   pushToast: ReturnType<typeof useToast>['push'];
+  /** PDF 导出方式（「其他」分区；仅影响纯浏览器环境，Electron 恒走矢量桥） */
+  pdfExportMode: { value: PdfExportMode };
 }
 
 /** EPUB / PDF 导出动作与状态 */
 export function useExport(deps: ExportDeps) {
-  const { layout, reader: readerApi, pushToast } = deps;
+  const { layout, reader: readerApi, pushToast, pdfExportMode } = deps;
 
-  /** PDF 导出是否进行中（按钮置灰 + 文案切换） */
+  /** PDF 导出是否进行中（按钮置灰 + 文案切换；导出中再点 = 中止） */
   const pdfExporting = ref(false);
+  /** 应用内直出逐页进度（null = 非光栅路径或未开始） */
+  const pdfProgress = ref<{ done: number; total: number } | null>(null);
+  /** 当前导出的中止控制器（同刻至多一个导出任务） */
+  let pdfAbort: AbortController | undefined;
   /** PDF 分页模式：true = 逐页（paged，与屏幕预览同源）/ false = 连续（auto，更快） */
   const pdfPagedMode = ref(true);
   /** 双页对照（D5）：以当前文档左右对页演示对照容器 */
@@ -162,8 +174,18 @@ export function useExport(deps: ExportDeps) {
    *
    * 分页模式（pdfPagedMode）：逐页（paged，与屏幕预览逐页同源）/ 连续（auto，更快）。
    * 逐页模式附带屏幕实测数据（与预览同源）；连续模式由打印引擎分页。
+   *
+   * 路由：Electron 桥恒走矢量直出（设置项不影响宿主）；无桥时按「其他」分区的
+   * 导出方式走应用内光栅直出（带进度，可中止）或浏览器打印对话框。导出中再点
+   * = 中止当前任务。
    */
   async function onExportPdf(): Promise<void> {
+    /* 导出中再点 = 中止：光栅路径逐页响应，打印对话框路径无可中止语义（不处理） */
+    if (pdfExporting.value) {
+      pdfAbort?.abort();
+      return;
+    }
+
     warnGlyphProblems('pdf');
     const fontToken = layout.activeFontToken.value;
     const book = readerApi.reader.value.document ?? lunyuDocument;
@@ -190,6 +212,9 @@ export function useExport(deps: ExportDeps) {
         : {};
 
     pdfExporting.value = true;
+    pdfProgress.value = null;
+    pdfAbort = new AbortController();
+    const { signal } = pdfAbort;
     try {
       const bridge = getElectronPdfBridge();
       if (bridge !== undefined) {
@@ -204,7 +229,23 @@ export function useExport(deps: ExportDeps) {
         return;
       }
 
-      /* 降级路径：blob 化去重 + iframe 打印 */
+      if (pdfExportMode.value === 'in-app') {
+        /* 应用内直出：逐页光栅化 → pdf-lib 拼装 → 直接下载（免打印对话框） */
+        const bytes = await exportRasterPdf(book, {
+          ...base,
+          ...measured,
+          scale: 2,
+          signal,
+          onProgress: (done, total) => {
+            pdfProgress.value = { done, total };
+          },
+        });
+        downloadPdf(bytes, `${book.metadata.title || '书籍'}.pdf`);
+        pushToast(`已导出 PDF（应用内直出，${base.mode === 'paged' ? '逐页' : '连续'}版面）`, 'success');
+        return;
+      }
+
+      /* 浏览器对话框导出：blob 化去重 + iframe 打印 */
       const rewriter = createImageBlobRewriter();
       try {
         const html = renderPrintHtml(book, { ...base, ...measured, rewriteSrc: rewriter.rewrite });
@@ -219,14 +260,21 @@ export function useExport(deps: ExportDeps) {
         throw error;
       }
     } catch (error) {
-      pushToast(`导出 PDF 失败：${error instanceof Error ? error.message : String(error)}`, 'error');
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        pushToast('PDF 导出已中止', 'info');
+      } else {
+        pushToast(`导出 PDF 失败：${error instanceof Error ? error.message : String(error)}`, 'error');
+      }
     } finally {
       pdfExporting.value = false;
+      pdfProgress.value = null;
+      pdfAbort = undefined;
     }
   }
 
   return {
     pdfExporting,
+    pdfProgress,
     pdfPagedMode,
     compareOpen,
     download,

@@ -42,7 +42,8 @@
   "dependencies": {
     "@bibliotype/core": "workspace:*",
     "@bibliotype/layout": "workspace:*",
-    "@bibliotype/reader": "workspace:*"
+    "@bibliotype/reader": "workspace:*",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",

@@ -72,7 +72,12 @@ import { useAppSkin } from './composables/use-app-skin.js';
 import { useMobileShell } from './composables/use-mobile-shell.js';
 import { useStageSize } from './composables/use-stage-size.js';
 import { useLayoutTokens } from './composables/use-layout-tokens.js';
-import { useSettingsSnapshot, bookIdFromTitle } from './composables/use-settings-snapshot.js';
+import {
+  DEFAULT_PDF_EXPORT_MODE,
+  useSettingsSnapshot,
+  bookIdFromTitle,
+  type PdfExportMode,
+} from './composables/use-settings-snapshot.js';
 import { useReaderSession } from './composables/use-reader-session.js';
 import { useEditSession } from './composables/use-edit-session.js';
 import { useViewMode } from './composables/use-view-mode.js';
@@ -110,6 +115,8 @@ const pageTransition = ref<'slide' | 'fade' | 'none'>('slide');
 const inspectorCollapsed = ref(false);
 /** 阅读位置持久化（D5）：以锚点为主，刷新 / 改字号后回到原句 */
 const savedPosition = ref<string | undefined>(undefined);
+/** PDF 导出方式（「其他」分区；应用级偏好，随界面偏好快照持久化） */
+const pdfExportMode = ref<PdfExportMode>(DEFAULT_PDF_EXPORT_MODE);
 
 /* 跨块回调晚绑定：layout 块构造时需要重排调度与界面偏好落盘，
    但其目标分别来自更晚创建的 reader / snapshot 块（破除构造期循环） */
@@ -174,6 +181,7 @@ const {
   uiSkin,
   uiDensity,
   uiMotion,
+  pdfExportMode,
 });
 snapshotPersistBound = persistSettingsSnapshot;
 
@@ -194,7 +202,17 @@ snapshotPersistBound = persistSettingsSnapshot;
  * 都即时写回 localStorage，无需调用方逐个补 `persistSettingsSnapshot()`。
  */
 watch(
-  [themeKey, night, viewMode, pageTransition, inspectorCollapsed, uiSkin, uiDensity, uiMotion],
+  [
+    themeKey,
+    night,
+    viewMode,
+    pageTransition,
+    inspectorCollapsed,
+    uiSkin,
+    uiDensity,
+    uiMotion,
+    pdfExportMode,
+  ],
   persistSettingsSnapshot,
 );
 
@@ -313,11 +331,13 @@ const { infoEditable, currentMetadata, bookTitle, onMetadataSave } = useBookMeta
 });
 
 /* 导出 / 打印（EPUB · PDF）：与屏幕预览同源消费 layout / reader */
-const { pdfExporting, pdfPagedMode, compareOpen, onExportEpub, onExportPdf } = useExport({
-  layout,
-  reader,
-  pushToast,
-});
+const { pdfExporting, pdfProgress, pdfPagedMode, compareOpen, onExportEpub, onExportPdf } =
+  useExport({
+    layout,
+    reader,
+    pushToast,
+    pdfExportMode,
+  });
 
 /* 左栏 tab / 弹窗开合 / 属性栏折叠（inspectorCollapsed 源状态在 App 持有） */
 const {
@@ -492,6 +512,7 @@ let perfProbe: PerfProbe | null = null;
       :theme-key="themeKey"
       :active-tab="activeTab"
       :pdf-exporting="pdfExporting"
+      :pdf-progress="pdfProgress"
       :switch-theme="switchTheme"
       :toggle-edit-mode="toggleEditMode"
       :toggle-tab="toggleTab"
@@ -745,6 +766,7 @@ let perfProbe: PerfProbe | null = null;
       :theme-key="themeKey"
       :ui-skin="uiSkin"
       :pdf-exporting="pdfExporting"
+      :pdf-progress="pdfProgress"
       :view-mode="viewMode"
       :flow-supported="flowSupported"
       :view-mode-label="viewModeLabel"
@@ -774,11 +796,13 @@ let perfProbe: PerfProbe | null = null;
       :ui-skin="uiSkin"
       :ui-density="uiDensity"
       :ui-motion="uiMotion"
+      :pdf-export-mode="pdfExportMode"
       @update:night="night = $event; persistSettingsSnapshot()"
       @update:page-transition="pageTransition = $event; persistSettingsSnapshot()"
       @update:ui-skin="setUiSkin($event)"
       @update:ui-density="uiDensity = $event"
       @update:ui-motion="uiMotion = $event"
+      @update:pdf-export-mode="pdfExportMode = $event"
       @apply-theme-tokens="onApplyThemeTokens"
       @close="closeSettings"
     />

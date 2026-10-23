@@ -67,6 +67,8 @@ defineProps<{
   activeTab: AsideTab | null;
   /** PDF 是否正在导出 */
   pdfExporting: boolean;
+  /** 应用内直出逐页进度（null = 非光栅路径；展示「导出中 N/M」） */
+  pdfProgress?: { done: number; total: number } | null;
   /** 切换主题 */
   switchTheme: (key: ThemeKey) => void;
   /** 编辑 ↔ 保存并预览切换 */
@@ -166,10 +168,17 @@ defineProps<{
         <button
           type="button"
           class="toolbar__button"
-          :disabled="pdfExporting"
+          :class="{ 'toolbar__button--active': pdfExporting }"
+          :title="pdfExporting ? '正在导出，再次点击中止' : '导出 PDF'"
           @click="onExportPdf"
         >
-          {{ pdfExporting ? '导出中…' : '导出 PDF' }}
+          {{
+            pdfExporting
+              ? pdfProgress
+                ? `导出中 ${pdfProgress.done}/${pdfProgress.total}（点击中止）`
+                : '导出中…'
+              : '导出 PDF'
+          }}
         </button>
         <button
           type="button"

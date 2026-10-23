@@ -5,10 +5,13 @@ PDF 导出：IR → 打印文档（`@page` 尺寸 / 预分页固定页）+ 浏�
 `downloadPdf`，秒级、矢量、无打印对话框）。印前精排：对页镜像、出血与裁切标记、
 图片 DPI 检查、CMYK 转色提示（E8）。
 
-两条导出路径：
+三条导出路径：
 
 - **适配器导出（推荐 Electron / 服务端）**：`exportPdfBytes(book, { adapter })` 拿到 PDF 字节，
   `downloadPdf` 落盘；宿主注入 `PdfExportAdapter`，浏览器不阻塞主线程。
+- **应用内直出（纯浏览器推荐）**：`exportRasterPdf` 逐页光栅化（与预览同源的预分页片段 →
+  `<foreignObject>` → JPEG → pdf-lib 拼装）直接生成 PDF 文件下载；免打印对话框、
+  带进度可中止，大书秒级；产物为图片型（文字不可选中）。
 - **浏览器打印降级**：`printHtml` / `printBook` 走 `window.print()`，配合
   `createImageBlobRewriter` 做图片去重瘦身（大书仍受 Chromium 打印管线限制，数十秒级）。
 
@@ -41,6 +44,26 @@ printBook(document, {
 `printBook` = `renderPrintHtml` + `printHtml`：在隐藏 iframe 中装载打印文档并调用
 `window.print()`，打印样式不污染当前页面，`afterprint` 后自动清理；宿主 `document`
 可注入（多窗口 / 测试场景）。
+
+### 应用内直出 PDF 文件（纯浏览器，免打印对话框）
+
+```ts
+import { exportRasterPdf, downloadPdf } from '@bibliotype/exporter-pdf';
+
+const controller = new AbortController();
+const bytes = await exportRasterPdf(document, {
+  mode: 'paged',                 // 选项同 PrintDocumentOptions；内部恆按 paged 预分页
+  scale: 2,                      // 清晰度：1 = 96dpi / 2 = 192dpi（文件约 4 倍）
+  quality: 0.92,
+  onProgress: (done, total) => report(done, total),
+  signal: controller.signal,     // 中止抛 AbortError
+  // rasterize,                 // 可注入单页 HTML→位图实现（Node 测试 mock 用）
+});
+downloadPdf(bytes, '论语.pdf');
+```
+
+逐页消费预分页结果可直接用 `createPrintPager`（`pageCount` / `renderPage(index)` /
+`documentCss` / `renderDocument()`，与 `renderPrintHtml` 产物逐字节一致）。
 
 ### 适配器直出 PDF 文件（Electron / 无头浏览器）
 

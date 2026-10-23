@@ -4,8 +4,10 @@
 export { findNodeById } from '@bibliotype/reader';
 export { buildPrintCss, resolveBleedPx } from './print-styles.js';
 export type { PrintCssOptions, PrintFacingOptions, PrintMode } from './print-styles.js';
-export { renderPrintHtml } from './print-document.js';
-export type { PrintDocumentOptions } from './print-document.js';
+export { renderPrintHtml, createPrintPager } from './print-document.js';
+export type { PrintDocumentOptions, PrintPager } from './print-document.js';
+export { exportRasterPdf } from './raster-pdf.js';
+export type { RasterPdfOptions } from './raster-pdf.js';
 export { printBook, printHtml } from './print.js';
 export type { PrintHtmlOptions } from './print.js';
 export {

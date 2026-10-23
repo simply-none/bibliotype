@@ -32,6 +32,17 @@ export const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
 /** 版式设置快照 localStorage 键（设置面板「保存设置」显式落盘，启动时回灌） */
 export const SETTINGS_KEY = 'bibliotype-demo:settings';
 
+/** PDF 导出方式（语义化字段；实现层细节不进 UI 文案） */
+export type PdfExportMode = 'in-app' | 'browser-dialog';
+
+/** 缺省导出方式：应用内直出（免打印对话框，大部头更快） */
+export const DEFAULT_PDF_EXPORT_MODE: PdfExportMode = 'in-app';
+
+/** 是否为合法导出方式（快照回灌容错） */
+export function isPdfExportMode(value: unknown): value is PdfExportMode {
+  return value === 'in-app' || value === 'browser-dialog';
+}
+
 /** 界面偏好快照：主题键 + 夜间 / 视图模式 / 翻页动效 / 属性栏折叠 / 界面皮肤 */
 export interface SettingsSnapshot {
   themeKey: ThemeKey;
@@ -46,6 +57,8 @@ export interface SettingsSnapshot {
   uiDensity: UiDensity;
   /** 动效偏好 */
   uiMotion: UiMotion;
+  /** PDF 导出方式（「其他」分区；Electron 宿主不受影响） */
+  pdfExportMode: PdfExportMode;
 }
 
 /** 字符串哈希（FNV-1a，转 36 进制）：把任意书名（含中文）映射成稳定的作用域键短串 */
@@ -74,6 +87,7 @@ export interface SnapshotRefs {
   uiSkin: { value: UiSkinKey };
   uiDensity: { value: UiDensity };
   uiMotion: { value: UiMotion };
+  pdfExportMode: { value: PdfExportMode };
 }
 
 /** 界面偏好快照 + 阅读位置 / 页码读写 */
@@ -106,6 +120,9 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
         uiSkin: isUiSkinKey(parsed.uiSkin) ? parsed.uiSkin : DEFAULT_UI_SKIN,
         uiDensity: isUiDensity(parsed.uiDensity) ? parsed.uiDensity : DEFAULT_UI_DENSITY,
         uiMotion: isUiMotion(parsed.uiMotion) ? parsed.uiMotion : DEFAULT_UI_MOTION,
+        pdfExportMode: isPdfExportMode(parsed.pdfExportMode)
+          ? parsed.pdfExportMode
+          : DEFAULT_PDF_EXPORT_MODE,
       };
     } catch {
       return null;
@@ -127,6 +144,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
     refs.uiSkin.value = snapshot.uiSkin;
     refs.uiDensity.value = snapshot.uiDensity;
     refs.uiMotion.value = snapshot.uiMotion;
+    refs.pdfExportMode.value = snapshot.pdfExportMode;
   }
 
   /** 收集当前界面偏好并落盘 */
@@ -140,6 +158,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
       uiSkin: refs.uiSkin.value,
       uiDensity: refs.uiDensity.value,
       uiMotion: refs.uiMotion.value,
+      pdfExportMode: refs.pdfExportMode.value,
     };
     try {
       window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));

@@ -58,6 +58,7 @@ async function mountLayoutSection(
         uiSkin: 'paper',
         uiDensity: 'comfortable',
         uiMotion: 'auto',
+        pdfExportMode: 'in-app',
         fitScale,
       }),
   });

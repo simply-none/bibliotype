@@ -20,8 +20,11 @@ import {
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
+  isVerticalMode,
+  mergeLayoutOptions,
   resolvePageMainSize,
   resolveBottomSlack,
+  type BlockAxis,
   type LayoutOptions,
   type VerticalTextOptions,
 } from '@bibliotype/layout';
@@ -146,17 +149,39 @@ export interface PrintDocumentOptions {
   imageRules?: boolean;
 }
 
-/** 生成打印文档（完整 HTML 字符串） */
-export function renderPrintHtml(
+/** 打印分页器：Reader 构建、全量分页与 CSS 拼装缓存一次，供整份文档 / 逐页光栅共用 */
+export interface PrintPager {
+  /** 打印模式 */
+  readonly mode: PrintMode;
+  /** 页数（仅 paged；auto 为流式单文档，恒 0） */
+  readonly pageCount: number;
+  /** 页面样式表（bookCss + printCss）：完整文档与光栅容器共用同一份 */
+  readonly documentCss: string;
+  /** 渲染单页 `.bt-page` 片段（仅 paged；index 从 0 起） */
+  renderPage(index: number): string;
+  /** 渲染完整 HTML 文档（与 renderPrintHtml 产物逐字节一致） */
+  renderDocument(): string;
+}
+
+/**
+ * 创建打印分页器
+ *
+ * 导出前一次分页，逐页渲染不再重复构建 Reader（光栅直出逐页取片段用）。
+ *
+ * 直排修正：Reader 显式传 `axis`（writingMode 竖排 → `'column'`）与 `tokens`——
+ * 屏幕量尺在直排下产出的块推进量是**列向宽度**，缺 axis 会被按横排行高口径
+ * 解释，分页与跨页行切片全错位（古籍直排导出空白页的根因）。
+ */
+export function createPrintPager(
   book: BookDocument,
   options: PrintDocumentOptions = {},
-): string {
+): PrintPager {
   const layout = options.layout ?? DEFAULT_LAYOUT_OPTIONS;
   const tokens = options.tokens ?? DEFAULT_THEME;
-  const mode = options.mode ?? 'auto';
+  const mode: PrintMode = options.mode ?? 'auto';
   const language = book.metadata.language ?? 'zh-Hans';
 
-  const css = `${buildBookCss({
+  const documentCss = `${buildBookCss({
     tokens,
     options: layout,
     fontToken: options.fontToken,
@@ -176,16 +201,13 @@ export function renderPrintHtml(
     ...(options.imageRules === undefined ? {} : { imageRules: options.imageRules }),
   })}`;
 
-  const body =
-    mode === 'paged' ? renderPagedBody(book, layout, tokens, options) : renderFlowBody(book, options);
-
-  return `<!DOCTYPE html>
+  const wrapDocument = (body: string): string => `<!DOCTYPE html>
 <html lang="${escapeHtml(language)}">
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(book.metadata.title)}</title>
 <style>
-${css}
+${documentCss}
 </style>
 </head>
 <body>
@@ -193,30 +215,27 @@ ${body}
 </body>
 </html>
 `;
-}
 
-/** auto 模式正文：整书单文档流（结构节点经 CSS break-before 另起页） */
-function renderFlowBody(book: BookDocument, options: PrintDocumentOptions): string {
-  const content = serializeNode(book.root, {
-    tagOverrides: options.tagOverrides,
-    rewriteSrc: options.rewriteSrc,
-    verticalText: options.verticalText,
-    // 打印稿是成品：缺省终稿，留痕版由调用方显式传 'marked'
-    revisionView: options.revisionView ?? 'final',
-  });
-  return `<main class="bt-book">\n${content}\n</main>`;
-}
+  if (mode !== 'paged') {
+    /* auto 模式：整书语义 HTML 单文档流，由打印引擎分页（无固定页界） */
+    return {
+      mode,
+      pageCount: 0,
+      documentCss,
+      renderPage(): string {
+        throw new Error('auto 模式为流式单文档，无固定页可渲染；逐页导出请用 mode: "paged"。');
+      },
+      renderDocument: () => wrapDocument(renderFlowBody(book, options)),
+    };
+  }
 
-/** paged 模式正文：预分页固定页（.bt-page 序列，跨页段落按行片段与预览同源） */
-function renderPagedBody(
-  book: BookDocument,
-  layout: LayoutOptions,
-  tokens: Readonly<Record<string, string | undefined>>,
-  options: PrintDocumentOptions,
-): string {
-  // 复用 Reader 的分页与行片段契约：与预览走同一 getPageFragments，消除整段重复 / 裁切
+  /* 复用 Reader 的分页与行片段契约：与预览走同一 getPageFragments，消除整段重复 / 裁切；
+   * axis / tokens 与屏幕阅读路径同源（见上方 JSDoc 的直排修正说明） */
+  const merged = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, layout);
   const reader = new Reader({
     layout,
+    tokens,
+    axis: isVerticalMode(merged.writingMode) ? 'column' : 'row',
     measure: options.context,
     estimator: options.estimator ?? defaultEstimator,
     blockSizes: options.blockSizes,
@@ -232,55 +251,85 @@ function renderPagedBody(
   reader.loadDocument(book);
   const pages = reader.pagination;
 
-  /* 空书：保证至少一页，打印文档结构完整 */
-  if (pages.length === 0) {
-    return `<section class="bt-page${pageSideClass(options, 0)}" data-page="1">${cropMarksOverlay(options)}</section>`;
-  }
-
-  return pages
-    .map((page) => {
-      const nodes = reader.getPageFragments(page.index);
-      const content = nodes
-        .map((node) =>
-          serializeNode(node, {
-            tagOverrides: options.tagOverrides,
-            rewriteSrc: options.rewriteSrc,
-            verticalText: options.verticalText,
-            revisionView: options.revisionView ?? 'final',
-          }),
-        )
-        .join('\n');
-      /*
-       * 页眉 / 页脚放在正文之后：`.bt-page > :first-child` 的「页首块吞 margin」
-       * 规则必须继续命中正文首块（页眉是绝对定位，DOM 顺序不影响视觉层级）。
-       * `chrome === undefined` 表示未启用（或封面页）→ 回退老的「页脚仅页码」。
-       */
-      const chrome = reader.getPageChromeTexts(page.index);
-      /* 版心（书口）：与阅读视图 / 编辑分页同源；封面与未启用仿真版式时为空 */
-      const gutterTexts = reader.getPageGutterTexts(page.index);
-      const gutter =
-        gutterTexts === undefined
-          ? ''
-          : serializePageGutter(gutterTexts, layout.facsimile);
-      const header =
-        chrome !== undefined && chrome.header !== ''
-          ? `<div class="bt-page-header">${escapeHtml(chrome.header)}</div>\n`
+  const renderPage = (index: number): string => {
+    const page = pages[index];
+    /* 空书：保证至少一页，打印文档结构完整 */
+    if (page === undefined) {
+      return `<section class="bt-page${pageSideClass(options, 0)}" data-page="1">${cropMarksOverlay(options)}</section>`;
+    }
+    const nodes = reader.getPageFragments(page.index);
+    const content = nodes
+      .map((node) =>
+        serializeNode(node, {
+          tagOverrides: options.tagOverrides,
+          rewriteSrc: options.rewriteSrc,
+          verticalText: options.verticalText,
+          revisionView: options.revisionView ?? 'final',
+        }),
+      )
+      .join('\n');
+    /*
+     * 页眉 / 页脚放在正文之后：`.bt-page > :first-child` 的「页首块吞 margin」
+     * 规则必须继续命中正文首块（页眉是绝对定位，DOM 顺序不影响视觉层级）。
+     * `chrome === undefined` 表示未启用（或封面页）→ 回退老的「页脚仅页码」。
+     */
+    const chrome = reader.getPageChromeTexts(page.index);
+    /* 版心（书口）：与阅读视图 / 编辑分页同源；封面与未启用仿真版式时为空 */
+    const gutterTexts = reader.getPageGutterTexts(page.index);
+    const gutter =
+      gutterTexts === undefined
+        ? ''
+        : serializePageGutter(gutterTexts, layout.facsimile);
+    const header =
+      chrome !== undefined && chrome.header !== ''
+        ? `<div class="bt-page-header">${escapeHtml(chrome.header)}</div>\n`
+        : '';
+    const footer =
+      chrome !== undefined && chrome.footer !== ''
+        ? `<div class="bt-page-footer">${escapeHtml(chrome.footer)}</div>\n`
+        : chrome === undefined
+          ? `<div class="bt-page-number">${escapeHtml(
+              formatPageNumber(page.index + 1, layout.pageNumberStyle),
+            )}</div>\n`
           : '';
-      const footer =
-        chrome !== undefined && chrome.footer !== ''
-          ? `<div class="bt-page-footer">${escapeHtml(chrome.footer)}</div>\n`
-          : chrome === undefined
-            ? `<div class="bt-page-number">${escapeHtml(
-                formatPageNumber(page.index + 1, layout.pageNumberStyle),
-              )}</div>\n`
-            : '';
-      return (
-        `<section class="bt-page${pageSideClass(options, page.index)}" data-page="${page.index + 1}">\n` +
-        `${content}\n` +
-        `${gutter}${header}${footer}${cropMarksOverlay(options)}</section>`
-      );
-    })
-    .join('\n');
+    return (
+      `<section class="bt-page${pageSideClass(options, page.index)}" data-page="${page.index + 1}">\n` +
+      `${content}\n` +
+      `${gutter}${header}${footer}${cropMarksOverlay(options)}</section>`
+    );
+  };
+
+  return {
+    mode,
+    pageCount: Math.max(1, pages.length),
+    documentCss,
+    renderPage,
+    /* 空书 pages 为空：length 兕底 1，renderPage(0) 走空白页分支 */
+    renderDocument: () =>
+      wrapDocument(
+        Array.from({ length: Math.max(1, pages.length) }, (_, index) => renderPage(index)).join('\n'),
+      ),
+  };
+}
+
+/** 生成打印文档（完整 HTML 字符串；等价 `createPrintPager(book, options).renderDocument()`） */
+export function renderPrintHtml(
+  book: BookDocument,
+  options: PrintDocumentOptions = {},
+): string {
+  return createPrintPager(book, options).renderDocument();
+}
+
+/** auto 模式正文：整书单文档流（结构节点经 CSS break-before 另起页） */
+function renderFlowBody(book: BookDocument, options: PrintDocumentOptions): string {
+  const content = serializeNode(book.root, {
+    tagOverrides: options.tagOverrides,
+    rewriteSrc: options.rewriteSrc,
+    verticalText: options.verticalText,
+    // 打印稿是成品：缺省终稿，留痕版由调用方显式传 'marked'
+    revisionView: options.revisionView ?? 'final',
+  });
+  return `<main class="bt-book">\n${content}\n</main>`;
 }
 
 /** 对页标记类（第 1 页为右页 / recto；未启用对页时为空串） */

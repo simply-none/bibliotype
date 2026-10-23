@@ -42,6 +42,8 @@ defineProps<{
   uiSkin: UiSkinKey;
   /** PDF 是否正在导出 */
   pdfExporting: boolean;
+  /** 应用内直出逐页进度（null = 非光栅路径；展示「导出中 N/M」） */
+  pdfProgress?: { done: number; total: number } | null;
   /** 阅读形态 */
   viewMode: 'page' | 'scroll' | 'scroll-flow';
   /** 当前版式是否支持流式阅读 */
@@ -206,11 +208,17 @@ defineProps<{
           <button
             type="button"
             class="app__menu-button"
-            :disabled="pdfExporting"
+            :aria-label="pdfExporting ? '导出中，点击中止' : '导出 PDF'"
             @click="onMobileAction(onExportPdf)"
           >
             <AppIcon class="app__menu-icon" name="share" :size="18" :stroke-width="1.7" />
-            <span class="app__menu-label">{{ pdfExporting ? '导出中…' : '导出 PDF' }}</span>
+            <span class="app__menu-label">{{
+              pdfExporting
+                ? pdfProgress
+                  ? `导出中 ${pdfProgress.done}/${pdfProgress.total}（点击中止）`
+                  : '导出中…'
+                : '导出 PDF'
+            }}</span>
           </button>
         </div>
         <div class="app__menu-segment" role="group" aria-label="PDF 导出方式">

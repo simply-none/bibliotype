@@ -2,9 +2,10 @@
 
 > 涉及包：`@bibliotype/exporter-pdf`　·　相关：[04 阅读器与分页](04-reader-and-pagination.md)、[07 EPUB 导出](07-export-epub.md)
 
-PDF 导出分两条路：**宿主适配器**（Electron `printToPDF` / Node 无头浏览器，秒级直出文件）
-与**浏览器打印降级**（`window.print()`，受 Chromium 打印管线限制）。无 DOM 依赖的
-生成函数（`renderPrintHtml`）可在两端同构调用。
+PDF 导出分三条路：**宿主适配器**（Electron `printToPDF` / Node 无头浏览器，矢量、秒级直出文件）、
+**应用内直出**（`exportRasterPdf`，逐页光栅化 + pdf-lib 拼装，免打印对话框，纯浏览器首选）与
+**浏览器打印降级**（`window.print()`，受 Chromium 打印管线限制，需手动另存为）。无 DOM 依赖的
+生成函数（`renderPrintHtml` / `createPrintPager`）可在两端同构调用。
 
 ## 为什么不是「打印」而是「导出」
 
@@ -23,7 +24,7 @@ HTML 里图片 base64 占 4MB（1162 处引用 / 17 张唯一图），打印引�
 ## renderPrintHtml —— 生成打印文档
 
 ```ts
-import { renderPrintHtml } from '@bibliotype/exporter-pdf';
+import { renderPrintHtml, createPrintPager } from '@bibliotype/exporter-pdf';
 
 const html = renderPrintHtml(document, {
   mode: 'paged',                     // 'auto'（默认，浏览器分页）| 'paged'（预分页固定页）
@@ -31,6 +32,13 @@ const html = renderPrintHtml(document, {
   tokens: { ...DEFAULT_THEME, ...CLASSICAL_THEME_OVERRIDES },
   fontToken: FONT_TOKENS.CLASSICAL_BODY,
 });
+
+/* 逐页消费（应用内直出用）：一次分页，逐页渲染不再重建 Reader */
+const pager = createPrintPager(document, { mode: 'paged', /* 同上选项 */ });
+pager.pageCount;          // 页数（paged；auto 恆 0）
+pager.renderPage(0);      // 单页 `.bt-page` 片段
+pager.documentCss;        // bookCss + printCss，完整文档与光栅容器共用
+pager.renderDocument();   // 完整 HTML（与 renderPrintHtml 产物逐字节一致）
 ```
 
 两种模式：
@@ -42,6 +50,11 @@ const html = renderPrintHtml(document, {
 
 `paged` 模式下 `@page margin` 置 0，页边距由 `.bt-page` 的 padding 承担，
 页码经 `formatPageNumber` 按 `pageNumberStyle` 格式化。
+
+**直排同源**：`paged` 模式内部构造打印分页 Reader 时显式传 `axis`
+（`writingMode` 竖排 → `'column'`）与 `tokens`——屏幕量尺在直排下产出的块推进量是
+**列向宽度**，缺 axis 会被按横排行高口径解释，分页与跨页行切片全错位
+（古籍直排导出「首页有内容、后续页只剩版框」空白的根因）。
 
 ### PrintDocumentOptions
 
@@ -59,6 +72,44 @@ const html = renderPrintHtml(document, {
 | `bleed` | 出血（mm，单边）：页面四周外扩，版心尺寸不变 |
 | `cropMarks` | 四角裁切标记（仅 `paged` 且 `bleed > 0`） |
 | `imageRules` | 图片按版心等比缩小（不裁切、不放大），与 DPI 检查同源 |
+
+## 应用内直出（exportRasterPdf，纯浏览器推荐）
+
+纯浏览器环境没有宿主适配器，走打印对话框又慢（见上表，大书分钟级）。
+`exportRasterPdf` 改走「逐页光栅化」：打印分页器给出与预览同源的固定页片段，
+每页由真浏览器排版引擎渲染进 `<svg><foreignObject>` 后转位图（JPEG），
+经 **pdf-lib**（MIT，仅 PDF 拼装，非排版引擎）逐页建成 PDF 文件直接下载。
+免对话框、带逐页进度、可中止，大书从分钟级降到秒级；产物是**图片型 PDF**
+（文字不可选中），需要矢量文本请用宿主适配器或打印对话框路径。
+
+```ts
+import { exportRasterPdf, downloadPdf } from '@bibliotype/exporter-pdf';
+
+const controller = new AbortController();
+const bytes = await exportRasterPdf(document, {
+  mode: 'paged',                     // 选项同 PrintDocumentOptions；mode 恆按 paged 处理
+  scale: 2,                          // 清晰度档位：1 = 96dpi 草稿 / 2 = 192dpi 高清（文件约 4 倍）
+  quality: 0.92,                     // JPEG 质量
+  onProgress: (done, total) => report(done, total),
+  signal: controller.signal,         // 每页开始前检查，中止抛 AbortError
+});
+downloadPdf(bytes, '论语.pdf');
+```
+
+实现要点：
+
+- 页面尺寸 = 布局 `pageSize` + 四周出血（与打印 CSS 的 `.bt-page` / `@page` 同一口径），
+  PDF 页按 px→pt（96dpi → 72pt/in）换算，物理尺寸与打印稿一致；
+- 每页独立构建与销毁（不挂 DOM，仅借 `innerHTML` 解析后以 `XMLSerializer` 序列化，
+  输出天然 XML 合法），逐页 `setTimeout(0)` 让出主线程，导出期间 UI 不卡死；
+- Chromium 的 SVG 图像加载禁**外部**资源，但系统字体与 data URI 图片可用——
+  打印 CSS 字体按令牌落到系统字体族、图片在降级链路已是 data URI，恰好都可用；
+- `rasterize` 选项可注入单页 HTML→位图实现（Node 测试 mock 用，缺省浏览器实现）。
+
+demo 的「其他 → PDF 导出方式」（`pdfExportMode: 'in-app' | 'browser-dialog'`，应用级偏好、
+随界面偏好快照持久化，缺省 `in-app`）即在本路径与打印对话框路径之间路由；
+Electron 宿主不受该设置影响，恒走矢量适配器。导出中顶栏 / 更多面板按钮显示
+「导出中 N/M」，再次点击即中止。
 
 ## 宿主适配器导出（推荐：Electron / 无头浏览器）
 
@@ -131,7 +182,8 @@ Node 无头浏览器（puppeteer）同理：`page.setContent(html)` → `page.pd
 
 ## 浏览器打印降级（printHtml / printBook）
 
-无 adapter 时（纯浏览器宿主）走既有打印链路，配图片 blob 化去重：
+无 adapter 且用户显式选择「浏览器对话框导出」时走既有打印链路（demo 缺省已改走
+应用内直出），配图片 blob 化去重：
 
 ```ts
 import { createImageBlobRewriter, printHtml, renderPrintHtml } from '@bibliotype/exporter-pdf';
@@ -260,10 +312,15 @@ summarizePrintColorAdvice(advice); // '印前色彩提示 2 条：RGB 不可直�
 | Paged.js（`pagedjs` 0.5.x） | MIT | polyfill 单文件约 0.8MB（未压缩，含 css-tree） | 浏览器内按 CSS Paged Media 切页、页边距盒、运行页眉 | **不引入**：与 `reader` 预分页能力重叠，且产物仍是 DOM，最终仍靠 Chromium 打印——CMYK / 裁切一个都解决不了 |
 | Vivliostyle | AGPL-3.0 | CLI 依赖 Chromium（puppeteer），安装体积百 MB 级 | 完整 CSS Paged Media：`@page :left/:right`、`marks` / `bleed`、直出 PDF | **不内置**：AGPL 传染性与体积都不适合进库；需要时由宿主用 `PdfExportAdapter` 接入，库零依赖 |
 
-结论：精排能力留在 `exporter-pdf` 的 CSS 与报告层，**不引入新的排版引擎**（与执行约定「不新增自研排版引擎 / 不引入栅格化重依赖」一致）。`auto` 模式已按标准下发 `marks` / `bleed`，宿主换成 Prince / Vivliostyle 时无需改库。
+结论：精排能力留在 `exporter-pdf` 的 CSS 与报告层，**不引入新的排版引擎**。光栅直出
+引入的 pdf-lib 是 MIT 的 PDF 拼装库（建页 / 嵌图 / 序列化字节），不做排版、不做栅格化
+（页面渲染仍由浏览器排版引擎完成），与「不新增自研排版引擎 / 不引入栅格化重依赖」
+约定不冲突。`auto` 模式已按标准下发 `marks` / `bleed`，宿主换成 Prince / Vivliostyle 时无需改库。
 
 ### 已知取舍
 
+- 应用内直出产物是图片型 PDF（文字不可选中、文件体积随页数线性增长）；
+  矢量文本走宿主适配器或打印对话框路径。
 - 出血只支持四边等值（单值 `mm`）；异形出血 / 折页标记不在本项范围。
 - `@page :left/:right` 在 Chromium 的实现随版本波动，生产对页请用 `paged`（DOM 类）而非 `auto`。
 - DPI 检查只覆盖 data URI 的四种位图；矢量（SVG）不计 DPI，WebP 等新格式按「无法量测」提示。

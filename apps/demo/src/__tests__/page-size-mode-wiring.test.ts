@@ -9,7 +9,8 @@
  * 3. `h5` 才是真实重排：落 340 页宽 + 单栏，页高仍铺舞台，不覆盖倍率；
  * 4. 窄屏缺省只在用户没选过适配时生效——选过一次「固定」就回到开本尺寸，
  *    不再像旧的 H5 版式预设那样无条件压页宽；
- * 5. 仿真版式任何适配都不覆盖页型与倍率（界行几何按固定开本）。
+ * 5. 仿真版式只锁几何（h5 档不动页型）；width / height 的 transform 缩放与仿真
+ *    兼容，倍率照算（版框随缩放保真，不会界行错位）。
  *
  * `useStyleSettings` 用到 `onBeforeUnmount`，故组合式必须在组件 setup 里起；
  * 适配补丁走「面板改草稿 → applyDraft 保存」的真实链路，同时检验回显与生效层。
@@ -160,13 +161,13 @@ describe('生效层按开本适配折算页型与缩放倍率', () => {
     expect(chosen.effectiveLayout.value.columns).toBe(MODERN_THEME.layout.columns);
   });
 
-  it('仿真版式：任何适配都不覆盖页型与倍率（版框 / 界行按固定开本）', async () => {
+  it('仿真版式：width 档页型不动且倍率照算（transform 缩放与仿真兼容）', async () => {
     const tokens = await setupTokens({
       theme: FACSIMILE_THEME,
       stage: STAGE,
       patch: { pageSizeMode: PAGE_SIZE_MODES.WIDTH },
     });
     expect(tokens.effectiveLayout.value.pageSize).toBe(FACSIMILE_THEME.layout.pageSize);
-    expect(tokens.fitScale.value).toBeUndefined();
+    expect(tokens.fitScale.value).toBeCloseTo(STAGE.width / FACSIMILE_THEME.layout.pageSize.width, 2);
   });
 });

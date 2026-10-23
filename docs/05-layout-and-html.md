@@ -71,11 +71,13 @@ resolvePageFitScale(fixedOrH5, stage);                        // undefined = 不
 
 缩放倍率限幅 `FIT_SCALE_MIN = 0.2` / `FIT_SCALE_MAX = 4`（两档共用，小数三档取整
 防每帧新值）；`h5` 页高另有限幅 `AUTO_AXIS_MIN = 240` / `AUTO_AXIS_MAX = 1600`。
-古籍仿真版式（`facsimile` 已启用）两路都不覆盖：版框 / 界行几何按固定开本算，
-改几何或整体缩放都会让界行与文字列错位。
+古籍仿真版式只锁几何折算（`h5` 档不覆盖）：版框 / 界行几何按固定开本算，改任一轴
+会让界行与文字列错位；`width` / `height` 档不改几何、整页 transform 等比缩放
+（版框随缩放保真），与仿真兼容不做拦截。
 
 读取本字段一律经 `resolvePageSizeMode`，不要直接判等；面板回显读「声明层」（不折算），
-否则开本下拉会被自适应顶成「自定义」。缩放落地端见
+否则开本下拉会被自适应顶成「自定义」。宽 / 高档下面板另回显生效层倍率
+（「视图缩放 ×N.NNN」，量不到舞台时明示回退固定开本），消除静默失效。缩放落地端见
 [06-vue-integration](06-vue-integration.md) 的 `BtBookView.fitScale`。
 
 `facsimile` 是「古籍仿真直排」的唯一开关：缺省时版心尺寸、样式表与度量签名

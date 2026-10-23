@@ -36,7 +36,9 @@ afterEach(() => {
 });
 
 /** 挂载设置面板并跳到「版面与页面」分区 */
-async function mountLayoutSection(): Promise<{
+async function mountLayoutSection(
+  fitScale?: number,
+): Promise<{
   container: HTMLElement;
   patchLayout: (patch: Record<string, unknown>) => void;
   draftLayout: () => Record<string, unknown>;
@@ -56,6 +58,7 @@ async function mountLayoutSection(): Promise<{
         uiSkin: 'paper',
         uiDensity: 'comfortable',
         uiMotion: 'auto',
+        fitScale,
       }),
   });
 
@@ -136,6 +139,35 @@ describe('设置面板「开本适配」', () => {
     /* 面板只落意图：开本尺寸与分栏不因适配改动被顺手改写（折算发生在生效层） */
     expect(draftLayout().pageSize).toBeUndefined();
     expect(draftLayout().columns).toBeUndefined();
+  });
+
+  it('宽 / 高档回显生效倍率，量不到舞台时明示回退（消除静默失效）', async () => {
+    /* 开本适配的提示行按文本定位（面板内还有页底溢出等同名 hint 元素） */
+    const hintOf = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('.panel__hint'))
+        .map((node) => node.textContent?.trim())
+        .find((text) => text?.includes('视图缩放') || text?.includes('固定开本显示'));
+
+    const hinted = await mountLayoutSection(1.61);
+    const select = modeSelect(hinted.container);
+    select.value = PAGE_SIZE_MODES.WIDTH;
+    select.dispatchEvent(new Event('change'));
+    await nextTick();
+    expect(hintOf(hinted.container)).toBe('视图缩放 ×1.610');
+
+    /* 舞台未量到（fitScale undefined）：明示按固定开本显示，不静默假死 */
+    const unhinted = await mountLayoutSection(undefined);
+    const bare = modeSelect(unhinted.container);
+    bare.value = PAGE_SIZE_MODES.HEIGHT;
+    bare.dispatchEvent(new Event('change'));
+    await nextTick();
+    expect(hintOf(unhinted.container)).toBe('暂按固定开本显示（舞台尺寸未量到）');
+
+    /* 其余档位不出现提示行 */
+    bare.value = PAGE_SIZE_MODES.FIXED;
+    bare.dispatchEvent(new Event('change'));
+    await nextTick();
+    expect(hintOf(unhinted.container)).toBeUndefined();
   });
 
   it('补丁里的脏值回显为固定（不被静默采纳）', async () => {

@@ -770,6 +770,7 @@ let perfProbe: PerfProbe | null = null;
       :document="readerRef.document ?? lunyuDocument"
       :night="night"
       :page-transition="pageTransition"
+      :fit-scale="fitScale"
       :ui-skin="uiSkin"
       :ui-density="uiDensity"
       :ui-motion="uiMotion"

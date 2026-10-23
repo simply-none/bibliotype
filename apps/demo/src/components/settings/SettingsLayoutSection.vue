@@ -42,6 +42,8 @@ const props = defineProps<{
   night: boolean;
   /** 翻页动效（D5；演示态快捷预设，不写入样式快照） */
   pageTransition?: 'slide' | 'fade' | 'none';
+  /** 生效层整页缩放倍率（width / height 档；回显用，未生效时 undefined） */
+  fitScale?: number;
 }>();
 
 const emit = defineEmits<{
@@ -87,6 +89,22 @@ const pageSizeModeOptions: ReadonlyArray<{ value: PageSizeMode; label: string }>
 
 /** 当前生效适配（缺省与脏值都读作「固定」） */
 const pageSizeMode = computed(() => resolvePageSizeMode(props.layout));
+
+/**
+ * 生效性回显（消除静默失效）：宽 / 高档显示宿主算出的实际倍率；量不到舞台时
+ * 明示回退固定开本，不再让「选了但没反应」只能靠猜。
+ */
+const fitScaleHint = computed(() => {
+  if (
+    pageSizeMode.value !== PAGE_SIZE_MODES.WIDTH &&
+    pageSizeMode.value !== PAGE_SIZE_MODES.HEIGHT
+  ) {
+    return '';
+  }
+  return props.fitScale === undefined
+    ? '暂按固定开本显示（舞台尺寸未量到）'
+    : `视图缩放 ×${props.fitScale.toFixed(3)}`;
+});
 
 const marginBox = computed(() => parseMarginBox(props.tokens[LAYOUT_TOKENS.PAGE_MARGIN]));
 
@@ -219,6 +237,7 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
       </select>
     </label>
   </div>
+  <span v-if="fitScaleHint !== ''" class="panel__hint">{{ fitScaleHint }}</span>
 
   <div class="panel__field">
     <span class="panel__label">翻页动效（D5）</span>

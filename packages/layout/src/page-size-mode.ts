@@ -106,8 +106,11 @@ const FIT_SCALE_MAX = 4;
  *
  * 页框与分页几何**不动**，宿主把返回值作为整体缩放系数（transform scale）用在
  * 预览 / 编辑画布上——文字、版心、页脚全部跟着等比缩放，即 PDF「适合宽度 /
- * 适合高度」的效果。其余档位（`fixed` / `h5`）与仿真版式一律返回 `undefined` =
- * 不覆盖，视图按自身适配策略（contain 且 ≤1）缩放；量不到同名轴同样 `undefined`。
+ * 适合高度」的效果。其余档位（`fixed` / `h5`）返回 `undefined` = 不覆盖，视图按
+ * 自身适配策略（contain 且 ≤1）缩放；量不到同名轴同样 `undefined`。
+ *
+ * 仿真版式不禁用本倍率：width / height 档页框恒为开本、整页 transform 等比缩放，
+ * 版框 / 界行 / 文字一起缩，不会错位（仿真只锁 `h5` 的几何折算，见下）。
  *
  * 倍率保留三位小数：防浮点尾差让宿主每帧都收到“新值”而白重渲染。
  *
@@ -120,7 +123,6 @@ export function resolvePageFitScale(
 ): number | undefined {
   const mode = resolvePageSizeMode(options);
   if (mode !== PAGE_SIZE_MODES.WIDTH && mode !== PAGE_SIZE_MODES.HEIGHT) return undefined;
-  if (isFacsimileEnabled(options)) return undefined;
   const bindHeight = mode === PAGE_SIZE_MODES.HEIGHT;
   const avail = bindHeight ? stage?.height : stage?.width;
   const pageAxis = bindHeight ? options.pageSize.height : options.pageSize.width;
@@ -141,8 +143,9 @@ export function resolvePageFitScale(
  * - `stage` 缺省（SSR / 未挂载）时：`h5` 的页高轴回退出参取值（340×560 是确定值，
  *   不依赖容器实测）。
  *
- * 古籍仿真版式（`facsimile` 已启用）任何模式都不覆盖：版框 / 界行 / 版心的几何
- * 按固定开本算，改任一轴都会让界行与文字列错位。
+ * 古籍仿真版式只锁几何折算（`h5` 档不覆盖）：版框 / 界行 / 版心的几何按固定开本
+ * 算，改任一轴都会让界行与文字列错位；`width` / `height` 档不改几何、整页
+ * transform 等比缩放（版框随缩放保真），与仿真兼容，不做拦截。
  *
  * @param options 声明布局（主题基准 + 用户补丁）
  * @param stage 舞台可用尺寸（仅 `h5` 页高取用；缺省按回退处理）

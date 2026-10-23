@@ -117,7 +117,7 @@ const grid = resolveFacsimileGrid(layout, preset.tokens);
 | 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`（`longDigits: 'kanji'` 数字分组）、`combineUprightCss`、`needsCombineUpright` |
 | 竖排细节 | `VERTICAL_PUNCTUATION_FORMS`、`verticalPunctuationOf`、`toVerticalPunctuation`、`toKanjiDigits`、`toFullwidthDigits`、`transformVerticalText`、`needsVerticalTextTransform` |
 | 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`FACSIMILE_BASE_LAYOUT`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
-| 开本适配 | `PAGE_SIZE_MODES`（`width` / `height` 视图缩放档：页框保持开本，`resolvePageFitScale` 按「舞台同名轴 / 开本同名轴」算 PDF 式整页倍率（字体跟着缩放，限幅 0.2~4）/ `h5` 340 页宽 + 单栏真实重排 / `fixed` 严格按开本 px）、`DEFAULT_PAGE_SIZE_MODE`、`resolvePageSizeMode`（缺省与脏值归一为 `fixed`）、`applyPageSizeMode`（只有 `h5` 折真实 `pageSize` / `columns`；仿真版式不动）、`resolvePageFitScale`（其余档位 / 量不到同名轴返回 `undefined` = 不覆盖，SSR 安全） |
+| 开本适配 | `PAGE_SIZE_MODES`（`width` / `height` 视图缩放档：页框保持开本，`resolvePageFitScale` 按「舞台同名轴 / 开本同名轴」算 PDF 式整页倍率（字体跟着缩放，限幅 0.2~4；仿真版式下同样生效——transform 缩放版框保真，不锁）/ `h5` 340 页宽 + 单栏真实重排 / `fixed` 严格按开本 px）、`DEFAULT_PAGE_SIZE_MODE`、`resolvePageSizeMode`（缺省与脏值归一为 `fixed`）、`applyPageSizeMode`（只有 `h5` 折真实 `pageSize` / `columns`；仿真版式不动）、`resolvePageFitScale`（其余档位 / 量不到同名轴返回 `undefined` = 不覆盖，SSR 安全） |
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
 | 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |
 | 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |

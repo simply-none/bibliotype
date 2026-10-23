@@ -50,6 +50,8 @@ const props = defineProps<{
   document?: BookDocument;
   /** 翻页动效（D5；演示态快捷预设，不写入样式快照） */
   pageTransition?: 'slide' | 'fade' | 'none';
+  /** 生效层整页缩放倍率（width / height 档；「开本适配」回显用） */
+  fitScale?: number;
   night: boolean;
   /** 界面皮肤（美化 P4）：壳层色板，与阅读纸色（主题令牌）互不干涉 */
   uiSkin: UiSkinKey;
@@ -233,6 +235,7 @@ async function onSave(): Promise<void> {
             v-else-if="section === 'layout'"
             :api="api"
             :layout="layout"
+            :fit-scale="fitScale"
             :tokens="tokens"
             :night="night"
             :page-transition="pageTransition"

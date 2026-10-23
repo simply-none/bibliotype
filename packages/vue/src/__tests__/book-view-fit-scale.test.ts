@@ -5,7 +5,8 @@
  * 组件直接拿它做整页 transform 缩放——允许 >1 放大（突破旧的 `Math.min(1, ratio)`
  * contain 上限），字体与版面一起等比缩放；未传 / 非法值回退自身适配策略。
  * happy-dom 无布局（clientWidth 恒 0，常规分支只能落在 scale 1），恰好可以
- * 区分「覆盖生效」与「回退」两条路。
+ * 区分「覆盖生效」与「回退」两条路。scroll 模式（连续滚动）同受 fitScale 覆盖：
+ * 槽位宽 = 页宽 × 倍率，修「槽位固定页宽两边留白」。
  */
 import { describe, expect, it } from 'vitest';
 import { mount, type VueWrapper } from '@vue/test-utils';
@@ -66,6 +67,21 @@ describe('BtBookView fitScale（PDF 式整页缩放）', () => {
     expect(stage.style.width).toBe(`${PAGE_SIZES.A5.width}px`);
     const { stage: plain } = await mountView({});
     expect(plain.style.width).toBe(`${PAGE_SIZES.A5.width}px`);
+  });
+
+  it('scroll 模式同样生效：槽位宽 = 页宽 × 倍率，不再被 contain 钳死在 ≤1', async () => {
+    const reader = makeReader();
+    const wrapper = mount(BtBookView, { props: { reader, mode: 'scroll', fitScale: 2 } });
+    await nextTick();
+    /* happy-dom 量不到容器 → guard 回退满额倍率；槽位与页框同步放大 */
+    const slot = wrapper.find('.bt-scroll__slot').element as HTMLElement;
+    expect(slot.style.width).toBe(`${PAGE_SIZES.A5.width * 2}px`);
+    const page = wrapper.find('.bt-reader-page').element as HTMLElement;
+    expect(page.style.transform).toBe('scale(2)');
+    await wrapper.setProps({ fitScale: 0.75 });
+    expect((wrapper.find('.bt-scroll__slot').element as HTMLElement).style.width).toBe(
+      `${PAGE_SIZES.A5.width * 0.75}px`,
+    );
   });
 
   it('横向安全阀：倍率钳到 容器可用宽/页宽，不冒出横向滚动条', async () => {

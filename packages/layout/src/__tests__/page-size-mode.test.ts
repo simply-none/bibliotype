@@ -6,7 +6,8 @@
  * 2. 脏值过滤——持久化主体是自由键值，非法取值必须回落默认而非参与后续判定；
  * 3. 两条机制分路——width / height 是视图缩放（几何原样不动、只算倍率：
  *    resolvePageFitScale 绑同名轴 / 限幅 / 量不到不覆盖），h5 才是真实重排（窄页
- *    单栏）；仿真版式两路一律不动；只有动了几何的折算才进度量签名。
+ *    单栏）；仿真版式只锁几何（h5 档不动），width / height 的 transform 缩放
+ *    版框随缩放保真、与仿真兼容不拦截；只有动了几何的折算才进度量签名。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '@bibliotype/core';
@@ -120,7 +121,7 @@ describe('applyPageSizeMode 几何折算（只有 h5 动几何）', () => {
     ).toBe(H5_PAGE_SIZE);
   });
 
-  it('仿真版式任何模式都不覆盖页型（版框 / 界行几何按固定开本）', () => {
+  it('仿真版式 h5 档不覆盖页型（版框 / 界行几何按固定开本，仅锁几何）', () => {
     const facsimile = mergeLayoutOptions(FACSIMILE_BASE_LAYOUT, {
       facsimile: { preset: 'song-zhe', frame: 'double', rule: 'ink' },
       pageSizeMode: PAGE_SIZE_MODES.H5,
@@ -195,12 +196,17 @@ describe('resolvePageFitScale 视图缩放倍率（PDF 适宽 / 适高）', () =
     ).toBe(0.2);
   });
 
-  it('仿真版式不覆盖（与几何折算同一守卫）', () => {
+  it('仿真版式下 width / height 仍算倍率（transform 缩放版框保真，与仿真兼容）', () => {
     const facsimile = mergeLayoutOptions(FACSIMILE_BASE_LAYOUT, {
       facsimile: { preset: 'song-zhe', frame: 'double', rule: 'ink' },
       pageSizeMode: PAGE_SIZE_MODES.WIDTH,
     });
-    expect(resolvePageFitScale(facsimile, { width: 900, height: 600 })).toBeUndefined();
+    const stage = { width: 900, height: 600 };
+    /* 仿真基准开本非 A5，倍率按其自身页宽算（900 / FACSIMILE 页宽） */
+    expect(resolvePageFitScale(facsimile, stage)).toBeCloseTo(
+      stage.width / FACSIMILE_BASE_LAYOUT.pageSize.width,
+      2,
+    );
   });
 
   it('同舞台重算倍率稳定（三位小数收敛，不每帧新值白重渲染）', () => {

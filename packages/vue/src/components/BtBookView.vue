@@ -61,7 +61,7 @@ const props = withDefaults(
     /** 缩放策略（仅 page 模式）：width 按容器宽 / contain 按容器宽高 / none 原尺寸 */
     fit?: 'width' | 'contain' | 'none';
     /**
-     * 外部指定的整页缩放倍率（仅 page 模式；PDF「适合宽度 / 高度」语义）
+     * 外部指定的整页缩放倍率（`page` / `scroll` 模式；PDF「适合宽度 / 高度」语义）
      *
      * 传入有限正数时直接作为最终 scale（允许 >1 放大，字体与版面整体等比缩放），
      * 不再按容器 contain 与 `Math.min(1, ratio)` 推算；倍率另受横向安全阀约束
@@ -544,6 +544,21 @@ const stride = computed(() =>
 
 function updateScrollScale(): void {
   const el = scrollerRef.value;
+  /* PDF 式整页缩放同样覆盖连续滚动视图：槽位宽 = 页宽 × 倍率，页内字体跟着缩放。
+     横向安全阀与原自适应同口径（扣 SCROLL_PADDING），槽位不超过可用宽，
+     不致 overflow-x hidden 下把页缘裁掉；fitScale 激活时根上 is-zoom-fit
+     预留纵滚槽位，clientWidth 不随溢出二次变化。 */
+  const override = fitScaleOverride.value;
+  if (override !== null) {
+    const pageW = pageSize.value.width;
+    const guard =
+      el !== null && el.clientWidth > 0 && pageW > 0
+        ? (el.clientWidth - SCROLL_PADDING * 2) / pageW
+        : override;
+    scrollScale.value = Math.min(override, Math.max(0.1, guard));
+    syncViewport();
+    return;
+  }
   if (el === null || el.clientWidth <= 0) {
     scrollScale.value = 1;
     return;
@@ -1477,7 +1492,7 @@ defineExpose({
     v-else-if="effectiveMode === 'scroll'"
     ref="scrollerRef"
     class="bt-book-view bt-book-view--scroll"
-    :class="{ 'bt-book-view--scroll-x': verticalWriting }"
+    :class="{ 'bt-book-view--scroll-x': verticalWriting, 'is-zoom-fit': fitScaleOverride !== null }"
     tabindex="0"
     :aria-label="ariaLabel"
     @scroll="onScroll"

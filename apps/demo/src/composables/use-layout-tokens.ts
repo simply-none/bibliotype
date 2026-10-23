@@ -92,7 +92,7 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
    * 声明层布局：主题基准 + 窄屏缺省 + 用户补丁（尚未按舞台折算）
    *
    * 面板回显用的是本层：开本下拉得按用户选的预设回显，不能被 `h5` 折算出的
-   * 340×舞台高临时页型顶成「自定义」（`width` / `height` 本就折不动几何）。
+   * 可视宽高临时页型顶成「自定义」（`width` / `height` 本就折不动几何）。
    */
   const declaredLayout = computed<LayoutOptions>(() =>
     mergeLayoutOptions(
@@ -104,7 +104,7 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
   /**
    * 生效布局：声明层按开本适配折算成真实页型
    *
-   * 只有 `h5` 会动几何（340 页宽 + 单栏，页高铺舞台）；`fixed`（缺省）原样返回；
+   * 只有 `h5` 会动几何（页框取舞台可视宽高 + 单栏，网页式布局）；`fixed`（缺省）原样返回；
    * `width` / `height` 是视图缩放档，页框保持开本、不重排（倍率见 fitScale）。
    * 量不到舞台时一律原样返回，不凭臆造值重排。
    */

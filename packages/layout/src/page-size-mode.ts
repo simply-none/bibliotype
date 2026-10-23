@@ -26,7 +26,7 @@ export const PAGE_SIZE_MODES = {
   WIDTH: 'width',
   /** 自适应高度：视图按「舞台高 / 页高」整体缩放（页框与分页不动，PDF 适高） */
   HEIGHT: 'height',
-  /** 按 H5 窄屏视口取页宽（340px）并强制单栏，页高铺舞台，正文回落到令牌字号 */
+  /** 网页式布局：页框取舞台可视宽高（回退 340×560）+ 强制单栏，文字按令牌原尺寸 */
   H5: 'h5',
   /** 固定：严格按 `pageSize` 的宽高落地（改造前的唯一行为） */
   FIXED: 'fixed',
@@ -69,27 +69,16 @@ export interface StageBoxSize {
 }
 
 /**
- * h5 页高限幅（px，作用于 `applyPageSizeMode` 的页高轴）
- *
- * 下限防「侧栏拖到底 / 量尺未就绪」排出几乎零高的页；上限防超高分屏排出
- * 通高不可读的手机页柱。`width` / `height` 两档不再参与（见 `FIT_SCALE_*`）。
+ * 舞台轴值直接取用（网页式布局：页框跟随容器可视宽高，不设可读限幅；
+ * 舞台未实测 / 非法时回退 `H5_PAGE_SIZE` 出参轴；取整防小数页型）
  */
-const AUTO_AXIS_MIN = 240;
-const AUTO_AXIS_MAX = 1600;
+function axisOr(size: number | undefined, fallback: number): number {
+  return usableAxis(size) ? Math.round(size) : fallback;
+}
 
 /** 轴尺寸是否可用于折算（非 SSR / 非零宽） */
 function usableAxis(size: number | undefined): size is number {
   return typeof size === 'number' && Number.isFinite(size) && size > 0;
-}
-
-/** 限幅到可读区间 */
-function clampAxis(size: number): number {
-  return Math.round(Math.min(AUTO_AXIS_MAX, Math.max(AUTO_AXIS_MIN, size)));
-}
-
-/** 取已限幅的轴值（舞台未实测时回退出参轴） */
-function axisOr(size: number | undefined, fallback: number): number {
-  return usableAxis(size) ? clampAxis(size) : fallback;
 }
 
 /** 页型是否已是目标宽高（按值比，不按引用：折算每次都会新建页型对象） */
@@ -102,12 +91,16 @@ const FIT_SCALE_MIN = 0.2;
 const FIT_SCALE_MAX = 4;
 
 /**
- * 按开本适配算「整页视图缩放倍率」（`width` / `height` 档专用）
+ * 按开本适配算「整页视图缩放倍率」（`width` / `height` / `h5` 档）
  *
  * 页框与分页几何**不动**，宿主把返回值作为整体缩放系数（transform scale）用在
  * 预览 / 编辑画布上——文字、版心、页脚全部跟着等比缩放，即 PDF「适合宽度 /
- * 适合高度」的效果。其余档位（`fixed` / `h5`）返回 `undefined` = 不覆盖，视图按
- * 自身适配策略（contain 且 ≤1）缩放；量不到同名轴同样 `undefined`。
+ * 适合高度」的效果。`fixed` 返回 `undefined` = 不覆盖，视图按自身适配策略
+ * （contain 且 ≤1）缩放；量不到同名轴同样 `undefined`。
+ *
+ * `h5` 档恒返回 `1`：页框已由 `applyPageSizeMode` 按舞台可视宽高落地，视图不缩放，
+ * 文字保持预设字号（不交给 contain——测量摩擦会让它轻微缩字）；舞台未量到时
+ * 返回 `undefined`（未挂载阶段几何与缩放都未就绪）。
  *
  * 仿真版式不禁用本倍率：width / height 档页框恒为开本、整页 transform 等比缩放，
  * 版框 / 界行 / 文字一起缩，不会错位（仿真只锁 `h5` 的几何折算，见下）。
@@ -122,6 +115,9 @@ export function resolvePageFitScale(
   stage?: StageBoxSize,
 ): number | undefined {
   const mode = resolvePageSizeMode(options);
+  if (mode === PAGE_SIZE_MODES.H5) {
+    return usableAxis(stage?.width) && usableAxis(stage?.height) ? 1 : undefined;
+  }
   if (mode !== PAGE_SIZE_MODES.WIDTH && mode !== PAGE_SIZE_MODES.HEIGHT) return undefined;
   const bindHeight = mode === PAGE_SIZE_MODES.HEIGHT;
   const avail = bindHeight ? stage?.height : stage?.width;
@@ -138,10 +134,10 @@ export function resolvePageFitScale(
  * （倍率走 `resolvePageFitScale`，不进度量签名、不触发重排）。
  *
  * - `fixed`（缺省）/ `width` / `height`：原样返回——旧快照与未挂载前与改造前逐字节一致；
- * - `h5`：页宽落 `H5_PAGE_SIZE`（340）+ 单栏，页高仍铺舞台 → 宽屏下像一根
- *   通高的手机页柱，等比缩放系数趋近 1，正文按令牌原尺寸落地；
- * - `stage` 缺省（SSR / 未挂载）时：`h5` 的页高轴回退出参取值（340×560 是确定值，
- *   不依赖容器实测）。
+ * - `h5`：网页式布局——页框直接取舞台可视宽高（宽高都跟随，不设可读限幅）+
+ *   强制单栏，文字按令牌原尺寸落地（视图缩放恒 1，见 `resolvePageFitScale`）；
+ * - `stage` 缺省（SSR / 未挂载）时：`h5` 回退出参轴 `H5_PAGE_SIZE`（340×560，
+ *   是确定值，不依赖容器实测）。
  *
  * 古籍仿真版式只锁几何折算（`h5` 档不覆盖）：版框 / 界行 / 版心的几何按固定开本
  * 算，改任一轴都会让界行与文字列错位；`width` / `height` 档不改几何、整页
@@ -160,11 +156,13 @@ export function applyPageSizeMode(
   if (isFacsimileEnabled(options)) return options;
 
   const page = options.pageSize;
+  /* 网页式布局：页框 = 舞台可视宽高（宽高都跟随），文字按令牌原尺寸落地 */
+  const width = axisOr(stage?.width, H5_PAGE_SIZE.width);
   const height = axisOr(stage?.height, H5_PAGE_SIZE.height);
-  if (sameBox(page, H5_PAGE_SIZE.width, height) && options.columns === 1) return options;
+  if (sameBox(page, width, height) && options.columns === 1) return options;
   const pageSize =
-    height === H5_PAGE_SIZE.height
+    width === H5_PAGE_SIZE.width && height === H5_PAGE_SIZE.height
       ? H5_PAGE_SIZE
-      : createPageSize(`H5　${H5_PAGE_SIZE.width}×${height}`, H5_PAGE_SIZE.width, height);
+      : createPageSize(`H5　${width}×${height}`, width, height);
   return { ...options, pageSize, columns: 1 };
 }

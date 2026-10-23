@@ -33,7 +33,10 @@ interface LayoutOptions {
 - `width`（自适应宽度）/ `height`（自适应高度）：**视图缩放档**——页框与分页保持
   开本不动，`resolvePageFitScale` 按「舞台同名轴 / 开本同名轴」算整页倍率（PDF
   「适合宽度 / 高度」语义，允许 >1，文字与版面一起等比缩放），不分书写方向；
-- `h5`：页宽落 `H5_PAGE_SIZE`（340）+ 强制单栏，页高仍铺舞台（真实重排，方便阅读）；
+- `h5`（自适应 H5）：**网页式布局**——页框直接取舞台可视宽高（宽高都跟随，
+  不设可读限幅）+ 强制单栏；视图缩放恒 `1`（`resolvePageFitScale` 返回 1），
+  文字按令牌预设字号落地，一屏一页不缩放不滚动；舞台未实测时回退
+  `H5_PAGE_SIZE`（340×560，确定值，SSR 也能算）；
 - `fixed`：严格按 `pageSize` 的宽高落地，视图按 contain 适配且 `Math.min(1, ratio)`
   不放大，所以「固定 = 始终开本大小」。
 
@@ -51,9 +54,9 @@ resolvePageSizeMode(persistedPatch);  // 'fixed'（落盘脏值归一，persiste
 // 几何折算（A5 559×794）：只有 h5 动页框，其余原样返回
 applyPageSizeMode(declared, { width: 900, height: 600 });
 // width / height / fixed 档：恒等于 declared（不重排、不进度量签名）
-// h5 档：340×600 + 单栏；未量到舞台时 h5 仍落 340×560
+// h5 档：900×600 + 单栏（页框 = 舞台可视宽高）；未量到舞台时 h5 仍落 340×560
 
-// 视图缩放倍率（width / height 档专用，宿主拿去喂 transform scale）
+// 视图缩放倍率（width / height / h5 档，宿主拿去喂 transform scale）
 resolvePageFitScale(widthMode, { width: 900, height: 600 });  // ≈1.610（900/559，放大）
 resolvePageFitScale(heightMode, { width: 900, height: 600 }); // ≈0.756（600/794，缩小）
 resolvePageFitScale(fixedOrH5, stage);                        // undefined = 不覆盖，视图自适配
@@ -69,8 +72,8 @@ resolvePageFitScale(fixedOrH5, stage);                        // undefined = 不
 二者已在 `computeMetricsSignature` 参与项里 → 预览 / 画布 / 导出自动重量尺重排。
 无论如何，宿主都必须在「舞台可用尺寸」变化时重调这两个函数，否则倍率停在旧尺寸。
 
-缩放倍率限幅 `FIT_SCALE_MIN = 0.2` / `FIT_SCALE_MAX = 4`（两档共用，小数三档取整
-防每帧新值）；`h5` 页高另有限幅 `AUTO_AXIS_MIN = 240` / `AUTO_AXIS_MAX = 1600`。
+缩放倍率限幅 `FIT_SCALE_MIN = 0.2` / `FIT_SCALE_MAX = 4`（宽 / 高两档共用，小数三档
+取整防每帧新值）；`h5` 档页框跟随可视宽高，不设轴限幅。
 古籍仿真版式只锁几何折算（`h5` 档不覆盖）：版框 / 界行几何按固定开本算，改任一轴
 会让界行与文字列错位；`width` / `height` 档不改几何、整页 transform 等比缩放
 （版框随缩放保真），与仿真兼容不做拦截。

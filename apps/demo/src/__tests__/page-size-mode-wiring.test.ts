@@ -6,7 +6,8 @@
  * 2. `width` / `height` 是 PDF 式视图缩放：页框保持开本（不重排），api 暴露的
  *    `fitScale` = 舞台同名轴 / 开本同名轴（允许 >1，字体随页整体缩放），
  *    而面板回显仍是用户声明的开本；
- * 3. `h5` 才是真实重排：落 340 页宽 + 单栏，页高仍铺舞台，不覆盖倍率；
+ * 3. `h5` 是网页式布局：页框 = 舞台可视宽高（宽高都跟随）+ 单栏，倍率恒 1
+ *    （文字按令牌原尺寸落地，不交给 contain）；
  * 4. 窄屏缺省只在用户没选过适配时生效——选过一次「固定」就回到开本尺寸，
  *    不再像旧的 H5 版式预设那样无条件压页宽；
  * 5. 仿真版式只锁几何（h5 档不动页型）；width / height 的 transform 缩放与仿真
@@ -133,21 +134,21 @@ describe('生效层按开本适配折算页型与缩放倍率', () => {
     expect(heightTokens.fitScale.value).toBeUndefined();
   });
 
-  it('h5：页宽落 340 + 单栏，页高仍铺舞台，不另加缩放倍率', async () => {
+  it('h5：页框取舞台可视宽高 + 单栏，视图缩放恒 1（文字预设字号）', async () => {
     const tokens = await setupTokens({
       stage: STAGE,
       patch: { pageSizeMode: PAGE_SIZE_MODES.H5 },
     });
     const layout = tokens.effectiveLayout.value;
-    expect(layout.pageSize.width).toBe(340);
+    expect(layout.pageSize.width).toBe(STAGE.width);
     expect(layout.pageSize.height).toBe(STAGE.height);
     expect(layout.columns).toBe(1);
-    expect(tokens.fitScale.value).toBeUndefined();
+    expect(tokens.fitScale.value).toBe(1);
   });
 
   it('窄屏缺省 h5：用户选过一次就以用户为准（不再无条件压页宽）', async () => {
     const autoH5 = await setupTokens({ mobileShell: true, stage: STAGE });
-    expect(autoH5.effectiveLayout.value.pageSize.width).toBe(340);
+    expect(autoH5.effectiveLayout.value.pageSize.width).toBe(STAGE.width);
     expect(autoH5.effectiveLayout.value.columns).toBe(1);
     /* 缺省也落到面板回显，用户看得见「当前是按 H5 取形」 */
     expect(autoH5.panelLayout.value.pageSizeMode).toBe(PAGE_SIZE_MODES.H5);

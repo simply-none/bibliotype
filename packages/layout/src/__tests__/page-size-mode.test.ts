@@ -5,8 +5,9 @@
  * 1. 取值表与默认值——缺省即「固定」，旧快照与既有主题字面量才不会改视觉；
  * 2. 脏值过滤——持久化主体是自由键值，非法取值必须回落默认而非参与后续判定；
  * 3. 两条机制分路——width / height 是视图缩放（几何原样不动、只算倍率：
- *    resolvePageFitScale 绑同名轴 / 限幅 / 量不到不覆盖），h5 才是真实重排（窄页
- *    单栏）；仿真版式只锁几何（h5 档不动），width / height 的 transform 缩放
+ *    resolvePageFitScale 绑同名轴 / 限幅 / 量不到不覆盖），h5 是网页式布局
+ *    （页框取舞台可视宽高 + 单栏，视图缩放恒 1 文字按令牌）；仿真版式只锁几何
+ *    （h5 档不动），width / height 的 transform 缩放
  *    版框随缩放保真、与仿真兼容不拦截；只有动了几何的折算才进度量签名。
  */
 import { describe, expect, it } from 'vitest';
@@ -103,22 +104,30 @@ describe('applyPageSizeMode 几何折算（只有 h5 动几何）', () => {
     expect(classical.pageSize).toBe(CLASSICAL_LAYOUT_OPTIONS.pageSize);
   });
 
-  it('h5 页宽落 340 + 单栏，页高仍铺舞台', () => {
+  it('h5 页框取舞台可视宽高（宽高都跟随）+ 单栏', () => {
     const out = applyPageSizeMode(withMode(PAGE_SIZE_MODES.H5), { width: 900, height: 600 });
-    expect(out.pageSize.width).toBe(H5_PAGE_SIZE.width);
+    expect(out.pageSize.width).toBe(900);
     expect(out.pageSize.height).toBe(600);
-    expect(out.pageSize.name).toBe('H5　340×600');
+    expect(out.pageSize.name).toBe('H5　900×600');
     expect(out.columns).toBe(1);
   });
 
-  it('h5 无容器实测落 340×560 手机页（确定值，SSR 也能算）', () => {
+  it('h5 无容器实测落 340×560 手机页（确定值，SSR 也能算）；恰等回退值时复用常量', () => {
     const out = applyPageSizeMode(withMode(PAGE_SIZE_MODES.H5));
     expect(out.pageSize).toBe(H5_PAGE_SIZE);
     expect(out.columns).toBe(1);
-    /* 舞台高恰为缺省值时复用常量，不新建页型对象 */
     expect(
-      applyPageSizeMode(withMode(PAGE_SIZE_MODES.H5), { width: 900, height: 560 }).pageSize,
+      applyPageSizeMode(withMode(PAGE_SIZE_MODES.H5), { width: 340, height: 560 }).pageSize,
     ).toBe(H5_PAGE_SIZE);
+  });
+
+  it('h5 轴值直通不设可读限幅（可视宽高是多少就是多少，非法轴回退）', () => {
+    const tall = applyPageSizeMode(withMode(PAGE_SIZE_MODES.H5), { width: 1920, height: 2000 });
+    expect(tall.pageSize.width).toBe(1920);
+    expect(tall.pageSize.height).toBe(2000);
+    const tiny = applyPageSizeMode(withMode(PAGE_SIZE_MODES.H5), { width: 0, height: 300 });
+    expect(tiny.pageSize.width).toBe(340); // 非法轴回退出参宽
+    expect(tiny.pageSize.height).toBe(300);
   });
 
   it('仿真版式 h5 档不覆盖页型（版框 / 界行几何按固定开本，仅锁几何）', () => {
@@ -167,11 +176,13 @@ describe('resolvePageFitScale 视图缩放倍率（PDF 适宽 / 适高）', () =
     expect(scale).toBeCloseTo(900 / PAGE_SIZES.FOLIO_16.width, 3);
   });
 
-  it('固定 / h5 档不覆盖：undefined = 视图按自身 contain 适配', () => {
+  it('固定档不覆盖：undefined = 视图按自身 contain 适配；h5 恒 1（文字预设字号）', () => {
     const stage = { width: 900, height: 600 };
     expect(resolvePageFitScale(withMode(PAGE_SIZE_MODES.FIXED), stage)).toBeUndefined();
     expect(resolvePageFitScale(DEFAULT_LAYOUT_OPTIONS, stage)).toBeUndefined();
-    expect(resolvePageFitScale(withMode(PAGE_SIZE_MODES.H5), stage)).toBeUndefined();
+    expect(resolvePageFitScale(withMode(PAGE_SIZE_MODES.H5), stage)).toBe(1);
+    /* h5 舞台未量到也不覆盖（未挂载阶段几何与缩放都未就绪） */
+    expect(resolvePageFitScale(withMode(PAGE_SIZE_MODES.H5))).toBeUndefined();
   });
 
   it('量不到同名轴不覆盖（SSR / 未挂载不用另一轴臆造倍率）', () => {

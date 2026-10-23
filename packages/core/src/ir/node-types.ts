@@ -83,6 +83,14 @@ export const NODE_TYPES = {
   TEXT: 'text',
   /** 行内公式 */
   MATH_INLINE: 'math-inline',
+  /**
+   * 行内字图（缺字替代图，K6）
+   *
+   * 字体没有该字时用图片顶替：它本质是**一个字**，必须随文字流内联排版，
+   * 而非像插图那样独立成块。由 `normalizeGlyphImages` 从块级 image 归并而来
+   * （识别算法见 `glyph-image.ts`）。
+   */
+  GLYPH_IMAGE: 'glyph-image',
 } as const;
 
 /** 节点类型联合（由 NODE_TYPES 推导） */

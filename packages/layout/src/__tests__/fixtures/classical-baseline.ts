@@ -61,8 +61,11 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-23 十二次更新：`.bt-image` 改为「块级 + 版心物理宽高限幅」，
  * 修复大图块（不可拆）按原图尺寸撑开、越出版心 / 纸面的溢出，样式表全文变化，基线重锁。
+ *
+ * 2026-10-23 十三次更新（K6）：新增行内字图规则 `.bt-glyph-image`（1em 硬限幅内联 +
+ * 直排构建期旋转），仅在文档含字图节点时命中，样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '53405bd2';
+export const CLASSICAL_CSS_FNV = '7d8eb46b';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

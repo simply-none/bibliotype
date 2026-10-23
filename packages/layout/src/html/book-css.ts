@@ -590,6 +590,19 @@ ${scoped('.bt-glyph > svg')} {
   width: 100%;
   height: 100%;
 }
+/*
+ * 行内字图（K6）：缺字替代图按一字位内联，硬限幅 1em——原图再大也不超
+ * 两侧文字的高 / 宽；object-fit 防非方形图变形；基线口径与 .bt-glyph 同款。
+ */
+${scoped('.bt-glyph-image')} {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  max-width: 1em;
+  max-height: 1em;
+  object-fit: contain;
+  vertical-align: -0.15em;
+}
 /* 内联 SVG 印谱：随字号缩放，基线下沉一点与正文对齐 */
 ${scoped('.bt-seal > svg')} {
   display: block;
@@ -821,6 +834,12 @@ ${scoped('.bt-note-continued--prev')} {
   });
   if (featureCss !== '') {
     rules.push(`/* ---------- 用户样式覆盖（功能样式 / 命名样式） ---------- */\n${featureCss}`);
+  }
+
+  /* 直排字图旋转：img 不随 writing-mode 转，方块字图转 90° 后占位不变（1em 方形）；
+   * 横排不输出（构建期按 writingMode 定，无运行时属性依赖） */
+  if (vertical) {
+    rules.push(`${scoped('.bt-glyph-image')} {\n  transform: rotate(90deg);\n}`);
   }
 
   const css = `${rules.join('\n\n')}\n`;

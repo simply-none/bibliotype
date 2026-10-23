@@ -12,7 +12,11 @@
  */
 import { ref } from 'vue';
 import { buildClassicalEditorSchema } from '@bibliotype/classical/editor';
-import type { BookDocument } from '@bibliotype/core';
+import {
+  normalizeGlyphImages,
+  summarizeGlyphImageReport,
+  type BookDocument,
+} from '@bibliotype/core';
 import { detectImportFormat, importFromText, titleFromFilename } from '@bibliotype/import';
 
 const emit = defineEmits<{ close: []; imported: [doc: BookDocument] }>();
@@ -59,8 +63,11 @@ async function onFileChange(event: Event): Promise<void> {
       const { epubToBookDocument } = await import('@bibliotype/import-epub');
       doc = epubToBookDocument(await file.arrayBuffer(), schema, metadata);
     }
-    emit('imported', doc);
-    status.value = `已导入《${title}》。`;
+    /* 字图归一化（K6）：缺字替代图从块级插图归入文字流（识别不确定的保守保留）；
+     * 五种格式统一在收口处过一遍，报告随状态行展示 */
+    const { document: normalized, report } = normalizeGlyphImages(doc);
+    emit('imported', normalized);
+    status.value = `已导入《${title}》。${summarizeGlyphImageReport(report)}`;
   } catch (error) {
     status.value = `导入失败：${error instanceof Error ? error.message : String(error)}`;
   } finally {

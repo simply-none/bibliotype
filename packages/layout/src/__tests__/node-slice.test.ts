@@ -74,4 +74,21 @@ describe('sliceNodeByCharRange', () => {
     const tail = sliceNodeByCharRange(node, 2, 4);
     expect(tail.children?.some((c) => c.type === NODE_TYPES.MATH_INLINE)).toBe(true);
   });
+
+  it('行内字图（K6）与 math-inline 同口径：零文本按位置整体归属', () => {
+    const node: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [
+        { type: 'text', text: 'AB' },
+        { type: NODE_TYPES.GLYPH_IMAGE, attrs: { src: 'z.png', alt: '贔' } }, // 零文本，位于偏移 2
+        { type: 'text', text: 'CD' },
+      ],
+    };
+    /* 跨页切片：图落在哪一片就整图随那一片，不丢不重 */
+    const head = sliceNodeByCharRange(node, 0, 2);
+    expect(head.children?.some((c) => c.type === NODE_TYPES.GLYPH_IMAGE)).toBe(false);
+    const tail = sliceNodeByCharRange(node, 2, 4);
+    const glyph = tail.children?.find((c) => c.type === NODE_TYPES.GLYPH_IMAGE);
+    expect(glyph?.attrs?.src).toBe('z.png');
+  });
 });

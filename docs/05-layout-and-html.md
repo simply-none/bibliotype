@@ -350,6 +350,42 @@ collectPdfGlyphProblems(document, options);               // exporter-pdf：Glyp
 报告只警告、不阻断导出（补字是作者决策）；Vue 侧 `useGlyphAudit` + `BtGlyphAuditPanel`
 在设置面板展示缺字清单，导出时由 demo 弹消息条提示。
 
+### 字图内联（缺字图片归入文字流）
+
+IDS 之外的另一路兜底是「用图片顶替缺字」，主流来源（Word / 网页 / EPUB）里它常以
+**块级 image 节点**夹在段落之间——分页独立占位成「洞」，直排也不随行款旋转。
+`normalizeGlyphImages` 在导入边界做一次归一化：识别出字图特征的块级 image，转为行内
+`glyph-image` 节点（`NODE_TYPES.GLYPH_IMAGE`，inline atom，与 `math-inline` 同层）
+归入相邻段落；若它夹在两段之间且前段未收尾，前后两段正是被它切断的同一句话，
+按「前段 + 字图 + 后段」**三合一复原**成一段，阅读 / 分页 / 编辑 / 导出四条链随之天然一致：
+
+```ts
+import { normalizeGlyphImages, summarizeGlyphImageReport } from '@bibliotype/core';
+
+const { document, report } = normalizeGlyphImages(doc, {
+  maxGlyphPx: 64,        // 宽或高超过即判插图（正文 1em ≈ 18~24px）
+  aspectRange: [0.6, 1.6], // 近方形（单字图特征）
+  maxAltChars: 2,        // alt 为原字标记（强信号）
+  merge: 'auto',         // 复原被切断段落；前段收尾则缝后段头；强制 prev/next 只缝单侧
+});
+summarizeGlyphImageReport(report); // '已将 3 张缺字图归入文字流；1 张按插图保留'
+```
+
+- 识别走「排除项 + 强 / 弱信号」评分：caption 配对与超阈值大图直接判插图；alt 单字、
+  近方形小尺寸是强信号；src 特征词、png/svg/gif 扩展名、**内嵌位图 data URI**（docx /
+  epub 主流形态，无 alt 无尺寸）与**位置信号**（前段未收尾 = 切断句子，插图几乎不在
+  句中；仅对该图无任何尺寸元数据时计入）是弱信号；双弱信号即可判定，仅单条保守保留；
+- 归并方向：`auto` 且两侧都是段落、前段未收尾 → 三合一复原（`report.merged[].position:
+  'restore'`）；前段收尾缝后段头（`'next-start'`）；字图在容器末尾缝前段尾
+  （`'prev-end'`）；强制 `merge: 'prev' / 'next'` 只缝单侧不复原；
+- 误判不丢数据：保留块级 + 报告逐条给原因（`report.kept`）；返回新文档，入参不可变；
+- 渲染 `.bt-glyph-image`：`1em` 硬限幅（原图再大也不超两侧文字的高 / 宽）+
+  `object-fit: contain` + 基线下沉 0.15em（与 `.bt-glyph` 同款）；直排由
+  `buildBookCss` 构建期按 `writingMode` 输出 90° 旋转（1em 方形旋转后占位不变）；
+- 分页 / 量尺零改动：字图随段落实测行盒（不等行高已有逐行实测支持）；跨页切片
+  `sliceNodeByCharRange` 按「零文本行内载体按位置整体归属」处理，不丢不重；
+- demo 导入面板在收口处统一跑归一化，摘要随状态行展示（旧书打开侧暂不自动跑）。
+
 ## 页底注区序列化（B5）
 
 `serializePageNotes(notes, options)` 把分页器已算出的 `page.notes` 序列化为页底注区 HTML：

@@ -101,6 +101,7 @@ instance.events.on('page:change', ({ pageIndex, totalPages }) => {
 | 主题预设包 | `serializeThemePreset` / `parseThemePreset` / `validateThemePreset` / `applyThemePreset`、`ThemePresetError`、`createThemePresetCatalog` / `BUILTIN_THEME_PRESETS`（night / eye-care / parchment）、`THEME_TOKEN_KEYS` / `isThemeToken` / `validateThemeTokenValue` / `validateThemeTokens` |
 | 字体回退分析 | `analyzeGlyphCoverage`、`GlyphProbe` / `GlyphCoverageReport`、`formatCodePoint` / `isPrivateUseCodePoint` |
 | IDS 与字形回退（K6） | `IDS_OPERATORS` / `isIdsOperator` / `idsOperatorArity`、`parseIds` / `formatIds` / `countIdsLeaves`、`resolveGlyphFallback` / `describeGlyphFallback`、`collectGlyphIssues` / `summarizeGlyphIssues`（`IdsTreeNode` / `GlyphFallbackResolution` / `GlyphIssue`） |
+| 字图内联（K6） | `normalizeGlyphImages` / `summarizeGlyphImageReport` / `DEFAULT_GLYPH_IMAGE_OPTIONS`（`GlyphImageDetectOptions` / `GlyphImageReport` / `GlyphImageMergeRecord` / `GlyphImageKeptRecord` / `NormalizeGlyphImagesResult`） |
 | 典籍元数据（K7） | `CLASSICAL_DIVISIONS` / `EDITION_TYPES`、`validateMetadata` / `isClassicalDivision` / `isEditionType`、`toDublinCore` / `serializeDublinCore` / `toCnmarc`、`migrateLegacyMetadata`（`ClassicalCategory` / `EditionType` / `DublinCoreRecord` / `MetadataIssue`） |
 | 核心实例 | `createBibliotype`（`BibliotypeInstance` / `CoreInstanceOptions`） |
 | 存储契约 | `StorageAdapter`、`StoredDocument`、`DocumentSummary`、`SaveOptions` |

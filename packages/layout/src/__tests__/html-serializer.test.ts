@@ -104,6 +104,35 @@ describe('元素与结构', () => {
     );
   });
 
+  it('glyph-image：行内字图自闭合，原字走 data-char，原始尺寸不输出', () => {
+    expect(
+      serializeNode({
+        type: NODE_TYPES.GLYPH_IMAGE,
+        attrs: { src: 'z/zhi.png', alt: '贔', char: '贔', width: 24, height: 24 },
+      }),
+    ).toBe('<img class="bt-glyph-image" src="z/zhi.png" alt="贔" data-char="贔" />');
+
+    /* 无 char：仅 src/alt */
+    expect(serializeNode({ type: NODE_TYPES.GLYPH_IMAGE, attrs: { src: 'z.png' } })).toBe(
+      '<img class="bt-glyph-image" src="z.png" alt="" />',
+    );
+  });
+
+  it('glyph-image 随段落序列化为行内 img（不独立成块）', () => {
+    expect(
+      serializeNode({
+        type: NODE_TYPES.PARAGRAPH,
+        children: [
+          { type: 'text', text: '五载，' },
+          { type: NODE_TYPES.GLYPH_IMAGE, attrs: { src: 'z.png', alt: '贔', char: '贔' } },
+          { type: 'text', text: '耻难事发，' },
+        ],
+      }),
+    ).toBe(
+      '<p class="bt-paragraph">五载，<img class="bt-glyph-image" src="z.png" alt="贔" data-char="贔" />耻难事发，</p>',
+    );
+  });
+
   it('break：自闭合 hr 并携 variant', () => {
     expect(serializeNode({ type: NODE_TYPES.BREAK, attrs: { variant: 'section' } })).toBe(
       '<hr class="bt-break" data-variant="section" />',

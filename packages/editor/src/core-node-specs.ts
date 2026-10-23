@@ -161,8 +161,13 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
         { tag: 'div.bt-image' },
         {
           tag: 'img',
-          getAttrs: (dom): Record<string, unknown> | false =>
-            typeof dom === 'string' ? false : { src: dom.getAttribute('src'), alt: dom.getAttribute('alt') },
+          getAttrs: (dom): Record<string, unknown> | false => {
+            if (typeof dom === 'string') return false;
+            /* 字图（img.bt-glyph-image）让给 glyph-image 的行内规则，
+             * 否则本通配先命中，行内字图又被拆成块级 */
+            if (dom.classList.contains('bt-glyph-image')) return false;
+            return { src: dom.getAttribute('src'), alt: dom.getAttribute('alt') };
+          },
         },
       ],
     },
@@ -312,6 +317,53 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       content: '',
       atom: true,
       attrs: { ...COMMON_NODE_ATTRS, tex: { default: null } },
+    },
+  },
+  {
+    /**
+     * 行内字图（缺字替代图，K6）：一个字位的图片，随文字流排版
+     *
+     * `img` 通配规则仍归块级 image（导入侧行为不变），字图由
+     * `normalizeGlyphImages` 归一化产出（type 为 glyph-image 节点），
+     * 渲染产物 `img.bt-glyph-image` 经本规则回编辑器无损往返。
+     */
+    type: NODE_TYPES.GLYPH_IMAGE,
+    spec: {
+      group: 'inline',
+      inline: true,
+      content: '',
+      atom: true,
+      attrs: {
+        ...COMMON_NODE_ATTRS,
+        src: { default: null },
+        alt: { default: null },
+        char: { default: null },
+      },
+      parseDOM: [
+        {
+          tag: 'img.bt-glyph-image',
+          getAttrs: (dom): Record<string, unknown> | false =>
+            typeof dom === 'string'
+              ? false
+              : {
+                  src: dom.getAttribute('src'),
+                  alt: dom.getAttribute('alt'),
+                  char: dom.getAttribute('data-char'),
+                },
+        },
+      ],
+      toDOM(node) {
+        const char = node.attrs.char;
+        return [
+          'img',
+          {
+            class: 'bt-glyph-image',
+            src: node.attrs.src ?? '',
+            alt: node.attrs.alt ?? '',
+            ...(char ? { 'data-char': char } : {}),
+          },
+        ];
+      },
     },
   },
 ];

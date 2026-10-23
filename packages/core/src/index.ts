@@ -266,6 +266,18 @@ export type {
 } from './glyph-fallback.js';
 export { collectGlyphIssues, summarizeGlyphIssues } from './glyph-issues.js';
 export type { GlyphIssue, CollectGlyphIssuesOptions } from './glyph-issues.js';
+export {
+  normalizeGlyphImages,
+  summarizeGlyphImageReport,
+  DEFAULT_GLYPH_IMAGE_OPTIONS,
+} from './glyph-image.js';
+export type {
+  GlyphImageDetectOptions,
+  GlyphImageMergeRecord,
+  GlyphImageKeptRecord,
+  GlyphImageReport,
+  NormalizeGlyphImagesResult,
+} from './glyph-image.js';
 
 /* ---------- 功能样式表（按功能粒度的样式覆盖） ---------- */
 export {

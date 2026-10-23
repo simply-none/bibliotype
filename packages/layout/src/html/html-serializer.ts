@@ -410,6 +410,19 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
     return `<img${idAttr}${classAttr} src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${extras} />${rest}`;
   }
 
+  /* 行内字图（K6）：一个字位的缺字替代图，随文字流内联排版；
+   * 尺寸 / 基线 / 直排旋转由 book-css 的 .bt-glyph-image 负责，
+   * 原字走 data-char（无障碍与检索用），原始尺寸不输出（渲染恒 1em）。 */
+  if (node.type === NODE_TYPES.GLYPH_IMAGE) {
+    const rawSrc = typeof attrs?.src === 'string' ? attrs.src : '';
+    const rewritten = options.rewriteSrc?.(rawSrc);
+    const src = typeof rewritten === 'string' ? rewritten : rawSrc;
+    const alt = typeof attrs?.alt === 'string' ? attrs.alt : '';
+    const char = typeof attrs?.char === 'string' && attrs.char !== '' ? attrs.char : undefined;
+    const charAttr = char !== undefined ? ` data-char="${escapeHtml(char)}"` : '';
+    return `<img${idAttr}${classAttr} src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${charAttr} />`;
+  }
+
   /* 注释块：注码提为独立 span（老引擎也能显示），marker / refId 不再重复输出为 data-* */
   const noteRole = noteRoleOf(node.type);
   const extras = dataAttrs(

@@ -1,8 +1,14 @@
 /**
  * IR ⇄ ProseMirror 转换测试（含无损往返）
+ *
+ * 文件级 happy-dom：glyph-image 的 parseDOM 回 parse 用例需要 DOM（其余用例
+ * 在 DOM 环境下同样通过）。
+ *
+ * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest';
 import { MARK_TYPES, NODE_TYPES, type BookNode } from '@bibliotype/core';
+import { DOMParser as PmDomParser } from 'prosemirror-model';
 import { buildEditorSchema } from '../default-schema.js';
 import { irNodeToPm } from '../ir-to-pm.js';
 import { pmNodeToIr } from '../pm-to-ir.js';
@@ -180,5 +186,51 @@ describe('往返（IR → PM → IR）', () => {
       ],
     };
     expect(pmNodeToIr(irNodeToPm(root, schema))).toEqual(root);
+  });
+
+  it('glyph-image 行内字图随段落无损往返（K6）', () => {
+    const schema = buildEditorSchema();
+    const root: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [
+        { type: 'text', text: '五载，' },
+        {
+          type: NODE_TYPES.GLYPH_IMAGE,
+          id: 'glyph-1',
+          attrs: { src: 'data:image/png;base64,AA==', alt: '贔', char: '贔' },
+        },
+        { type: 'text', text: '耻难事发，' },
+      ],
+    };
+    const pm = irNodeToPm(root, schema);
+    /* 段落内 inline atom：夹在两段文字之间 */
+    expect(pm.childCount).toBe(3);
+    expect(pm.child(1).type.name).toBe(NODE_TYPES.GLYPH_IMAGE);
+    expect(pm.child(1).attrs.char).toBe('贔');
+    expect(pmNodeToIr(pm)).toEqual(root);
+  });
+
+  it('glyph-image 渲染 DOM 回 schema parse 不丢（img.bt-glyph-image → inline）', () => {
+    const schema = buildEditorSchema();
+    /* 用 DOM API 构造：happy-dom 的 innerHTML 解析会吞 void img 后的文本 */
+    const el = document.createElement('div');
+    const p = document.createElement('p');
+    p.className = 'bt-paragraph';
+    p.appendChild(document.createTextNode('五载，'));
+    const img = document.createElement('img');
+    img.className = 'bt-glyph-image';
+    img.setAttribute('src', 'z.png');
+    img.setAttribute('alt', '贔');
+    img.setAttribute('data-char', '贔');
+    p.appendChild(img);
+    p.appendChild(document.createTextNode('耻难事发，'));
+    el.appendChild(p);
+    const pm = PmDomParser.fromSchema(schema).parse(el);
+    expect(pm.childCount).toBe(1);
+    const paragraph = pm.child(0);
+    expect(paragraph.type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect(paragraph.childCount).toBe(3);
+    expect(paragraph.child(1).type.name).toBe(NODE_TYPES.GLYPH_IMAGE);
+    expect(paragraph.child(1).attrs.char).toBe('贔');
   });
 });

@@ -144,6 +144,13 @@ export const CORE_NODE_DEFINITIONS: readonly NodeTypeDefinition[] = [
     description: '文本叶子',
   },
   {
+    type: NODE_TYPES.GLYPH_IMAGE,
+    namespace: ns,
+    kind: 'inline',
+    isContainer: false,
+    description: '行内字图（缺字替代图，随文字流排版）',
+  },
+  {
     type: NODE_TYPES.PAGE_HEADER,
     namespace: ns,
     kind: 'block',

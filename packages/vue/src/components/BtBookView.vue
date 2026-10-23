@@ -4,6 +4,8 @@
  *
  * 两种阅读模式（`mode`）：
  * - `page`（默认）：一次渲染「当前页」，按容器等比缩放居中（fit / ResizeObserver）；
+ *   传入 `fitScale` 时改为直接拿它做整页倍率（PDF「适合宽度 / 高度」语义，允许 >1
+ *   放大，文字随页框整体缩放），超出容器的部分由本容器滚动承接（滚轮让位原生滚动）；
  *   翻页靠外部触发（BtPager 按钮 / 键盘）与鼠标滚轮（下翻 = 下一页）。
  * - `scroll`：连续滚动多页——把所有分页沿主轴拼接为一个可滚动容器，
  *   滚动时按可见页回写 Reader 页态，外部翻页（按钮 / 键盘 / 目录）则滚动定位到对应页；
@@ -58,6 +60,15 @@ const props = withDefaults(
     namedStyles?: NamedStyleSet;
     /** 缩放策略（仅 page 模式）：width 按容器宽 / contain 按容器宽高 / none 原尺寸 */
     fit?: 'width' | 'contain' | 'none';
+    /**
+     * 外部指定的整页缩放倍率（仅 page 模式；PDF「适合宽度 / 高度」语义）
+     *
+     * 传入有限正数时直接作为最终 scale（允许 >1 放大，字体与版面整体等比缩放），
+     * 不再按容器 contain 与 `Math.min(1, ratio)` 推算；缩放后超出容器的部分由本
+     * 容器滚动承接。未传 / 非法值回退 `fit` 策略。典型来源：layout 的
+     * `resolvePageFitScale`（开本适配 `width` / `height` 档）。
+     */
+    fitScale?: number;
     /** 阅读模式：page 单页翻页（默认） / scroll 连续滚动多页 / scroll-flow 流式阅读（D5） */
     mode?: 'page' | 'scroll' | 'scroll-flow';
     /** 阅读区无障碍名称（读屏用） */
@@ -456,12 +467,23 @@ const pageNumberStyle = computed(() => layout.value.pageNumberStyle as PageNumbe
 
 /* ---------- 缩放 ---------- */
 
-/** page 模式：等比缩放整页并居中（fit / ResizeObserver） */
+/** page 模式：等比缩放整页并居中（fit / ResizeObserver；fitScale 直接覆盖） */
 const rootRef = ref<HTMLElement | null>(null);
 const scale = ref(1);
 let observer: ResizeObserver | undefined;
 
+/** fitScale 生效判定（未传 / 非法 = null，回退容器适配策略） */
+const fitScaleOverride = computed<number | null>(() => {
+  const raw = props.fitScale;
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null;
+});
+
 function updateScale(): void {
+  /* PDF 式整页缩放：宿主算好倍率直接落地，几何不动、字体跟着缩放 */
+  if (fitScaleOverride.value !== null) {
+    scale.value = fitScaleOverride.value;
+    return;
+  }
   const root = rootRef.value;
   if (props.fit === 'none' || root === null || root.clientWidth <= 0) {
     scale.value = 1;
@@ -758,11 +780,19 @@ function onScrollKeydown(event: KeyboardEvent): void {
 }
 
 /**
- * 单页模式下的鼠标滚轮：舞台 overflow hidden、滚轮无原生可滚区，故映射为翻页。
+ * 单页模式下的鼠标滚轮：常规下舞台无原生可滚区，滚轮映射为翻页；
+ * 放大超出容器（fitScale > 适配尺寸）时让位原生滚动，否则滚不到页的四边。
  * 取主导轴增量累计（同向累加、反向重新起算，不做正负抵消）；「向下 / 向右拨 =
  * 向前翻页」，与直排、横排的阅读前进方向一致；真翻成一页才 preventDefault。
  */
 function onPageWheel(event: WheelEvent): void {
+  const root = rootRef.value;
+  if (
+    root !== null &&
+    (root.scrollHeight > root.clientHeight + 1 || root.scrollWidth > root.clientWidth + 1)
+  ) {
+    return;
+  }
   const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
   if (!Number.isFinite(raw) || raw === 0) return;
   const now = Date.now();
@@ -1047,8 +1077,8 @@ onBeforeUnmount(() => {
   }
 });
 
-// 缩放策略 / 页面尺寸 / 对页降级变化：按当前模式重算对应缩放
-watch([() => props.fit, () => props.spread, pageSize, spreadEnabled], () => {
+// 缩放策略 / 页面尺寸 / 对页降级 / 外部倍率变化：按当前模式重算对应缩放
+watch([() => props.fit, () => props.fitScale, () => props.spread, pageSize, spreadEnabled], () => {
   if (props.mode === 'scroll') updateScrollScale();
   else updateScale();
 });
@@ -1531,11 +1561,20 @@ defineExpose({
 
 .bt-book-view {
   display: flex;
-  align-items: center;
-  justify-content: center;
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  /* 缩放后超出容器时可滚达四边（fitScale > 适配尺寸 / fit none 原尺寸大页）；
+     常规 contain 适配不溢出，不会真的冒出滚动条 */
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+
+/* 居中改用 auto 外边距：空间富余时仍居中；溢出时 auto 退化为 0（起点锚定），
+   若用 align/justify center，超出端会被滚到。sr-only / 注释预览不在流内 */
+.bt-book-view--paged > .bt-book-view__turn {
+  flex: none;
+  margin: auto;
 }
 
 /*

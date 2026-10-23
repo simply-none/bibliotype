@@ -19,6 +19,7 @@ import { FONT_SIZE_TOKENS, LAYOUT_TOKENS } from '@bibliotype/core';
 import {
   PAGE_SIZE_MODES,
   applyPageSizeMode,
+  resolvePageFitScale,
   isVerticalMode,
   mergeLayoutOptions,
   type LayoutOptions,
@@ -90,8 +91,8 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
   /**
    * 声明层布局：主题基准 + 窄屏缺省 + 用户补丁（尚未按舞台折算）
    *
-   * 面板回显用的是本层：开本下拉得按用户选的预设回显，不能被折算出的
-   * 「·适应版面」临时页型顶成「自定义」。
+   * 面板回显用的是本层：开本下拉得按用户选的预设回显，不能被 `h5` 折算出的
+   * 340×舞台高临时页型顶成「自定义」（`width` / `height` 本就折不动几何）。
    */
   const declaredLayout = computed<LayoutOptions>(() =>
     mergeLayoutOptions(
@@ -103,12 +104,24 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
   /**
    * 生效布局：声明层按开本适配折算成真实页型
    *
-   * `fixed`（缺省）与仿真版式原样返回；`width` / `height` 显式绑同名轴取舞台实测值、
-   * 另一轴按开本宽高比反推（绝不拉伸开本），`h5` 落 340 页宽加单栏。量不到同名轴时
-   * 原样返回，不凭臆造值重排。
+   * 只有 `h5` 会动几何（340 页宽 + 单栏，页高铺舞台）；`fixed`（缺省）原样返回；
+   * `width` / `height` 是视图缩放档，页框保持开本、不重排（倍率见 fitScale）。
+   * 量不到舞台时一律原样返回，不凭臆造值重排。
    */
   const effectiveLayout = computed<LayoutOptions>(() =>
     applyPageSizeMode(declaredLayout.value, stageSize.value ?? undefined),
+  );
+
+  /**
+   * 整页视图缩放倍率（PDF「适合宽度 / 高度」语义）
+   *
+   * `width` / `height` 档按「舞台实测轴 / 开本同名轴」算倍率（允许 >1 放大，
+   * 字体与版面整体等比缩放）；其余档位 / 仿真版式 / 量不到时为 `undefined` =
+   * 不覆盖，视图按自身 contain 适配。宿主把它同时交给阅读视图（fitScale prop）
+   * 与编辑画布（scale）；几何不动 → 不触发重量尺，拖动窗口只是重新缩放。
+   */
+  const fitScale = computed<number | undefined>(() =>
+    resolvePageFitScale(effectiveLayout.value, stageSize.value ?? undefined),
   );
 
   /** 当前仿真模板（由 `layout.facsimile.preset` 派生；未启用仿真版式时为 undefined） */
@@ -248,6 +261,7 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
     namedStyles,
     editing,
     effectiveLayout,
+    fitScale,
     facsimilePreset,
     facsimilePresetTokens,
     activeFontToken,

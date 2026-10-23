@@ -73,11 +73,10 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
 /**
  * 开本适配选项（自适应宽度 / 自适应高度 / 自适应 H5 / 固定）
  *
- * 自适应显式绑轴、互不混淆：「宽度」档页宽绑舞台、页高按开本宽高比反推；
- * 「高度」档对称。两档都绝不拉伸开本，反推轴超出舞台由视图层 contain 回收。
- * 文案不随书写方向变（选哪轴听用户的，方向只关内容排版）。本选项只写进样式
- * 草稿，真正的页型由宿主把草稿与舞台实测盒交给 `applyPageSizeMode` 折算；
- * 开本下拉仍按声明的开本回显，不跟着变「自定义」。
+ * 「宽 / 高」两档是 **PDF 式整页缩放**：页框与分页保持开本不动，宿主用
+ * `resolvePageFitScale` 按「舞台实测轴 / 开本同名轴」算倍率，文字与版面一起
+ * 等比缩放（允许放大）；「自适应 H5」才是真实重排（窄页单栏）；文案不随书写
+ * 方向变。本选项只写进样式草稿，开本下拉仍按声明的开本回显，不跟着变「自定义」。
  */
 const pageSizeModeOptions: ReadonlyArray<{ value: PageSizeMode; label: string }> = [
   { value: PAGE_SIZE_MODES.WIDTH, label: '自适应宽度' },

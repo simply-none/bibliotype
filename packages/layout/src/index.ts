@@ -62,6 +62,7 @@ export {
   DEFAULT_PAGE_SIZE_MODE,
   resolvePageSizeMode,
   applyPageSizeMode,
+  resolvePageFitScale,
 } from './page-size-mode.js';
 export type { PageSizeMode, StageBoxSize } from './page-size-mode.js';
 

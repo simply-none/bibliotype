@@ -1,13 +1,13 @@
 ---
 "@bibliotype/layout": minor
+"@bibliotype/vue": minor
 ---
 
-版面设置的「开本适配」从契约字段接成真实几何（修「点了保存不生效」）：
+新增版面设置「开本适配」（`LayoutOptions.pageSizeMode`），其中「自适应宽度 / 高度」为 **PDF 式整页视图缩放**（修「自适应时字体没跟着缩放」）：
 
-- **`applyPageSizeMode(declared, stage?)`**：把声明布局折算成生效几何。「自适应」拆成显式绑轴两档，互不混淆：`width` 页宽绑舞台实测值（限幅 240~1600）、页高按开本宽高比反推；`height` 对称（页高绑舞台、页宽反推）。两档都**绝不拉伸开本**（取代早先的单一 `auto`：先是把两轴硬铺舞台盒把竖版顶成横扁页，后是等比 contain 由折算方挑轴、用户看不出绑了哪条）；反推轴超出舞台由视图层 contain 回收。`h5` 页宽落 340 + 强制单栏、页高仍铺舞台；`fixed`（缺省）原样返回。`facsimile` 已启用时任何适配都不覆盖页型；`width` / `height` 量不到同名轴时原样返回（SSR 安全，不拿另一轴臆造）。
-- **取值表变更（未发布，无迁移负担）**：`PAGE_SIZE_MODES` 从 `auto / h5 / fixed` 改为 `width / height / h5 / fixed`；历史快照里的旧值 `auto` 按脏值经 `resolvePageSizeMode` 归一为 `fixed`，面板重选一次即可。
-- **`H5_PAGE_SIZE`**（340×560）：从 demo 私有能力上移为布局层常量，不进 `PAGE_SIZES` 预设表（避免出现在开本下拉里）；随包导出 `StageBoxSize` 类型。
-- **度量与重排**：折算产出的是真实 `pageSize` / `columns`，二者已在 `computeMetricsSignature` 参与项内 → 预览 / 编辑画布 / 导出自动重量尺重排，本字段无需另行进签名；宿主须在舞台可用尺寸变化时重调本函数。
-- **兼容性**：`LayoutOptions.pageSizeMode` 仍为可选，缺省经 `resolvePageSizeMode` 归一为 `fixed`，旧快照与既有主题字面量视觉零变化，无需迁移。demo 面板下拉同步改为四档固定文案（自适应宽度 / 自适应高度 / 自适应 H5 / 固定），不再随书写方向换词。
+- **取值表**：`PAGE_SIZE_MODES` = `width / height / h5 / fixed`，默认 `fixed`；缺省与落盘脏值经 `resolvePageSizeMode` 归一为 `fixed`，旧快照与既有主题字面量视觉零变化。
+- **`resolvePageFitScale(options, stage?)`**（layout 新增）：`width` 档返回 `舞台宽 / 页宽`、`height` 档返回 `舞台高 / 页高`（允许 >1 放大，限幅 0.2~4，保留三位小数防每帧新值）——页框与分页**保持开本不动**，整页（文字、版心、页脚）按倍率等比缩放，与 PDF「适合宽度 / 适合高度」一致；不做页框重排（重排只改行宽 / 行数，字号仍按令牌落地）。`fixed` / `h5` / 仿真版式 / 量不到同名轴返回 `undefined` = 不覆盖（SSR 安全）。两档不改页框 → 度量签名不变 → **不重量尺**，拖动窗口只是重新缩放，导出与分页几何恒为开本。
+- **`applyPageSizeMode(options, stage?)`**：只有 `h5` 动几何——页宽落 340 + 强制单栏、页高铺舞台（限幅 240~1600）；`width` / `height` / `fixed` 原样返回。`facsimile` 已启用时任何适配都不覆盖（版框 / 界行按固定开本，改几何或整体缩放都会让界行与文字列错位）。随包导出 `H5_PAGE_SIZE`（340×560，不进 `PAGE_SIZES` 预设表）与 `StageBoxSize` 类型。
+- **`BtBookView.fitScale?: number`**（vue 新增 prop，仅 page 模式）：传入有限正数时直接作为整页缩放倍率（覆盖 `contain` 与 `Math.min(1, ratio)` 的「只缩不放」）；缩放后溢出容器由本容器滚动承接（`overflow: auto` + `margin: auto` 居中退化起点锚定，滚轮在溢出时让位原生滚动，不溢出时零视觉变化）。未传 / 非法值回退原 `fit` 策略；`scroll` / `scroll-flow` 模式不受影响。
 
-demo 宿主侧（私有包）：新增 `use-stage-size`（`ResizeObserver` 实测 `.app__stage` 并按 computed style 扣内边距），`use-layout-tokens` 按「主题基准 → 窄屏适配缺省 → 用户补丁 → 折算」合并生效层，面板回显改读声明层；废除旧的 `mobileLayoutPatch` 无条件压页宽（它会推翻用户显式选的「固定 / 自适应」），窄屏只在用户未选过时缺省按 `h5` 取形；`use-editor-zoom` 的「适应」改用同一份舞台实测值。
+demo 宿主侧（私有包）：面板下拉四档固定文案（自适应宽度 / 自适应高度 / 自适应 H5 / 固定，不随书写方向换词）；新增 `use-stage-size`（`ResizeObserver` 实测 `.app__stage` 并按 computed style 扣内边距）；`use-layout-tokens` 按「主题基准 → 窄屏适配缺省 → 用户补丁 → 折算」合并生效层并暴露 `fitScale`，同时喂给 `BtBookView :fit-scale` 与编辑画布 `editorScale`（编辑态限幅 0.2~2，超出走画布横向滚动）；面板回显改读声明层；废除旧的 `mobileLayoutPatch` 无条件压页宽，窄屏只在用户未选过适配时缺省按 `h5` 取形；`use-editor-zoom` 的「适应」改用同一份舞台实测值。

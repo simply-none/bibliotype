@@ -63,7 +63,7 @@ useReader(docRef);
 
 | 组件 | props | 说明 |
 | --- | --- | --- |
-| `BtBookView` | `reader: Reader`、`tokens?`、`fontToken?`、`fit?: 'width' \| 'contain' \| 'none'`（默认 `contain`，仅 `page` 模式）、`mode?: 'page' \| 'scroll'`（默认 `page`）、`ariaLabel?` | 书页视图：IR → HTML（与导出器同源序列化）、注入书册样式表、页脚页码（封面页自动隐藏）。`page` 一次渲染当前页并按容器等比缩放；`scroll` 连续滚动多页（滚动 ↔ 页态双向同步）。`page` 模式下内置**键盘翻页**（←→ ↑↓ PageUp/PageDown 空格 Home/End，带修饰键的组合不拦截）、**触屏滑动**（横排左滑下一 页、直排右滑下一页）、`role="document"` + `tabindex="0"` + `aria-live` 页码播报 |
+| `BtBookView` | `reader: Reader`、`tokens?`、`fontToken?`、`fit?: 'width' \| 'contain' \| 'none'`（默认 `contain`，仅 `page` 模式）、`fitScale?: number`（仅 `page` 模式：外部指定的整页缩放倍率，PDF「适合宽度 / 高度」语义，允许 >1，超出容器由本容器滚动承接；非法 / 未传回退 `fit`）、`mode?: 'page' \| 'scroll'`（默认 `page`）、`ariaLabel?` | 书页视图：IR → HTML（与导出器同源序列化）、注入书册样式表、页脚页码（封面页自动隐藏）。`page` 一次渲染当前页并按容器等比缩放；`scroll` 连续滚动多页（滚动 ↔ 页态双向同步）。`page` 模式下内置**键盘翻页**（←→ ↑↓ PageUp/PageDown 空格 Home/End，带修饰键的组合不拦截；缩放后溢出容器时滚轮让位原生滚动）、**触屏滑动**（横排左滑下一页、直排右滑下一页）、`role="document"` + `tabindex="0"` + `aria-live` 页码播报 |
 | `BtPager` | `reader: Reader` | 翻页控件：上一页 / 页码 / 下一页；`role="group"` + `aria-label`、页码区 `aria-live="polite"` |
 | `BtToc` | `reader: Reader`、`expandedKeys?`（受控折叠集合，配 `update:expandedKeys`）、`thumbnails?`、`showThumbnails?`、`searchPlaceholder?`、`emptyText?`、`showExpandControls?`；emit `select(item)` / `update:expandedKeys` | 目录面板：当前章高亮 + `aria-current`、折叠记忆、目录内搜索（过滤 + 命中高亮 + 自动展开父级）、可选缩略图（缺省首字占位）、可视区滚动定位；点击经 `goToNode` 跳页 |
 | `BtTocItem` | `item: OutlineItem`、`depth?`、`mode?: 'tree' \| 'row'`、`rowKey?`、`hasChildren?`、`expanded?`、`active?`、`matched?`、`query?`、`thumbnail?`、`showThumbnail?`；emit `select` / `toggle` | 单个目录项：`tree` 模式递归（旧行为），`row` 模式由 `BtToc` 驱动的扁平行 |
@@ -467,11 +467,13 @@ CSS 侧同源变量：`--bt-bp-sm|md|lg`、`--bt-touch-target: 44px`、
   换回宽视口也不会被悄悄改掉）。
 - 舞台实测：`use-stage-size` 用 `ResizeObserver` 量 `.app__stage` 并按 computed style
   扣其内边距（桌面 20px / H5 骨架 12px，不写死），产出 `StageBoxSize`。它是开本折算与
-  编辑画布「适应」的共同量源；与 `BtBookView` 根元素同源。`applyPageSizeMode` 的
-  `width` / `height` 档显式绑同名轴取舞台值、另一轴按开本宽高比反推（绝不拉伸开本；
-  反推轴超出舞台由视图层 contain 回收，不改 `Math.min(1, ratio)`）。页宽页高
-  已进入度量签名 → 预览 / 编辑 / 导出自动重量尺重排（重排走 120ms 去抖，拖侧栏途中
-  不会反复重排）。面板回显读声明层（不折算）。
+  编辑画布「适应」的共同量源；与 `BtBookView` 根元素同源。`width` / `height` 档是
+  **PDF 式整页缩放**：几何不动（不重量尺、不改导出），`resolvePageFitScale` 算出倍率后
+  同时喂给 `BtBookView :fit-scale`（覆盖 contain 且允许 >1，溢出部分由视图滚动承接，
+  滚轮在溢出时让位原生滚动）与编辑画布 `editorScale`（限幅 0.2~2，超出走横向滚动），
+  字体与版面整体等比变化；`h5` 档才折页框（页宽 340 + 单栏），页宽页高已进入度量
+  签名 → 预览 / 编辑 / 导出自动重量尺重排（重排走 120ms 去抖，拖侧栏途中不会反复
+  重排）。面板回显读声明层（不折算）。
 - `EditorToolbar`：`compactToolbar`（`isMobile || coarsePointer`）下每行只直出
   「撤销 / 重做 / B / H1 / 注音」，其余收进行尾「更多」，展开后单行横滚，按钮 44px。
 - `ToolbarUsageTip`：粗指针下整体禁用（hover 卡片会「粘住不回」），暴露 `data-touch`。

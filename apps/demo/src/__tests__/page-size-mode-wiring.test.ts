@@ -1,14 +1,15 @@
 /**
  * 开本适配落地「生效层」测试（use-layout-tokens × 舞台实测盒）
  *
- * 守护五条，覆盖用户报的「点了保存不生效」：
+ * 守护五条，覆盖用户报的「点了保存不生效」与「自适应时字体没跟着缩放」：
  * 1. `fixed`（含旧快照缺省）完全不看舞台——页型始终等于声明的开本；
- * 2. `width` / `height` 显式绑轴等比折算页框（保持开本宽高比），而面板回显仍是用户
- *    声明的开本（不被折算出的临时页型顶成「自定义」）；
- * 3. `h5` 落 340 页宽 + 单栏，页高仍铺舞台；
+ * 2. `width` / `height` 是 PDF 式视图缩放：页框保持开本（不重排），api 暴露的
+ *    `fitScale` = 舞台同名轴 / 开本同名轴（允许 >1，字体随页整体缩放），
+ *    而面板回显仍是用户声明的开本；
+ * 3. `h5` 才是真实重排：落 340 页宽 + 单栏，页高仍铺舞台，不覆盖倍率；
  * 4. 窄屏缺省只在用户没选过适配时生效——选过一次「固定」就回到开本尺寸，
  *    不再像旧的 H5 版式预设那样无条件压页宽；
- * 5. 仿真版式任何适配都不覆盖页型（界行几何按固定开本）。
+ * 5. 仿真版式任何适配都不覆盖页型与倍率（界行几何按固定开本）。
  *
  * `useStyleSettings` 用到 `onBeforeUnmount`，故组合式必须在组件 setup 里起；
  * 适配补丁走「面板改草稿 → applyDraft 保存」的真实链路，同时检验回显与生效层。
@@ -77,57 +78,61 @@ async function setupTokens(options: {
   return api;
 }
 
-describe('生效层按开本适配折算页型', () => {
-  it('固定与缺省：舞台再宽也不动，页型恒等于开本', async () => {
+describe('生效层按开本适配折算页型与缩放倍率', () => {
+  it('固定与缺省：舞台再宽也不动，页型恒等于开本且不覆盖倍率', async () => {
     const fixed = await setupTokens({ stage: STAGE });
     expect(fixed.effectiveLayout.value.pageSize).toBe(MODERN_THEME.layout.pageSize);
     expect(fixed.effectiveLayout.value.pageSize.width).toBe(PAGE_SIZES.A5.width);
+    expect(fixed.fitScale.value).toBeUndefined();
 
     const explicit = await setupTokens({
       stage: STAGE,
       patch: { pageSizeMode: PAGE_SIZE_MODES.FIXED },
     });
     expect(explicit.effectiveLayout.value.pageSize.width).toBe(PAGE_SIZES.A5.width);
+    expect(explicit.fitScale.value).toBeUndefined();
   });
 
-  it('自适应宽度：页宽绑舞台、页高按开本比例反推，面板回显仍按声明的开本', async () => {
+  it('自适应宽度：页框不动 + fitScale 按舞台宽/页宽（PDF 适宽，字体跟着缩放）', async () => {
     const tokens = await setupTokens({
       stage: STAGE,
       patch: { pageSizeMode: PAGE_SIZE_MODES.WIDTH },
     });
     const page = tokens.effectiveLayout.value.pageSize;
-    expect(page.width).toBe(STAGE.width);
-    expect(page.height).toBe(1278); // 900×794/559，舞台高不参与
-    /* 面板读声明层：开本下拉不该被「·适应版面」顶成自定义 */
+    /* 几何绝不再被折成 900 宽重排：重排只会换行宽，字号仍按令牌落地 */
+    expect(page.width).toBe(PAGE_SIZES.A5.width);
+    expect(page.height).toBe(PAGE_SIZES.A5.height);
+    expect(tokens.fitScale.value).toBeCloseTo(STAGE.width / PAGE_SIZES.A5.width, 3); // ≈1.61
+    /* 面板读声明层：开本下拉不该被自适应顶成自定义 */
     expect(tokens.panelLayout.value.pageSize.width).toBe(PAGE_SIZES.A5.width);
     expect(tokens.panelLayout.value.pageSizeMode).toBe(PAGE_SIZE_MODES.WIDTH);
   });
 
-  it('自适应高度：页高绑舞台、页宽按开本比例反推', async () => {
+  it('自适应高度：fitScale 按舞台高/页高，页框同样不动', async () => {
     const tokens = await setupTokens({
       stage: STAGE,
       patch: { pageSizeMode: PAGE_SIZE_MODES.HEIGHT },
     });
-    const page = tokens.effectiveLayout.value.pageSize;
-    expect(page.height).toBe(STAGE.height);
-    expect(page.width).toBe(422); // 600×559/794
+    expect(tokens.effectiveLayout.value.pageSize).toBe(MODERN_THEME.layout.pageSize);
+    expect(tokens.fitScale.value).toBeCloseTo(STAGE.height / PAGE_SIZES.A5.height, 3); // ≈0.756
   });
 
-  it('自适应两档：舞台尚未量到同名轴时不臆造，回退声明的开本', async () => {
+  it('自适应两档：舞台尚未量到时不臆造，回退声明开本且倍率不覆盖', async () => {
     const widthTokens = await setupTokens({
       stage: null,
       patch: { pageSizeMode: PAGE_SIZE_MODES.WIDTH },
     });
     expect(widthTokens.effectiveLayout.value.pageSize).toBe(MODERN_THEME.layout.pageSize);
+    expect(widthTokens.fitScale.value).toBeUndefined();
 
     const heightTokens = await setupTokens({
       stage: null,
       patch: { pageSizeMode: PAGE_SIZE_MODES.HEIGHT },
     });
-    expect(heightTokens.effectiveLayout.value.pageSize).toBe(MODERN_THEME.layout.pageSize);
+    expect(heightTokens.fitScale.value).toBeUndefined();
   });
 
-  it('h5：页宽落 340 + 单栏，页高仍铺舞台', async () => {
+  it('h5：页宽落 340 + 单栏，页高仍铺舞台，不另加缩放倍率', async () => {
     const tokens = await setupTokens({
       stage: STAGE,
       patch: { pageSizeMode: PAGE_SIZE_MODES.H5 },
@@ -136,6 +141,7 @@ describe('生效层按开本适配折算页型', () => {
     expect(layout.pageSize.width).toBe(340);
     expect(layout.pageSize.height).toBe(STAGE.height);
     expect(layout.columns).toBe(1);
+    expect(tokens.fitScale.value).toBeUndefined();
   });
 
   it('窄屏缺省 h5：用户选过一次就以用户为准（不再无条件压页宽）', async () => {
@@ -154,12 +160,13 @@ describe('生效层按开本适配折算页型', () => {
     expect(chosen.effectiveLayout.value.columns).toBe(MODERN_THEME.layout.columns);
   });
 
-  it('仿真版式：任何适配都不覆盖页型（版框 / 界行按固定开本）', async () => {
+  it('仿真版式：任何适配都不覆盖页型与倍率（版框 / 界行按固定开本）', async () => {
     const tokens = await setupTokens({
       theme: FACSIMILE_THEME,
       stage: STAGE,
       patch: { pageSizeMode: PAGE_SIZE_MODES.WIDTH },
     });
     expect(tokens.effectiveLayout.value.pageSize).toBe(FACSIMILE_THEME.layout.pageSize);
+    expect(tokens.fitScale.value).toBeUndefined();
   });
 });

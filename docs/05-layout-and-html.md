@@ -30,45 +30,53 @@ interface LayoutOptions {
 「开本尺寸怎么取用」的一层意图，取值表 `PAGE_SIZE_MODES`（`width` / `height` / `h5` /
 `fixed`），默认 `PAGE_SIZE_MODES.FIXED`：
 
-- `width`（自适应宽度）：页宽绑舞台实测值，页高按开本宽高比反推；
-- `height`（自适应高度）：页高绑舞台实测值，页宽按开本宽高比反推；
-  两档都**绝不拉伸开本**、不分书写方向（面板文案固定并列，选哪轴听用户的）；
-- `h5`：页宽落 `H5_PAGE_SIZE`（340）+ 强制单栏，页高仍铺舞台；
-- `fixed`：严格按 `pageSize` 的宽高落地。
+- `width`（自适应宽度）/ `height`（自适应高度）：**视图缩放档**——页框与分页保持
+  开本不动，`resolvePageFitScale` 按「舞台同名轴 / 开本同名轴」算整页倍率（PDF
+  「适合宽度 / 高度」语义，允许 >1，文字与版面一起等比缩放），不分书写方向；
+- `h5`：页宽落 `H5_PAGE_SIZE`（340）+ 强制单栏，页高仍铺舞台（真实重排，方便阅读）；
+- `fixed`：严格按 `pageSize` 的宽高落地，视图按 contain 适配且 `Math.min(1, ratio)`
+  不放大，所以「固定 = 始终开本大小」。
 
 ```ts
-import { PAGE_SIZE_MODES, applyPageSizeMode, resolvePageSizeMode } from '@bibliotype/layout';
+import {
+  PAGE_SIZE_MODES,
+  applyPageSizeMode,
+  resolvePageFitScale,
+  resolvePageSizeMode,
+} from '@bibliotype/layout';
 
 resolvePageSizeMode({});                                   // 'fixed'（旧快照无该键）
 resolvePageSizeMode(persistedPatch);  // 'fixed'（落盘脏值归一，persistedPatch 为自由键值）
 
-// 声明层（主题基准 + 用户补丁）+ 舞台实测盒 → 生效几何（A5 559×794）
-applyPageSizeMode(declared, { width: 900, height: 600 }).pageSize;
-// width 档：页宽绑 900，页高反推 1278（舞台高不参与）
-// height 档：页高绑 600，页宽反推 422（舞台宽不参与）
-applyPageSizeMode(declared);// 未量到舞台：width / height 原样返回，h5 仍落 340×560
+// 几何折算（A5 559×794）：只有 h5 动页框，其余原样返回
+applyPageSizeMode(declared, { width: 900, height: 600 });
+// width / height / fixed 档：恒等于 declared（不重排、不进度量签名）
+// h5 档：340×600 + 单栏；未量到舞台时 h5 仍落 340×560
+
+// 视图缩放倍率（width / height 档专用，宿主拿去喂 transform scale）
+resolvePageFitScale(widthMode, { width: 900, height: 600 });  // ≈1.610（900/559，放大）
+resolvePageFitScale(heightMode, { width: 900, height: 600 }); // ≈0.756（600/794，缩小）
+resolvePageFitScale(fixedOrH5, stage);                        // undefined = 不覆盖，视图自适配
 ```
 
-为何拆成显式绑轴两档而非单一 `auto`：早先「两轴都铺舞台盒」会把竖版开本顶成
-横扁页，后来的「等比 contain（由折算方挑更受限的轴）」又让用户看不出最终绑的是
-哪条轴。现在选「自适应宽度」就只看页宽铺到舞台、选「自适应高度」就只看页高：
-反推轴若超出舞台，由视图层 contain 缩放整体回收（`Math.min(1, ratio)` 不动），
-页框本身永远保持开本比例。`fixed` 仍受 `Math.min(1, ratio)` 约束（不放大），
-所以「固定 = 始终开本大小」。
+为何是「视图缩放」而非「折页框重排」：重排只会改行宽 / 行数，字号仍按令牌落地，
+观感上「字体没跟着缩放」；PDF 式缩放才是整页（字、版心、页脚）等比变化。
+历史上还踩过两坑：「两轴都铺舞台盒」把竖版开本顶成横扁页；「单一 `auto` 由折算方
+挑更受限的轴」让用户看不出绑了哪条轴——现在宽 / 高两档并列，选哪轴听用户的。
 
-**度量与重排**：折算产出的是真实 `pageSize` / `columns`，而二者已在
-`computeMetricsSignature` 的参与项里 → 预览、编辑画布与导出自动重量尺重排，本字段
-本身无需进签名。反过来，宿主必须在「舞台可用尺寸」变化（窗口 / 侧栏拖动、旋转）
-时重新调 `applyPageSizeMode`，否则页框停在旧尺寸上。
+**度量与重排**：`width` / `height` 不改几何 → 度量签名不变 → **不重量尺**，拖动窗口
+只是重新缩放（这也是选它的理由之一）；`h5` 折算产出真实 `pageSize` / `columns`，
+二者已在 `computeMetricsSignature` 参与项里 → 预览 / 画布 / 导出自动重量尺重排。
+无论如何，宿主都必须在「舞台可用尺寸」变化时重调这两个函数，否则倍率停在旧尺寸。
 
-绑定轴限幅 `AUTO_AXIS_MIN = 240` / `AUTO_AXIS_MAX = 1600`（`width` / `height` 共用）：
-下限防侧栏拖到底排出每行一个字的页，上限防带鱼屏排出单行几百字的不可读版面；
-反推轴随开本比例确定，不再单独限幅（限了就破坏比例）。古籍仿真版式（`facsimile`
-已启用）任何适配都不覆盖页型：版框 / 界行几何按固定开本算，改任一轴都会让界行
-与文字列错位。
+缩放倍率限幅 `FIT_SCALE_MIN = 0.2` / `FIT_SCALE_MAX = 4`（两档共用，小数三档取整
+防每帧新值）；`h5` 页高另有限幅 `AUTO_AXIS_MIN = 240` / `AUTO_AXIS_MAX = 1600`。
+古籍仿真版式（`facsimile` 已启用）两路都不覆盖：版框 / 界行几何按固定开本算，
+改几何或整体缩放都会让界行与文字列错位。
 
 读取本字段一律经 `resolvePageSizeMode`，不要直接判等；面板回显读「声明层」（不折算），
-否则开本下拉会被「·适应版面」这类临时页型顶成「自定义」。
+否则开本下拉会被自适应顶成「自定义」。缩放落地端见
+[06-vue-integration](06-vue-integration.md) 的 `BtBookView.fitScale`。
 
 `facsimile` 是「古籍仿真直排」的唯一开关：缺省时版心尺寸、样式表与度量签名
 与未实现该能力前完全一致；启用后只有版心带宽（`facsimile.gutter.size`）进入

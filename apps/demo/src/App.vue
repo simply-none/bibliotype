@@ -142,6 +142,7 @@ const {
   namedStyles,
   editing,
   effectiveLayout,
+  fitScale,
   facsimilePreset,
   activeFontToken,
   railLayout,
@@ -283,6 +284,14 @@ const { editorScale, zoomStep, fitEditorWidth } = useEditorZoom({
   railLayout: layout.railLayout,
   effectiveLayout: layout.effectiveLayout,
   stageSize,
+});
+
+/* 开本适配（宽 / 高）联动编辑画布：同一 PDF 缩放语义自动跟随（编辑态上限 2，
+   超出部分由画布横向滚动承接，与手动缩放控件同一限幅）；切回其余档位不干预 */
+watch(fitScale, (scale) => {
+  if (scale === undefined) return;
+  const next = Math.round(Math.min(2, Math.max(0.2, scale)) * 100) / 100;
+  if (editorScale.value !== next) editorScale.value = next;
 });
 
 /* 句读 / 专名建议（K3）：建议落到编辑器事务，单事务、可撤销 */
@@ -557,6 +566,7 @@ let perfProbe: PerfProbe | null = null;
             :features="features"
             :named-styles="namedStyles"
             :mode="effectiveViewMode"
+            :fit-scale="fitScale"
             :font-size="fontSizeNum"
             :page-transition="pageTransition"
             :initial-position="savedPosition"

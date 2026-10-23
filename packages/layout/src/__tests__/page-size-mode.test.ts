@@ -4,9 +4,9 @@
  * 守护三件事：
  * 1. 取值表与默认值——缺省即「固定」，旧快照与既有主题字面量才不会改视觉；
  * 2. 脏值过滤——持久化主体是自由键值，非法取值必须回落默认而非参与后续判定；
- * 3. 折算几何——width / height 显式绑轴等比折算（保持开本宽高比 / 限幅 / 幂等 /
- *    量不到同名轴不动）、h5 落窄页单栏，仿真版式一律不动版面；折算后的页宽 /
- *    页高必须进入度量签名（否则改了适配不重排会错页）。
+ * 3. 两条机制分路——width / height 是视图缩放（几何原样不动、只算倍率：
+ *    resolvePageFitScale 绑同名轴 / 限幅 / 量不到不覆盖），h5 才是真实重排（窄页
+ *    单栏）；仿真版式两路一律不动；只有动了几何的折算才进度量签名。
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME } from '@bibliotype/core';
@@ -14,6 +14,7 @@ import {
   DEFAULT_PAGE_SIZE_MODE,
   PAGE_SIZE_MODES,
   applyPageSizeMode,
+  resolvePageFitScale,
   resolvePageSizeMode,
   type PageSizeMode,
 } from '../page-size-mode.js';
@@ -75,7 +76,7 @@ describe('resolvePageSizeMode', () => {
   });
 });
 
-describe('applyPageSizeMode 几何折算', () => {
+describe('applyPageSizeMode 几何折算（只有 h5 动几何）', () => {
   it('固定与缺省：同一对象返回，不新建布局', () => {
     expect(applyPageSizeMode(DEFAULT_LAYOUT_OPTIONS, { width: 900, height: 600 })).toBe(
       DEFAULT_LAYOUT_OPTIONS,
@@ -84,77 +85,21 @@ describe('applyPageSizeMode 几何折算', () => {
     expect(applyPageSizeMode(base)).toBe(base);
   });
 
-  it('width 绑页宽：页宽取舞台值，页高按开本宽高比反推（不拉伸）', () => {
-    const out = applyPageSizeMode(withMode(PAGE_SIZE_MODES.WIDTH), { width: 900, height: 600 });
-    /* A5 559×794：页高 = 900×794/559，舞台多高都不参与 */
-    expect(out.pageSize.width).toBe(900);
-    expect(out.pageSize.height).toBe(1278);
-    expect(out.pageSize.name).toContain('适应版面');
-    expect(out.columns).toBe(DEFAULT_LAYOUT_OPTIONS.columns);
-    /* 入参页型常量不被改写 */
-    expect(DEFAULT_LAYOUT_OPTIONS.pageSize.width).toBe(PAGE_SIZES.A5.width);
-  });
-
-  it('height 绑页高：页高取舞台值，页宽按开本宽高比反推', () => {
-    const out = applyPageSizeMode(withMode(PAGE_SIZE_MODES.HEIGHT), { width: 900, height: 600 });
-    expect(out.pageSize.height).toBe(600);
-    expect(out.pageSize.width).toBe(422); // 600×559/794
-    expect(out.pageSize.name).toContain('适应版面');
-  });
-
-  it('width / height 任意舞台都不改开本宽高比（拉伸问题根源守护）', () => {
-    const ratio = PAGE_SIZES.A5.width / PAGE_SIZES.A5.height;
+  it('width / height 不改几何：页框保持开本（倍率走 resolvePageFitScale）', () => {
+    const stage = { width: 900, height: 600 };
     for (const mode of [PAGE_SIZE_MODES.WIDTH, PAGE_SIZE_MODES.HEIGHT]) {
-      for (const stage of [
-        { width: 900, height: 600 },
-        { width: 1200, height: 2000 },
-        { width: 420, height: 900 },
-      ]) {
-        const page = applyPageSizeMode(withMode(mode), stage).pageSize;
-        expect(page.width / page.height).toBeCloseTo(ratio, 2);
-      }
+      const withModeOptions = withMode(mode);
+      /* 重排只会换行宽换字号观感，不是 PDF 缩放——绝不能再折页框 */
+      expect(applyPageSizeMode(withModeOptions, stage)).toBe(withModeOptions);
+      expect(applyPageSizeMode(withModeOptions)).toBe(withModeOptions);
+      expect(withModeOptions.pageSize.width).toBe(PAGE_SIZES.A5.width);
     }
   });
 
-  it('直排同样显式绑轴（折算不分书写方向，方向只影响面板文案）', () => {
-    const out = applyPageSizeMode(withMode(PAGE_SIZE_MODES.WIDTH, CLASSICAL_LAYOUT_OPTIONS), {
-      width: 900,
-      height: 600,
-    });
-    /* 16 开 699×983：页高 = 900×983/699 */
-    expect(out.pageSize.width).toBe(900);
-    expect(out.pageSize.height).toBe(1266);
-  });
-
-  it('量不到同名轴就不动（SSR / 未挂载不拿另一轴臆造）', () => {
-    const widthMode = withMode(PAGE_SIZE_MODES.WIDTH);
-    const heightMode = withMode(PAGE_SIZE_MODES.HEIGHT);
-    expect(applyPageSizeMode(widthMode)).toBe(widthMode);
-    expect(applyPageSizeMode(widthMode, { width: 0, height: 600 })).toBe(widthMode);
-    expect(applyPageSizeMode(heightMode)).toBe(heightMode);
-    expect(applyPageSizeMode(heightMode, { width: 900, height: 0 })).toBe(heightMode);
-  });
-
-  it('绑定轴限幅到可读区间（侧栏拖到底 / 带鱼屏都不爆炸）', () => {
-    const small = applyPageSizeMode(withMode(PAGE_SIZE_MODES.WIDTH), { width: 100, height: 600 })
-      .pageSize;
-    expect(small.width).toBe(240); // 绑定轴钳到下限
-    expect(small.height).toBe(341); // 240×794/559，反推轴随比例不单独限
-    const huge = applyPageSizeMode(withMode(PAGE_SIZE_MODES.WIDTH), { width: 4000, height: 600 })
-      .pageSize;
-    expect(huge.width).toBe(1600);
-    expect(huge.height).toBe(2273); // 1600×794/559
-    const tall = applyPageSizeMode(withMode(PAGE_SIZE_MODES.HEIGHT), { width: 900, height: 4000 })
-      .pageSize;
-    expect(tall.height).toBe(1600);
-    expect(tall.width).toBe(1126); // 1600×559/794
-  });
-
-  it('幂等：同一舞台重复折算不再新建页型、页名不累加后缀', () => {
-    const stage = { width: 900, height: 600 };
-    const once = applyPageSizeMode(withMode(PAGE_SIZE_MODES.WIDTH), stage);
-    expect(applyPageSizeMode(once, stage)).toBe(once);
-    expect(once.pageSize.name.match(/·适应版面/g)).toHaveLength(1);
+  it('直排（经典预设）同样不动几何', () => {
+    const classical = withMode(PAGE_SIZE_MODES.WIDTH, CLASSICAL_LAYOUT_OPTIONS);
+    expect(applyPageSizeMode(classical, { width: 900, height: 600 })).toBe(classical);
+    expect(classical.pageSize).toBe(CLASSICAL_LAYOUT_OPTIONS.pageSize);
   });
 
   it('h5 页宽落 340 + 单栏，页高仍铺舞台', () => {
@@ -183,16 +128,85 @@ describe('applyPageSizeMode 几何折算', () => {
     expect(applyPageSizeMode(facsimile, { width: 900, height: 600 })).toBe(facsimile);
   });
 
-  it('折算后的页型进入度量签名（驱动重排，不会错页）', () => {
+  it('只有动了几何的折算才进度量签名（width / height 不重排）', () => {
     const signature = (options: LayoutOptions) =>
       computeMetricsSignature({ tokens: DEFAULT_THEME, options });
     const fixed = signature(DEFAULT_LAYOUT_OPTIONS);
     const stage = { width: 900, height: 600 };
-    expect(signature(applyPageSizeMode(withMode(PAGE_SIZE_MODES.WIDTH), stage))).not.toBe(fixed);
-    expect(signature(applyPageSizeMode(withMode(PAGE_SIZE_MODES.HEIGHT), stage))).not.toBe(fixed);
+    /* 视图缩放档不改页框 → 签名不变 → 不重量尺（拖窗口只是重新缩放） */
+    expect(signature(applyPageSizeMode(withMode(PAGE_SIZE_MODES.WIDTH), stage))).toBe(fixed);
+    expect(signature(applyPageSizeMode(withMode(PAGE_SIZE_MODES.HEIGHT), stage))).toBe(fixed);
+    /* h5 真重排：必须驱动重量尺，否则错页 */
     expect(signature(applyPageSizeMode(withMode(PAGE_SIZE_MODES.H5), stage))).not.toBe(fixed);
     /* 未折算（固定）与缺省实测下签名逐字符不变——旧配置零回归 */
     expect(signature(applyPageSizeMode(DEFAULT_LAYOUT_OPTIONS))).toBe(fixed);
+  });
+});
+
+describe('resolvePageFitScale 视图缩放倍率（PDF 适宽 / 适高）', () => {
+  it('width 档：倍率 = 舞台宽 / 页宽（允许 >1，字体随页整体放大）', () => {
+    /* A5 页宽 559：900 / 559 = 1.610（保留三位小数） */
+    expect(
+      resolvePageFitScale(withMode(PAGE_SIZE_MODES.WIDTH), { width: 900, height: 600 }),
+    ).toBeCloseTo(900 / PAGE_SIZES.A5.width, 3);
+  });
+
+  it('height 档：倍率 = 舞台高 / 页高', () => {
+    /* A5 页高 794：600 / 794 = 0.756 */
+    expect(
+      resolvePageFitScale(withMode(PAGE_SIZE_MODES.HEIGHT), { width: 900, height: 600 }),
+    ).toBeCloseTo(600 / PAGE_SIZES.A5.height, 3);
+  });
+
+  it('直排 16 开也绑同名轴（699 宽页 → 900/699）', () => {
+    const scale = resolvePageFitScale(
+      withMode(PAGE_SIZE_MODES.WIDTH, CLASSICAL_LAYOUT_OPTIONS),
+      { width: 900, height: 600 },
+    );
+    expect(scale).toBeCloseTo(900 / PAGE_SIZES.FOLIO_16.width, 3);
+  });
+
+  it('固定 / h5 档不覆盖：undefined = 视图按自身 contain 适配', () => {
+    const stage = { width: 900, height: 600 };
+    expect(resolvePageFitScale(withMode(PAGE_SIZE_MODES.FIXED), stage)).toBeUndefined();
+    expect(resolvePageFitScale(DEFAULT_LAYOUT_OPTIONS, stage)).toBeUndefined();
+    expect(resolvePageFitScale(withMode(PAGE_SIZE_MODES.H5), stage)).toBeUndefined();
+  });
+
+  it('量不到同名轴不覆盖（SSR / 未挂载不用另一轴臆造倍率）', () => {
+    expect(resolvePageFitScale(withMode(PAGE_SIZE_MODES.WIDTH))).toBeUndefined();
+    expect(
+      resolvePageFitScale(withMode(PAGE_SIZE_MODES.WIDTH), { width: 0, height: 600 }),
+    ).toBeUndefined();
+    expect(
+      resolvePageFitScale(withMode(PAGE_SIZE_MODES.HEIGHT), { width: 900, height: 0 }),
+    ).toBeUndefined();
+  });
+
+  it('倍率限幅 0.2~4（窄侧栏 / 带鱼屏都不失控）', () => {
+    expect(
+      resolvePageFitScale(withMode(PAGE_SIZE_MODES.WIDTH), { width: 100, height: 600 }),
+    ).toBe(0.2);
+    expect(
+      resolvePageFitScale(withMode(PAGE_SIZE_MODES.WIDTH), { width: 3000, height: 600 }),
+    ).toBe(4);
+    expect(
+      resolvePageFitScale(withMode(PAGE_SIZE_MODES.HEIGHT), { width: 900, height: 100 }),
+    ).toBe(0.2);
+  });
+
+  it('仿真版式不覆盖（与几何折算同一守卫）', () => {
+    const facsimile = mergeLayoutOptions(FACSIMILE_BASE_LAYOUT, {
+      facsimile: { preset: 'song-zhe', frame: 'double', rule: 'ink' },
+      pageSizeMode: PAGE_SIZE_MODES.WIDTH,
+    });
+    expect(resolvePageFitScale(facsimile, { width: 900, height: 600 })).toBeUndefined();
+  });
+
+  it('同舞台重算倍率稳定（三位小数收敛，不每帧新值白重渲染）', () => {
+    const options = withMode(PAGE_SIZE_MODES.WIDTH);
+    const stage = { width: 877, height: 631 };
+    expect(resolvePageFitScale(options, stage)).toBe(resolvePageFitScale(options, stage));
   });
 });
 

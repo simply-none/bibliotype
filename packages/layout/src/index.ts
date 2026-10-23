@@ -7,7 +7,7 @@ export { WRITING_MODES, TEXT_ORIENTATIONS, isVerticalMode } from './writing-mode
 export type { WritingMode, TextOrientation } from './writing-mode.js';
 
 /* ---------- 页面尺寸 ---------- */
-export { PAGE_SIZES, createPageSize, resolveContentBox } from './page-size.js';
+export { PAGE_SIZES, H5_PAGE_SIZE, createPageSize, resolveContentBox } from './page-size.js';
 export type { PageSize, ContentBoxSize, PageMarginBox } from './page-size.js';
 
 /* ---------- 直排数字/英文合并（D3 补充） ---------- */
@@ -56,13 +56,14 @@ export type {
   LayoutOptions,
 } from './layout-options.js';
 
-/* ---------- 开本适配（尺寸取法；当前仅契约，未驱动几何） ---------- */
+/* ---------- 开本适配（尺寸取法；折算出真实页型后参与分页） ---------- */
 export {
   PAGE_SIZE_MODES,
   DEFAULT_PAGE_SIZE_MODE,
   resolvePageSizeMode,
+  applyPageSizeMode,
 } from './page-size-mode.js';
-export type { PageSizeMode } from './page-size-mode.js';
+export type { PageSizeMode, StageBoxSize } from './page-size-mode.js';
 
 /* ---------- 古籍仿真版式（与「古籍直排」并列，缺省不启用） ---------- */
 export {

@@ -73,9 +73,10 @@ const vertical = computed(() => isVerticalMode(props.layout.writingMode));
 /**
  * 开本适配选项（自适应宽度 / 自适应 H5 / 固定）
  *
- * 「自适应」指交叉轴跟随容器：横排吃页宽、直排吃页高，故文案随书写方向换词。
- * 本选项目前只把意图落到样式草稿（`LayoutOptions.pageSizeMode`），版心几何与分页
- * 仍按 `pageSize` 固定取值，几何接线后由 layout 侧统一驱动。
+ * 自适应的是整张页框：预览按整页等比缩放（contain），只铺一轴会被另一轴顶回
+ * 小于 1，看着仍没满，故两轴一起铺到舞台盒。文案只点出当前方向最敏感的那条轴
+ * （横排说宽、直排说高）。本选项只写进样式草稿，真正的页型由宿主把草稿与舞台实测
+ * 盒交给 `applyPageSizeMode` 折算；开本下拉仍按声明的开本回显，不跟着变「自定义」。
  */
 const pageSizeModeOptions = computed<ReadonlyArray<{ value: PageSizeMode; label: string }>>(
   () => [

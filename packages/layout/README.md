@@ -113,11 +113,11 @@ const grid = resolveFacsimileGrid(layout, preset.tokens);
 | 分组 | 导出 |
 | --- | --- |
 | 书写方向 | `WRITING_MODES`、`TEXT_ORIENTATIONS`、`isVerticalMode` |
-| 页面尺寸 | `PAGE_SIZES`、`createPageSize`、`resolveContentBox` |
+| 页面尺寸 | `PAGE_SIZES`、`H5_PAGE_SIZE`（340×560，非印刷开本故不进预设表）、`createPageSize`、`resolveContentBox` |
 | 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`（`longDigits: 'kanji'` 数字分组）、`combineUprightCss`、`needsCombineUpright` |
 | 竖排细节 | `VERTICAL_PUNCTUATION_FORMS`、`verticalPunctuationOf`、`toVerticalPunctuation`、`toKanjiDigits`、`toFullwidthDigits`、`transformVerticalText`、`needsVerticalTextTransform` |
 | 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`FACSIMILE_BASE_LAYOUT`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
-| 开本适配 | `PAGE_SIZE_MODES`（`auto` / `h5` / `fixed`）、`DEFAULT_PAGE_SIZE_MODE`、`resolvePageSizeMode`（缺省与脏值归一为 `fixed`；当前仅契约字段，不驱动版心几何） |
+| 开本适配 | `PAGE_SIZE_MODES`（`auto` 页框铺满舞台盒 / `h5` 340 页宽 + 单栏 / `fixed` 严格按开本 px）、`DEFAULT_PAGE_SIZE_MODE`、`resolvePageSizeMode`（缺省与脏值归一为 `fixed`）、`applyPageSizeMode`（声明布局 + `StageBoxSize` → 折算真实 `pageSize` / `columns`；仿真版式与未量到舞台时不动） |
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
 | 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |
 | 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |

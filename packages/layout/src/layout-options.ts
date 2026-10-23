@@ -107,8 +107,9 @@ export interface LayoutOptions {
    * 开本适配（缺省 `PAGE_SIZE_MODES.FIXED` = 严格按 pageSize 取几何）
    *
    * 可选而非必填：旧快照与已持久化补丁无该键，缺省语义即「固定」，
-   * 读取一律经 `resolvePageSizeMode`，不要直接判等。当前仅记录意图、
-   * 不参与版心几何与度量签名（见 page-size-mode 头部说明）。
+   * 读取一律经 `resolvePageSizeMode`，不要直接判等。生效靠宿主把声明布局与
+   * 舞台尺寸交给 `applyPageSizeMode` 折算出真实 `pageSize` / `columns`（进而
+   * 改变度量签名与分页归属），样式构建本身不读本字段。
    */
   pageSizeMode?: PageSizeMode;
   /** 页码样式 */

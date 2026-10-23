@@ -30,23 +30,38 @@ interface LayoutOptions {
 「开本尺寸怎么取用」的一层意图，取值表 `PAGE_SIZE_MODES`（`auto` / `h5` / `fixed`），
 默认 `PAGE_SIZE_MODES.FIXED`：
 
-- `auto`：交叉轴自适应——横排页宽跟随容器、直排页高跟随容器（另一轴仍按开本）；
-- `h5`：按窄屏视口取页宽（375px 级），使等比缩放系数趋近 1、正文回落到令牌字号；
+- `auto`：页框铺满舞台盒（横排看宽、直排看高，面板文案按方向取词）；
+- `h5`：页宽落 `H5_PAGE_SIZE`（340）+ 强制单栏，页高仍铺舞台；
 - `fixed`：严格按 `pageSize` 的宽高落地。
 
 ```ts
-import { PAGE_SIZE_MODES, resolvePageSizeMode } from '@bibliotype/layout';
+import { PAGE_SIZE_MODES, applyPageSizeMode, resolvePageSizeMode } from '@bibliotype/layout';
 
 resolvePageSizeMode({});                                   // 'fixed'（旧快照无该键）
 resolvePageSizeMode(persistedPatch);  // 'fixed'（落盘脏值归一，persistedPatch 为自由键值）
+
+// 声明层（主题基准 + 用户补丁）+ 舞台实测盒 → 生效几何
+applyPageSizeMode(declared, { width: 900, height: 600 }).pageSize;  // auto: 900×600
+applyPageSizeMode(declared);// 未量到舞台：auto 原样返回，h5 仍落 340×560
 ```
 
-**当前边界**：本字段是契约 + 设置面板的意图记录，`resolvePageMainSize` /
-`resolvePageCrossSize` 与度量签名都不读它——切换取值不改变分页归属，也不触发
-重排。几何接线（`auto` 实测容器交叉轴、`h5` 取窄屏页宽）另立批次，接入时**必须**
-同步把该值纳入 `computeMetricsSignature` 的布局参与项，否则「改了适配却不重排」
-会直接错页（`page-size-mode.test.ts` 现有用例即锁定这一不变量，接线时反向改写）。
-读取本字段一律经 `resolvePageSizeMode`，不要直接判等。
+`auto` 为何两轴一起铺：分页预览按整页等比缩放（`fit: 'contain'`），只铺交叉轴时
+另一轴仍顶着开本值，缩放系数会被顶回小于 1 —— 看着还是没满。页框 = 舞台盒才能让
+系数恰为 1（铺满且不裁切），因此不必去改缩放上限。`fixed` 仍受 `Math.min(1, ratio)`
+约束（不放大），所以「固定 = 始终开本大小」。
+
+**度量与重排**：折算产出的是真实 `pageSize` / `columns`，而二者已在
+`computeMetricsSignature` 的参与项里 → 预览、编辑画布与导出自动重量尺重排，本字段
+本身无需进签名。反过来，宿主必须在「舞台可用尺寸」变化（窗口 / 侧栏拖动、旋转）
+时重新调 `applyPageSizeMode`，否则页框停在旧尺寸上。
+
+限幅 `AUTO_AXIS_MIN = 240` / `AUTO_AXIS_MAX = 1600`（两轴同区间）：下限防侧栏拖到
+底排出每行一个字的页，上限防带鱼屏排出单行几百字的不可读版面；超出即截断，此时
+会重新出现 letterbox（属预期行为）。古籍仿真版式（`facsimile` 已启用）任何适配都
+不覆盖页型：版框 / 界行几何按固定开本算，改任一轴都会让界行与文字列错位。
+
+读取本字段一律经 `resolvePageSizeMode`，不要直接判等；面板回显读「声明层」（不折算），
+否则开本下拉会被「·适应版面」这类临时页型顶成「自定义」。
 
 `facsimile` 是「古籍仿真直排」的唯一开关：缺省时版心尺寸、样式表与度量签名
 与未实现该能力前完全一致；启用后只有版心带宽（`facsimile.gutter.size`）进入

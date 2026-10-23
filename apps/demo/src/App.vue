@@ -70,6 +70,7 @@ import { UI_SKINS } from './ui-skin.js';
 import { useAppThemes } from './composables/use-app-themes.js';
 import { useAppSkin } from './composables/use-app-skin.js';
 import { useMobileShell } from './composables/use-mobile-shell.js';
+import { useStageSize } from './composables/use-stage-size.js';
 import { useLayoutTokens } from './composables/use-layout-tokens.js';
 import { useSettingsSnapshot, bookIdFromTitle } from './composables/use-settings-snapshot.js';
 import { useReaderSession } from './composables/use-reader-session.js';
@@ -121,11 +122,15 @@ function persistSnapshotLate(): void {
   snapshotPersistBound();
 }
 
+/* 舞台实测可用尺寸（开本自适应与编辑画布「适应」的共同量源） */
+const { stageEl, stageSize } = useStageSize();
+
 /* 版式补丁与令牌层（样式作用域 / effectiveLayout / tokens / 面板视图） */
 const layout = useLayoutTokens({
   theme: themeBase,
   night,
   mobileShell,
+  stageSize,
   scheduleRemeasure: scheduleRemeasureLate,
   persistSnapshot: persistSnapshotLate,
 });
@@ -274,9 +279,10 @@ const {
 });
 
 /* 编辑态缩放（透传 BtEditor.scale） */
-const { editorScale, editorStageRef, zoomStep, fitEditorWidth } = useEditorZoom({
+const { editorScale, zoomStep, fitEditorWidth } = useEditorZoom({
   railLayout: layout.railLayout,
   effectiveLayout: layout.effectiveLayout,
+  stageSize,
 });
 
 /* 句读 / 专名建议（K3）：建议落到编辑器事务，单事务、可撤销 */
@@ -541,7 +547,7 @@ let perfProbe: PerfProbe | null = null;
           <span>{{ modeFallbackHint || '当前版式暂不支持流式阅读，已切换为分页阅读。' }}</span>
           <button type="button" class="app__mode-hint-close" @click="modeFallbackHint = ''">知道了</button>
         </div>
-        <div ref="editorStageRef" class="app__stage" :class="{ 'app__stage--read': mode === 'read' }">
+        <div ref="stageEl" class="app__stage" :class="{ 'app__stage--read': mode === 'read' }">
           <BtBookView
             v-if="booted && mode === 'read'"
             :key="`${themeKey}-${readerEpoch}`"

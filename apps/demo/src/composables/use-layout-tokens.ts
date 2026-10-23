@@ -4,9 +4,12 @@
  * 样式设置（三级作用域 + 自动持久化）由 `useStyleSettings` 统一管理：布局补丁 /
  * 令牌补丁 / 功能样式 / 命名样式 / 编辑行为，草稿模式（弹窗内改草稿、保存才生效）。
  *
- * 生效层 = 主题基准 → 仿真模板 → 用户补丁 → 主题预设 → 夜间覆盖；
- * 面板视图（panelLayout / panelTokens）把补丁换成草稿，避免「点了不高亮」。
- * H5 版式预设叠在最上层（窄屏可读下限，不写用户补丁）。
+ * 生效层 = 主题基准 → 窄屏适配缺省 → 用户补丁 →（按舞台折算开本适配）；
+ * 面板视图（panelLayout / panelTokens）把补丁换成草稿且不折算，避免「点了不高亮」。
+ *
+ * 开本适配（`pageSizeMode`）在此层落地：声明层只记「用户想要哪种取法」，真正的
+ * `pageSize` / `columns` 由 `applyPageSizeMode` 按舞台实测盒折算；折算结果改变了
+ * 度量签名里的页宽页高 → 预览 / 编辑画布 / 导出都自动跟着重量尺重排。
  *
  * 跨块回调（重排调度 / 界面偏好落盘）经参数注入，由 App.vue 晚绑定，
  * 破除 layout → reader / snapshot 的构造期循环。
@@ -14,10 +17,12 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue';
 import { FONT_SIZE_TOKENS, LAYOUT_TOKENS } from '@bibliotype/core';
 import {
-  createPageSize,
+  PAGE_SIZE_MODES,
+  applyPageSizeMode,
   isVerticalMode,
   mergeLayoutOptions,
   type LayoutOptions,
+  type StageBoxSize,
 } from '@bibliotype/layout';
 import {
   resolveActiveFacsimilePreset,
@@ -28,9 +33,6 @@ import { useStyleSettings, type StyleSettingsApi } from './use-style-settings.js
 import { bookIdFromTitle } from './use-settings-snapshot.js';
 import { lunyuDocument } from '../data/lunyu.js';
 import { NIGHT_COLORS, type ThemeConfig } from './use-app-themes.js';
-
-/** H5 开本：375px 视口下缩放系数趋近 1，正文按令牌原尺寸落地 */
-const MOBILE_PAGE_SIZE = createPageSize('h5-mobile', 340, 560);
 
 /** 《论语》样本书的固定 id（启动默认书） */
 export const LUNYU_BOOK_ID = bookIdFromTitle(lunyuDocument.metadata.title);
@@ -45,6 +47,8 @@ export interface LayoutTokensDeps {
   theme: ComputedRef<ThemeConfig>;
   night: Ref<boolean>;
   mobileShell: ComputedRef<boolean>;
+  /** 舞台实测可用尺寸（px，已扣内边距）；null = 尚未量到 */
+  stageSize: Ref<StageBoxSize | null>;
   /** 去抖重排（晚绑定到 reader 块） */
   scheduleRemeasure: () => void;
   /** 界面偏好落盘（晚绑定到 snapshot 块） */
@@ -53,7 +57,7 @@ export interface LayoutTokensDeps {
 
 /** 版式 / 令牌 / 样式作用域中枢 */
 export function useLayoutTokens(deps: LayoutTokensDeps) {
-  const { theme, night, mobileShell } = deps;
+  const { theme, night, mobileShell, stageSize } = deps;
 
   /** 当前书籍 id（响应式）：切书后样式设置随之切到该书作用域并重新载入应用 */
   const currentBookId = ref(LUNYU_BOOK_ID);
@@ -72,26 +76,38 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
   const editing = styleApi.editing;
 
   /**
-   * H5 版式预设（A2）：只叠在窄屏断点（窄页宽 + 单栏），使等比缩放系数趋近 1、
-   * 等效字号回到令牌值（≥14px）；不写入用户补丁，回到宽视口即消失。仿真模板自带
-   * 版框与固定开本，覆盖页宽会破坏其几何，因此保持原样交给它自身缩放。
+   * 窄屏适配缺省（A2）：用户未在本套补丁里选过适配时，H5 壳缺省走 `h5` 取形
+   *
+   * 不再无条件压缩页宽（那会推翻用户显式选的「固定 / 自适应」，造成「选了不生效」），
+   * 它只是一层缺省值：主题基准 → 本缺省 → 用户补丁，选过一次就完全听用户的，
+   * 且随样式快照落盘（换回宽视口也不会被悄悄改掉）。
    */
-  const mobileLayoutPatch = computed<Partial<LayoutOptions>>(() => {
-    if (!mobileShell.value) return {};
-    if (theme.value.layout.facsimile !== undefined) return {};
-    return { pageSize: MOBILE_PAGE_SIZE, columns: 1 };
-  });
+  function shellModePatch(patch: Partial<LayoutOptions>): Partial<LayoutOptions> {
+    if (!mobileShell.value || patch.pageSizeMode !== undefined) return {};
+    return { pageSizeMode: PAGE_SIZE_MODES.H5 };
+  }
 
   /**
-   * 生效布局：主题基准 + 补丁覆写 + H5 版式预设
+   * 声明层布局：主题基准 + 窄屏缺省 + 用户补丁（尚未按舞台折算）
    *
-   * 三层顺序：H5 预设压在最上，因为它不是用户意图而是「窄屏可读」的下限。
+   * 面板回显用的是本层：开本下拉得按用户选的预设回显，不能被折算出的
+   * 「·适应版面」临时页型顶成「自定义」。
+   */
+  const declaredLayout = computed<LayoutOptions>(() =>
+    mergeLayoutOptions(
+      mergeLayoutOptions(theme.value.layout, shellModePatch(layoutPatch.value)),
+      layoutPatch.value,
+    ),
+  );
+
+  /**
+   * 生效布局：声明层按开本适配折算成真实页型
+   *
+   * `fixed`（缺省）与仿真版式原样返回；`auto` 把页框铺到舞台盒，`h5` 落 340 页宽
+   * 加单栏。舞台尚未量到时该轴回退开本取值，不凭臆造值重排。
    */
   const effectiveLayout = computed<LayoutOptions>(() =>
-    mergeLayoutOptions(
-      mergeLayoutOptions(theme.value.layout, layoutPatch.value),
-      mobileLayoutPatch.value,
-    ),
+    applyPageSizeMode(declaredLayout.value, stageSize.value ?? undefined),
   );
 
   /** 当前仿真模板（由 `layout.facsimile.preset` 派生；未启用仿真版式时为 undefined） */
@@ -148,17 +164,19 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
   }));
 
   /**
-   * 设置弹窗专用视图：在生效层上换成草稿补丁
+   * 设置弹窗专用视图：在声明层上换成草稿补丁
    *
    * 弹窗内的点选先进草稿（不重排画布），选中态却读的是生效层会导致「点了不高亮」；
    * 这里把布局 / 令牌切到面板视图（草稿模式 = 草稿），画布仍用 effectiveLayout / tokens。
+   * 与生效层同构但**不做几何折算**：面板只展示并编辑「用户声明」的开本与适配档位。
    */
-  const panelLayout = computed<LayoutOptions>(() =>
-    mergeLayoutOptions(
-      mergeLayoutOptions(theme.value.layout, styleApi.panelLayoutPatch.value as Partial<LayoutOptions>),
-      mobileLayoutPatch.value,
-    ),
-  );
+  const panelLayout = computed<LayoutOptions>(() => {
+    const draft = styleApi.panelLayoutPatch.value as Partial<LayoutOptions>;
+    return mergeLayoutOptions(
+      mergeLayoutOptions(theme.value.layout, shellModePatch(draft)),
+      draft,
+    );
+  });
 
   const panelTokens = computed<Readonly<Record<string, string | undefined>>>(() => ({
     ...theme.value.tokens,

@@ -460,8 +460,17 @@ CSS 侧同源变量：`--bt-bp-sm|md|lg`、`--bt-touch-target: 44px`、
   左栏 `AsidePanels` 进 `BtDrawer`，右栏属性检视器进底部 sheet（两档吸附），
   底栏只留进度 + 翻页器，其余收进「更多」；`railLayout = verticalRail && !mobileShell`，
   H5 不做直排竖列转置。桌面侧栏与抽屉共用同一份 `AsidePanels`，避免模板漂移。
-- 版式预设：`mobileLayoutPatch` 以 `createPageSize('h5-mobile', 340, 560)` + `columns: 1`
-  压在用户补丁之上（仿真模板跳过 pageSize），375px 视口缩放系数≈1，等效字号 ≥ 14px。
+- 开本适配（A2）：旧的 `mobileLayoutPatch`（窄屏无条件压成 340×560 单栏）已废除——
+  它会推翻用户在面板里显式选的「固定 / 自适应」，表现为「选了不生效」。现在改为一层
+  **缺省值**：`use-layout-tokens` 按「主题基准 → 窄屏适配缺省 → 用户补丁」合并，窄屏
+  且用户未选过适配时缺省走 `PAGE_SIZE_MODES.H5`，选过一次就完全听用户的（随快照落盘，
+  换回宽视口也不会被悄悄改掉）。
+- 舞台实测：`use-stage-size` 用 `ResizeObserver` 量 `.app__stage` 并按 computed style
+  扣其内边距（桌面 20px / H5 骨架 12px，不写死），产出 `StageBoxSize`。它是开本折算与
+  编辑画布「适应」的共同量源；与 `BtBookView` 根元素同源，所以 `applyPageSizeMode`
+  把页框铺上去后缩放系数恰为 1（真铺满，无需放开 `Math.min(1, ratio)`）。页宽页高
+  已进入度量签名 → 预览 / 编辑 / 导出自动重量尺重排（重排走 120ms 去抖，拖侧栏途中
+  不会反复重排）。面板回显读声明层（不折算）。
 - `EditorToolbar`：`compactToolbar`（`isMobile || coarsePointer`）下每行只直出
   「撤销 / 重做 / B / H1 / 注音」，其余收进行尾「更多」，展开后单行横滚，按钮 44px。
 - `ToolbarUsageTip`：粗指针下整体禁用（hover 卡片会「粘住不回」），暴露 `data-touch`。

@@ -4,9 +4,9 @@
  * 守护三条约定：
  * 1. 下拉落在「分栏」之后，三值齐备且缺省选中「固定」（旧快照无该键时的回显）；
  * 2. 选项文案随书写方向换词：横排「自适应宽度」、直排「自适应高度」——
- *    自适应的是交叉轴，措辞必须与真实取轴一致；
- * 3. 改动只经 `api.patchLayout` 写进样式草稿（本轮不驱动版心几何），
- *    回显读草稿层，避免「点了不高亮」。
+ *    措辞要跟当前方向最敏感的那条轴一致（几何上两轴都铺到舞台盒）；
+ * 3. 改动只经 `api.patchLayout` 写进样式草稿，回显读草稿层，避免「点了不高亮」；
+ *    草稿里不自带 `pageSize` / `columns`，页型折算归生效层（见对侧 wiring 测试）。
  *
  * demo 未装 `@vue/test-utils`，沿用 `createApp` + `h` 的挂载范式（宿主把布局
  * 基准与草稿补丁现算成 props，模拟父级 panelLayout 的合并口径）。
@@ -130,7 +130,7 @@ describe('设置面板「开本适配」', () => {
 
     expect(draftLayout().pageSizeMode).toBe(PAGE_SIZE_MODES.H5);
     expect(modeSelect(container).value).toBe(PAGE_SIZE_MODES.H5);
-    /* 本轮只落意图：开本尺寸与分栏不因适配改动被顺手改写 */
+    /* 面板只落意图：开本尺寸与分栏不因适配改动被顺手改写（折算发生在生效层） */
     expect(draftLayout().pageSize).toBeUndefined();
     expect(draftLayout().columns).toBeUndefined();
   });

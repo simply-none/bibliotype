@@ -46,6 +46,15 @@ export function createPageSize(
   return { name, width, height };
 }
 
+/**
+ * H5 手机页（340×560）
+ *
+ * 供 `PAGE_SIZE_MODES.H5` 折算用：340 页宽在 375px 视口下等比缩放系数趋近 1，
+ * 正文因此按令牌原尺寸落地（而不是被缩小到不可读）。不是印刷开本，故不进
+ * `PAGE_SIZES` 预设表（避免出现在开本下拉里）。
+ */
+export const H5_PAGE_SIZE: PageSize = createPageSize('H5　340×560', 340, 560);
+
 /** 页面内容区尺寸（扣除页边距后的可用区域） */
 export interface ContentBoxSize {
   width: number;

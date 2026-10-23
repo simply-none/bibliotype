@@ -58,8 +58,11 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-21 十一次更新（K6）：新增缺字合成字形 `.bt-glyph`（1em 内联 + SVG
  * 撑满），仅在序列化传入 `glyph` 回调时命中，基线重锁。
+ *
+ * 2026-10-23 十二次更新：`.bt-image` 改为「块级 + 版心物理宽高限幅」，
+ * 修复大图块（不可拆）按原图尺寸撑开、越出版心 / 纸面的溢出，样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '504fe65f';
+export const CLASSICAL_CSS_FNV = '53405bd2';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

@@ -20,7 +20,7 @@ import {
 } from '@bibliotype/core';
 import { combineUprightCss } from '../combine-upright.js';
 import type { LayoutOptions } from '../layout-options.js';
-import { buildCssVariables, type StyleDeclaration } from '../style-builder.js';
+import { buildCssVariables, resolvePageCrossSize, resolvePageMainSize, type StyleDeclaration } from '../style-builder.js';
 import { isVerticalMode } from '../writing-mode.js';
 import { isFacsimileEnabled } from '../facsimile.js';
 import { resolveFacsimileCssVariables } from '../facsimile-geometry.js';
@@ -98,6 +98,17 @@ export function buildBookCss(input: BuildBookCssOptions): string {
   const fontToken = input.fontToken ?? FONT_TOKENS.BODY;
   const containerSelector = input.containerSelector ?? 'body';
   const vertical = isVerticalMode(options.writingMode);
+
+  /*
+   * 图片按版心物理宽高限幅：EPUB 原图常远大于版心（扫描件可达上千 px），
+   * 仅给 `max-width: 100%` 时主轴方向仍按原图撑开（直排下替换元素的百分比
+   * 还与书写方向转置），而图片块不可拆 → 空页强制放入后越出版心 / 纸面。
+   * 上下限写死为版心尺寸（px），量尺与渲染共用本样式，实测尺寸随之收敛。
+   */
+  const pageMain = resolvePageMainSize(options, tokens);
+  const pageCross = resolvePageCrossSize(options, tokens);
+  const imageMaxWidth = Math.max(1, Math.round(vertical ? pageMain : pageCross));
+  const imageMaxHeight = Math.max(1, Math.round(vertical ? pageCross : pageMain));
 
   const rules: string[] = [];
 
@@ -275,7 +286,11 @@ ${scoped('.bt-table-row[data-header="true"]')} {
   background: color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 8%, transparent);
 }
 ${scoped('.bt-image')} {
-  max-width: 100%;
+  /* 块级化：消除行盒基线留白（inline 图片会使行盒高于图片本身，页底虚增一行） */
+  display: block;
+  margin-inline: auto;
+  max-width: ${imageMaxWidth}px;
+  max-height: ${imageMaxHeight}px;
 }
 ${scoped('.bt-break')} {
   border: 0;

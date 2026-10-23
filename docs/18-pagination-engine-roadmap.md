@@ -49,7 +49,9 @@
 - 多栏（columns > 1）分页、对页（recto / verso）与奇偶页眉；脚注浮注已落地（`floatToBottom` / `noteArea`）；
 - PDF 导出管线评估（Paged.js / Vivliostyle / 打印 CSS），与编辑态解耦；
 - ~~ruby 注音导致行高不均时的实测行盒精修~~ **已落地**：量尺按基础文本矩形划分行（排除 `<rt>` 注文），
-  再把注音矩形按交叉轴重叠并入所在行，产出逐行主轴尺寸 `lineMainSizes`（含直排列宽）；
+  逐行尺寸取「相邻行起缘之差」（行推进量，注音撑高自动计入），末行补齐到块体尺寸，
+  使各行之和等于块高 / 宽。早期取行内字形内容盒（`boxEnd − boxStart`，约 23px）会低估行推进约 1/4，
+  高估每页可容纳行数，长段落拆分后越出版心 / 纸面，已修正；`lineMainSizes` 经
   `extractBlocks` → `Reader` / `buildPagedLayout` / `exporter-pdf` 全链路透传，
   `paginate` 按行累加判页（`lineRangeMainSize`）；缺省回退均高，行为不变。
   剩余为浏览器真实像素回归（happy-dom 无布局盒）。

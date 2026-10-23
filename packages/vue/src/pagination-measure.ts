@@ -121,12 +121,6 @@ function mainStartOf(rect: DOMRect, axis: MeasureAxis): number {
   return axis.rl ? rect.right : rect.left;
 }
 
-/** 主轴推进终点（横排取 bottom，直排 rl 取左缘、lr 取右缘） */
-function mainEndOf(rect: DOMRect, axis: MeasureAxis): number {
-  if (!axis.vertical) return rect.bottom;
-  return axis.rl ? rect.left : rect.right;
-}
-
 /** 交叉轴起点（横排取左缘，直排取上缘） */
 function crossStartOf(rect: DOMRect, axis: MeasureAxis): number {
   return axis.vertical ? rect.top : rect.left;
@@ -281,33 +275,53 @@ function locateChar(
   return null;
 }
 
-/** 一行（列）行盒：基础文本的推进边界 + 并入注音后的行盒范围 */
+/** 一行（列）行盒：基础文本的推进起点 + 交叉轴范围 */
 interface MeasuredLineBox {
   /** 基础文本推进起点（行序 / 行首偏移二分用；注音不参与） */
   start: number;
-  /** 行盒推进起点（含注音行内增高） */
-  boxStart: number;
-  /** 行盒推进终点（含注音行内增高） */
-  boxEnd: number;
-  /** 交叉轴范围（横排 x、直排 y；用于把 `<rt>` 归入其所注释的那一行） */
+  /** 交叉轴范围（横排 x、直排 y） */
   crossMin: number;
   crossMax: number;
 }
 
-/** 元素矩形（无布局环境返回空） */
-function elementRects(el: Element): DOMRect[] {
-  if (typeof el.getClientRects !== 'function') return [];
-  return Array.from(el.getClientRects()).filter((r) => r.height > 0 || r.width > 0);
+/**
+ * 由行起缘坐标推出逐行主轴尺寸（行推进量）。
+ *
+ * 逐行尺寸 = 相邻行起缘之差，末行补齐到块主轴尺寸，使各行之和恰等于块体高
+ * （直排为宽）。不能改取单个文本矩形的主轴跨度：那是行内字形内容盒（16px
+ * 字号 / 30.4px 行高时约 23px），比真实行推进小约 1/4，累加会让分页器高估
+ * 每页可容纳行数，拆分片段渲染后越出版心。增量法天然保留 ruby 注音撑高的
+ * 行盒（该行与下一行的起缘差随之变大）。
+ *
+ * @param starts 各行起缘（阅读顺序；直排 rl 为递减）
+ * @param body 块主轴尺寸（横排 offsetHeight / 直排 offsetWidth）
+ * @returns 逐行推进量（长度与 starts 一致）；量测异常时为空数组（调用方回退均高）
+ */
+export function lineAdvances(starts: readonly number[], body: number): number[] {
+  if (starts.length < 2 || !(body > 0)) return [];
+  const sizes: number[] = [];
+  for (let k = 0; k + 1 < starts.length; k += 1) {
+    const delta = Math.abs((starts[k + 1] as number) - (starts[k] as number));
+    // 非正增量（行序重复）或超过块体（量测异常）都视为不可用
+    if (!(delta > 0) || delta > body) return [];
+    sizes.push(delta);
+  }
+  const span = Math.abs((starts[starts.length - 1] as number) - (starts[0] as number));
+  const tail = body - span;
+  if (!(tail > 0)) return [];
+  sizes.push(tail);
+  return sizes;
 }
 
 /**
  * 实测单块的逐行行盒：行首字符偏移 + 每行主轴尺寸。
  *
  * 行（列）划分只取基础文本矩形（跳过 `<rt>` 注文），避免注音行的 rt 被误判为
- * 独立一行；再按交叉轴重叠把 `<rt>` / `<rp>` 矩形并入所在行，得到真实行盒高度
- * （直排为列宽）——注音行比普通行更高，等宽均高会把这一差值算错，导致页面溢出
- * 或注音被裁。happy-dom 无布局（rects 为空）→ 返回单行 [0] + 空尺寸，由调用方
- * 回退均高估算。浏览器下产出的边界即真实换行 / 换列位置与行盒尺寸。
+ * 独立一行；注音撑高的行盒由「行推进量」自动体现（该行与下一行的起缘差随之
+ * 变大），无需单独并入 rt 矩形。happy-dom 无布局（rects 为空）→ 返回单行 [0]
+ * + 空尺寸，由调用方回退均高估算。浏览器下产出的边界即真实换行 / 换列位置。
+ *
+ * 逐行尺寸见 lineAdvances：取行推进量而非字形内容盒，保证与块体尺寸同尺。
  */
 function measureLineBoxes(
   el: HTMLElement,
@@ -333,32 +347,16 @@ function measureLineBoxes(
   const boxes: MeasuredLineBox[] = [];
   for (const rect of baseRects) {
     const start = mainStartOf(rect, axis);
-    const end = mainEndOf(rect, axis);
     const crossMin = crossStartOf(rect, axis);
     const crossMax = crossEndOf(rect, axis);
     const box = boxes.find((candidate) => Math.abs(candidate.start - start) <= 2);
     if (box === undefined) {
-      boxes.push({ start, boxStart: start, boxEnd: end, crossMin, crossMax });
+      boxes.push({ start, crossMin, crossMax });
       continue;
     }
     box.start = Math.min(box.start, start);
-    box.boxStart = Math.min(box.boxStart, start);
-    box.boxEnd = Math.max(box.boxEnd, end);
     box.crossMin = Math.min(box.crossMin, crossMin);
     box.crossMax = Math.max(box.crossMax, crossMax);
-  }
-
-  // 注音矩形并入「交叉轴相交」的那一行：扩展行盒的推进范围（不参与行序划分）
-  for (const rt of Array.from(el.querySelectorAll('rt, rp'))) {
-    for (const rect of elementRects(rt)) {
-      const crossMin = crossStartOf(rect, axis);
-      const crossMax = crossEndOf(rect, axis);
-      for (const box of boxes) {
-        if (Math.min(crossMax, box.crossMax) - Math.max(crossMin, box.crossMin) <= 0) continue;
-        box.boxStart = Math.min(box.boxStart, mainStartOf(rect, axis));
-        box.boxEnd = Math.max(box.boxEnd, mainEndOf(rect, axis));
-      }
-    }
   }
 
   boxes.sort((a, b) => (axis.vertical && axis.rl ? b.start - a.start : a.start - b.start));
@@ -395,11 +393,13 @@ function measureLineBoxes(
     if (lo > (offsets[offsets.length - 1] as number)) offsets.push(lo);
   }
 
-  // 行盒尺寸与行首偏移同序：仅在行数一致时成对产出（偏移去重后可能少于行盒）
+  /*
+   * 行盒尺寸与行首偏移同序：仅在行数一致时成对产出（偏移去重后可能少于行盒）。
+   * 逐行尺寸取行推进量而非字形内容盒（详见 lineAdvances）。
+   */
+  const body = axis.vertical ? el.offsetWidth : el.offsetHeight;
   const mainSizes =
-    offsets.length === boxes.length
-      ? boxes.map((box) => Math.max(0.5, box.boxEnd - box.boxStart))
-      : [];
+    offsets.length === boxes.length ? lineAdvances(boxes.map((box) => box.start), body) : [];
   return { offsets, mainSizes };
 }
 

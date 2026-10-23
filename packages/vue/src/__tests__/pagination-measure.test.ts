@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
 import { extractBlocksIndexed } from '@bibliotype/reader';
-import { measureBlockSizes, measurePagination, disposeMeasureSheet } from '../pagination-measure.js';
+import { measureBlockSizes, measurePagination, disposeMeasureSheet, lineAdvances } from '../pagination-measure.js';
 
 function sampleDoc(): BookDocument {
   const doc = createEmptyDocument({ title: '论语' });
@@ -168,5 +168,39 @@ describe('measurePagination', () => {
     const sheet = document.getElementById('bt-measure-sheet');
     expect(sheet?.querySelectorAll('.bt-measure-block').length).toBe(2);
     disposeMeasureSheet();
+  });
+});
+
+describe('lineAdvances（逐行主轴尺寸 = 行推进量）', () => {
+  it('等行高：取相邻行起缘之差，末行补齐，总和等于块体尺寸', () => {
+    // 3 行 / 行高 30.4px → 块体 91.2px（offsetHeight 口径）
+    const sizes = lineAdvances([100, 130.4, 160.8], 91.2);
+    expect(sizes).toHaveLength(3);
+    for (const size of sizes) expect(size).toBeCloseTo(30.4, 5);
+    expect(sizes.reduce((sum, size) => sum + size, 0)).toBeCloseTo(91.2, 5);
+  });
+
+  it('注音行撑高：该行尺寸随之变大（不再取字形内容盒高度）', () => {
+    // 第 2 行被 ruby 撑高到 40px，块体 = 30.4 + 40 + 30.4
+    const sizes = lineAdvances([0, 30.4, 70.4], 100.8);
+    expect(sizes).toHaveLength(3);
+    expect(sizes[0]).toBeCloseTo(30.4, 5);
+    expect(sizes[1]).toBeCloseTo(40, 5);
+    expect(sizes[2]).toBeCloseTo(30.4, 5);
+  });
+
+  it('直排 rl 递减起缘：逐行尺寸取相邻差的绝对值', () => {
+    const sizes = lineAdvances([500, 469.6, 439.2], 91.2);
+    expect(sizes).toHaveLength(3);
+    for (const size of sizes) expect(size).toBeCloseTo(30.4, 5);
+  });
+
+  it('量测异常回退空数组（调用方按均高 / 块体尺寸估算）', () => {
+    expect(lineAdvances([], 91.2)).toEqual([]); // 无行
+    expect(lineAdvances([100], 91.2)).toEqual([]); // 单行无需逐行尺寸
+    expect(lineAdvances([0, 30.4], 0)).toEqual([]); // 无布局环境（happy-dom）
+    expect(lineAdvances([0, 0, 30.4], 91.2)).toEqual([]); // 行序重复
+    expect(lineAdvances([0, 200], 91.2)).toEqual([]); // 增量超出块体
+    expect(lineAdvances([0, 30.4, 60.8], 50)).toEqual([]); // 末行补齐为负
   });
 });

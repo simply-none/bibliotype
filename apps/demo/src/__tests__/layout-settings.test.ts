@@ -2,9 +2,9 @@
  * 设置面板「版面与页面」·开本适配行为测试
  *
  * 守护三条约定：
- * 1. 下拉落在「分栏」之后，三值齐备且缺省选中「固定」（旧快照无该键时的回显）；
- * 2. 选项文案随书写方向换词：横排「自适应宽度」、直排「自适应高度」——
- *    措辞要跟当前方向最敏感的那条轴一致（几何上两轴都铺到舞台盒）；
+ * 1. 下拉落在「分栏」之后，四值齐备且缺省选中「固定」（旧快照无该键时的回显）；
+ * 2. 选项文案固定不随书写方向变：「自适应宽度 / 自适应高度」显式绑轴、并列共存，
+ *    几何上各绑同名轴取舞台值、另一轴按开本宽高比反推（绝不拉伸开本）；
  * 3. 改动只经 `api.patchLayout` 写进样式草稿，回显读草稿层，避免「点了不高亮」；
  *    草稿里不自带 `pageSize` / `columns`，页型折算归生效层（见对侧 wiring 测试）。
  *
@@ -86,7 +86,7 @@ function modeSelect(container: HTMLElement): HTMLSelectElement {
   return select;
 }
 
-/** 切书写方向（草稿补丁），用于验证选项文案随轴换词 */
+/** 切书写方向（草稿补丁），用于验证选项文案与方向解耦 */
 async function setWritingMode(
   patchLayout: (patch: Record<string, unknown>) => void,
   writingMode: string,
@@ -96,12 +96,13 @@ async function setWritingMode(
 }
 
 describe('设置面板「开本适配」', () => {
-  it('下拉渲染三值且缺省选中固定', async () => {
+  it('下拉渲染四值且缺省选中固定', async () => {
     const { container, draftLayout } = await mountLayoutSection();
 
     const select = modeSelect(container);
     expect(Array.from(select.options).map((option) => option.value)).toEqual([
-      PAGE_SIZE_MODES.AUTO,
+      PAGE_SIZE_MODES.WIDTH,
+      PAGE_SIZE_MODES.HEIGHT,
       PAGE_SIZE_MODES.H5,
       PAGE_SIZE_MODES.FIXED,
     ]);
@@ -110,14 +111,16 @@ describe('设置面板「开本适配」', () => {
     expect('pageSizeMode' in draftLayout()).toBe(false);
   });
 
-  it('文案随书写方向换词：直排说高度、横排说宽度', async () => {
+  it('文案不随书写方向变：宽 / 高两档并列，选哪轴听用户的', async () => {
     const { container, patchLayout } = await mountLayoutSection();
 
-    const select = modeSelect(container);
-    expect(select.options[0]?.textContent?.trim()).toBe('自适应高度');
+    const labels = () =>
+      Array.from(modeSelect(container).options).map((option) => option.textContent?.trim());
+    /* 基准是直排（CLASSICAL），两档也同时在场 */
+    expect(labels()).toEqual(['自适应宽度', '自适应高度', '自适应 H5', '固定']);
 
     await setWritingMode(patchLayout, WRITING_MODES.HORIZONTAL_TB);
-    expect(modeSelect(container).options[0]?.textContent?.trim()).toBe('自适应宽度');
+    expect(labels()).toEqual(['自适应宽度', '自适应高度', '自适应 H5', '固定']);
   });
 
   it('选「自适应 H5」写入草稿并保持选中', async () => {

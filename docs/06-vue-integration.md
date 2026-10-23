@@ -467,8 +467,9 @@ CSS 侧同源变量：`--bt-bp-sm|md|lg`、`--bt-touch-target: 44px`、
   换回宽视口也不会被悄悄改掉）。
 - 舞台实测：`use-stage-size` 用 `ResizeObserver` 量 `.app__stage` 并按 computed style
   扣其内边距（桌面 20px / H5 骨架 12px，不写死），产出 `StageBoxSize`。它是开本折算与
-  编辑画布「适应」的共同量源；与 `BtBookView` 根元素同源，所以 `applyPageSizeMode`
-  把页框铺上去后缩放系数恰为 1（真铺满，无需放开 `Math.min(1, ratio)`）。页宽页高
+  编辑画布「适应」的共同量源；与 `BtBookView` 根元素同源。`applyPageSizeMode` 的
+  `width` / `height` 档显式绑同名轴取舞台值、另一轴按开本宽高比反推（绝不拉伸开本；
+  反推轴超出舞台由视图层 contain 回收，不改 `Math.min(1, ratio)`）。页宽页高
   已进入度量签名 → 预览 / 编辑 / 导出自动重量尺重排（重排走 120ms 去抖，拖侧栏途中
   不会反复重排）。面板回显读声明层（不折算）。
 - `EditorToolbar`：`compactToolbar`（`isMobile || coarsePointer`）下每行只直出

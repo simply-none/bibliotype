@@ -103,8 +103,9 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
   /**
    * 生效布局：声明层按开本适配折算成真实页型
    *
-   * `fixed`（缺省）与仿真版式原样返回；`auto` 把页框铺到舞台盒，`h5` 落 340 页宽
-   * 加单栏。舞台尚未量到时该轴回退开本取值，不凭臆造值重排。
+   * `fixed`（缺省）与仿真版式原样返回；`width` / `height` 显式绑同名轴取舞台实测值、
+   * 另一轴按开本宽高比反推（绝不拉伸开本），`h5` 落 340 页宽加单栏。量不到同名轴时
+   * 原样返回，不凭臆造值重排。
    */
   const effectiveLayout = computed<LayoutOptions>(() =>
     applyPageSizeMode(declaredLayout.value, stageSize.value ?? undefined),

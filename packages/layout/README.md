@@ -117,7 +117,7 @@ const grid = resolveFacsimileGrid(layout, preset.tokens);
 | 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`（`longDigits: 'kanji'` 数字分组）、`combineUprightCss`、`needsCombineUpright` |
 | 竖排细节 | `VERTICAL_PUNCTUATION_FORMS`、`verticalPunctuationOf`、`toVerticalPunctuation`、`toKanjiDigits`、`toFullwidthDigits`、`transformVerticalText`、`needsVerticalTextTransform` |
 | 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`FACSIMILE_BASE_LAYOUT`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
-| 开本适配 | `PAGE_SIZE_MODES`（`auto` 页框铺满舞台盒 / `h5` 340 页宽 + 单栏 / `fixed` 严格按开本 px）、`DEFAULT_PAGE_SIZE_MODE`、`resolvePageSizeMode`（缺省与脏值归一为 `fixed`）、`applyPageSizeMode`（声明布局 + `StageBoxSize` → 折算真实 `pageSize` / `columns`；仿真版式与未量到舞台时不动） |
+| 开本适配 | `PAGE_SIZE_MODES`（`width` 页宽绑舞台、页高按开本比反推 / `height` 对称 / `h5` 340 页宽 + 单栏 / `fixed` 严格按开本 px）、`DEFAULT_PAGE_SIZE_MODE`、`resolvePageSizeMode`（缺省与脏值归一为 `fixed`）、`applyPageSizeMode`（声明布局 + `StageBoxSize` → 折算真实 `pageSize` / `columns`；仿真版式不动，`width` / `height` 量不到同名轴时不动） |
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
 | 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |
 | 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |

@@ -71,20 +71,20 @@ function onPageSize(key: string): void {
 const vertical = computed(() => isVerticalMode(props.layout.writingMode));
 
 /**
- * 开本适配选项（自适应宽度 / 自适应 H5 / 固定）
+ * 开本适配选项（自适应宽度 / 自适应高度 / 自适应 H5 / 固定）
  *
- * 自适应的是整张页框：预览按整页等比缩放（contain），只铺一轴会被另一轴顶回
- * 小于 1，看着仍没满，故两轴一起铺到舞台盒。文案只点出当前方向最敏感的那条轴
- * （横排说宽、直排说高）。本选项只写进样式草稿，真正的页型由宿主把草稿与舞台实测
- * 盒交给 `applyPageSizeMode` 折算；开本下拉仍按声明的开本回显，不跟着变「自定义」。
+ * 自适应显式绑轴、互不混淆：「宽度」档页宽绑舞台、页高按开本宽高比反推；
+ * 「高度」档对称。两档都绝不拉伸开本，反推轴超出舞台由视图层 contain 回收。
+ * 文案不随书写方向变（选哪轴听用户的，方向只关内容排版）。本选项只写进样式
+ * 草稿，真正的页型由宿主把草稿与舞台实测盒交给 `applyPageSizeMode` 折算；
+ * 开本下拉仍按声明的开本回显，不跟着变「自定义」。
  */
-const pageSizeModeOptions = computed<ReadonlyArray<{ value: PageSizeMode; label: string }>>(
-  () => [
-    { value: PAGE_SIZE_MODES.AUTO, label: vertical.value ? '自适应高度' : '自适应宽度' },
-    { value: PAGE_SIZE_MODES.H5, label: '自适应 H5' },
-    { value: PAGE_SIZE_MODES.FIXED, label: '固定' },
-  ],
-);
+const pageSizeModeOptions: ReadonlyArray<{ value: PageSizeMode; label: string }> = [
+  { value: PAGE_SIZE_MODES.WIDTH, label: '自适应宽度' },
+  { value: PAGE_SIZE_MODES.HEIGHT, label: '自适应高度' },
+  { value: PAGE_SIZE_MODES.H5, label: '自适应 H5' },
+  { value: PAGE_SIZE_MODES.FIXED, label: '固定' },
+];
 
 /** 当前生效适配（缺省与脏值都读作「固定」） */
 const pageSizeMode = computed(() => resolvePageSizeMode(props.layout));

@@ -10,9 +10,10 @@
  * 与导出都会重新量尺重排，无需把本字段另行纳入签名。宿主仅在「舞台可用尺寸」
  * 变化（窗口 / 侧栏拖动、旋转）时重调本函数即可。
  *
- * `auto` 两轴一起铺（而非只铺交叉轴）：分页视图按整页等比缩放（contain），只
- * 拉长页宽时页高仍顶着开本值，缩放系数会被页高压回小于 1 → 宽度看着还是没铺满。
- * 页框 = 舞台盒才能让缩放系数恰为 1，真正做到铺满且不裁切。
+ * 「自适应」拆成显式绑轴两档（`width` / `height`），不再用单一 `auto` 由折算方
+ * 猜方轴：`width` 绑页宽（取舞台值），页高按开本宽高比反推；`height` 对称。
+ * 两档都**绝不拉伸开本**；反推轴若超出舞台，由视图层 contain 缩放整体回收，
+ * 页框本身永远保持开本比例。
  */
 import { createPageSize, H5_PAGE_SIZE, type PageSize } from './page-size.js';
 import { isFacsimileEnabled } from './facsimile.js';
@@ -20,8 +21,10 @@ import type { LayoutOptions } from './layout-options.js';
 
 /** 开本适配取值 */
 export const PAGE_SIZE_MODES = {
-  /** 版面自适应：页框铺满舞台盒（横排看宽、直排看高，面板文案按方向取词） */
-  AUTO: 'auto',
+  /** 自适应宽度：页宽绑舞台（限幅见 `AUTO_AXIS_*`），页高按开本宽高比反推 */
+  WIDTH: 'width',
+  /** 自适应高度：页高绑舞台（限幅见 `AUTO_AXIS_*`），页宽按开本宽高比反推 */
+  HEIGHT: 'height',
   /** 按 H5 窄屏视口取页宽（340px）并强制单栏，页高铺舞台，正文回落到令牌字号 */
   H5: 'h5',
   /** 固定：严格按 `pageSize` 的宽高落地（改造前的唯一行为） */
@@ -65,10 +68,11 @@ export interface StageBoxSize {
 }
 
 /**
- * 自适应限幅（px，两轴同区间）
+ * 自适应限幅（px，作用于绑定轴；`width` / `height` 两档共用）
  *
  * 下限防「侧栏拖到底 / 量尺未就绪」排出几乎零尺寸的页（每行一个字、每页两行，
  * 页数爆炸）；上限防超宽屏（带鱼屏 / 4K）排出单行几百字、单页几十行的不可读版面。
+ * 推导轴按开本比例随之确定，不再单独限幅（限了就破坏比例）。
  */
 const AUTO_AXIS_MIN = 240;
 const AUTO_AXIS_MAX = 1600;
@@ -102,18 +106,19 @@ function sameBox(page: PageSize, width: number, height: number): boolean {
  * 按开本适配折算生效布局（返回新对象，不就地改）
  *
  * - `fixed`（缺省）：原样返回——旧快照与未挂载前与改造前逐字节一致；
- * - `auto`：页框铺到舞台盒（两轴都跟，见头部说明），按 `AUTO_AXIS_MIN` /
- *   `AUTO_AXIS_MAX` 限幅；分栏不动（想吃掉过长行宽可自行加栏）；
+ * - `width`：页宽绑舞台实测值（限幅），页高按开本宽高比反推；
+ * - `height`：页高绑舞台实测值（限幅），页宽按开本宽高比反推；
+ *   两档都保持开本比例、分栏不动（想吃掉过长行宽可自行加栏）；
  * - `h5`：页宽落 `H5_PAGE_SIZE`（340）+ 单栏，页高仍铺舞台 → 宽屏下像一根
  *   通高的手机页柱，等比缩放系数趋近 1，正文按令牌原尺寸落地；
- * - `stage` 缺省（SSR / 未挂载）时该轴回退原开本取值：`auto` 于是整体不动，
- *   `h5` 仍能落 340×560（它是确定值，不依赖容器实测）。
+ * - `stage` 缺省（SSR / 未挂载）时：`width` / `height` 量不到同名轴则整体不动
+ *   （不拿另一轴臆造）；`h5` 的页高轴回退出参取值（340×560 是确定值，不依赖容器实测）。
  *
  * 古籍仿真版式（`facsimile` 已启用）任何模式都不覆盖：版框 / 界行 / 版心的几何
  * 按固定开本算，改任一轴都会让界行与文字列错位。
  *
  * @param options 声明布局（主题基准 + 用户补丁）
- * @param stage 舞台可用尺寸（`auto` 两轴与 `h5` 页高取用它；缺省按回退处理）
+ * @param stage 舞台可用尺寸（`width` 取宽轴、`height` 取高轴、`h5` 取页高；缺省按回退处理）
  */
 export function applyPageSizeMode(
   options: LayoutOptions,
@@ -135,8 +140,16 @@ export function applyPageSizeMode(
     return { ...options, pageSize, columns: 1 };
   }
 
-  const width = axisOr(stage?.width, page.width);
-  const height = axisOr(stage?.height, page.height);
+  /* 到这里只剩 width / height 两档：显式绑轴，另一轴按开本宽高比反推（比例恒定） */
+  const bindHeight = mode === PAGE_SIZE_MODES.HEIGHT;
+  const avail = bindHeight ? stage?.height : stage?.width;
+  if (!usableAxis(avail)) return options;
+  const bound = clampAxis(avail);
+  const width = bindHeight ? Math.round((bound * page.width) / page.height) : bound;
+  const height = bindHeight ? bound : Math.round((width * page.height) / page.width);
   if (sameBox(page, width, height)) return options;
-  return { ...options, pageSize: createPageSize(`${baseName(page.name)}·适应版面`, width, height) };
+  return {
+    ...options,
+    pageSize: createPageSize(`${baseName(page.name)}·适应版面`, width, height),
+  };
 }

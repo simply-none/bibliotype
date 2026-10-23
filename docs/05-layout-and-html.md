@@ -12,7 +12,7 @@ interface LayoutOptions {
   writingMode: WritingMode;                 // 'horizontal-tb' | 'vertical-rl' | 'vertical-lr'
   pageSize: PageSize;                       // { name, width, height }（px，96dpi）
   columns: number;                          // 分栏数 1~3
-  pageSizeMode?: PageSizeMode;              // 开本适配：'auto' | 'h5' | 'fixed'（缺省 fixed）
+  pageSizeMode?: PageSizeMode;              // 开本适配：'width' | 'height' | 'h5' | 'fixed'（缺省 fixed）
   pageNumberStyle: PageNumberStyle;         // 'decimal' | 'chinese' | 'roman'
   combineUpright: CombineUprightOptions;    // 直排数字/英文策略（D3，含长数字串汉字分组）
   facsimile?: FacsimileOptions;             // 古籍仿真版式（缺省 undefined = 不启用）
@@ -27,10 +27,12 @@ interface LayoutOptions {
 
 ### 开本适配（pageSizeMode）
 
-「开本尺寸怎么取用」的一层意图，取值表 `PAGE_SIZE_MODES`（`auto` / `h5` / `fixed`），
-默认 `PAGE_SIZE_MODES.FIXED`：
+「开本尺寸怎么取用」的一层意图，取值表 `PAGE_SIZE_MODES`（`width` / `height` / `h5` /
+`fixed`），默认 `PAGE_SIZE_MODES.FIXED`：
 
-- `auto`：页框铺满舞台盒（横排看宽、直排看高，面板文案按方向取词）；
+- `width`（自适应宽度）：页宽绑舞台实测值，页高按开本宽高比反推；
+- `height`（自适应高度）：页高绑舞台实测值，页宽按开本宽高比反推；
+  两档都**绝不拉伸开本**、不分书写方向（面板文案固定并列，选哪轴听用户的）；
 - `h5`：页宽落 `H5_PAGE_SIZE`（340）+ 强制单栏，页高仍铺舞台；
 - `fixed`：严格按 `pageSize` 的宽高落地。
 
@@ -40,25 +42,30 @@ import { PAGE_SIZE_MODES, applyPageSizeMode, resolvePageSizeMode } from '@biblio
 resolvePageSizeMode({});                                   // 'fixed'（旧快照无该键）
 resolvePageSizeMode(persistedPatch);  // 'fixed'（落盘脏值归一，persistedPatch 为自由键值）
 
-// 声明层（主题基准 + 用户补丁）+ 舞台实测盒 → 生效几何
-applyPageSizeMode(declared, { width: 900, height: 600 }).pageSize;  // auto: 900×600
-applyPageSizeMode(declared);// 未量到舞台：auto 原样返回，h5 仍落 340×560
+// 声明层（主题基准 + 用户补丁）+ 舞台实测盒 → 生效几何（A5 559×794）
+applyPageSizeMode(declared, { width: 900, height: 600 }).pageSize;
+// width 档：页宽绑 900，页高反推 1278（舞台高不参与）
+// height 档：页高绑 600，页宽反推 422（舞台宽不参与）
+applyPageSizeMode(declared);// 未量到舞台：width / height 原样返回，h5 仍落 340×560
 ```
 
-`auto` 为何两轴一起铺：分页预览按整页等比缩放（`fit: 'contain'`），只铺交叉轴时
-另一轴仍顶着开本值，缩放系数会被顶回小于 1 —— 看着还是没满。页框 = 舞台盒才能让
-系数恰为 1（铺满且不裁切），因此不必去改缩放上限。`fixed` 仍受 `Math.min(1, ratio)`
-约束（不放大），所以「固定 = 始终开本大小」。
+为何拆成显式绑轴两档而非单一 `auto`：早先「两轴都铺舞台盒」会把竖版开本顶成
+横扁页，后来的「等比 contain（由折算方挑更受限的轴）」又让用户看不出最终绑的是
+哪条轴。现在选「自适应宽度」就只看页宽铺到舞台、选「自适应高度」就只看页高：
+反推轴若超出舞台，由视图层 contain 缩放整体回收（`Math.min(1, ratio)` 不动），
+页框本身永远保持开本比例。`fixed` 仍受 `Math.min(1, ratio)` 约束（不放大），
+所以「固定 = 始终开本大小」。
 
 **度量与重排**：折算产出的是真实 `pageSize` / `columns`，而二者已在
 `computeMetricsSignature` 的参与项里 → 预览、编辑画布与导出自动重量尺重排，本字段
 本身无需进签名。反过来，宿主必须在「舞台可用尺寸」变化（窗口 / 侧栏拖动、旋转）
 时重新调 `applyPageSizeMode`，否则页框停在旧尺寸上。
 
-限幅 `AUTO_AXIS_MIN = 240` / `AUTO_AXIS_MAX = 1600`（两轴同区间）：下限防侧栏拖到
-底排出每行一个字的页，上限防带鱼屏排出单行几百字的不可读版面；超出即截断，此时
-会重新出现 letterbox（属预期行为）。古籍仿真版式（`facsimile` 已启用）任何适配都
-不覆盖页型：版框 / 界行几何按固定开本算，改任一轴都会让界行与文字列错位。
+绑定轴限幅 `AUTO_AXIS_MIN = 240` / `AUTO_AXIS_MAX = 1600`（`width` / `height` 共用）：
+下限防侧栏拖到底排出每行一个字的页，上限防带鱼屏排出单行几百字的不可读版面；
+反推轴随开本比例确定，不再单独限幅（限了就破坏比例）。古籍仿真版式（`facsimile`
+已启用）任何适配都不覆盖页型：版框 / 界行几何按固定开本算，改任一轴都会让界行
+与文字列错位。
 
 读取本字段一律经 `resolvePageSizeMode`，不要直接判等；面板回显读「声明层」（不折算），
 否则开本下拉会被「·适应版面」这类临时页型顶成「自定义」。

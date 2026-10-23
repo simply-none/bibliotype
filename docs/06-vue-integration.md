@@ -469,8 +469,11 @@ CSS 侧同源变量：`--bt-bp-sm|md|lg`、`--bt-touch-target: 44px`、
   扣其内边距（桌面 20px / H5 骨架 12px，不写死），产出 `StageBoxSize`。它是开本折算与
   编辑画布「适应」的共同量源；与 `BtBookView` 根元素同源。`width` / `height` 档是
   **PDF 式整页缩放**：几何不动（不重量尺、不改导出），`resolvePageFitScale` 算出倍率后
-  同时喂给 `BtBookView :fit-scale`（覆盖 contain 且允许 >1，溢出部分由视图滚动承接，
-  滚轮在溢出时让位原生滚动）与编辑画布 `editorScale`（限幅 0.2~2，超出走横向滚动），
+  同时喂给 `BtBookView :fit-scale`（覆盖 contain 且允许 >1；组件内另有横向安全阀——
+  倍率不超过容器可用宽/页宽，激活时预留 `scrollbar-gutter: stable` 槽位使
+  clientWidth 不随溢出二次变化，纵向溢出由滚动承接，滚轮在溢出时让位原生滚动；
+  重算 watch 必须 post-flush，否则档位切换瞬间读到无槽位的旧可用宽，恰差一个
+  滚动条宽且不自纠）与编辑画布 `editorScale`（限幅 0.2~2，超出走横向滚动），
   字体与版面整体等比变化；`h5` 档才折页框（页宽 340 + 单栏），页宽页高已进入度量
   签名 → 预览 / 编辑 / 导出自动重量尺重排（重排走 120ms 去抖，拖侧栏途中不会反复
   重排）。面板回显读声明层（不折算）。

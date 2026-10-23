@@ -67,4 +67,19 @@ describe('BtBookView fitScale（PDF 式整页缩放）', () => {
     const { stage: plain } = await mountView({});
     expect(plain.style.width).toBe(`${PAGE_SIZES.A5.width}px`);
   });
+
+  it('横向安全阀：倍率钳到 容器可用宽/页宽，不冒出横向滚动条', async () => {
+    const reader = makeReader();
+    const wrapper = mount(BtBookView, { props: { reader, fitScale: 2 } });
+    const root = wrapper.find('.bt-book-view--paged').element as HTMLElement;
+    /* 先量不到（clientWidth 0）拿满额 2，再模拟纵滚吃掉 59px 后重算 */
+    await nextTick();
+    expect((wrapper.find('.bt-book-view__stage').element as HTMLElement).style.width).toBe(
+      `${PAGE_SIZES.A5.width * 2}px`,
+    );
+    Object.defineProperty(root, 'clientWidth', { value: 500, configurable: true });
+    await wrapper.setProps({ fitScale: 2.001 }); // 新值触发 watch 重算（同值不触发）
+    const stage = wrapper.find('.bt-book-view__stage').element as HTMLElement;
+    expect(stage.style.width).toBe(`${PAGE_SIZES.A5.width * (500 / PAGE_SIZES.A5.width)}px`);
+  });
 });

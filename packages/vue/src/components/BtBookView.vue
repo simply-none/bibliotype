@@ -64,9 +64,8 @@ const props = withDefaults(
      * 外部指定的整页缩放倍率（仅 page 模式；PDF「适合宽度 / 高度」语义）
      *
      * 传入有限正数时直接作为最终 scale（允许 >1 放大，字体与版面整体等比缩放），
-     * 不再按容器 contain 与 `Math.min(1, ratio)` 推算；缩放后超出容器的部分由本
-     * 容器滚动承接。未传 / 非法值回退 `fit` 策略。典型来源：layout 的
-     * `resolvePageFitScale`（开本适配 `width` / `height` 档）。
+     * 不再按容器 contain 与 `Math.min(1, ratio)` 推算；倍率另受横向安全阀约束
+     * （不超过 容器可用宽 / 页宽，不致冒出横向滚动条；纵向预留滚动条槽位）。
      */
     fitScale?: number;
     /** 阅读模式：page 单页翻页（默认） / scroll 连续滚动多页 / scroll-flow 流式阅读（D5） */
@@ -479,9 +478,17 @@ const fitScaleOverride = computed<number | null>(() => {
 });
 
 function updateScale(): void {
-  /* PDF 式整页缩放：宿主算好倍率直接落地，几何不动、字体跟着缩放 */
-  if (fitScaleOverride.value !== null) {
-    scale.value = fitScaleOverride.value;
+  /* PDF 式整页缩放：宿主算好倍率直接落地，几何不动、字体跟着缩放。
+     横向安全阀：宿主按舞台盒算的倍率没预留本容器纵滚动条的宽度（页高超出
+     必有纵滚），超出可用宽的份额钳掉，不致再冒出横向滚动条；配合激活时
+     预留 scrollbar-gutter，clientWidth 不会因滚动条出现而二次变化。 */
+  const override = fitScaleOverride.value;
+  if (override !== null) {
+    const el = rootRef.value;
+    const pageW = spreadEnabled.value ? spreadWidth.value : pageSize.value.width;
+    const guard =
+      el !== null && el.clientWidth > 0 && pageW > 0 ? el.clientWidth / pageW : override;
+    scale.value = Math.min(override, guard);
     return;
   }
   const root = rootRef.value;
@@ -1077,11 +1084,18 @@ onBeforeUnmount(() => {
   }
 });
 
-// 缩放策略 / 页面尺寸 / 对页降级 / 外部倍率变化：按当前模式重算对应缩放
-watch([() => props.fit, () => props.fitScale, () => props.spread, pageSize, spreadEnabled], () => {
-  if (props.mode === 'scroll') updateScrollScale();
-  else updateScale();
-});
+// 缩放策略 / 页面尺寸 / 对页降级 / 外部倍率变化：按当前模式重算对应缩放。
+// 必须 post-flush：fitScale 激活时 is-zoom-fit 类（scrollbar-gutter 预留）随本次
+// 渲染才落 DOM，pre-flush 里读 clientWidth 会拿到无槽位的旧可用宽，差一个滚动条宽
+// 且不会自纠（gutter 不改根元素 border-box，ResizeObserver 不二次触发）。
+watch(
+  [() => props.fit, () => props.fitScale, () => props.spread, pageSize, spreadEnabled],
+  () => {
+    if (props.mode === 'scroll') updateScrollScale();
+    else updateScale();
+  },
+  { flush: 'post' },
+);
 
 /* =========================================================================
  * scroll-flow 流式阅读（D5）
@@ -1397,7 +1411,7 @@ defineExpose({
     v-if="effectiveMode === 'page'"
     ref="rootRef"
     class="bt-book-view bt-book-view--paged"
-    :class="{ 'is-vertical': verticalWriting }"
+    :class="{ 'is-vertical': verticalWriting, 'is-zoom-fit': fitScaleOverride !== null }"
     role="document"
     tabindex="0"
     :aria-label="ariaLabel"
@@ -1575,6 +1589,12 @@ defineExpose({
 .bt-book-view--paged > .bt-book-view__turn {
   flex: none;
   margin: auto;
+}
+
+/* fitScale 激活时预留纵向滚动条槽位：clientWidth 从首帧就含槽位宽，
+   不随「缩放后是否溢出」二次变化，适宽倍率落地即精确贴满 */
+.bt-book-view.is-zoom-fit {
+  scrollbar-gutter: stable;
 }
 
 /*

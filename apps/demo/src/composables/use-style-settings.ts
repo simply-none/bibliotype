@@ -15,32 +15,37 @@
  * 页面 / 画布不会因单个字段重排；`applyDraft` 把草稿烘焙进源状态并持久化，
  * `discardDraft` 直接丢弃（关窗 = 撤销全部未保存改动）。
  */
-import { computed, onBeforeUnmount, ref, shallowRef, toValue, type MaybeRefOrGetter, type Ref } from 'vue';
+import { computed, onBeforeUnmount, ref, toValue, type MaybeRefOrGetter, type Ref } from 'vue';
 import {
   DEFAULT_EDITING_SETTINGS,
   STYLE_SCOPE,
   bookStyleScope,
   createNamedStyleId,
   mergeFeatureStyleSheets,
-  normalizeStyleSnapshot,
   type EditingSettings,
   type FeatureDeclarations,
   type FeatureStyleId,
   type FeatureStyleSheet,
   type NamedStyle,
   type NamedStyleSet,
-  type StylePreset,
   type StyleSettingsBody,
   type StyleSettingsSnapshot,
   type StyleSettingsStore,
 } from '@bibliotype/core';
 import { createStyleStore } from '@bibliotype/adapter-indexeddb';
+import {
+  buildSnapshot,
+  cloneBody,
+  createEmptyBody,
+  migrateLegacySnapshot,
+  readLegacySnapshot,
+} from './style-settings-persist.js';
+import { useStylePresets } from './use-style-presets.js';
+
+export { type StylePresetExport } from './use-style-presets.js';
 
 /** 自动保存防抖（ms） */
 const AUTOSAVE_DELAY = 800;
-
-/** 旧版 demo 设置快照键（迁移来源） */
-const LEGACY_SETTINGS_KEY = 'bt-demo:settings';
 
 export interface UseStyleSettingsOptions {
   /** 存储实现（缺省按环境自动选择 IndexedDB → localStorage → 内存） */
@@ -56,14 +61,6 @@ export interface UseStyleSettingsOptions {
   draft?: boolean;
 }
 
-/** 预设导出格式 */
-export interface StylePresetExport {
-  kind: 'bibliotype-style-preset';
-  version: 1;
-  preset: StylePreset;
-}
-
-/** 样式设置组合式函数 */
 export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
   /** 当前书籍 id（响应式：切书时变更，作用域与落盘点随之切换） */
   const bookIdGetter = (): string => toValue(options.bookId) ?? 'demo';
@@ -89,8 +86,6 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
   const namedStyles = ref<NamedStyleSet>({ version: 1, styles: [] });
   /** 编辑行为 */
   const editing = ref<EditingSettings>({ ...DEFAULT_EDITING_SETTINGS });
-  /** 预设列表 */
-  const presets = shallowRef<StylePreset[]>([]);
   /** 是否已完成首轮加载（避免加载前的默认值覆盖已存配置） */
   const loaded = ref(false);
   /** 存储适配器名（面板上显示，便于确认走的是哪条链路） */
@@ -112,36 +107,6 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
   let initialLoadPending = true;
 
   /* ---------- 快照 ---------- */
-
-  /** 空主体（草稿初始化 / 重置用） */
-  function createEmptyBody(): StyleSettingsBody {
-    return {
-      layout: {},
-      tokens: {},
-      features: {},
-      namedStyles: { version: 1, styles: [] },
-      editing: { ...DEFAULT_EDITING_SETTINGS },
-    };
-  }
-
-  /** 深拷贝一份主体（草稿与源状态隔离，互不引用） */
-  function cloneBody(body: StyleSettingsBody): StyleSettingsBody {
-    return {
-      layout: { ...body.layout },
-      tokens: { ...body.tokens },
-      features: Object.fromEntries(
-        Object.entries(body.features).map(([id, declarations]) => [id, { ...declarations }]),
-      ) as FeatureStyleSheet,
-      namedStyles: {
-        version: 1,
-        styles: body.namedStyles.styles.map((style) => ({
-          ...style,
-          declarations: { ...style.declarations },
-        })),
-      },
-      editing: { ...body.editing },
-    };
-  }
 
   /** 源主体（当前生效配置；持久化 / 导出 / 全局默认均以此为准） */
   function sourceBody(): StyleSettingsBody {
@@ -171,18 +136,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
 
   /** 当前源快照（含作用域；仅非草稿状态有持久化意义） */
   function currentSnapshot(scope = bookScope.value): StyleSettingsSnapshot {
-    const body = sourceBody();
-    // 去响应式：源状态经 ref 持有，都是 Vue reactive 代理；IndexedDB 走 structured clone 落盘，
-    // 无法序列化 Proxy（会抛 DataCloneError 且被 flush 吞掉），导致「保存后刷新回到默认」。
-    // 这里先转纯对象再保存（配置全为 JSON 安全数据，round-trip 安全）。
-    return JSON.parse(
-      JSON.stringify({
-        version: 1,
-        scope,
-        ...body,
-        updatedAt: Date.now(),
-      }),
-    ) as StyleSettingsSnapshot;
+    return buildSnapshot(sourceBody(), scope, Date.now());
   }
 
   /** 应用一份主体到面板（草稿模式写草稿并标记脏，否则直接写源状态） */
@@ -279,17 +233,6 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     }, AUTOSAVE_DELAY);
   }
 
-  /** 读取旧版快照（用于一次性迁移） */
-  function defaultReadLegacy(): unknown {
-    if (typeof window === 'undefined') return undefined;
-    try {
-      const raw = window.localStorage.getItem(LEGACY_SETTINGS_KEY);
-      return raw === null ? undefined : (JSON.parse(raw) as unknown);
-    } catch {
-      return undefined;
-    }
-  }
-
   /**
    * 载入配置
    *
@@ -309,7 +252,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
         loaded.value = true;
         initialLoadPending = false;
         beginDraft();
-        await refreshPresets();
+        await presetApi.refreshPresets();
         return;
       }
 
@@ -319,24 +262,13 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
         loaded.value = true;
         initialLoadPending = false;
         beginDraft();
-        await refreshPresets();
+        await presetApi.refreshPresets();
         return;
       }
 
-      const legacy = (options.readLegacy ?? defaultReadLegacy)();
+      const legacy = (options.readLegacy ?? readLegacySnapshot)();
       if (legacy !== undefined) {
-        const migrated = normalizeStyleSnapshot(legacy, bookScope.value);
-        /* 旧结构的键名不同：layoutPatch / tokenPatch / pagination */
-        const record = legacy as Record<string, unknown>;
-        if (record.layoutPatch !== undefined) {
-          migrated.layout = (record.layoutPatch as Record<string, unknown>) ?? {};
-        }
-        if (record.tokenPatch !== undefined) {
-          migrated.tokens = (record.tokenPatch as Record<string, string>) ?? {};
-        }
-        if (typeof record.pagination === 'boolean') {
-          migrated.editing = { ...migrated.editing, pagination: record.pagination };
-        }
+        const migrated = migrateLegacySnapshot(legacy, bookScope.value);
         if (!initialLoadPending || !sourceDirty) {
           applySource(migrated);
           await store.save(bookScope.value, migrated).catch(() => undefined);
@@ -344,14 +276,14 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
         loaded.value = true;
         initialLoadPending = false;
         beginDraft();
-        await refreshPresets();
+        await presetApi.refreshPresets();
         return;
       }
 
       loaded.value = true;
       initialLoadPending = false;
       beginDraft();
-      await refreshPresets();
+      await presetApi.refreshPresets();
     })();
     return loadPromise;
   }
@@ -581,86 +513,13 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     scheduleSave();
   }
 
-  /* ---------- 预设 ---------- */
+  /* ---------- 预设（组合式实例化：依赖源状态主体、应用与落盘调度） ---------- */
 
-  /** 刷新预设列表 */
-  async function refreshPresets(): Promise<void> {
-    presets.value = await store.listPresets().catch(() => []);
-  }
-
-  /** 另存为预设 */
-  async function saveAsPreset(
-    name: string,
-    basedOn: 'modern' | 'classical' = 'modern',
-  ): Promise<StylePreset> {
-    const preset: StylePreset = {
-      id: `preset-${Date.now().toString(36)}`,
-      name,
-      basedOn,
-      body: currentBody(),
-      createdAt: Date.now(),
-    };
-    await store.savePreset(preset).catch(() => undefined);
-    await refreshPresets();
-    return preset;
-  }
-
-  /** 套用预设 */
-  function applyPreset(preset: StylePreset): void {
-    applyBody(preset.body);
-    scheduleSave();
-  }
-
-  /** 删除预设 */
-  async function deletePreset(id: string): Promise<void> {
-    await store.deletePreset(id).catch(() => false);
-    await refreshPresets();
-  }
+  const presetApi = useStylePresets({ store, currentBody, applyBody, scheduleSave });
 
   /** 设为全局默认（把本书配置写成全局） */
   async function saveAsGlobal(): Promise<void> {
     await store.save(STYLE_SCOPE.GLOBAL, currentSnapshot(STYLE_SCOPE.GLOBAL)).catch(() => undefined);
-  }
-
-  /** 导出预设为 JSON 文本 */
-  function exportPreset(preset: StylePreset): string {
-    const payload: StylePresetExport = {
-      kind: 'bibliotype-style-preset',
-      version: 1,
-      preset,
-    };
-    return JSON.stringify(payload, null, 2);
-  }
-
-  /** 导入预设（返回导入的预设，格式非法返回 undefined） */
-  async function importPreset(json: string): Promise<StylePreset | undefined> {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch {
-      return undefined;
-    }
-    const record = parsed as Record<string, unknown>;
-    if (record.kind !== 'bibliotype-style-preset') return undefined;
-    const raw = record.preset as Record<string, unknown> | undefined;
-    if (raw === undefined) return undefined;
-    const snapshot = normalizeStyleSnapshot(raw.body, 'imported');
-    const preset: StylePreset = {
-      id: `preset-${Date.now().toString(36)}`,
-      name: typeof raw.name === 'string' ? raw.name : '导入的预设',
-      basedOn: raw.basedOn === 'classical' ? 'classical' : 'modern',
-      body: {
-        layout: snapshot.layout,
-        tokens: snapshot.tokens,
-        features: snapshot.features,
-        namedStyles: snapshot.namedStyles,
-        editing: snapshot.editing,
-      },
-      createdAt: Date.now(),
-    };
-    await store.savePreset(preset).catch(() => undefined);
-    await refreshPresets();
-    return preset;
   }
 
   /* ---------- 合并工具 ---------- */
@@ -694,7 +553,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     features: features as Ref<FeatureStyleSheet>,
     namedStyles: namedStyles as Ref<NamedStyleSet>,
     editing: editing as Ref<EditingSettings>,
-    presets,
+    presets: presetApi.presets,
     loaded,
     storeName,
     customized,
@@ -731,13 +590,13 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     setNamedStyleBasedOn,
     deleteNamedStyle,
     /* 预设 */
-    refreshPresets,
-    saveAsPreset,
-    applyPreset,
-    deletePreset,
+    refreshPresets: presetApi.refreshPresets,
+    saveAsPreset: presetApi.saveAsPreset,
+    applyPreset: presetApi.applyPreset,
+    deletePreset: presetApi.deletePreset,
     saveAsGlobal,
-    exportPreset,
-    importPreset,
+    exportPreset: presetApi.exportPreset,
+    importPreset: presetApi.importPreset,
     mergeSheets,
   };
 }

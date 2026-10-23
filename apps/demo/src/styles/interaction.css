@@ -1,0 +1,51 @@
+/**
+ * 交互底座（Demo）：触控反馈、焦点环与动效开关
+ *
+ * 全局按钮按压缩放、`:focus-visible` 焦点环，以及「减弱动效」偏好与
+ * 宿主显式关闭动效（设置 → 界面外观）两条降级路径；尺度令牌见 base.css。
+ */
+
+/* ---------- 交互底座：触控反馈与焦点环 ---------- */
+
+button,
+[role='button'] {
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--ui-dur-fast) var(--ui-ease),
+    border-color var(--ui-dur-fast) var(--ui-ease),
+    color var(--ui-dur-fast) var(--ui-ease),
+    transform var(--ui-dur-fast) var(--ui-ease);
+}
+
+button:not(:disabled):active,
+[role='button']:not([aria-disabled='true']):active {
+  transform: scale(0.97);
+}
+
+:where(button, [role='button'], a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--ui-focus, #8c5a2b);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ui-dur-fast: 0ms;
+    --ui-dur-base: 0ms;
+  }
+
+  button:not(:disabled):active,
+  [role='button']:not([aria-disabled='true']):active {
+    transform: none;
+  }
+}
+
+/* 宿主显式关闭动效（设置 → 界面外观） */
+[data-motion='off'] {
+  --ui-dur-fast: 0ms;
+  --ui-dur-base: 0ms;
+}
+
+[data-motion='off'] button:not(:disabled):active,
+[data-motion='off'] [role='button']:not([aria-disabled='true']):active {
+  transform: none;
+}

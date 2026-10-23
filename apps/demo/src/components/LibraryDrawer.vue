@@ -3,45 +3,20 @@
  * 书库抽屉（demo 宿主容器）
  *
  * 五个页签：书架（H3）/ 备份（H4）/ 加密（H5）/ 修订（C5）/ 版本（C7）。
- * 所有业务能力来自 `useDemoLibrary` 与 `@bibliotype/vue` 的组件，本组件只做编排。
+ * 本容器只负责外壳（遮罩 / 面板 / 头部 / 页签 / 滚动锁）与 `useDemoLibrary`
+ * 单实例下传；各页签业务与局部状态下沉到 `library/` 下五个子组件，按 `tab`
+ * 互斥渲染（v-if 每次挂载即触发子组件 onMounted 的首屏刷新）。
  */
-import {
-  BtBackupPanel,
-  BtBookShelf,
-  BtEncryptionPanel,
-  BtRevisionSidebar,
-  BtVersionHistory,
-  buildDiffRows,
-  buildRevisionModel,
-  buildVersionHistoryModel,
-  diffSummaryText,
-  useScrollLock,
-  type DiffRow,
-} from '@bibliotype/vue';
-import {
-  collectRevisions,
-  restoreSnapshot,
-} from '@bibliotype/core';
-import { DEMO_VALIDATE_OPTIONS } from '../ir-types.js';
-import type {
-  BackupConflictStrategy,
-  BookDocument,
-  DocumentDiff,
-  DocumentSnapshotMeta,
-  RedactOptions,
-  RevisionView,
-} from '@bibliotype/core';
-import {
-  acceptAllRevisions,
-  acceptRevision,
-  rejectAllRevisions,
-  rejectRevision,
-  setRevisionMode,
-  type BookEditor,
-} from '@bibliotype/editor';
-
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import { downloadBytes, useDemoLibrary } from '../composables/use-demo-library.js';
+import { useScrollLock } from '@bibliotype/vue';
+import type { BookDocument } from '@bibliotype/core';
+import type { BookEditor } from '@bibliotype/editor';
+import { onBeforeUnmount, ref, watch } from 'vue';
+import { useDemoLibrary } from '../composables/use-demo-library.js';
+import LibraryBackup from './library/LibraryBackup.vue';
+import LibraryCrypt from './library/LibraryCrypt.vue';
+import LibraryRevisions from './library/LibraryRevisions.vue';
+import LibraryShelf from './library/LibraryShelf.vue';
+import LibraryVersions from './library/LibraryVersions.vue';
 
 const props = defineProps<{
   /** 是否展开 */
@@ -70,129 +45,8 @@ const TABS = [
 type TabId = (typeof TABS)[number]['id'];
 
 const tab = ref<TabId>('shelf');
+/** 书库 API 单实例（下传子组件，避免多份 useDemoLibrary） */
 const api = useDemoLibrary();
-const busy = ref(false);
-const strategy = ref<BackupConflictStrategy>('merge');
-
-/* ---------- 书架 ---------- */
-const shelfImportError = ref('');
-
-async function addCurrentToShelf(): Promise<void> {
-  busy.value = true;
-  try {
-    await api.saveBook(props.document, 'demo-draft');
-    emit('notify', `已加入书架：《${props.document.metadata.title}》`);
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function openFromShelf(id: string): Promise<void> {
-  const document = await api.readBook(id);
-  if (document === undefined) {
-    emit('notify', '这本书已不在书库中，请刷新。');
-    return;
-  }
-  await api.library.openBook(id);
-  emit('open-book', document);
-  emit('update:open', false);
-}
-
-async function exportFromShelf(id: string): Promise<void> {
-  const result = await api.library.exportBook(id);
-  downloadBytes(result.bytes, result.fileName);
-  emit('notify', `已导出《${result.title}》`);
-}
-
-async function importToShelf(bytes: Uint8Array): Promise<void> {
-  try {
-    shelfImportError.value = '';
-    const result = await api.library.importBook(bytes);
-    emit('notify', `已导入《${result.title}》`);
-  } catch (cause) {
-    shelfImportError.value = cause instanceof Error ? cause.message : String(cause);
-  }
-}
-
-/* ---------- 备份 ---------- */
-async function exportLibrary(): Promise<void> {
-  busy.value = true;
-  try {
-    await api.exportLibrary();
-    emit('notify', '整库备份已导出');
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function restoreLibrary(bytes: Uint8Array, next: BackupConflictStrategy): Promise<void> {
-  busy.value = true;
-  try {
-    await api.importLibrary(bytes, next);
-    const result = api.lastRestore.value;
-    emit('notify', `恢复完成：成功 ${result?.restored.length ?? 0} 本`);
-  } catch (cause) {
-    emit('notify', cause instanceof Error ? cause.message : String(cause));
-  } finally {
-    busy.value = false;
-  }
-}
-
-/* ---------- 加密 ---------- */
-const cryptBusy = ref(false);
-
-async function enableEncryption(password: string): Promise<void> {
-  cryptBusy.value = true;
-  try {
-    await api.enableEncryption(password);
-    if (api.crypt.enabled) {
-      emit('notify', '已开启加密，请记住口令（无法找回）');
-    }
-  } finally {
-    cryptBusy.value = false;
-  }
-}
-
-async function unlockEncryption(password: string): Promise<void> {
-  cryptBusy.value = true;
-  try {
-    await api.unlockEncryption(password);
-    if (api.crypt.unlocked) {
-      emit('notify', '本次会话已解锁');
-    }
-  } finally {
-    cryptBusy.value = false;
-  }
-}
-
-function disableEncryption(): void {
-  api.disableEncryption();
-  emit('notify', '已关闭加密并清除本机密钥记录');
-}
-
-async function sealDraft(): Promise<void> {
-  await api.sealDraft(props.document);
-  emit('notify', '当前文档已加密保存到本机');
-}
-
-async function openSealed(): Promise<void> {
-  const document = await api.openSealedDraft();
-  if (document === undefined) {
-    emit('notify', '没有找到加密稿');
-    return;
-  }
-  emit('open-book', document);
-}
-
-function updateRedact(next: RedactOptions): void {
-  Object.assign(api.redact, next);
-}
-
-/* ---------- 修订 ---------- */
-const revisionEnabled = ref(false);
-const revisionView = ref<RevisionView>('marked');
-const revisionTick = ref(0);
-let unsubscribeEditor: (() => void) | undefined;
 
 /* ---------- 滚动锁（D5） ---------- */
 
@@ -208,129 +62,8 @@ watch(
   { immediate: true },
 );
 
-watch(
-  () => props.editor,
-  (editor) => {
-    unsubscribeEditor?.();
-    if (editor != null) {
-      unsubscribeEditor = editor.onChange(() => {
-        revisionTick.value += 1;
-      });
-    }
-  },
-  { immediate: true },
-);
-
 onBeforeUnmount(() => {
   scrollLock.unlock();
-  unsubscribeEditor?.();
-});
-
-const revisionModel = computed(() => {
-  void revisionTick.value;
-  const document = props.editor?.getDocument() ?? props.document;
-  return buildRevisionModel(collectRevisions(document), { now: Date.now() });
-});
-
-function runEditorCommand(command: typeof acceptAllRevisions): void {
-  const editor = props.editor;
-  if (editor == null) {
-    emit('notify', '请进入编辑模式后再处理修订');
-    return;
-  }
-  command(editor.editorState, (tr) => editor.dispatch(tr));
-  revisionTick.value += 1;
-}
-
-function toggleRevisionMode(enabled: boolean): void {
-  revisionEnabled.value = enabled;
-  runEditorCommand(setRevisionMode(enabled));
-}
-
-function setView(view: RevisionView): void {
-  revisionView.value = view;
-}
-
-/* ---------- 版本 ---------- */
-const versions = shallowRef<DocumentSnapshotMeta[]>([]);
-const activeVersion = ref(0);
-const compareMode = ref<'split' | 'inline'>('split');
-const diffRows = ref<DiffRow[]>([]);
-const summaryText = ref('');
-const versionError = ref('');
-
-const versionModel = computed(() =>
-  buildVersionHistoryModel(versions.value, {
-    now: Date.now(),
-    activeVersion: activeVersion.value,
-  }),
-);
-
-async function refreshVersions(): Promise<void> {
-  versions.value = await api.listVersions('demo-draft');
-}
-
-async function createVersion(label: string): Promise<void> {
-  await api.snapshot('demo-draft', props.editor?.getDocument() ?? props.document, label);
-  await refreshVersions();
-  emit('notify', '已记录一个版本');
-}
-
-async function selectVersion(version: number): Promise<void> {
-  activeVersion.value = version;
-  versionError.value = '';
-  try {
-    const snapshot = await api.loadVersion('demo-draft', version);
-    if (snapshot === undefined) {
-      return;
-    }
-    const diff: DocumentDiff | null = await api.compareVersions(
-      'demo-draft',
-      version,
-      props.editor?.getDocument() ?? props.document,
-    );
-    if (diff === null) {
-      return;
-    }
-    diffRows.value = buildDiffRows(diff);
-    summaryText.value = diffSummaryText(diff);
-  } catch (cause) {
-    versionError.value = cause instanceof Error ? cause.message : String(cause);
-  }
-}
-
-async function restoreVersion(version: number): Promise<void> {
-  versionError.value = '';
-  const snapshot = await api.loadVersion('demo-draft', version);
-  if (snapshot === undefined) {
-    return;
-  }
-  const restored = restoreSnapshot(snapshot, { validateOptions: DEMO_VALIDATE_OPTIONS });
-  if (!restored.ok) {
-    versionError.value = restored.message;
-    return;
-  }
-  emit('open-book', restored.document);
-  emit('notify', `已回滚到版本 ${version}`);
-}
-
-async function ensureVersions(): Promise<void> {
-  if (versions.value.length === 0) {
-    await refreshVersions();
-  }
-}
-
-watch(tab, (next) => {
-  if (next === 'shelf') {
-    void api.library.refresh();
-  }
-  if (next === 'version') {
-    void ensureVersions();
-  }
-});
-
-onMounted(() => {
-  void api.library.refresh();
 });
 </script>
 
@@ -355,96 +88,39 @@ onMounted(() => {
       </header>
 
       <div class="drawer__body">
-        <template v-if="tab === 'shelf'">
-          <div class="drawer__row">
-            <button type="button" class="drawer__primary" :disabled="busy" @click="addCurrentToShelf">
-              将当前文档加入书架
-            </button>
-            <p v-if="shelfImportError" class="drawer__error">{{ shelfImportError }}</p>
-          </div>
-          <BtBookShelf
-            :cards="api.library.cards.value"
-            :total="api.library.total.value"
-            :facets="api.library.facets.value"
-            :active-tags="api.library.activeTags.value"
-            :search="api.library.search.value"
-            :view-mode="api.library.viewMode.value"
-            :sort-by="api.library.sortBy.value"
-            :loading="api.library.loading.value"
-            :error="api.library.error.value"
-            :empty-hint="api.library.emptyHint.value"
-            @search="api.library.setSearch"
-            @toggle-tag="api.library.toggleTag"
-            @update:view="api.library.setView"
-            @sort="api.library.setSort"
-            @open="openFromShelf"
-            @export="exportFromShelf"
-            @import="importToShelf"
-          />
-        </template>
-
-        <BtBackupPanel
+        <LibraryShelf
+          v-if="tab === 'shelf'"
+          :api="api"
+          :document="document"
+          @open-book="emit('open-book', $event)"
+          @update:open="emit('update:open', $event)"
+          @notify="emit('notify', $event)"
+        />
+        <LibraryBackup
           v-else-if="tab === 'backup'"
-          :busy="busy"
-          :progress="api.progress.value"
-          :result="api.lastRestore.value"
-          :strategy="strategy"
-          @export="exportLibrary"
-          @import="({ bytes, strategy: next }) => restoreLibrary(bytes, next)"
-          @update:strategy="strategy = $event"
+          :api="api"
+          @notify="emit('notify', $event)"
         />
-
-        <BtEncryptionPanel
+        <LibraryCrypt
           v-else-if="tab === 'crypt'"
-          :enabled="api.crypt.enabled"
-          :unlocked="api.crypt.unlocked"
-          :notes-locked="api.crypt.notesLocked"
-          :busy="cryptBusy"
-          :error="api.crypt.error"
-          :redact="api.redact"
-          @enable="enableEncryption"
-          @unlock="unlockEncryption"
-          @disable="disableEncryption"
-          @toggle-notes="api.crypt.notesLocked = $event"
-          @update:redact="updateRedact"
+          :api="api"
+          :document="document"
+          @open-book="emit('open-book', $event)"
+          @notify="emit('notify', $event)"
         />
-        <div v-if="tab === 'crypt'" class="drawer__row">
-          <button type="button" class="drawer__ghost" :disabled="!api.crypt.unlocked" @click="sealDraft">
-            加密保存当前文档
-          </button>
-          <button type="button" class="drawer__ghost" :disabled="!api.crypt.unlocked" @click="openSealed">
-            读取加密稿
-          </button>
-        </div>
-
-        <BtRevisionSidebar
+        <LibraryRevisions
           v-else-if="tab === 'revision'"
-          :model="revisionModel"
-          :view="revisionView"
-          :enabled="revisionEnabled"
-          :author="'demo'"
-          @set-mode="toggleRevisionMode"
-          @set-view="setView"
-          @accept="(changeId) => runEditorCommand(acceptRevision(changeId))"
-          @reject="(changeId) => runEditorCommand(rejectRevision(changeId))"
-          @accept-all="runEditorCommand(acceptAllRevisions)"
-          @reject-all="runEditorCommand(rejectAllRevisions)"
-          @locate="(path) => emit('notify', `修订位置：${path}`)"
+          :document="document"
+          :editor="editor"
+          @notify="emit('notify', $event)"
         />
-
-        <BtVersionHistory
+        <LibraryVersions
           v-else
-          :model="versionModel"
-          :diff-rows="diffRows"
-          :summary-text="summaryText"
-          :compare-mode="compareMode"
-          :active-version="activeVersion"
-          :busy="busy"
-          :error="versionError"
-          @compare="selectVersion"
-          @restore="restoreVersion"
-          @create="createVersion"
-          @update:compare-mode="compareMode = $event"
+          :api="api"
+          :document="document"
+          :editor="editor"
+          @open-book="emit('open-book', $event)"
+          @notify="emit('notify', $event)"
         />
       </div>
     </section>
@@ -455,6 +131,7 @@ onMounted(() => {
 /*
  * 视觉全部走 `--ui-*` 令牌（美化 P2）：以前写死 #fffdf8 / #8c2f1f 之类的纸色，
  * 皮肤切到墨色 / 素白时抽屉会跳回旧配色，现在跟着 <html data-skin> 走。
+ * 外壳样式留容器，页签内行/按钮样式随模板迁入各子组件（互斥渲染，scoped 隔离）。
  */
 .drawer {
   position: fixed;
@@ -560,59 +237,6 @@ onMounted(() => {
   min-height: 0;
   overflow-y: auto;
 }
-.drawer__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--ui-space-2, 6px);
-  align-items: center;
-  padding: var(--ui-space-4, 12px) var(--ui-space-5, 20px);
-}
-.drawer__primary {
-  min-height: 36px;
-  padding: 8px 18px;
-  border: var(--ui-border-width, 1px) solid var(--ui-accent, #8c5a2b);
-  border-radius: var(--ui-radius-pill, 999px);
-  background: var(--ui-accent, #8c5a2b);
-  color: var(--ui-on-accent, #fff);
-  cursor: pointer;
-  font: inherit;
-  transition:
-    background var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
-    transform var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
-}
-.drawer__primary:active:not(:disabled) {
-  transform: scale(0.97);
-}
-.drawer__primary:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-.drawer__ghost {
-  min-height: 36px;
-  padding: 7px 16px;
-  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
-  border-radius: var(--ui-radius-pill, 999px);
-  background: var(--ui-surface-raised, #faf8f4);
-  color: var(--ui-text, #3c3a34);
-  cursor: pointer;
-  font: inherit;
-  transition:
-    color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
-    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
-}
-.drawer__ghost:hover:not(:disabled) {
-  color: var(--ui-accent, #8c5a2b);
-  border-color: var(--ui-accent, #8c5a2b);
-}
-.drawer__ghost:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-.drawer__error {
-  margin: 0;
-  color: var(--ui-danger, #c0392b);
-  font-size: var(--ui-font-sm, 12px);
-}
 @media (max-width: 767px) {
   .drawer__panel {
     width: 100%;
@@ -634,10 +258,6 @@ onMounted(() => {
   .drawer__tab {
     min-height: var(--bt-touch-target, 44px);
     white-space: nowrap;
-  }
-  .drawer__primary,
-  .drawer__ghost {
-    min-height: 44px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

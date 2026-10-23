@@ -2,7 +2,7 @@
 /**
  * 「版面与页面」分区
  *
- * 覆盖书写方向 / 开本 / 分栏 / 翻页动效 / 页边距 / 页底溢出 / 页码样式 /
+ * 覆盖书写方向 / 开本 / 分栏 / 开本适配 / 翻页动效 / 页边距 / 页底溢出 / 页码样式 /
  * 字号行距字距 / 直排数字合并 / 字体族 / 配色 / 夜间预览。
  * 版式与令牌改动一律经 `api` 写进样式草稿（保存后由父级烘焙重排）；翻页动效
  * 与夜间配色是演示态快捷预设，只上抛事件、不进草稿。
@@ -12,11 +12,14 @@ import { COLOR_TOKENS, FONT_SIZE_TOKENS, FONT_TOKENS, LAYOUT_TOKENS } from '@bib
 import {
   PAGE_NUMBER_STYLES,
   PAGE_SIZES,
+  PAGE_SIZE_MODES,
   WRITING_MODES,
   createPageSize,
   isVerticalMode,
   resolveBottomSlack,
+  resolvePageSizeMode,
   type LayoutOptions,
+  type PageSizeMode,
 } from '@bibliotype/layout';
 import type { StyleSettingsApi } from '../../composables/use-style-settings.js';
 import {
@@ -66,6 +69,24 @@ function onPageSize(key: string): void {
 }
 
 const vertical = computed(() => isVerticalMode(props.layout.writingMode));
+
+/**
+ * 开本适配选项（自适应宽度 / 自适应 H5 / 固定）
+ *
+ * 「自适应」指交叉轴跟随容器：横排吃页宽、直排吃页高，故文案随书写方向换词。
+ * 本选项目前只把意图落到样式草稿（`LayoutOptions.pageSizeMode`），版心几何与分页
+ * 仍按 `pageSize` 固定取值，几何接线后由 layout 侧统一驱动。
+ */
+const pageSizeModeOptions = computed<ReadonlyArray<{ value: PageSizeMode; label: string }>>(
+  () => [
+    { value: PAGE_SIZE_MODES.AUTO, label: vertical.value ? '自适应高度' : '自适应宽度' },
+    { value: PAGE_SIZE_MODES.H5, label: '自适应 H5' },
+    { value: PAGE_SIZE_MODES.FIXED, label: '固定' },
+  ],
+);
+
+/** 当前生效适配（缺省与脏值都读作「固定」） */
+const pageSizeMode = computed(() => resolvePageSizeMode(props.layout));
 
 const marginBox = computed(() => parseMarginBox(props.tokens[LAYOUT_TOKENS.PAGE_MARGIN]));
 
@@ -189,6 +210,12 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
       <span class="panel__label">分栏</span>
       <select class="panel__input" :value="layout.columns" @change="api.patchLayout({ columns: Number(($event.target as HTMLSelectElement).value) })">
         <option v-for="count in 3" :key="count" :value="count">{{ count }} 栏</option>
+      </select>
+    </label>
+    <label class="panel__field">
+      <span class="panel__label">开本适配</span>
+      <select class="panel__input" :value="pageSizeMode" @change="api.patchLayout({ pageSizeMode: ($event.target as HTMLSelectElement).value })">
+        <option v-for="item in pageSizeModeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
       </select>
     </label>
   </div>

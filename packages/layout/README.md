@@ -117,6 +117,7 @@ const grid = resolveFacsimileGrid(layout, preset.tokens);
 | 直排合并 | `SEGMENT_KINDS`、`segmentForVertical`（`longDigits: 'kanji'` 数字分组）、`combineUprightCss`、`needsCombineUpright` |
 | 竖排细节 | `VERTICAL_PUNCTUATION_FORMS`、`verticalPunctuationOf`、`toVerticalPunctuation`、`toKanjiDigits`、`toFullwidthDigits`、`transformVerticalText`、`needsVerticalTextTransform` |
 | 布局配置 | `DEFAULT_LAYOUT_OPTIONS`、`CLASSICAL_LAYOUT_OPTIONS`、`FACSIMILE_BASE_LAYOUT`、`PAGE_NUMBER_STYLES`、`mergeLayoutOptions` |
+| 开本适配 | `PAGE_SIZE_MODES`（`auto` / `h5` / `fixed`）、`DEFAULT_PAGE_SIZE_MODE`、`resolvePageSizeMode`（缺省与脏值归一为 `fixed`；当前仅契约字段，不驱动版心几何） |
 | 样式构建 | `buildRootStyle`、`buildPageStyle`、`buildCssVariables` |
 | 古籍仿真 | `FACSIMILE_PRESETS`、`resolveFacsimilePreset`、`applyFacsimilePreset`、`resolveFacsimileGrid`、`resolveLinePitch`、`isFacsimileEnabled`、`FACSIMILE_FRAMES`、`FACSIMILE_RULES` |
 | 分页 | `paginate`（`MeasurableBlock` / `PageItem` / `PaginatedPage` / `PaginationResult` / `WidowControl`） |

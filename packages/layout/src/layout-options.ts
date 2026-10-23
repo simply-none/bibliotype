@@ -5,6 +5,7 @@
  */
 import { WRITING_MODES, type WritingMode } from './writing-mode.js';
 import { PAGE_SIZES, type PageSize } from './page-size.js';
+import { PAGE_SIZE_MODES, type PageSizeMode } from './page-size-mode.js';
 import {
   DEFAULT_COMBINE_OPTIONS,
   type CombineUprightOptions,
@@ -102,6 +103,14 @@ export interface LayoutOptions {
   pageSize: PageSize;
   /** 分栏数（1~3） */
   columns: number;
+  /**
+   * 开本适配（缺省 `PAGE_SIZE_MODES.FIXED` = 严格按 pageSize 取几何）
+   *
+   * 可选而非必填：旧快照与已持久化补丁无该键，缺省语义即「固定」，
+   * 读取一律经 `resolvePageSizeMode`，不要直接判等。当前仅记录意图、
+   * 不参与版心几何与度量签名（见 page-size-mode 头部说明）。
+   */
+  pageSizeMode?: PageSizeMode;
   /** 页码样式 */
   pageNumberStyle: PageNumberStyle;
   /** 数字/英文直排合并策略（D3 补充） */
@@ -129,6 +138,7 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
   writingMode: WRITING_MODES.HORIZONTAL_TB,
   pageSize: PAGE_SIZES.A5,
   columns: 1,
+  pageSizeMode: PAGE_SIZE_MODES.FIXED,
   pageNumberStyle: PAGE_NUMBER_STYLES.DECIMAL,
   combineUpright: DEFAULT_COMBINE_OPTIONS,
   bottomSlack: DEFAULT_BOTTOM_SLACK,
@@ -139,6 +149,7 @@ export const CLASSICAL_LAYOUT_OPTIONS: LayoutOptions = {
   writingMode: WRITING_MODES.VERTICAL_RL,
   pageSize: PAGE_SIZES.FOLIO_16,
   columns: 1,
+  pageSizeMode: PAGE_SIZE_MODES.FIXED,
   pageNumberStyle: PAGE_NUMBER_STYLES.CHINESE,
   combineUpright: DEFAULT_COMBINE_OPTIONS,
   bottomSlack: DEFAULT_BOTTOM_SLACK,
@@ -155,6 +166,7 @@ export const FACSIMILE_BASE_LAYOUT: LayoutOptions = {
   writingMode: WRITING_MODES.VERTICAL_RL,
   pageSize: PAGE_SIZES.FOLIO_16,
   columns: 1,
+  pageSizeMode: PAGE_SIZE_MODES.FIXED,
   pageNumberStyle: PAGE_NUMBER_STYLES.CHINESE,
   combineUpright: DEFAULT_COMBINE_OPTIONS,
   bottomSlack: DEFAULT_BOTTOM_SLACK,

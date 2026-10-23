@@ -12,6 +12,7 @@ interface LayoutOptions {
   writingMode: WritingMode;                 // 'horizontal-tb' | 'vertical-rl' | 'vertical-lr'
   pageSize: PageSize;                       // { name, width, height }（px，96dpi）
   columns: number;                          // 分栏数 1~3
+  pageSizeMode?: PageSizeMode;              // 开本适配：'auto' | 'h5' | 'fixed'（缺省 fixed）
   pageNumberStyle: PageNumberStyle;         // 'decimal' | 'chinese' | 'roman'
   combineUpright: CombineUprightOptions;    // 直排数字/英文策略（D3，含长数字串汉字分组）
   facsimile?: FacsimileOptions;             // 古籍仿真版式（缺省 undefined = 不启用）
@@ -20,9 +21,32 @@ interface LayoutOptions {
 
 | 预设 | 值 |
 | --- | --- |
-| `DEFAULT_LAYOUT_OPTIONS` | 横排、A5、单栏、阿拉伯页码 |
-| `CLASSICAL_LAYOUT_OPTIONS` | 直排右起、16 开、单栏、中文页码 |
+| `DEFAULT_LAYOUT_OPTIONS` | 横排、A5、单栏、固定开本、阿拉伯页码 |
+| `CLASSICAL_LAYOUT_OPTIONS` | 直排右起、16 开、单栏、固定开本、中文页码 |
 | `FACSIMILE_BASE_LAYOUT` | 同上，但由 `FACSIMILE_PRESETS` 填充 `facsimile`（版框 / 界行 / 版心） |
+
+### 开本适配（pageSizeMode）
+
+「开本尺寸怎么取用」的一层意图，取值表 `PAGE_SIZE_MODES`（`auto` / `h5` / `fixed`），
+默认 `PAGE_SIZE_MODES.FIXED`：
+
+- `auto`：交叉轴自适应——横排页宽跟随容器、直排页高跟随容器（另一轴仍按开本）；
+- `h5`：按窄屏视口取页宽（375px 级），使等比缩放系数趋近 1、正文回落到令牌字号；
+- `fixed`：严格按 `pageSize` 的宽高落地。
+
+```ts
+import { PAGE_SIZE_MODES, resolvePageSizeMode } from '@bibliotype/layout';
+
+resolvePageSizeMode({});                                   // 'fixed'（旧快照无该键）
+resolvePageSizeMode(persistedPatch);  // 'fixed'（落盘脏值归一，persistedPatch 为自由键值）
+```
+
+**当前边界**：本字段是契约 + 设置面板的意图记录，`resolvePageMainSize` /
+`resolvePageCrossSize` 与度量签名都不读它——切换取值不改变分页归属，也不触发
+重排。几何接线（`auto` 实测容器交叉轴、`h5` 取窄屏页宽）另立批次，接入时**必须**
+同步把该值纳入 `computeMetricsSignature` 的布局参与项，否则「改了适配却不重排」
+会直接错页（`page-size-mode.test.ts` 现有用例即锁定这一不变量，接线时反向改写）。
+读取本字段一律经 `resolvePageSizeMode`，不要直接判等。
 
 `facsimile` 是「古籍仿真直排」的唯一开关：缺省时版心尺寸、样式表与度量签名
 与未实现该能力前完全一致；启用后只有版心带宽（`facsimile.gutter.size`）进入

@@ -301,9 +301,13 @@ await lib.refresh();
 - 页容器上委托 `click` / `pointerover` / `pointerout` / `focusin` / `focusout`，**page 与 scroll 两种模式都生效**；
 - `Alt + ←/→` 在文档全部注释间循环切换（跨页自动翻页）；`Esc` 关闭预览；
 - 高亮：注条与正文注码同时加 `bt-note-active`，2s 后自动褪去；翻页收起预览；
-- 文档内锚点链接（导入注码多为 link 标记 `<a href="#…">` 形态）：点击跳到目标
-  块——同页直接高亮定位，跨页经 `Reader.getPageOfNode` 翻页后补高亮滚动；目标
-  id 解析不到时不拦截（交宿主 / 浏览器默认行为）；依赖导入保留源元素 id
+- 文档内锚点链接（导入注码多为 link 标记，EPUB 遗留 `text00012.html#ch1-9` 这类
+  path#hash 形态，文件名段取末段解析）：**书内相对锚点一律消费**，绝不交给浏览器
+  默认导航（相对路径导航会把预览页整页「刷新」）。跨页定位三级解析：目标块 id 直查
+  （新导入保留源 id）→ **EPUB 回链约定**——注码 `#ch1-9` 的注文含回链
+  `#ch1-9-back`，经 `Reader.getPageOfAnchor`（链接 hash → 所在块索引）反查注文，
+  存量书（目标块无源 id）免重导即可跳转 → 点击注文回链时剥 `-back` 后缀反查注码；
+  全部落空（坏链）静默消费。同页已渲染的目标直接高亮定位
   （见 [17 文档导入](17-document-import.md)）。
 
 ```ts

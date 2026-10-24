@@ -86,6 +86,9 @@ export interface UseNoteInteraction {
 const NOTEREF_SELECTOR = '.bt-mark-noteref';
 const BACKREF_SELECTOR = '.bt-note-backref';
 const MARKER_SELECTOR = '.bt-note-marker[data-note-ref]';
+/** EPUB 注释回链约定：注码 `href="#ch1-9"` ↔ 注文回链 `href="#ch1-9-back"`，
+ * 目标块无源 id 的存量书靠这对 hash 互查所在块（文件名段是 EPUB 残留，SPA 内无意义） */
+const BACKLINK_SUFFIX = '-back';
 /** 高亮态类名（样式在 `buildBookCss` 的 `.bt-note-active` 规则里） */
 export const NOTE_ACTIVE_CLASS = 'bt-note-active';
 
@@ -359,27 +362,55 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
       return;
     }
 
-    /* 文档内锚点链接（导入注码多为 link 标记 `<a href="#…">`）：目标在本书内
-     * 即消费并跳转，避免浏览器默认锚点导航把预览页「刷新」到顶；解析不到
-     * （目标 id 不存在）时不拦截，交宿主 / 浏览器默认行为 */
-    const anchor = closest(event.target, 'a[href^="#"]');
+    /* 文档内锚点链接（导入注码多为 link 标记 `<a href="#…">`，EPUB 里还常见
+     * 带源文件路径的 `Note.xhtml#n1` 形态——目标文件已并入本书，按最后一段
+     * hash 解析）。书内相对锚点一律消费：放行默认行为的唯一结局是浏览器按
+     * 相对路径导航，把预览页整页「刷新」；目标解析不到（存量书源 id 丢失 /
+     * 坏链）时静默结束，点击无效果但绝不刷新。绝对地址（http / mailto 等）
+     * 与无 hash 的普通链接不在此列，照常放行。 */
+    const anchor = closest(event.target, 'a[href]');
     if (anchor === null) return;
-    const targetId = stripHash(anchor.getAttribute('href'));
+    const href = anchor.getAttribute('href') ?? '';
+    if (href === '' || !href.includes('#')) return;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return;
+    event.preventDefault();
+    const targetId = stripHash(href.slice(href.lastIndexOf('#') + 1));
     if (targetId === '') return;
+    /* 跨页定位的三级解析：
+     * 1. 目标块 id 直查（新导入保留源 id）；
+     * 2. EPUB 回链约定：注码 `#ch1-9` 的注文里有回链 `#ch1-9-back`，按回链所在
+     *    块反查注文（存量书目标块无源 id 时的主链路）；
+     * 3. 点击的是注文回链（hash 以 -back 结尾）：剥掉后缀反查注码所在块。
+     * 全部落空（坏链）则保持消费——已 preventDefault，绝不放行默认导航刷新页面 */
+    const jumpTo = (page: number): void => {
+      goToPage(page);
+      afterRender(() => {
+        const target = findAnchorElement(targetId);
+        if (target !== null) activateElement(target);
+      });
+    };
     const inPage = findAnchorElement(targetId);
     if (inPage !== null) {
-      event.preventDefault();
       activateElement(inPage);
       return;
     }
-    const page = reader.getPageOfNode(targetId);
-    if (page === undefined) return;
-    event.preventDefault();
-    goToPage(page);
-    afterRender(() => {
-      const target = findAnchorElement(targetId);
-      if (target !== null) activateElement(target);
-    });
+    const directPage = reader.getPageOfNode(targetId);
+    if (directPage !== undefined) {
+      jumpTo(directPage);
+      return;
+    }
+    const notePage = reader.getPageOfAnchor(`${targetId}${BACKLINK_SUFFIX}`);
+    if (notePage !== undefined) {
+      jumpTo(notePage);
+      return;
+    }
+    if (targetId.endsWith(BACKLINK_SUFFIX)) {
+      const refPage = reader.getPageOfAnchor(targetId.slice(0, -BACKLINK_SUFFIX.length));
+      if (refPage !== undefined) {
+        jumpTo(refPage);
+        return;
+      }
+    }
   };
 
   const onPointerOver = (event: Event): void => {

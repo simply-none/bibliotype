@@ -41,6 +41,7 @@ import {
 } from './document-blocks.js';
 import { findNodeById } from './find-node.js';
 import { buildFlowChunks, type BuildFlowChunksOptions, type FlowChunk } from './flow.js';
+import { indexLinkAnchors } from './anchor-index.js';
 import {
   buildNoteAnchors,
   findNoteAnchor,
@@ -235,6 +236,9 @@ export class Reader {
   private readonly pageByBlockId = new Map<string, number>();
   /** 块 id → 源节点（分页管线同源产出，免逐块全树查找） */
   private nodeById: ReadonlyMap<string, BookNode> = new Map();
+
+  /** 链接 hash → 叶块 id（文档内锚点索引；首次出现优先） */
+  private readonly anchorBlockByHash = new Map<string, string>();
   /** 块 id → 块序号（流式阅读进度用，O(1) 查询） */
   private readonly blockIndexById = new Map<string, number>();
   /** 流式分块缓存（只随文档 / 分块选项变化，与分页无关） */
@@ -342,6 +346,12 @@ export class Reader {
       axis: this.axis,
     });
     this.nodeById = extracted.nodeById;
+    /* 文档内锚点索引：链接 hash → 叶块 id（注码 / 注文跨页定位的兜底链路，
+     * 存量导入书目标块无源 id 时按链接标记反查所在块） */
+    this.anchorBlockByHash.clear();
+    for (const [blockId, node] of extracted.nodeById) {
+      indexLinkAnchors(node, blockId, this.anchorBlockByHash);
+    }
     this.blocks = this.footnoteFloat
       ? extracted.blocks.map((block) => {
           // 仅脚注浮注：尾注（书末）/ 边注（版心外侧）仍按正文流就地排
@@ -445,6 +455,20 @@ export class Reader {
    */
   getPageOfNode(nodeId: string): number | undefined {
     return this.pageByBlockId.get(nodeId);
+  }
+
+  /**
+   * 按链接 hash 取所在页（自 0 起）
+   *
+   * 文档内锚点的兜底定位：存量导入书的锚点目标块没有源 id（`getPageOfNode`
+   * 命不中），但注码 / 注文之间的链接标记仍在块内容里，按 hash 反查其所在块
+   * 再定位页码。首次出现优先。
+   *
+   * @returns 未载入 / 无此 hash 时为 `undefined`
+   */
+  getPageOfAnchor(hash: string): number | undefined {
+    const blockId = this.anchorBlockByHash.get(hash);
+    return blockId === undefined ? undefined : this.pageByBlockId.get(blockId);
   }
 
   /**

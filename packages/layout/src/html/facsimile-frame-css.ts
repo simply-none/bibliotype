@@ -13,6 +13,7 @@ import type { LayoutOptions } from '../layout-options.js';
 import {
   FACSIMILE_FRAMES,
   FACSIMILE_RULES,
+  GUTTER_MOUTHS,
   type FacsimileOptions,
 } from '../facsimile.js';
 import {
@@ -29,6 +30,12 @@ export interface BuildFacsimileDecorationCssOptions {
   /** 根容器选择器（页面元素，如 `.bt-reader-page`） */
   containerSelector: string;
 }
+
+/** 版心口子上下墨条宽度（px）：细黑口 ≈ 细象鼻线；大黑口 ≈ 粗象鼻条（元刻本） */
+const MOUTH_BAR_WIDTHS: Readonly<Record<string, number>> = {
+  [GUTTER_MOUTHS.BLACK]: 5,
+  [GUTTER_MOUTHS.BLACK_WIDE]: 14,
+};
 
 /** 默认版框墨色（令牌缺省时的兜底） */
 const DEFAULT_FRAME_COLOR = '#3b322a';
@@ -113,9 +120,10 @@ export function buildFacsimileDecorationCss(
   /* ---------- 3. 版心（书口）：竖向窄带 + 上下文字 + 鱼尾 ---------- */
   if (gutter !== undefined && gutterSize > 0) {
     const scoped = (selector: string): string => `${containerSelector} ${selector}`;
+    const mouthBar = MOUTH_BAR_WIDTHS[gutter.mouth];
     const mouthRule =
-      gutter.mouth === 'black'
-        ? `  border-top: 5px solid ${gutterColor};\n  border-bottom: 5px solid ${gutterColor};\n`
+      mouthBar !== undefined
+        ? `  border-top: ${mouthBar}px solid ${gutterColor};\n  border-bottom: ${mouthBar}px solid ${gutterColor};\n`
         : '';
     rules.push(
       `${scoped('.bt-page-gutter')} {\n  position: absolute;\n  top: var(--bt-fs-inset-top);\n  bottom: var(--bt-fs-inset-bottom);\n  width: var(--bt-fs-gutter-size);\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: space-between;\n  padding: 0.35em 0;\n  writing-mode: vertical-rl;\n  font-size: 0.62em;\n  line-height: 1.2;\n  letter-spacing: 0.12em;\n  color: ${gutterColor};\n  overflow: hidden;\n  pointer-events: none;\n${mouthRule}}`,
@@ -129,12 +137,13 @@ export function buildFacsimileDecorationCss(
       `${scoped('.bt-page-gutter__field')} {\n  max-height: 8em;\n  overflow: hidden;\n  white-space: nowrap;\n}`,
     );
     if (gutter.fishTail !== 'none') {
+      /* 下鱼尾垂直镜像：真实双鱼尾上下「相向」（上尾叉口向下、下尾叉口向上） */
       rules.push(
         `${scoped('.bt-page-gutter__fish')} {\n  position: absolute;\n  left: 12%;\n  right: 12%;\n  height: 0.6em;\n  background: ${gutterColor};\n  clip-path: polygon(100% 0, 0 50%, 100% 100%, 100% 66%, 30% 50%, 100% 34%);\n}\n${scoped(
           ".bt-page-gutter__fish:nth-of-type(1)",
         )} {\n  top: 26%;\n}\n${scoped(
           ".bt-page-gutter__fish:nth-of-type(2)",
-        )} {\n  top: 62%;\n}`,
+        )} {\n  top: 62%;\n  transform: scaleY(-1);\n}`,
       );
     }
     /* 版心已承载叶次时，页脚页码重复显示 → 隐藏（页眉页脚配置不受影响） */

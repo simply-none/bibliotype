@@ -51,8 +51,10 @@ export type GutterSide = (typeof GUTTER_SIDES)[keyof typeof GUTTER_SIDES];
 export const GUTTER_MOUTHS = {
   /** 白口（上下端留白） */
   WHITE: 'white',
-  /** 黑口（上下端墨条） */
+  /** 细黑口（上下端细墨条，象鼻为细黑线） */
   BLACK: 'black',
+  /** 大黑口（上下端宽墨条，象鼻为粗黑线；元刻本标志性版式） */
+  BLACK_WIDE: 'black-wide',
 } as const;
 
 /** 版心口子联合类型 */

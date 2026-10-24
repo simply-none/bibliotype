@@ -20,19 +20,25 @@ import { resolveFacsimileGrid } from '../facsimile-geometry.js';
 
 /** 文档表格中声明的行款（改模板必须同步改这里） */
 const EXPECTED_GRID: Readonly<Record<string, { lines: number; chars: number }>> = {
-  'song-zhe': { lines: 10, chars: 27 },
-  'ming-jiajing': { lines: 12, chars: 29 },
-  'qing-dianben': { lines: 11, chars: 29 },
-  jiguge: { lines: 14, chars: 32 },
+  'song-zhe': { lines: 10, chars: 20 },
+  'song-jian': { lines: 13, chars: 26 },
+  'song-shu': { lines: 8, chars: 16 },
+  'yuan-ke': { lines: 12, chars: 24 },
+  'ming-jiajing': { lines: 9, chars: 18 },
+  'ming-wanli': { lines: 11, chars: 24 },
+  jiguge: { lines: 12, chars: 25 },
+  'qing-dianben': { lines: 9, chars: 21 },
+  'qing-xieke': { lines: 9, chars: 20 },
+  'qing-siku': { lines: 8, chars: 21 },
   zhushilan: { lines: 10, chars: 29 },
-  jinxiang: { lines: 12, chars: 34 },
+  jinxiang: { lines: 13, chars: 30 },
 };
 
 describe('FACSIMILE_PRESETS', () => {
-  it('六个模板 id 唯一，且第一个为默认模板', () => {
+  it('十二个模板 id 唯一，且第一个为默认模板', () => {
     const ids = FACSIMILE_PRESETS.map((preset) => preset.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(FACSIMILE_PRESETS).toHaveLength(6);
+    expect(FACSIMILE_PRESETS).toHaveLength(12);
     expect(FACSIMILE_PRESETS[0]?.id).toBe(DEFAULT_FACSIMILE_PRESET_ID);
   });
 

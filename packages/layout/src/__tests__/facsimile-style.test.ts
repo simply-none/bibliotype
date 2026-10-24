@@ -44,7 +44,8 @@ function layoutWith(facsimile: FacsimileOptions): LayoutOptions {
 
 describe('仿真几何', () => {
   it('列距 = 字号 × 行距（与 PDF 打印同口径）', () => {
-    expect(resolveLinePitch(FAC_TOKENS)).toBe(42.9);
+    /* 宋刻浙本新参数：29px × 1.55 = 44.95 */
+    expect(resolveLinePitch(FAC_TOKENS)).toBe(44.95);
     expect(resolveLinePitch({ ...FAC_TOKENS, 'font-size-body': '20px', 'line-height-body': '1.5' })).toBe(30);
   });
 
@@ -64,10 +65,11 @@ describe('仿真几何', () => {
   });
 
   it('版框内缩 = 页边距 − 线宽（外扩到页边距内，不吃版心）', () => {
+    /* 宋刻浙本为左右双边：左右厚度 6（双边）、上下厚度 2（单边） */
     expect(resolveFrameInsets(FAC_LAYOUT, FAC_TOKENS)).toEqual({
-      top: 194,
+      top: 198,
       right: 114,
-      bottom: 167,
+      bottom: 171,
       left: 84,
     });
   });
@@ -106,8 +108,9 @@ describe('仿真几何', () => {
     expect(grid.contentWidth).toBe(489);
     expect(grid.gutterSize).toBe(34);
     expect(grid.textWidth).toBe(455);
+    /* 十行二十字（历史行款校准） */
     expect(grid.linesPerHalfLeaf).toBe(10);
-    expect(grid.charsPerColumn).toBe(27);
+    expect(grid.charsPerColumn).toBe(20);
   });
 });
 
@@ -164,7 +167,8 @@ describe('仿真度量签名', () => {
 
   it('仿真片段只追加在尾部，前缀与古典口径一致', () => {
     const signature = computeMetricsSignature({ tokens: FAC_TOKENS, options: FAC_LAYOUT });
-    expect(signature).toContain('|fs:double/ink/g34/ft');
+    /* 宋刻浙本为左右双边 + 双鱼尾 */
+    expect(signature).toContain('|fs:left-right/ink/g34/ft');
     expect(signature.indexOf('|fs:')).toBeGreaterThan(signature.indexOf('line-height'));
   });
 
@@ -184,15 +188,20 @@ describe('装饰图层样式（buildBookCss）', () => {
       containerSelector: '.bt-reader-page',
       pageDecoration: true,
     });
-    expect(css).toContain('--bt-fs-line-pitch: 42.9px');
-    expect(css).toContain('--bt-fs-frame-inset: 194px 114px 167px 84px');
+    expect(css).toContain('--bt-fs-line-pitch: 44.95px');
+    expect(css).toContain('--bt-fs-frame-inset: 198px 114px 171px 84px');
     expect(css).toContain('--bt-fs-rule-inset: 200px 120px 173px 124px');
     expect(css).toContain('.bt-reader-page::before');
-    expect(css).toContain('border: 6px double');
+    /* 左右双边：上下单边 2px、左右双边 6px */
+    expect(css).toContain('border-top: 2px solid');
+    expect(css).toContain('border-left: 6px double');
     expect(css).toContain('.bt-reader-page::after');
     expect(css).toContain('repeating-linear-gradient');
     expect(css).toContain('.bt-reader-page .bt-page-gutter');
     expect(css).toContain('.bt-reader-page .bt-page-gutter__fish');
+    /* 双鱼尾：下鱼尾垂直镜像（真实双鱼尾上下相向） */
+    expect(css).toContain('.bt-page-gutter__fish:nth-of-type(2)');
+    expect(css).toContain('transform: scaleY(-1)');
     /* 版心已承载叶次 → 页脚页码隐藏 */
     expect(css).toContain('.bt-reader-page .bt-page-number');
   });
@@ -206,6 +215,24 @@ describe('装饰图层样式（buildBookCss）', () => {
     });
     expect(css).toContain('.bt-reader-page::before');
     expect(css).not.toContain('.bt-reader-page::after');
+  });
+
+  it('口子形态：细黑口 5px 墨条、大黑口 14px 宽墨条、白口无墨条', () => {
+    const mouthCss = (mouth: (typeof GUTTER_MOUTHS)[keyof typeof GUTTER_MOUTHS]) =>
+      buildBookCss({
+        tokens: FAC_TOKENS,
+        options: layoutWith({
+          ...PRESET.layout.facsimile!,
+          gutter: { ...PRESET.layout.facsimile!.gutter!, mouth },
+        }),
+        containerSelector: '.bt-reader-page',
+        pageDecoration: true,
+      });
+    expect(mouthCss(GUTTER_MOUTHS.BLACK)).toContain('border-top: 5px solid');
+    /* 大黑口（元刻本）：象鼻段粗黑条 */
+    expect(mouthCss(GUTTER_MOUTHS.BLACK_WIDE)).toContain('border-top: 14px solid');
+    expect(mouthCss(GUTTER_MOUTHS.WHITE)).not.toContain('border-top: 5px solid');
+    expect(mouthCss(GUTTER_MOUTHS.WHITE)).not.toContain('border-top: 14px solid');
   });
 
   it('朱丝栏使用朱红界行色', () => {

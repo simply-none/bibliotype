@@ -53,7 +53,8 @@ const RULE_ENTRIES = [
 /** 版心口子选项 */
 const MOUTH_ENTRIES = [
   { value: GUTTER_MOUTHS.WHITE, label: '白口' },
-  { value: GUTTER_MOUTHS.BLACK, label: '黑口' },
+  { value: GUTTER_MOUTHS.BLACK, label: '细黑口' },
+  { value: GUTTER_MOUTHS.BLACK_WIDE, label: '大黑口' },
 ] as const;
 
 /** 鱼尾选项 */

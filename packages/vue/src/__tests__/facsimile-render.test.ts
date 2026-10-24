@@ -81,11 +81,11 @@ describe('BtBookView：古籍仿真直排', () => {
     /* K5：song-zhe 模板字段为 书名 / 卷次 / 叶次，卷次取自 volume 祖先 */
     const fields = wrapper.findAll('.bt-page-gutter__field').map((node) => node.text());
     expect(fields).toEqual(['论语', '卷一', '一']);
-    /* 单鱼尾 */
-    expect(wrapper.findAll('.bt-page-gutter__fish')).toHaveLength(1);
+    /* 双鱼尾（考证校准：浙本版心多双鱼尾，上下相向） */
+    expect(wrapper.findAll('.bt-page-gutter__fish')).toHaveLength(2);
 
     const css = bookCss();
-    expect(css).toContain('--bt-fs-line-pitch: 42.9px');
+    expect(css).toContain('--bt-fs-line-pitch: 44.95px');
     expect(css).toContain('.bt-reader-page::before');
     expect(css).toContain('.bt-reader-page::after');
     expect(css).toContain('.bt-reader-page .bt-page-gutter');

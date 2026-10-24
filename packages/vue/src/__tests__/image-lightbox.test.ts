@@ -158,6 +158,148 @@ describe('BtImageLightbox 组件', () => {
   });
 });
 
+/* ---------- 缩放 / 平移手势 ---------- */
+
+/** 造带坐标 / 增量的滚轮事件（统一 defineProperty，happy-dom 坐标不可靠） */
+function wheelEvent(deltaY: number, clientX = 0, clientY = 0): Event {
+  const event = new Event('wheel', { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'deltaY', { value: deltaY });
+  Object.defineProperty(event, 'clientX', { value: clientX });
+  Object.defineProperty(event, 'clientY', { value: clientY });
+  return event;
+}
+
+/** 造指针事件（pointerId / 坐标用 defineProperty） */
+function pointerEvent(type: string, id: number, clientX: number, clientY: number): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'pointerId', { value: id });
+  Object.defineProperty(event, 'clientX', { value: clientX });
+  Object.defineProperty(event, 'clientY', { value: clientY });
+  return event;
+}
+
+describe('BtImageLightbox 缩放 / 平移', () => {
+  let wrapper: VueWrapper | null = null;
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = null;
+    document.body.innerHTML = '';
+    document.body.removeAttribute('style');
+  });
+
+  function mountOpen(): VueWrapper {
+    wrapper = mount(BtImageLightbox, {
+      props: { image: { src: 'plate.jpg', alt: '插图' } },
+      attachTo: document.body,
+    });
+    return wrapper;
+  }
+
+  function root<T extends HTMLElement = HTMLElement>(selector = '.bt-lightbox'): T {
+    const el = document.body.querySelector(selector);
+    if (el === null) throw new Error(`未找到 ${selector}`);
+    return el as T;
+  }
+
+  function currentScale(): number {
+    const img = document.body.querySelector<HTMLElement>('.bt-lightbox__image');
+    if (img === null) throw new Error('未找到弹窗图片');
+    const match = /scale\(([\d.]+)\)/.exec(img.style.transform);
+    return match === null ? 1 : Number.parseFloat(match[1] ?? '1');
+  }
+
+  it('滚轮放大 / 缩小，以上限 8 倍限幅', async () => {
+    wrapper = mountOpen();
+    await nextTick();
+    expect(currentScale()).toBe(1);
+
+    root().dispatchEvent(wheelEvent(-100));
+    await nextTick();
+    expect(currentScale()).toBeGreaterThan(1);
+
+    for (let index = 0; index < 40; index += 1) {
+      root().dispatchEvent(wheelEvent(-100));
+    }
+    await nextTick();
+    expect(currentScale()).toBeLessThanOrEqual(8);
+
+    root().dispatchEvent(wheelEvent(100));
+    await nextTick();
+    expect(currentScale()).toBeLessThan(8);
+  });
+
+  it('双指捏合按指距比缩放（以指心为锚）', async () => {
+    wrapper = mountOpen();
+    await nextTick();
+    const el = root();
+
+    el.dispatchEvent(pointerEvent('pointerdown', 1, 100, 200));
+    el.dispatchEvent(pointerEvent('pointerdown', 2, 200, 200));
+    el.dispatchEvent(pointerEvent('pointermove', 2, 350, 200)); // 指距 100 → 250，倍率 2.5
+    await nextTick();
+    expect(Math.abs(currentScale() - 2.5)).toBeLessThan(0.01);
+
+    el.dispatchEvent(pointerEvent('pointerup', 1, 100, 200));
+    el.dispatchEvent(pointerEvent('pointerup', 2, 350, 200));
+  });
+
+  it('放大后拖拽平移；拖后的遮罩 click 不当点按关闭', async () => {
+    wrapper = mountOpen();
+    await nextTick();
+    const el = root();
+
+    el.dispatchEvent(wheelEvent(-100)); // 先放大
+    el.dispatchEvent(pointerEvent('pointerdown', 1, 200, 200));
+    el.dispatchEvent(pointerEvent('pointermove', 1, 250, 230));
+    el.dispatchEvent(pointerEvent('pointerup', 1, 250, 230));
+    await nextTick();
+    expect(root<HTMLElement>('.bt-lightbox__image').style.transform).toContain('translate(50px, 30px)');
+
+    /* 拖拽结束的 click 不是点按：不关闭 */
+    root<HTMLElement>('.bt-lightbox__mask').dispatchEvent(
+      new MouseEvent('click', { bubbles: true }),
+    );
+    await nextTick();
+    expect(wrapper.emitted('close')).toBeUndefined();
+
+    /* 之后的干净点按正常关闭 */
+    root<HTMLElement>('.bt-lightbox__mask').dispatchEvent(
+      new MouseEvent('click', { bubbles: true }),
+    );
+    await nextTick();
+    expect(wrapper.emitted('close')).toHaveLength(1);
+  });
+
+  it('双击图片复位；关闭再打开缩放状态归零', async () => {
+    wrapper = mountOpen();
+    await nextTick();
+    const el = root();
+
+    el.dispatchEvent(wheelEvent(-100));
+    await nextTick();
+    expect(currentScale()).toBeGreaterThan(1);
+
+    root<HTMLElement>('.bt-lightbox__image').dispatchEvent(
+      new MouseEvent('dblclick', { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+    expect(currentScale()).toBe(1);
+    expect(root<HTMLElement>('.bt-lightbox__image').style.transform).toContain('translate(0px, 0px)');
+
+    /* 关闭 → 重新打开：状态不得带入上一张 */
+    el.dispatchEvent(wheelEvent(-100));
+    await nextTick();
+    await wrapper!.setProps({ image: null });
+    await nextTick();
+    expect(document.body.querySelector('.bt-lightbox')).toBeNull();
+
+    await wrapper!.setProps({ image: { src: 'z.png' } });
+    await nextTick();
+    expect(currentScale()).toBe(1);
+  });
+});
+
 /* ---------- BtBookView 接线 ---------- */
 
 /** mock 出的阅读区宽度（happy-dom 无布局，分区比例要靠它） */

@@ -23,9 +23,11 @@ import type { LayoutOptions } from '../layout-options.js';
 import { buildCssVariables, resolvePageCrossSize, resolvePageMainSize, type StyleDeclaration } from '../style-builder.js';
 import { isVerticalMode } from '../writing-mode.js';
 import { isFacsimileEnabled } from '../facsimile.js';
-import { resolveFacsimileCssVariables } from '../facsimile-geometry.js';
+import { resolveFacsimileCssVariables, resolveLinePitch } from '../facsimile-geometry.js';
 import { buildFeatureCss } from './feature-selectors.js';
 import { buildFacsimileDecorationCss } from './facsimile-frame-css.js';
+import { buildFacsimileGridCss } from './facsimile-grid-css.js';
+import { HEADING_LEVEL_SCALES } from './heading-scales.js';
 
 /** CSS 声明对象 → CSS 文本（每条声明一行，缩进两格） */
 export function declarationToCss(declaration: StyleDeclaration): string {
@@ -82,22 +84,16 @@ export interface BuildBookCssOptions {
   decorationSelector?: string;
 }
 
-/** 标题 1~6 相对 `--bt-font-size-heading` 的倍率（H1 为基准） */
-const HEADING_LEVEL_SCALES: Readonly<Record<number, number>> = {
-  1: 1,
-  2: 0.82,
-  3: 0.72,
-  4: 0.64,
-  5: 0.58,
-  6: 0.54,
-};
-
 /** 生成书册基础样式表（变量层 + 根容器规则 + 节点类样式） */
 export function buildBookCss(input: BuildBookCssOptions): string {
   const { tokens, options } = input;
   const fontToken = input.fontToken ?? FONT_TOKENS.BODY;
   const containerSelector = input.containerSelector ?? 'body';
   const vertical = isVerticalMode(options.writingMode);
+  /* 仿真行款网格：装饰 / 网格对齐 / 根行高绝对化共用的三重闸门
+   * （pageDecoration 由分页渲染路径显式开启 + 布局带 facsimile + 直排） */
+  const facsimileGrid =
+    input.pageDecoration === true && isFacsimileEnabled(options) && vertical;
 
   /*
    * 图片按版心物理宽高限幅：EPUB 原图常远大于版心（扫描件可达上千 px），
@@ -119,7 +115,7 @@ export function buildBookCss(input: BuildBookCssOptions): string {
    * 变量层；未启用时 `:root` 变量表与改造前逐字符一致（隔离矩阵第 5 条），
    * 横排即便误带 facsimile 也不产出仿真变量（仿真版式只在直排下成立）。
    */
-  if (input.pageDecoration === true && isFacsimileEnabled(options) && vertical) {
+  if (facsimileGrid) {
     Object.assign(variables, resolveFacsimileCssVariables(options, tokens));
   }
   const variableLines = Object.entries(variables)
@@ -150,6 +146,14 @@ export function buildBookCss(input: BuildBookCssOptions): string {
     body['column-count'] = String(options.columns);
     body['-webkit-column-count'] = String(options.columns);
     body['column-gap'] = `var(--bt-${LAYOUT_TOKENS.COLUMN_GAP})`;
+  }
+  /*
+   * 行款网格（仿真直排）：根行高绝对化为列距 px——倍数行高按各后代自身
+   * 字号重算行盒厚度，注文小字等行随之偏离界行节距；与预览页框 inline
+   * （buildRootStyle）同值，打印 paged 与屏幕逐字一致。
+   */
+  if (facsimileGrid) {
+    body['line-height'] = `${resolveLinePitch(tokens)}px`;
   }
   rules.push(`${containerSelector} {\n${declarationToCss(body)}\n}`);
 
@@ -809,7 +813,7 @@ ${scoped('.bt-note-continued--prev')} {
    * `facsimile` 且为直排；三者缺一即不输出任何字符 —— 「现代横排 /
    * 古籍直排」的样式表因此逐字符不变。
    */
-  if (input.pageDecoration === true && isFacsimileEnabled(options) && vertical) {
+  if (facsimileGrid) {
     const decoration = buildFacsimileDecorationCss({
       options,
       tokens,
@@ -817,6 +821,17 @@ ${scoped('.bt-note-continued--prev')} {
     });
     if (decoration !== '') {
       rules.push(`/* ---------- 古籍仿真装饰（版框 / 界行 / 版心） ---------- */\n${decoration}`);
+    }
+    /*
+     * ---------- 9.5 行款网格对齐（界行与文字列咬合） ----------
+     *
+     * 界行是静态定距网格，本层把行盒厚度与块轴间距修正为列距的整数倍
+     * （标题 / 双行小注 / 注区 / 引文等，见 facsimile-grid-css）。放在
+     * 用户覆盖层（§10）之前——功能样式与命名样式仍可按需覆盖。
+     */
+    const grid = buildFacsimileGridCss({ options, tokens, containerSelector });
+    if (grid !== '') {
+      rules.push(grid);
     }
   }
 

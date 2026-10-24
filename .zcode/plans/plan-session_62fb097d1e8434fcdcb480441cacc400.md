@@ -1,62 +1,58 @@
-# PDF 导出样式与预览一致性修复计划
+# 古籍仿真直排「文字超出界行」修复计划
 
-## 根因分析（逐行核对结论）
+## 根因（逐行排查结论）
 
-预览端每页结构（`BtBookView.vue` / `PagedCanvas.vue`）：页框 `.bt-reader-page` inline = `buildPageStyle`（尺寸/padding）+ `buildRootStyle`（字体、字号、行高、字距、**text-indent**、颜色、背景、**page-border 版框**、writing-mode、直排策略、分栏、仿真版心内缩、chrome 变量），内容再包 `__flow` wrapper（**逐页分栏**）+ 页底注区 + 版心 + 页眉页脚。
+界行是**静态定距网格**：`facsimile-frame-css.ts:107-111` 用 `repeating-linear-gradient` 以 `--bt-fs-line-pitch`（= 字号×行距，`facsimile-geometry.ts:120-127`）从版心右缘起每 `pitch` 画一条线；注释（`facsimile-geometry.ts:114-118`）明文假设「line-height 决定行盒横向厚度，界行节距必须与它严格相等」。
 
-导出端（`print-document.ts` `createPrintPager`）：根规则挂 `body` 的 `buildBookCss` + `buildPrintCss` 的 `.bt-page` 盒。逐属性对照后确认 5 处不一致：
+但文字列距是**浏览器动态排布**的，该假设只在「所有行盒厚度与块轴间距都是 pitch 的整数倍」时成立，而现有样式四处破坏它：
 
-| # | 差异 | 影响 | 证据 |
-|---|---|---|---|
-| P0 | **光栅路径样式全失**：`buildSvgXml` 把 `<style>`+页片段包进 XHTML `<div>` 进 foreignObject，**无 body 元素** → `body {…}` 根规则与全部 `body .bt-*` 作用域规则失配 | 浏览器「应用内直出」PDF：字体/字号/行高/颜色/背景全丢，**直排变横排**，所有节点样式失效 | `raster-pdf.ts:99-115`；`book-css.ts:99,154,169` |
-| P1 | **古籍直排版框缺失**：古典主题 `page-border: '3px double #b09a76'`（`use-app-themes.ts:48`），预览经 `buildRootStyle` 画框（`style-builder.ts:81-83`），导出 body 规则与 `.bt-page` 均不输出 border，但分页口径两端都扣 `border×2`（`style-builder.ts:210,292`） | 古籍直排 PDF 无双边版框，且版心四周多出被扣掉的空位 | `print-styles.ts:219-227` |
-| P2 | **text-indent 根级断链**：预览页框 inline `text-indent` → 容器段落 `text-indent: inherit`（`book-css.ts:531-541`）解析到根值；导出 body 无 text-indent → inherit 落到 0 | 现代横排（默认 2em）双行小注/夹注/尾注等容器段落首行缩进丢失 | `style-builder.ts:72` vs `book-css.ts:131-140` |
-| P3 | **页底浮注导出缺失**：`renderPage` 不调 `reader.getPageNotes`/`serializePageNotes`（import 列表即无）；`PrintDocumentOptions` 无 `footnoteFloat`/`noteMaxRatio`，内部 Reader 未启用 → 宿主开浮注时注全丢且分页与预览错位 | 任何开启页底浮注的书（demo 当前未开，属能力缺口） | `print-document.ts:31-43,246-261,265-311` |
-| P4 | **逐页分栏缺失**：预览 `__flow` wrapper inline `column-count/gap/fill:auto` + 子块 `break-inside: avoid`（`BtBookView.vue:271-278`）；导出无 wrapper，且 book-css body 规则的 `column-count` 在 paged 模式作用于 body（把 `.bt-page` 序列当栏内容排）；demo 设置面板已暴露分栏（`SettingsLayoutSection.vue:229`） | 分栏 2~3 时 PDF 单栏且页面排布错乱 | `print-document.ts:271-281`；`book-css.ts:149-153` |
+| 漂移源 | 代码位置 | 漂移量（宋刻浙本 pitch=42.9px 为例） |
+| --- | --- | --- |
+| **根 line-height 是倍数**：`line-height: 1.95` 以**数字**继承，任何非正文音的后代按自身字号重算行盒厚度 | `book-css.ts:135` / `style-builder.ts:70` | 注文 0.72em→行盒 27.4px ≠ 42.9 |
+| **显式行高覆盖**：标题 1.4、双行小注 1.65、代码块 1.6、注区 1.5 | `book-css.ts:178,483,205,770` | 标题 1.75em×1.4=53.9 ≠ 42.9 |
+| **双行小注块宽**：2 子栏×(0.72em×1.65) + 栏距 1.6em + 左边距 1.2em | `book-css.ts:479-487` | ≈ 1.86 格（79.5px），非整数倍 |
+| **块轴（横）外距/边框**：引文 `margin: 1em 2em`、眉批/牌记左右边框与内距、注区 block-start 线 | `book-css.ts:194,488-530,765-770` | 各 1~4em 横向错位 |
 
-另核对确认**非差异**（不需改）：`.bt-page-number` 口径（scoped 规则特异性胜出，两端同值）、chrome 变量、仿真 `--bt-fs-*` 几何与版心 padding、夜间配色进 PDF（demo 传同一份 tokens，符合"与预览一模一样"目标，维持）。
+后果：一旦页面里出现小注/标题/引文，后续所有列相对界行**永久错相**——文字骑在界行上（截图中央区双行小注处）；块累计推进量落入版心余数区（六个预设 textWidth ÷ pitch 余 16~26px）时，末列文字压过最后一条界行。预览（BtBookView）、编辑（PagedCanvas）、导出（exporter-pdf paged）共用 `buildBookCss` + `buildRootStyle`，故三端同现。
 
-## 修复方案（全部在 `packages/exporter-pdf`，零破坏既有公开 API）
+## 修复方案：行款网格对齐层（layout 包内实现，三端一次修复）
 
-### 1. `src/raster-pdf.ts` — P0
-- `buildSvgXml` 的 foreignObject 包装元素由 `div` 改为 XHTML `<body>`（`createElementNS('http://www.w3.org/1999/xhtml', 'body')`）：现有 CSS 的 `body` 根规则与全部 `body .bt-*` 作用域规则直接命中，光栅与打印文档**逐字符同规则**；body 的 UA margin 8px 被既有 `body { margin: 0 }` 覆盖。
-- 将 `buildSvgXml` 具名导出（纯函数，公开合理）供单测断言。
+核心思路——把「网格假设」变成「网格保证」：仿真直排时让**每个行盒厚度与块轴间距恒为 pitch 或其整数倍**。
 
-### 2. `src/print-styles.ts` — P1 / P2 / P4
-- **P1**：paged 分支，非仿真（`isFacsimileEnabled` 为 false，与 `buildRootStyle` 同闸门）且 `tokens['page-border']` 非空时，`.bt-page` 追加 `border: {令牌原值}`（与预览 inline 完全一致；border-box 下 border 侵占内容，恰好对齐分页已扣除的 `border×2` 口径。注释说明：出血 >0 时框随页盒外扩的已知偏差，本次不处理）。
-- **P2**：输出 `body { text-indent: var(--bt-text-indent-body); }`（auto 与 paged 均输出；变量缺失时整条失效，等价 `setIfPresent` 语义；只进打印 CSS，不扰动 EPUB）。
-- **P4**：paged 分支新增
-  ```css
-  .bt-page__flow[data-columns='2'], [data-columns='3'] { column-count/gap: var(--bt-column-gap)/column-fill: auto }
-  .bt-page__flow[data-columns] > * { break-inside: avoid }
-  .bt-page > :first-child, .bt-page__flow > :first-child { margin-block-start: 0 }   /* 原规则扩为两条 */
-  ```
-  并追加 `body { column-count: initial; -webkit-column-count: initial }` 撤销 body 级分栏（仅 paged 分支；同特异性靠层叠顺序胜出）。
+### 1. `packages/layout/src/style-builder.ts` — 根行高绝对化
+`buildRootStyle` 在 `isFacsimileEnabled(options) && vertical` 时把 `line-height` 从令牌倍数改为 `${resolveLinePitch(tokens)}px`（数值直出，不依赖变量层，量尺工作表/预览页框/编辑画布同值）。倍数行高按后代字号重算的漂移源就此消除——任何未显式设行高的后代（段落、注文小字、注码、题跋）行盒恒等于列距。
 
-### 3. `src/print-document.ts` — P3 / P4
-- **P4**：paged 时 `buildBookCss` 的 options 传 `{ ...layout, columns: 1 }`（分页主轴/图片限幅均不读 columns，仅避免 body 分栏规则）；`renderPage` 在 `columns > 1`（`reader.getPageColumns`）时把正文片段包进 `<div class="bt-page__flow" data-columns="N">`，单栏不包（产物对既有断言逐字符不变）。
-- **P3**：`PrintDocumentOptions` 新增可选 `footnoteFloat?: boolean`、`noteMaxRatio?: number`，透传内部 Reader；`renderPage` 在正文（或 wrapper）之后渲染注区：`reader.getPageNotes` 非空时内联 `serializePageNotes(notes, { continued: reader.isPageNotesContinued(index) })`，位置与预览一致（在 `.bt-page` 直接子级、页眉页脚之前）。注区样式 `.bt-page-notes` 已在 book-css（body 作用域）内。
+### 2. `packages/layout/src/html/book-css.ts` — 根规则同口径 + 调用网格层
+- body 根规则在既有双闸门（`pageDecoration && facsimile && vertical`）下同样输出 px 行高（打印 paged 与预览逐字同值；EPUB/auto 不受影响，产物隔离矩阵不变）；
+- 在 §9 装饰层之后、§10 用户覆盖之前追加 §9.5，调用新文件产出的网格对齐层（用户功能样式仍可覆盖）。
 
-### 4. 测试（行为改动先写复现用例）
-- `__tests__/pdf.test.ts`：古典 tokens + paged → `.bt-page` 含 `border: 3px double #b09a76`、`body` 含 `text-indent`；仿真布局**不**输出 border；分栏 2 → `data-columns="2"` wrapper + body 无 `column-count`；`footnoteFloat: true` → 注区 HTML 出现且分页含注区容量。
-- `__tests__/print-pager.test.ts`（或新文件）：`buildSvgXml` 输出含 `<body`、根规则可命中（happy-dom）；单栏 paged 产物与改造前逐字节不变的既有断言保持绿。
+### 3. 新文件 `packages/layout/src/html/facsimile-grid-css.ts` — 网格对齐覆盖层（原子职责）
+`buildFacsimileGridCss({ options, tokens, containerSelector })` 纯函数输出 scoped 覆盖，全部数值由 `resolveLinePitch` 等既有几何函数在构建期算出（无 CSS 分支）：
+- **显式行高归格**：`.bt-heading`/`.bt-code-block`/`.bt-page-notes` → `line-height: {pitch}px`；`ruby > rt` → `line-height: 1`（注音收进字距空隙）；
+- **标题与结构页大字按倍数行高**：构建期按 `字号px ÷ pitch` 向上取整 k，输出 `line-height: {k×pitch}px`（h1~h6 按分级倍率、`cover-title`/`title-page-title` 等 data-role 逐个计算；仅 k≥2 时输出规则，汲古阁本标题 35px>34px 等场景自动落 2 格）；
+- **双行小注一格双行（仿真书原貌）**：`column-gap: 2px`、`line-height: calc(({pitch}px − 2px)/2)`、`margin: 0.35em 0 0.45em`（去掉左边距 1.2em）→ 块宽恰为 1 格；
+- **块轴装饰归零**：引文 `margin: 1em 0`、眉批/牌记/题跋/版框节点的左右 margin/padding/border 置 0（保留上下即行内方向的间距与配色）、注区 `margin/padding/border-block-start: 0`、`hr` 的 `border-block-start: 0`、脚注块同理。
 
-### 5. 文档 + changeset（规范铁律）
-- `docs/08-export-pdf.md`：注区导出、版框、text-indent、逐页分栏、光栅 body 修复说明；选项表补 `footnoteFloat`/`noteMaxRatio`。
-- `packages/exporter-pdf/README.md`：选项表同步。
-- `docs/14-faq.md`：新增「光栅导出样式全失」条目（现象 → 根因：foreignObject 无 body 选择器失配 → 处理）。
-- `.changeset/`：`@bibliotype/exporter-pdf` 修复说明（fix）。
+网格层生效后，所有文本块的横向占位恒为 pitch 整数倍 → 累计推进量永不落入版心余数区，末列裁字与骑线自然消失；量尺实测随 CSS 同步，分页容量无需改动（`resolvePageMainSize` 不动，风险最小）。
 
-## 验证（规范第十一节）
+### 4. 测试
+- 新增 `packages/layout/src/__tests__/facsimile-grid-css.test.ts`：双闸门隔离（未启用零输出、横排零输出）、双行小注块宽恰为一格（(pitch−2)/2×2+2=pitch）、标题 k 倍行高（含汲古阁 2 格场景）、块轴外距归零清单；
+- 更新 `book-css.test` / `style-builder.test` 中仿真用例：根行高 px 断言（如宋刻浙本 `42.9px`）、古籍直排（非仿真）与 EPUB 路径逐字符不变断言保持；
+- 全量 `pnpm test` 回归（exporter-pdf 的仿真打印断言、vue 量尺链路）。
+
+### 5. 文档 + changeset
+- `docs/22-facsimile-vertical.md`：新增「界行对齐（行款网格）」一节——机制、双行小注一格双行的设计、已知限制（表格/插图自身不参与网格，局部漂移；Node 无实测导出的估算路径近似对齐）；
+- `packages/layout/README.md` 若提及仿真样式则同步；
+- changeset：`@bibliotype/layout` patch（行为：仿真直排行款对齐，双行小注占位收紧为一格，页数可能微变）。
+
+## 验证
 ```bash
-pnpm build
-pnpm --filter @bibliotype/exporter-pdf test
-pnpm test          # 全量（exporter-pdf 依赖 core/layout/reader，按规范跑全量）
-pnpm typecheck
+pnpm build && pnpm test && pnpm typecheck
 ```
-交付时附 Conventional Commits 提交文本（`fix(exporter-pdf): …`），由维护者提交。
+另请在 demo 手工核对三端：切「古籍仿真直排」→ 预览翻页、编辑画布、导出 PDF（分段或直出），确认正文与双行小注均落在界行之间（六模板各抽一）。
 
-## 范围说明
-- demo 端接线已同源（`use-export.ts` 与预览传同一份 tokens/layout/fontToken/features/实测分页数据），无需改动。
-- auto（连续）模式本质是打印引擎流式重排，无逐页结构，不做逐页一致承诺；根级修复（P1/P2）顺带生效。
-- 夜间配色、出血下版框位置偏差（bleed>0）维持现状并在文档记录。
+## 影响面与取舍
+- 只动 `packages/layout`（+测试/文档），预览/编辑/导出三端自动生效，无公开 API 变更；
+- 古籍直排（非仿真）、现代横排、EPUB/auto 导出产物逐字符不变（双闸门保证）；
+- 仿真模式视觉变化：双行小注子栏更紧凑（一格双行，符合古籍原貌）、眉批/牌记去掉边框盒（网格优先；如需保留装饰盒可后续用「占 k 格」方案迭代）；
+- 表格、插图、大印章等非文本块不强制落格（古籍仿真场景罕见），文档记为已知限制。

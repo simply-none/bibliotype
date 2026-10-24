@@ -25,6 +25,7 @@ import { isFacsimileEnabled } from './facsimile.js';
 import {
   resolveFacsimileFrameThickness,
   resolveFacsimileGutterSize,
+  resolveLinePitch,
 } from './facsimile-geometry.js';
 
 /** CSS 声明对象（属性名 → 值） */
@@ -72,6 +73,17 @@ export function buildRootStyle(input: BuildRootStyleInput): StyleDeclaration {
   setIfPresent(style, 'text-indent', tokens[LAYOUT_TOKENS.TEXT_INDENT]);
   setIfPresent(style, 'color', tokens[COLOR_TOKENS.TEXT]);
   setIfPresent(style, 'background-color', tokens[COLOR_TOKENS.BACKGROUND]);
+
+  /*
+   * 行款网格（古籍仿真直排）：根行高绝对化为列距 px。倍数行高以数字继承，
+   * 各后代按**自身字号**重算行盒厚度——注文小字、注码等行随之偏离界行
+   * 节距；px 值原样继承，未显式设行高的后代行盒恒等于列距。与界行图层、
+   * book-css 根规则同源（resolveLinePitch），量尺工作表 / 预览页框 /
+   * 编辑画布三处同值。显式行高的类由 book-css 的网格对齐层另行归格。
+   */
+  if (vertical && isFacsimileEnabled(options)) {
+    style['line-height'] = `${resolveLinePitch(tokens)}px`;
+  }
 
   /*
    * 版框（扩展令牌 page-border，如 '1px solid #8c5a2b'；古籍主题可选）。

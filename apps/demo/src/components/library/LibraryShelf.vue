@@ -6,7 +6,11 @@
  * 本组件只持有书架局部状态（导入错误 / 局部忙态），事件经容器向上转发。
  */
 import { BtBookShelf } from '@bibliotype/vue';
-import type { BookDocument } from '@bibliotype/core';
+import {
+  normalizeGlyphImages,
+  summarizeGlyphImageReport,
+  type BookDocument,
+} from '@bibliotype/core';
 import { onMounted, ref } from 'vue';
 import { downloadBytes, type DemoLibraryApi } from '../../composables/use-demo-library.js';
 
@@ -37,10 +41,17 @@ async function addCurrentToShelf(): Promise<void> {
 }
 
 async function openFromShelf(id: string): Promise<void> {
-  const document = await props.api.readBook(id);
-  if (document === undefined) {
+  const loaded = await props.api.readBook(id);
+  if (loaded === undefined) {
     emit('notify', '这本书已不在书库中，请刷新。');
     return;
+  }
+  /* 字图归一化（K6 补口）：旧版导入的存量书可能仍把缺字图存成块级插图，
+   * 打开时自动归并——发现可归并的字图即回写书库，一次修复永久生效 */
+  const { document, report } = normalizeGlyphImages(loaded);
+  if (report.merged.length > 0) {
+    await props.api.saveBook(document, id);
+    emit('notify', `《${document.metadata.title}》${summarizeGlyphImageReport(report)}`);
   }
   await props.api.library.openBook(id);
   emit('open-book', document);

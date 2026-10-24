@@ -61,6 +61,13 @@ function cellAttrsFromDom(dom: string | HTMLElement): Record<string, unknown> | 
   };
 }
 
+/** 读 img 原生像素尺寸属性（缺省 / 非法归一为 null，走 spec 缺省；NaN 进 attrs 会破坏 PM 解析） */
+function intAttrFromDom(dom: string | HTMLElement, name: string): number | null {
+  if (typeof dom === 'string') return null;
+  const raw = Number.parseInt(dom.getAttribute(name) ?? '', 10);
+  return Number.isFinite(raw) ? raw : null;
+}
+
 /** core 标准节点规格 */
 export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   /* ---------- 根与结构节点 ---------- */
@@ -156,7 +163,14 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       group: 'block',
       content: '',
       atom: true,
-      attrs: { ...COMMON_NODE_ATTRS, src: { default: null }, alt: { default: null } },
+      attrs: {
+        ...COMMON_NODE_ATTRS,
+        src: { default: null },
+        alt: { default: null },
+        /* 原生像素尺寸（导入保留）：字图识别的「近方形小图」强信号与插图渲染保真依赖它 */
+        width: { default: null },
+        height: { default: null },
+      },
       parseDOM: [
         { tag: 'div.bt-image' },
         {
@@ -166,7 +180,12 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
             /* 字图（img.bt-glyph-image）让给 glyph-image 的行内规则，
              * 否则本通配先命中，行内字图又被拆成块级 */
             if (dom.classList.contains('bt-glyph-image')) return false;
-            return { src: dom.getAttribute('src'), alt: dom.getAttribute('alt') };
+            return {
+              src: dom.getAttribute('src'),
+              alt: dom.getAttribute('alt'),
+              width: intAttrFromDom(dom, 'width'),
+              height: intAttrFromDom(dom, 'height'),
+            };
           },
         },
       ],

@@ -9,7 +9,7 @@
  * 由 App.vue 组装；本块不反向 import App 或其它块，保持单向依赖。
  */
 import { computed, ref, shallowRef, type Ref, type ShallowRef } from 'vue';
-import { type BookDocument } from '@bibliotype/core';
+import { normalizeGlyphImages, type BookDocument } from '@bibliotype/core';
 import {
   buildClassicalEditorSchema,
 } from '@bibliotype/classical/editor';
@@ -109,7 +109,11 @@ export function useEditSession(deps: EditSessionDeps) {
   /** 读取本地草稿（IndexedDB 异步；无 / 读取失败回 null） */
   async function readDraft(): Promise<BookDocument | null> {
     try {
-      return (await draftStore.load(DRAFT_ID)) ?? null;
+      const draft = await draftStore.load(DRAFT_ID);
+      if (draft === undefined) return null;
+      /* 字图归一化（K6 补口）：旧会话草稿可能仍把缺字图存成块级插图，
+       * 恢复时自动归并（幂等）；进入编辑器后 autosave 落盘新基线 */
+      return normalizeGlyphImages(draft).document;
     } catch {
       return null;
     }

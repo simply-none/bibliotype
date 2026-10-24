@@ -133,7 +133,7 @@ const VOID_TAGS: ReadonlySet<string> = new Set(['img', 'hr', 'br']);
 
 /** 直接透传为原生 HTML 属性的白名单（其余属性输出为 data-*） */
 const ATTR_WHITELIST: Readonly<Record<string, readonly string[]>> = {
-  [NODE_TYPES.IMAGE]: ['src', 'alt'],
+  [NODE_TYPES.IMAGE]: ['src', 'alt', 'width', 'height'],
 };
 
 /**
@@ -299,6 +299,18 @@ function cellSpanAttrs(attrs: BookNode['attrs']): string {
   return result;
 }
 
+/** img 原生尺寸属性串（正数才输出；供浏览器在图片加载前预留版位，渲染保真） */
+function imageSizeAttrs(attrs: BookNode['attrs']): string {
+  let result = '';
+  for (const name of ['width', 'height'] as const) {
+    const value = attrs?.[name];
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      result += ` ${name}="${value}"`;
+    }
+  }
+  return result;
+}
+
 /** 表格单元格 → HTML（表头行输出 `th`，跨行跨列走原生属性） */
 function tableCellToHtml(
   cell: BookNode,
@@ -399,7 +411,7 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
     return tableToHtml(node, options);
   }
 
-  /* 图片：src / alt 透传为原生属性（无值时输出空串占位） */
+  /* 图片：src / alt 透传为原生属性（无值时输出空串占位），width / height 输出原生尺寸 */
   if (node.type === NODE_TYPES.IMAGE) {
     const rawSrc = typeof attrs?.src === 'string' ? attrs.src : '';
     const rewritten = options.rewriteSrc?.(rawSrc);
@@ -407,7 +419,7 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
     const alt = typeof attrs?.alt === 'string' ? attrs.alt : '';
     const extras = dataAttrs(attrs, whitelist);
     const rest = serializeChildren(node, options);
-    return `<img${idAttr}${classAttr} src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${extras} />${rest}`;
+    return `<img${idAttr}${classAttr} src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${imageSizeAttrs(attrs)}${extras} />${rest}`;
   }
 
   /* 行内字图（K6）：一个字位的缺字替代图，随文字流内联排版；

@@ -118,9 +118,10 @@ function isGlyphLikeExtension(src: string): boolean {
   return /\.(png|svg|gif)$/i.test(path);
 }
 
-/** src 是否为内嵌位图 data URI（docx / epub 导入的主流形态，取不到扩展名） */
+/** src 是否为内嵌位图 data URI（docx / epub 导入的主流形态，取不到扩展名；
+ * svg+xml 一并计入——EPUB 缺字图大量以内联 SVG 顶替，与位图同为「一字位小图」形态） */
 function isEmbeddedBitmap(src: string): boolean {
-  return /^data:image\/(png|gif|jpeg|webp)[;,]/i.test(src);
+  return /^data:image\/(png|gif|jpeg|webp|svg\+xml)[;,]/i.test(src);
 }
 
 /**

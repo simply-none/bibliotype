@@ -233,4 +233,53 @@ describe('往返（IR → PM → IR）', () => {
     expect(paragraph.child(1).type.name).toBe(NODE_TYPES.GLYPH_IMAGE);
     expect(paragraph.child(1).attrs.char).toBe('贔');
   });
+
+  it('块级 image 导入保留 width/height（字图识别强信号依赖尺寸）', () => {
+    const schema = buildEditorSchema();
+    /* EPUB 拆段形态：img 夹在两段之间，宽高为缺字图主流的原生属性 */
+    const el = document.createElement('div');
+    const p1 = document.createElement('p');
+    p1.appendChild(document.createTextNode('一心行阿'));
+    const img = document.createElement('img');
+    img.setAttribute('src', 'data:image/svg+xml;base64,PHN2Zy8+');
+    img.setAttribute('width', '16');
+    img.setAttribute('height', '16');
+    const p2 = document.createElement('p');
+    p2.appendChild(document.createTextNode('菩提，心不散乱。'));
+    el.appendChild(p1);
+    el.appendChild(img);
+    el.appendChild(p2);
+    const pm = PmDomParser.fromSchema(schema).parse(el);
+    expect(pm.childCount).toBe(3);
+    const image = pm.child(1);
+    expect(image.type.name).toBe(NODE_TYPES.IMAGE);
+    expect(image.attrs.width).toBe(16);
+    expect(image.attrs.height).toBe(16);
+    /* 回收 IR：尺寸落在 attrs 顶层，供 normalizeGlyphImages 判「近方形小图」强信号 */
+    const ir = pmNodeToIr(pm);
+    expect(ir.children?.[1]?.attrs).toMatchObject({ width: 16, height: 16 });
+  });
+
+  it('缺省 / 非法 width/height 归一为 null（不产生 NaN）', () => {
+    const schema = buildEditorSchema();
+    const el = document.createElement('div');
+    const img = document.createElement('img');
+    img.setAttribute('src', 'plate.jpg');
+    img.setAttribute('width', 'auto');
+    el.appendChild(img);
+    const image = PmDomParser.fromSchema(schema).parse(el).child(0);
+    expect(image.type.name).toBe(NODE_TYPES.IMAGE);
+    expect(image.attrs.width).toBeNull();
+    expect(image.attrs.height).toBeNull();
+  });
+
+  it('IR 块级 image 宽高经 PM 无损往返', () => {
+    const schema = buildEditorSchema();
+    const image: BookNode = {
+      type: NODE_TYPES.IMAGE,
+      id: 'img-1',
+      attrs: { src: 'z.png', alt: '贔', width: 16, height: 16 },
+    };
+    expect(pmNodeToIr(irNodeToPm(image, schema))).toEqual(image);
+  });
 });

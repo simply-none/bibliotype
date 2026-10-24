@@ -93,6 +93,38 @@ describe('字图识别', () => {
     expect(report.merged[0]?.position).toBe('restore');
   });
 
+  it('epub 内联 SVG 形态：data:image/svg+xml、无 alt 无尺寸、切断句子 → 双弱信号判字图', () => {
+    const { document, report } = normalizeGlyphImages(
+      doc([
+        para('一心行阿'),
+        image({ src: 'data:image/svg+xml;base64,PHN2Zy8+' }, 'img-svg'),
+        para('菩提，心不散乱。'),
+      ]),
+    );
+    expect(report.merged).toEqual([{ imageId: 'img-svg', char: undefined, position: 'restore' }]);
+    const chapter = document.root.children?.[0]!;
+    expect(chapter.children).toHaveLength(1);
+    const children = chapter.children?.[0]?.children ?? [];
+    expect(children.map((child) => child.type)).toEqual([
+      'text',
+      NODE_TYPES.GLYPH_IMAGE,
+      'text',
+    ]);
+  });
+
+  it('内联 SVG 但前段已收尾（孤立插图位）→ 仅单弱信号保守保留', () => {
+    const { report } = normalizeGlyphImages(
+      doc([
+        para('前文完了。'),
+        image({ src: 'data:image/svg+xml;base64,PHN2Zy8+' }, 'img-svg-2'),
+        para('后文。'),
+      ]),
+    );
+    expect(report.merged).toEqual([]);
+    expect(report.kept[0]?.id).toBe('img-svg-2');
+    expect(report.kept[0]?.reason).toContain('弱信号');
+  });
+
   it('明确大图（超阈值）→ 插图保留', () => {
     const { report } = normalizeGlyphImages(
       doc([para('前文'), image({ src: 'plate.jpg', width: 600, height: 400 }, 'img-big'), para('后文')]),

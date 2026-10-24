@@ -91,17 +91,21 @@ describe('元素与结构', () => {
     );
   });
 
-  it('image：src/alt 透传、其余属性 data-*、自闭合', () => {
+  it('image：src/alt/width/height 原生透传、其余属性 data-*、自闭合', () => {
     expect(
       serializeNode({
         type: NODE_TYPES.IMAGE,
-        attrs: { src: 'cover.jpg', alt: '封面', width: 600 },
+        attrs: { src: 'cover.jpg', alt: '封面', width: 600, height: 400 },
       }),
-    ).toBe('<img class="bt-image" src="cover.jpg" alt="封面" data-width="600" />');
+    ).toBe('<img class="bt-image" src="cover.jpg" alt="封面" width="600" height="400" />');
 
-    expect(serializeNode({ type: NODE_TYPES.IMAGE, attrs: { src: 'x.png' } })).toBe(
-      '<img class="bt-image" src="x.png" alt="" />',
-    );
+    /* 非法尺寸不输出；其余属性仍走 data-* */
+    expect(
+      serializeNode({
+        type: NODE_TYPES.IMAGE,
+        attrs: { src: 'x.png', width: 0, height: -1, title: '插图' },
+      }),
+    ).toBe('<img class="bt-image" src="x.png" alt="" data-title="插图" />');
   });
 
   it('glyph-image：行内字图自闭合，原字走 data-char，原始尺寸不输出', () => {

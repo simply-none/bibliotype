@@ -223,10 +223,12 @@ function structureColumnsOf(node: BookNode): number | undefined {
 }
 
 /**
- * 叶块判定：版式文本容器；无元素子节点；或含与元素子节点混排的文本
+ * 叶块判定：版式文本容器；无元素子节点；或含与元素子节点混排的文本 / 行内字图
  *
  * 第二类对应「行内载体」场景（如段落文本中嵌校勘符号/避讳字载体）：
  * 拆开会丢失与载体混排的裸文本，故整块渲染与度量。
+ * 段落只含行内字图（缺字替代图，无裸文本）同属此列：字图是一个「字」，
+ * 下钻会把它从段落里抽成独立块、脱离上下文（与块级插图混为一谈）。
  * 第一类（注文 / 牌记 / 题记）恒整体成块：子级无论是直挂文本还是
  * 编辑保存后规范化的段落，容器样式与稳定 id 都不能丢。
  * 复合原子块（表格）同样整体成块：拆开会丢失 `<table>` 包裹，渲染成空白。
@@ -247,7 +249,11 @@ export function isLeafBlock(node: BookNode): boolean {
   if (STRUCTURE_TYPES.has(node.type)) {
     return children.some((child) => isTextNode(child) && (child.text ?? '').trim() !== '');
   }
-  return !hasElement || children.some(isTextNode);
+  return (
+    !hasElement ||
+    children.some(isTextNode) ||
+    children.some((child) => child.type === NODE_TYPES.GLYPH_IMAGE)
+  );
 }
 
 /**

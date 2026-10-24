@@ -208,6 +208,38 @@ describe('extractBlocks', () => {
     expect(chap?.lineSize).toBe(30);
   });
 
+  it('纯字图段落整块成块：行内字图不下钻抽成独立块', () => {
+    // 段落只含 glyph-image（无文本）时若判非叶下钻，字图会脱离段落语义独立成块
+    const doc = createEmptyDocument({ title: '纯字图段落' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        id: 'p-glyph',
+        children: [{ type: NODE_TYPES.GLYPH_IMAGE, id: 'glyph-1', attrs: { src: 'z.png' } }],
+      },
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-after', children: [{ type: 'text', text: '后文' }] },
+    ];
+    const blocks = extractBlocks(doc);
+    expect(blocks.map((b) => b.id)).toEqual(['p-glyph', 'p-after']);
+  });
+
+  it('段落内文字与字图混排 → 整段一个叶块', () => {
+    const doc = createEmptyDocument({ title: '字图混排' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.PARAGRAPH,
+        id: 'p-mix',
+        children: [
+          { type: 'text', text: '一心行阿' },
+          { type: NODE_TYPES.GLYPH_IMAGE, id: 'glyph-2', attrs: { src: 'z.png' } },
+          { type: 'text', text: '菩提' },
+        ],
+      },
+    ];
+    const blocks = extractBlocks(doc);
+    expect(blocks.map((b) => b.id)).toEqual(['p-mix']);
+  });
+
   it('lineSize 随估算上下文行高联动', () => {
     const blocks = extractBlocks(sampleDoc(), { context: { lineSize: 42 } });
     expect(blocks.find((b) => b.id === 'p-2')?.lineSize).toBe(42);

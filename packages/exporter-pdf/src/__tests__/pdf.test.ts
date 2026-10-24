@@ -330,6 +330,131 @@ describe('古籍仿真直排：打印与预览同源', () => {
   });
 });
 
+describe('导出与预览样式一致性（预览页框 inline 的打印复刻）', () => {
+  /** 古典主题令牌的最小复刻：只带差异相关的版框令牌 */
+  const BORDER_TOKENS = { ...DEFAULT_THEME, 'page-border': '3px double #b09a76' };
+
+  it('根级 text-indent：与预览页框同源，容器段落 inherit 链不断', () => {
+    const html = renderPrintHtml(sampleDoc(), { mode: 'paged' });
+    expect(html).toContain('body {\n  text-indent: var(--bt-text-indent-body);\n}');
+    /* 令牌缺失时不输出（等价 setIfPresent 语义） */
+    const css = buildPrintCss({ options: DEFAULT_LAYOUT_OPTIONS, tokens: {}, mode: 'paged' });
+    expect(css).not.toContain('text-indent');
+  });
+
+  it('page-border 版框：paged 逐页绘制（与预览页框 inline 同值），auto 不画', () => {
+    const paged = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout: CLASSICAL_LAYOUT_OPTIONS,
+      tokens: BORDER_TOKENS,
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    /* 断言用「换行 + 两格缩进的声明行」形态：令牌本身会进 :root 变量层
+       （--bt-page-border: …）、book-css 的 .bt-border-frame 恒含同类 border
+       值，裸子串会误伤 */
+    expect(paged).toContain('\n  border: 3px double #b09a76;');
+
+    /* auto 整书流无页界，不逐页画框 */
+    const auto = renderPrintHtml(sampleDoc(), { mode: 'auto', tokens: BORDER_TOKENS });
+    expect(auto).not.toContain('\n  border: 3px double #b09a76;');
+
+    /* 无令牌不输出：现代横排产物不含版框声明 */
+    const plain = renderPrintHtml(sampleDoc(), { mode: 'paged' });
+    expect(plain).not.toContain('\n  border: 3px double #b09a76;');
+  });
+
+  it('仿真版式不画 page-border（与预览闸门一致：版框图层与令牌成对失效）', () => {
+    const preset = FACSIMILE_PRESETS[0] as NonNullable<(typeof FACSIMILE_PRESETS)[0]>;
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout: preset.layout,
+      tokens: { ...preset.tokens, 'page-border': '3px double #b09a76' },
+      fontToken: preset.fontToken,
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(html).not.toContain('\n  border: 3px double #b09a76;');
+  });
+
+  it('版面级分栏（columns>1）：.bt-page 根级分栏与预览页框同源，body 不再分栏', () => {
+    const html = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      layout: { ...DEFAULT_LAYOUT_OPTIONS, columns: 2 },
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(html).toContain('.bt-page {\n  column-count: 2;');
+    /* body 根规则不分栏：paged 下 body 的栏会把 .bt-page 序列当栏内容排 */
+    expect(html).not.toMatch(/body\s*\{[^}]*column-count/);
+    /* 单栏产物不含本特性的分栏规则（book-css 的 .bt-double-note 恒有
+       column-count: 2，负向断言须避开该无关规则；产物逐字符不变） */
+    const single = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(single).not.toContain('.bt-page {\n  column-count');
+    expect(single).not.toContain('bt-page__flow');
+  });
+
+  it('块级分栏（结构节点 attrs.columns）：正文包 .bt-page__flow 并下发 data-columns 规则', () => {
+    const doc = sampleDoc();
+    const chap2 = doc.root.children?.[1] as
+      | { attrs?: Record<string, unknown> }
+      | undefined;
+    chap2!.attrs = { ...chap2!.attrs, columns: 2 };
+    const html = renderPrintHtml(doc, {
+      mode: 'paged',
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(html).toContain(`.bt-page__flow[data-columns='2']`);
+    expect(html).toContain('<div class="bt-page__flow" data-columns="2">');
+    /* 无块级分栏的书不下发 flow 规则（产物逐字符不变） */
+    const plain = renderPrintHtml(sampleDoc(), {
+      mode: 'paged',
+      pageMainSize: PAGE_MAIN,
+      estimator: fixedEstimator(SIZES),
+    });
+    expect(plain).not.toContain('bt-page__flow');
+  });
+
+  it('页底浮注：footnoteFloat 开启后注区渲染在页底（与预览同源）', () => {
+    const doc = createEmptyDocument({ title: '浮注' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '子曰' }] },
+      {
+        type: NODE_TYPES.FOOTNOTE,
+        id: 'fn-1',
+        children: [{ type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '注文' }] }],
+      },
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-2', children: [{ type: 'text', text: '有朋' }] },
+    ];
+    const sizes = { 'p-1': 200, 'fn-1': 60, 'p-2': 250 };
+
+    const on = renderPrintHtml(doc, {
+      mode: 'paged',
+      pageMainSize: 600,
+      footnoteFloat: true,
+      estimator: fixedEstimator(sizes),
+    });
+    expect(on).toContain('class="bt-page-notes"');
+    expect(on).toContain('<div class="bt-page-note" data-note-id="fn-1">');
+    expect(on).toContain('注文');
+
+    /* 未开启：注块走正文流（注文仍在），不出现注区；CSS 恒含 .bt-page-notes
+       规则，负向断言只看正文元素形态 */
+    const off = renderPrintHtml(doc, {
+      mode: 'paged',
+      pageMainSize: 600,
+      estimator: fixedEstimator(sizes),
+    });
+    expect(off).not.toContain('class="bt-page-notes"');
+    expect(off).toContain('注文');
+  });
+});
+
 describe('printHtml（浏览器打印辅助）', () => {
   it('无 document 环境抛出错误', () => {
     expect(() => printHtml('<html></html>')).toThrow(/浏览器环境/);

@@ -33,6 +33,7 @@ import {
   escapeHtml,
   serializeNode,
   serializePageGutter,
+  serializePageNotes,
 } from '@bibliotype/layout/html';
 import {
   Reader,
@@ -147,6 +148,15 @@ export interface PrintDocumentOptions {
   cropMarks?: boolean;
   /** 是否输出图片打印尺寸规则（按版心等比缩小，不裁切） */
   imageRules?: boolean;
+  /**
+   * 页底浮注（与预览 Reader 同源选项，仅 paged）
+   *
+   * 开启后脚注块不进正文流、落所在页的页底注区（`.bt-page-notes`）。宿主预览
+   * 开了浮注而导出不开，会导致注全丢且逐页归属与预览错位——两端传同一值。
+   */
+  footnoteFloat?: boolean;
+  /** 页底注区最多占页面主轴的多少（0~1，缺省 0.4；仅 `footnoteFloat` 生效） */
+  noteMaxRatio?: number;
 }
 
 /** 打印分页器：Reader 构建、全量分页与 CSS 拼装缓存一次，供整份文档 / 逐页光栅共用 */
@@ -175,10 +185,7 @@ export interface PrintPager {
  * 创建打印分页器
  *
  * 导出前一次分页，逐页渲染不再重复构建 Reader（光栅直出逐页取片段用）。
- *
- * 直排修正：Reader 显式传 `axis`（writingMode 竖排 → `'column'`）与 `tokens`——
- * 屏幕量尺在直排下产出的块推进量是**列向宽度**，缺 axis 会被按横排行高口径
- * 解释，分页与跨页行切片全错位（古籍直排导出空白页的根因）。
+ * 预分页的直排修正与浮注透传见 `createPagedReader`（与预览阅读路径同源）。
  */
 export function createPrintPager(
   book: BookDocument,
@@ -189,9 +196,24 @@ export function createPrintPager(
   const mode: PrintMode = options.mode ?? 'auto';
   const language = book.metadata.language ?? 'zh-Hans';
 
+  /*
+   * paged 先建 Reader 完成预分页，再拼样式表：块级分栏（结构节点
+   * attrs.columns → 分页器按组乘容量）出现在任何一页，才向 buildPrintCss
+   * 申请 `.bt-page__flow` 的分栏规则——无块级分栏的书产物逐字符不变。
+   */
+  const pagedReader =
+    mode === 'paged' ? createPagedReader(book, layout, tokens, options) : undefined;
+  const flowColumns =
+    pagedReader !== undefined &&
+    pagedReader.pagination.some((page) => (page.columns ?? 1) > 1);
+
   const documentCss = `${buildBookCss({
     tokens,
-    options: layout,
+    options:
+      /* paged 的分栏由 .bt-page__flow 逐页承担（与预览 __flow 同构）；body 根
+       * 规则若带 column-count 会把 .bt-page 序列当栏内容排，这里显式置 1
+       * 规避（resolvePageMainSize / 图片限幅均不读 columns，其余产物不变）。 */
+      mode === 'paged' ? { ...layout, columns: 1 } : layout,
     fontToken: options.fontToken,
     features: options.features,
     namedStyles: options.namedStyles,
@@ -203,6 +225,7 @@ export function createPrintPager(
     options: layout,
     tokens,
     mode,
+    ...(flowColumns ? { flowColumns: true } : {}),
     ...(options.facing === undefined ? {} : { facing: options.facing }),
     ...(options.bleed === undefined ? {} : { bleed: options.bleed }),
     ...(options.cropMarks === undefined ? {} : { cropMarks: options.cropMarks }),
@@ -224,7 +247,7 @@ ${body}
 </html>
 `;
 
-  if (mode !== 'paged') {
+  if (pagedReader === undefined) {
     /* auto 模式：整书语义 HTML 单文档流，由打印引擎分页（无固定页界） */
     return {
       mode,
@@ -241,25 +264,8 @@ ${body}
   }
 
   /* 复用 Reader 的分页与行片段契约：与预览走同一 getPageFragments，消除整段重复 / 裁切；
-   * axis / tokens 与屏幕阅读路径同源（见上方 JSDoc 的直排修正说明） */
-  const merged = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, layout);
-  const reader = new Reader({
-    layout,
-    tokens,
-    axis: isVerticalMode(merged.writingMode) ? 'column' : 'row',
-    measure: options.context,
-    estimator: options.estimator ?? defaultEstimator,
-    blockSizes: options.blockSizes,
-    pageMainSize: options.pageMainSize ?? defaultPageMainSize(layout, tokens),
-    bottomSlack:
-      options.bottomSlack ??
-      resolveBottomSlack(layout, tokens, defaultLineSize(tokens)),
-    lineOffsets: options.lineOffsets,
-    lineSizes: options.lineSizes,
-    lineMainSizes: options.lineMainSizes,
-    bodySizes: options.bodySizes,
-  });
-  reader.loadDocument(book);
+   * axis / tokens 与屏幕阅读路径同源（见 createPagedReader 的直排修正说明） */
+  const reader = pagedReader;
   const pages = reader.pagination;
 
   const renderPage = (index: number): string => {
@@ -279,6 +285,26 @@ ${body}
         }),
       )
       .join('\n');
+    /*
+     * 逐页分栏（columns > 1）：正文包 .bt-page__flow（与预览 __flow 同构），
+     * 分栏声明由 buildPrintCss 按 data-columns 下发；单栏不包，产物不变。
+     */
+    const columns = reader.getPageColumns(page.index);
+    const openFlow = columns > 1 ? `<div class="bt-page__flow" data-columns="${columns}">\n` : '';
+    const closeFlow = columns > 1 ? '</div>\n' : '';
+    /*
+     * 页底注区（页底浮注开启时）：与预览同源（reader.getPageNotes +
+     * serializePageNotes，承接跨页续注标记）；无注返回空串，未开启不出现。
+     */
+    const notesHtml = serializePageNotes(reader.getPageNotes(page.index), {
+      continued: reader.isPageNotesContinued(page.index),
+      nodeOptions: {
+        tagOverrides: options.tagOverrides,
+        rewriteSrc: options.rewriteSrc,
+        verticalText: options.verticalText,
+        revisionView: options.revisionView ?? 'final',
+      },
+    });
     /*
      * 页眉 / 页脚放在正文之后：`.bt-page > :first-child` 的「页首块吞 margin」
      * 规则必须继续命中正文首块（页眉是绝对定位，DOM 顺序不影响视觉层级）。
@@ -305,7 +331,8 @@ ${body}
           : '';
     return (
       `<section class="bt-page${pageSideClass(options, page.index)}" data-page="${page.index + 1}">\n` +
-      `${content}\n` +
+      `${openFlow}${content}\n${closeFlow}` +
+      `${notesHtml}` +
       `${gutter}${header}${footer}${cropMarksOverlay(options)}</section>`
     );
   };
@@ -363,6 +390,44 @@ function pageSideClass(options: PrintDocumentOptions, pageIndex: number): string
 function cropMarksOverlay(options: PrintDocumentOptions): string {
   if (options.cropMarks !== true || (options.bleed ?? 0) <= 0) return '';
   return '<div class="bt-crop-marks" aria-hidden="true"><i></i><i></i><i></i><i></i></div>';
+}
+
+/**
+ * paged 内部 Reader：与预览同源的预分页
+ *
+ * 直排修正：Reader 显式传 `axis`（writingMode 竖排 → `'column'`）与 `tokens`——
+ * 屏幕量尺在直排下产出的块推进量是**列向宽度**，缺 axis 会被按横排行高口径
+ * 解释，分页与跨页行切片全错位（古籍直排导出空白页的根因）。
+ * 页底浮注（footnoteFloat / noteMaxRatio）同样透传：宿主预览开了浮注而导出
+ * 不开，注全丢且逐页归属与预览错位。
+ */
+function createPagedReader(
+  book: BookDocument,
+  layout: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+  options: PrintDocumentOptions,
+): Reader {
+  const merged = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, layout);
+  const reader = new Reader({
+    layout,
+    tokens,
+    axis: isVerticalMode(merged.writingMode) ? 'column' : 'row',
+    measure: options.context,
+    estimator: options.estimator ?? defaultEstimator,
+    blockSizes: options.blockSizes,
+    pageMainSize: options.pageMainSize ?? defaultPageMainSize(layout, tokens),
+    bottomSlack:
+      options.bottomSlack ??
+      resolveBottomSlack(layout, tokens, defaultLineSize(tokens)),
+    lineOffsets: options.lineOffsets,
+    lineSizes: options.lineSizes,
+    lineMainSizes: options.lineMainSizes,
+    bodySizes: options.bodySizes,
+    ...(options.footnoteFloat === undefined ? {} : { footnoteFloat: options.footnoteFloat }),
+    ...(options.noteMaxRatio === undefined ? {} : { noteMaxRatio: options.noteMaxRatio }),
+  });
+  reader.loadDocument(book);
+  return reader;
 }
 
 /** 每页可用主轴尺寸（与 reader / 编辑画布同源：resolvePageMainSize，含页边距与版框边框扣除） */

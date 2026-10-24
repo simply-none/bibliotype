@@ -421,6 +421,25 @@
 - 多标签不同步：`BroadcastChannel` 需要同源同频道名，且 `connect()` 后才会发 `hello`；
 - 手动 `disconnect()` 不重连是预期行为，需要恢复请再调 `connect()`。
 
+## 24. 应用内直出（光栅）PDF 样式全丢 / 直排变横排
+
+**现象**：浏览器「应用内直出」的 PDF 里字体、字号、颜色、背景全不对，古籍直排
+整本变横排；而同一份书走 Electron 矢量导出或打印对话框正常。
+
+**根因**：光栅路径把页片段与样式表包进 `<svg><foreignObject>` 渲染，包装元素
+必须是 XHTML `<body>`——`buildBookCss` 的书册根规则与全部节点规则挂在
+`body` 选择器（`body {…}` / `body .bt-*`），包成普通 `div` 时这些选择器全部
+失配，只剩 `.bt-page` 盒与无前缀的规则生效。`documentCss` 三条路径共用，
+矢量 / 打印路径有真实 `<body>` 元素所以正常，具有欺骗性。
+
+**处理与排查**：
+
+- 使用 `exportRasterPdf`（内部 `buildSvgXml` 已用 XHTML `<body>` 包装），不要
+  自行拼 foreignObject 容器；
+- 自定义光栅实现（`rasterize` 注入）复刻容器时，记住 `<style>` 与页片段都要
+  落在 `<body>` 内，`:root` 变量在 SVG 上下文挂 `<svg>` 根、经继承可达；
+- 回归测试见 `exporter-pdf` 的 `raster-svg.test.ts`（断言包装元素形态）。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

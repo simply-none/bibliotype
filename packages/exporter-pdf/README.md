@@ -114,12 +114,15 @@ const css = buildPrintCss({ options: layout, tokens: DEFAULT_THEME, mode: 'paged
 | `bleed` | 出血（mm，单边）：页面四周外扩，版心位置不变 |
 | `cropMarks` | 四角裁切标记（仅 paged 且 `bleed > 0`） |
 | `imageRules` | 图片按版心等比缩小（`max-width` / `max-height`，不裁切） |
+| `footnoteFloat` | 页底浮注（仅 paged，与预览 Reader 同源）：脚注不进正文流、落所在页页底注区 `.bt-page-notes` |
+| `noteMaxRatio` | 页底注区占页面主轴上限（0~1，缺省 0.4；仅 `footnoteFloat` 生效） |
 
 ### `PrintCssOptions`（`buildPrintCss`）
 
 `options`（布局）、`tokens`（令牌）、`mode`（模式）——生成 `@page` 尺寸、页边距等打印样式，
 与书册样式表叠加使用。精排选项（均可选，缺省不输出）：`facing`（对页镜像）、
-`bleed`（出血 mm）、`cropMarks`（裁切标记）、`imageRules`（图片版心约束）。
+`bleed`（出血 mm）、`cropMarks`（裁切标记）、`imageRules`（图片版心约束）、
+`flowColumns`（块级逐页分栏规则；由 `createPrintPager` 按分页结果探测，一般无需手传）。
 
 ### 精排（对页 / 出血 / 裁切线）
 

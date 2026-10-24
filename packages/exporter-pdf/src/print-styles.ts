@@ -24,6 +24,7 @@
  */
 import { COLOR_TOKENS, FONT_SIZE_TOKENS, LAYOUT_TOKENS } from '@bibliotype/core';
 import {
+  isFacsimileEnabled,
   resolveFacsimileGutterSize,
   resolvePageMarginBox,
   type LayoutOptions,
@@ -60,6 +61,14 @@ export interface PrintCssOptions {
   cropMarks?: boolean;
   /** 是否输出图片打印尺寸规则（max-width / max-height 等比缩小） */
   imageRules?: boolean;
+  /**
+   * 是否输出逐页分栏规则（`.bt-page__flow[data-columns]`，仅 paged）
+   *
+   * 由调用方按分页结果探测（任何一页的块级分栏 > 1 才传 true）：块级分栏
+   * 来自结构节点 `attrs.columns`，与 `options.columns`（版面级）相互独立。
+   * 缺省 false，无块级分栏的书产物逐字符不变。
+   */
+  flowColumns?: boolean;
 }
 
 /** 出血毫米 → 像素（96dpi；负数 / 非有限值按 0） */
@@ -130,6 +139,20 @@ export function buildPrintCss(input: PrintCssOptions): string {
   const box = needsBox ? resolveMarginBox(tokens) : undefined;
 
   const rules: string[] = [];
+
+  /*
+   * 根级首行缩进（与预览页框 inline 的 buildRootStyle 同源）：预览把 text-indent
+   * 写在页框上，容器内段落经 `text-indent: inherit` 链解析到根值；打印文档的
+   * 书册根规则（buildBookCss 的 body）不含 text-indent，不补这条则 inherit 链
+   * 落到 0——双行小注 / 夹注等容器段落的首行缩进在 PDF 里丢失。
+   * 变量缺失时整条失效（等价 setIfPresent），不扰动 EPUB 共用的 book-css。
+   */
+  const textIndent = tokens[LAYOUT_TOKENS.TEXT_INDENT];
+  if (textIndent !== undefined && textIndent !== '') {
+    rules.push(
+      `body {\n  text-indent: var(--bt-${LAYOUT_TOKENS.TEXT_INDENT});\n}`,
+    );
+  }
 
   if (mode === 'auto') {
     /* 出血外扩：页面尺寸 + 2×bleed，页边距同步 + bleed（版心不动） */
@@ -215,13 +238,27 @@ export function buildPrintCss(input: PrintCssOptions): string {
               : `  padding-right: ${box.right + gutterSize + bleedPx}px;\n`;
           })()
         : '';
+    /*
+     * 版框（page-border 扩展令牌，如 '3px double #b09a76'）：与预览页框 inline
+     * border（buildRootStyle 的非仿真分支）同源同值。border-box 下 border 侵占
+     * 内容区，恰与 resolvePageMainSize / resolvePageCrossSize 两端共同扣除的
+     * border×2 口径对齐——此前导出不画框但分页仍扣位，PDF 版心四周多出空位。
+     * 仅 paged 逐页绘制（auto 整书流无页界）；仿真版式自带版框图层，与
+     * page-border 成对失效（同 buildRootStyle 闸门）。已知偏差：出血 >0 时
+     * border 画在放大后的页盒外缘而非裁切线，精排场景待后续处理。
+     */
+    const pageBorderToken = tokens['page-border'];
+    const pageBorder =
+      !isFacsimileEnabled(options) && pageBorderToken !== undefined && pageBorderToken.trim() !== ''
+        ? `  border: ${pageBorderToken};\n`
+        : '';
     const padding = box === undefined ? margin : boxShorthand(box, bleedPx);
     rules.push(`.bt-page {
   box-sizing: border-box;
   width: ${width}px;
   height: ${height}px;
   padding: ${padding};
-${gutterPadding}  overflow: hidden;
+${gutterPadding}${pageBorder}  overflow: hidden;
   position: relative;
 ${chromeVars}  break-after: page;
 }
@@ -242,6 +279,43 @@ ${chromeVars}  break-after: page;
   font-size: var(--bt-${FONT_SIZE_TOKENS.NOTE});
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }`);
+    /*
+     * 逐页分栏（两道独立闸门，不满足时产物逐字符不变）：
+     * - 版面级（options.columns > 1）：`.bt-page` 根级分栏，与预览页框 inline
+     *   （buildRootStyle 的 column-count）同源；
+     * - 块级（flowColumns，结构节点 attrs.columns → 分页器按组乘容量）：
+     *   正文片段由 print-document 包进 .bt-page__flow（data-columns 打标），
+     *   这里复刻预览 __flow 的分栏声明——column-fill: auto 保证先填满前一栏
+     *   再进下一栏（balancing 与分页器的行级切分不对应），子块
+     *   break-inside: avoid 防止浏览器二次拆分已按行切好的片段。
+     * body 根规则的分栏由 print-document 侧以 columns: 1 规避（paged 下
+     * body 的栏会把 .bt-page 序列当栏内容排）。
+     */
+    if (options.columns > 1) {
+      rules.push(`.bt-page {
+  column-count: ${options.columns};
+  column-gap: var(--bt-${LAYOUT_TOKENS.COLUMN_GAP});
+}`);
+    }
+    if (input.flowColumns === true) {
+      rules.push(`.bt-page__flow[data-columns='2'],
+.bt-page__flow[data-columns='3'] {
+  column-gap: var(--bt-${LAYOUT_TOKENS.COLUMN_GAP});
+  column-fill: auto;
+}
+.bt-page__flow[data-columns='2'] {
+  column-count: 2;
+}
+.bt-page__flow[data-columns='3'] {
+  column-count: 3;
+}
+.bt-page__flow[data-columns] > * {
+  break-inside: avoid;
+}
+.bt-page__flow > :first-child {
+  margin-block-start: 0;
+}`);
+    }
     if (facingGutter !== undefined && box !== undefined) {
       /*
        * 对页镜像（paged）：`.bt-page-recto / .bt-page-verso` 由打印文档

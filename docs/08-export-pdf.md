@@ -56,6 +56,27 @@ pager.renderDocument();   // 完整 HTML（与 renderPrintHtml 产物逐字节�
 **列向宽度**，缺 axis 会被按横排行高口径解释，分页与跨页行切片全错位
 （古籍直排导出「首页有内容、后续页只剩版框」空白的根因）。
 
+**样式同预览**（`paged` 逐页复刻预览页框 inline 的 `buildRootStyle`）：
+
+- **根级首行缩进**：打印 CSS 输出 `body { text-indent: var(--bt-text-indent-body) }`
+  ——预览的 text-indent 写在页框上，双行小注 / 夹注等容器段落经
+  `text-indent: inherit` 链取根值；不补这条则导出端继承链落到 0，首行缩进丢失；
+- **版框（`page-border` 令牌）**：非仿真版式时 `.bt-page` 逐页输出
+  `border: {令牌}`——与预览页框 inline 同值；分页口径
+  （`resolvePageMainSize` / `resolvePageCrossSize`）两端都扣 `border×2`，
+  不画框则版心四周多出被扣掉的空位。仿真版式自带版框图层，与令牌成对失效
+  （同预览闸门）；`auto` 整书流无页界，不逐页画框；已知偏差：`bleed > 0`
+  时框画在放大后的页盒外缘而非裁切线，精排场景待后续处理；
+- **逐页分栏**：版面级（`layout.columns > 1`）由 `.bt-page` 根级
+  `column-count` 承担（同预览页框）；块级（结构节点 `attrs.columns` →
+  分页器按组乘容量）由 print-document 探测分页结果，正文包
+  `.bt-page__flow[data-columns]` 并按需下发分栏 CSS（同预览 `__flow` 声明，
+  含 `column-fill: auto` 与子块 `break-inside: avoid`）；paged 下 body 根规则
+  不再分栏（body 的栏会把 `.bt-page` 序列当栏内容排）；
+- **页底浮注**：`footnoteFloat` / `noteMaxRatio` 透传内部 Reader（与预览同源，
+  不传则宿主开了浮注的书导出会注全丢且逐页归属错位）；每页正文后渲染
+  `.bt-page-notes` 注区（含跨页续注「续前页」标记）。
+
 ### PrintDocumentOptions
 
 | 选项 | 说明 |
@@ -72,6 +93,8 @@ pager.renderDocument();   // 完整 HTML（与 renderPrintHtml 产物逐字节�
 | `bleed` | 出血（mm，单边）：页面四周外扩，版心尺寸不变 |
 | `cropMarks` | 四角裁切标记（仅 `paged` 且 `bleed > 0`） |
 | `imageRules` | 图片按版心等比缩小（不裁切、不放大），与 DPI 检查同源 |
+| `footnoteFloat` | 页底浮注（仅 `paged`）：与预览 Reader 同源选项，开启后脚注落所在页页底注区 |
+| `noteMaxRatio` | 页底注区占页面主轴上限（0~1，缺省 0.4；仅 `footnoteFloat` 生效） |
 
 ## 应用内直出（exportRasterPdf，纯浏览器推荐）
 
@@ -112,6 +135,9 @@ downloadPdf(bytes, '论语.pdf');
 - 让出走 `MessageChannel` 宏任务（无 setTimeout 嵌套的 ~4ms 钳制），后台标签不停摆；
 - Chromium 的 SVG 图像加载禁**外部**资源，但系统字体与 data URI 图片可用——
   打印 CSS 字体按令牌落到系统字体族、图片在降级链路已是 data URI，恰好都可用；
+- foreignObject 的包装元素是 XHTML `<body>`：打印 CSS 的书册根规则与全部
+  节点规则挂在 `body` 选择器，包成普通 div 会全部失配（字体 / 颜色 /
+  writing-mode 全丢，直排变横排——见 [docs/14](14-faq.md) 对应条目）；
 - `rasterize` 选项可注入单页 HTML→位图实现（Node 测试 mock 用，注入后不启用
   Worker 池，并发窗口仍生效）。
 

@@ -95,12 +95,20 @@ function yieldToHost(): Promise<void> {
   });
 }
 
-/** 页面片段 + 样式表 → XML 合法的 `<svg><foreignObject>` 串（HTML 解析还原实体后序列化） */
-function buildSvgXml(pageHtml: string, css: string, width: number, height: number): string {
+/**
+ * 页面片段 + 样式表 → XML 合法的 `<svg><foreignObject>` 串（HTML 解析还原实体后序列化）
+ *
+ * 包装元素必须是 XHTML `<body>`：打印 CSS 的书册根规则与全部节点规则挂在
+ * `body`（`buildBookCss` 缺省 containerSelector），包成普通 div 会使
+ * `body {…}` 与 `body .bt-*` 选择器全部失配——字体 / 字号 / 颜色 /
+ * writing-mode（直排变横排）/ 节点样式全丢。body 的 UA 外边距 8px 由
+ * CSS 首条 `body { margin: 0 }` 覆盖。
+ */
+export function buildSvgXml(pageHtml: string, css: string, width: number, height: number): string {
   /* 页面片段 + 样式表在 HTML 上下文解析成 DOM（实体已还原），再以 XML 序列化 */
   const holder = document.createElement('div');
   holder.innerHTML = `<style>${css}</style>${pageHtml}`;
-  const body = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+  const body = document.createElementNS('http://www.w3.org/1999/xhtml', 'body');
   while (holder.firstChild !== null) body.appendChild(holder.firstChild);
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

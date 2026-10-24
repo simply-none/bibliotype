@@ -64,8 +64,12 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  *
  * 2026-10-23 十三次更新（K6）：新增行内字图规则 `.bt-glyph-image`（1em 硬限幅内联 +
  * 直排构建期旋转），仅在文档含字图节点时命中，样式表全文变化，基线重锁。
+ *
+ * 2026-10-24 十四次更新：移除直排字图 `transform: rotate(90deg)`——缺字字形图是
+ * 正立文字的图片，直排汉字直立、字图同理恒不旋转（验收口径），样式表全文
+ * 变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '7d8eb46b';
+export const CLASSICAL_CSS_FNV = '0f2d0062';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

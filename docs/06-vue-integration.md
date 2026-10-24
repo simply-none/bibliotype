@@ -339,7 +339,7 @@ note.attach(rootElement);
   存在（首指按下挂、末指抬起摘，关闭 / 卸载强制摘），滚轮监听绑在弹窗根元素随
   `v-if` 卸载——不干扰阅读层翻页滚轮与原生手势（`touch-action: none` 接管浏览器
   默认平移 / 捏合；不用 setPointerCapture，它会重定向 click 使关闭按钮失效）；
-- 直排阅读流中的字图 90° 旋转不带入弹窗，恒以原图方向展示；
+- 字图（缺字字形图）无论横排 / 直排恒以原图方向展示（直排汉字直立，字图同理，不随书写方向旋转）；
 - 视觉变量（均带默认值）：`--bt-lightbox-mask` / `--bt-lightbox-color` /
   `--bt-lightbox-image-bg`（图片衬底，透明 PNG 字图以白衬底保持可读）。
 

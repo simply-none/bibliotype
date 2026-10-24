@@ -35,6 +35,15 @@ describe('buildBookCss', () => {
     expect(css).not.toContain('body {\n');
   });
 
+  it('字图恒不旋转：直排与横排产物均无 rotate 规则（直排汉字直立，字图同理）', () => {
+    const vertical = buildBookCss({ tokens: DEFAULT_THEME, options: CLASSICAL_LAYOUT_OPTIONS });
+    expect(vertical).toContain('writing-mode: vertical-rl;');
+    expect(vertical).toContain('.bt-glyph-image {');
+    expect(vertical).not.toContain('rotate(90deg)');
+    const horizontal = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(horizontal).not.toContain('rotate(90deg)');
+  });
+
   it('containerSelector 同时限定节点 / 角色规则（防泄漏到容器外，如编辑画布）', () => {
     const readerCss = buildBookCss({
       tokens: DEFAULT_THEME,

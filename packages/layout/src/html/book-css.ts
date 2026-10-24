@@ -851,12 +851,6 @@ ${scoped('.bt-note-continued--prev')} {
     rules.push(`/* ---------- 用户样式覆盖（功能样式 / 命名样式） ---------- */\n${featureCss}`);
   }
 
-  /* 直排字图旋转：img 不随 writing-mode 转，方块字图转 90° 后占位不变（1em 方形）；
-   * 横排不输出（构建期按 writingMode 定，无运行时属性依赖） */
-  if (vertical) {
-    rules.push(`${scoped('.bt-glyph-image')} {\n  transform: rotate(90deg);\n}`);
-  }
-
   const css = `${rules.join('\n\n')}\n`;
   return input.flatten === true ? flattenCssVariables(css) : css;
 }

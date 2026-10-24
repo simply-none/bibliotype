@@ -18,6 +18,7 @@ import { NODE_TYPES } from './ir/node-types.js';
 import type { BookDocument } from './ir/document.js';
 import type { Attrs } from './ir/types.js';
 import type { BookNode } from './ir/nodes.js';
+import { sniffEmbeddedImageSize } from './image-size.js';
 
 /** 识别选项（全部可配置，缺省见 {@link DEFAULT_GLYPH_IMAGE_OPTIONS}） */
 export interface GlyphImageDetectOptions {
@@ -144,7 +145,17 @@ function keepReasonOf(
   }
   const width = numAttr(node, 'width');
   const height = numAttr(node, 'height');
-  const measured = [width, height].filter((v): v is number => v !== undefined);
+  let measured = [width, height].filter((v): v is number => v !== undefined);
+  /*
+   * 内嵌位图尺寸嗅探：attrs 无尺寸时从 data URI 头部读真实宽高（PNG/GIF/
+   * SVG，见 image-size.ts）。句首 / 句尾的字图没有「切断句子」位置信号，
+   * 尺寸是唯一硬证据——近方小图由此凑足强信号；内嵌大位图反而被正确排除
+   * 为插图。JPEG / WebP 不嗅探（照片插图主流形态），失败回退保守判定。
+   */
+  if (measured.length === 0 && isEmbeddedBitmap(src)) {
+    const sniffed = sniffEmbeddedImageSize(src);
+    if (sniffed !== undefined) measured = [sniffed.width, sniffed.height];
+  }
   if (measured.some((v) => v > options.maxGlyphPx)) {
     return `尺寸 ${measured.join('×')} 超过字图阈值 ${options.maxGlyphPx}px（插图）`;
   }

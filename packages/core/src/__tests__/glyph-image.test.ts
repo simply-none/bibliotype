@@ -4,7 +4,8 @@
  * 守护五件事：
  * 1. 识别矩阵——alt 单字 / 近方形小尺寸 → 字图；主流无元数据形态（docx data URI /
  *    epub 相对路径）靠「内嵌位图 / 扩展名 + 位置（切断句子）」双弱信号判定；
- *    大图、caption 配对、仅单条弱信号 → 保守保留；
+ *    大图、caption 配对、仅单条弱信号 → 保守保留；句首 / 句尾位没有位置信号，
+ *    由内嵌位图**尺寸嗅探**（data URI 头部直读宽高，PNG/GIF/SVG）提供硬证据；
  * 2. 归并复原——两侧都是段落且前段未收尾（被字图切断的同一句话）→ 三合一复原；
  *    前段收尾缝后段头；容器末尾缝前段尾；两侧非段落保留；强制方向只缝单侧；
  * 3. 连续字图——多个字图连续夹在两段之间，逐个归并后仍复原成一段；
@@ -155,6 +156,63 @@ describe('字图识别', () => {
     );
     expect(report.merged).toEqual([]);
     expect(report.kept[0]?.reason).toContain('弱信号');
+  });
+
+  /* ---------- 内嵌位图尺寸嗅探（句首 / 句尾位的硬证据） ---------- */
+
+  /** PNG 头（签名 + IHDR + 宽高）的 base64 前缀，按尺寸生成 */
+  const pngHeader = (w: number, h: number): string => {
+    const bytes = [
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      (w >>> 24) & 255, (w >>> 16) & 255, (w >>> 8) & 255, w & 255,
+      (h >>> 24) & 255, (h >>> 16) & 255, (h >>> 8) & 255, h & 255,
+    ];
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    return btoa(binary);
+  };
+
+  it('句首内嵌 PNG 近方小图（真实头、无 alt 无尺寸）→ 嗅探凑足强信号并入后段头', () => {
+    const src = `data:image/png;base64,${pngHeader(24, 24)}`;
+    const { document, report } = normalizeGlyphImages(
+      doc([para('前文完了。'), image({ src }, 'img-g1'), para('句首缺字的后文。')]),
+    );
+    /* 前段已收尾 → 不复原，缝后段头（字图是后句起头字） */
+    expect(report.merged).toEqual([{ imageId: 'img-g1', position: 'next-start' }]);
+    expect(report.kept).toEqual([]);
+    const children = document.root.children?.[0]?.children ?? [];
+    expect(children).toHaveLength(2);
+    const merged = children[1]!;
+    expect(merged.children?.[0]?.type).toBe(NODE_TYPES.GLYPH_IMAGE);
+    expect(merged.children?.[1]?.type).toBe('text');
+  });
+
+  it('内嵌大位图（真实头 600×400）→ 嗅探尺寸超阈值，正确排除为插图', () => {
+    const src = `data:image/png;base64,${pngHeader(600, 400)}`;
+    const { report } = normalizeGlyphImages(
+      doc([para('前文完了。'), image({ src }, 'img-big2'), para('后文。')]),
+    );
+    expect(report.merged).toEqual([]);
+    expect(report.kept[0]?.id).toBe('img-big2');
+    expect(report.kept[0]?.reason).toContain('600×400');
+    expect(report.kept[0]?.reason).toContain('插图');
+  });
+
+  it('内嵌横幅小位图（真实头 60×20、宽高比出区间）→ 保守保留', () => {
+    const src = `data:image/png;base64,${pngHeader(60, 20)}`;
+    const { report } = normalizeGlyphImages(
+      doc([para('前文完了。'), image({ src }, 'img-wide'), para('后文。')]),
+    );
+    expect(report.merged).toEqual([]);
+    expect(report.kept[0]?.reason).toContain('弱信号');
+  });
+
+  it('句首内嵌 SVG（根元素 width/height=24）→ 嗅探识别并入后段头', () => {
+    const svg = btoa('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"></svg>');
+    const { report } = normalizeGlyphImages(
+      doc([para('前文完了。'), image({ src: `data:image/svg+xml;base64,${svg}` }, 'img-s1'), para('后文。')]),
+    );
+    expect(report.merged).toEqual([{ imageId: 'img-s1', position: 'next-start' }]);
   });
 
   it('仅位置单弱信号（无 alt 无尺寸、jpg）→ 保守保留', () => {

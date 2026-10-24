@@ -9,8 +9,11 @@ import { createApp, defineComponent, h, nextTick, ref, type App, type Ref } from
 import SettingsMisc from '../components/settings/SettingsMisc.vue';
 import {
   DEFAULT_PDF_EXPORT_MODE,
+  DEFAULT_PDF_RASTER_SCALE,
   isPdfExportMode,
+  isPdfRasterScale,
   type PdfExportMode,
+  type PdfRasterScale,
 } from '../composables/use-settings-snapshot.js';
 
 /** 当前挂载实例（每个用例结束统一卸载） */
@@ -22,15 +25,24 @@ afterEach(() => {
   mounted = null;
 });
 
-/** 挂载「其他」分区，返回导出方式 ref 供回显断言 */
-function mountMisc(initial: PdfExportMode): { container: HTMLElement; mode: Ref<PdfExportMode> } {
+/** 挂载「其他」分区，返回导出方式与清晰度 ref 供回显断言 */
+function mountMisc(initial: PdfExportMode, initialScale: PdfRasterScale = 2): {
+  container: HTMLElement;
+  mode: Ref<PdfExportMode>;
+  scale: Ref<PdfRasterScale>;
+} {
   const mode = ref<PdfExportMode>(initial);
+  const scale = ref<PdfRasterScale>(initialScale);
   const Host = defineComponent({
     render: () =>
       h(SettingsMisc, {
         pdfExportMode: mode.value,
+        pdfRasterScale: scale.value,
         'onUpdate:pdf-export-mode': (value: PdfExportMode) => {
           mode.value = value;
+        },
+        'onUpdate:pdf-raster-scale': (value: PdfRasterScale) => {
+          scale.value = value;
         },
       }),
   });
@@ -40,7 +52,7 @@ function mountMisc(initial: PdfExportMode): { container: HTMLElement; mode: Ref<
   const app = createApp(Host);
   app.mount(container);
   mounted = { app, container };
-  return { container, mode };
+  return { container, mode, scale };
 }
 
 describe('SettingsMisc（「其他」分区）', () => {
@@ -86,5 +98,39 @@ describe('SettingsMisc（「其他」分区）', () => {
     for (const jargon of ['pdf-lib', 'pdfjs', 'foreignObject', 'iframe', 'canvas']) {
       expect(text.toLowerCase()).not.toContain(jargon);
     }
+  });
+
+  it('清晰度四档：缺省选中标准 192dpi，守卫拒绝脏数据', () => {
+    expect(DEFAULT_PDF_RASTER_SCALE).toBe(2);
+    expect(isPdfRasterScale(3)).toBe(true);
+    expect(isPdfRasterScale(0)).toBe(false);
+    expect(isPdfRasterScale(5)).toBe(false);
+    expect(isPdfRasterScale('2')).toBe(false);
+
+    const { container, scale } = mountMisc('in-app');
+    const tiers = Array.from(container.querySelectorAll<HTMLButtonElement>('.panel__raster-scale'));
+    expect(tiers.map((tier) => tier.dataset.rasterScale)).toEqual(['1', '2', '3', '4']);
+    expect(
+      container
+        .querySelector('.panel__raster-scale[data-raster-scale="2"]')
+        ?.classList.contains('panel__raster-scale--active'),
+    ).toBe(true);
+  });
+
+  it('点击清晰度档 → emit 回流父级并回显选中态', async () => {
+    const { container, scale } = mountMisc('in-app');
+    const tier = container.querySelector<HTMLButtonElement>(
+      '.panel__raster-scale[data-raster-scale="3"]',
+    );
+    if (!(tier instanceof HTMLButtonElement)) throw new Error('未渲染高清档');
+    tier.click();
+    await nextTick();
+
+    expect(scale.value).toBe(3);
+    expect(
+      container
+        .querySelector('.panel__raster-scale[data-raster-scale="3"]')
+        ?.classList.contains('panel__raster-scale--active'),
+    ).toBe(true);
   });
 });

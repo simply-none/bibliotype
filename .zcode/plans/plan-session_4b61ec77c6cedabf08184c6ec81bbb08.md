@@ -1,33 +1,39 @@
-# 注码点击"刷新"修复——文档内锚点跳转
+# PDF 光栅直出优化——清晰度档位 + 并发流水线 + Worker 离线程编码
 
-## 根因（两层）
-1. **委托盲区**：导入的注码是 link 标记（`a.bt-mark-link[href="#n1"]`），`useNoteInteraction` 只认 noteref / backref / marker → 点击不消费 → 浏览器默认锚点导航 → "刷新"。
-2. **源 id 丢失**：parseDOM 不读元素 `id` → 目标注文块无 id → 跨页定位无从解析（`reader.getPageOfNode` 已存在且 O(1)，只差目标块带 id）。
+## 现状与瓶颈（调研结论）
+
+应用内光栅直出（`exportRasterPdf`，默认链路）每页严格串行：`renderPage` 序列化 → innerHTML 解析 → **SVG foreignObject 解码渲染（最贵）** → canvas 按 scale 绘制 → `toBlob('image/jpeg')` 编码 → pdf-lib 按序嵌入，每页 `setTimeout(0)` 让出（嵌套钳制 ~4ms/页）。清晰度仅 `scale: 1 | 2` 两档（demo 恒 2 = 192dpi），JEPG 质量 0.92。矢量链路（打印对话框 / Electron）不动。
 
 ## 改动清单
 
-### 1. `packages/editor/src/schema-registry.ts` — 集中保留源元素 id
-- `buildSchema` 处为所有节点 parseDOM 规则包一层 `withSourceIdParsing`：克隆规则（不改动共享 spec），getAttrs 合并 `dom.getAttribute('id')`（已显式返回 id / style 规则字符串 dom / 返回 false 的情形均不动）。
-- 效果：新导入的 HTML / docx / EPUB 中 `<a href="#…">` 的目标块（段落 / 列表项 / 标题等）带上源 id，`getPageOfNode` 可定位；顺带修复 bt-* 渲染产物 HTML 往返丢节点 id。spec 未声明 id 属性时 PM 忽略多余键，无需特判。
+### 1. 清晰度档位（`packages/exporter-pdf/src/raster-pdf.ts`）
+- `scale?: 1 | 2` → `scale?: number`（clamp 1~4，非法回退 2）：1=96dpi 草稿 / 2=192dpi 标准 / 3=288dpi 高清 / 4=384dpi 印刷；clamp 逻辑抽纯函数导出便于测试。
 
-### 2. `packages/vue/src/use-note-interaction.ts` — onClick 增加文档内锚点分支
-- 在既有 noteref / backref / marker 三分支之后新增：`closest(event.target, 'a[href^="#"]')` → stripHash 取目标 id。
-- 同页目标（`container.querySelector('[id="…"]')` 命中）→ `preventDefault()` + `activateElement(target)`（复用既有高亮 + scrollIntoView）。
-- 跨页目标 → `reader.getPageOfNode(targetId)`（既有 API）命中 → `preventDefault()` + `goToPage(page)` + `afterRender` 补高亮滚动（复用 goToNote 同款机制）。
-- 目标解析不到 → **不拦截**（交宿主/浏览器默认），原则：只消费能兑现的跳转。
-- reader 零改动；BtBookView / demo 零改动（行为自动生效）。
+### 2. 并发流水线 + 零延迟让出（`raster-pdf.ts` 主循环重写）
+- **滑动窗口**：新 option `concurrency?: number`（缺省 3，clamp 1~6）。窗口内并发发起 `raster(renderPage(i))`（SVG 解码与序列化重叠），**按页序等待并嵌入**（PDF 页序不变）；每完成一页 `onProgress`；abort 在每轮循环顶检查，注入 mock 的现有测试语义不变。
+- **零延迟让出**：`setTimeout(0)` → `MessageChannel` postMessage 宏任务（无 4ms 钳制，保留 setTimeout 回退）。
 
-### 3. 测试
-- editor：`<p id="n1">` 解析 → 节点 id 保留；`div.bt-paragraph id="p-1"` 往返 id 不丢（paste-html 测试环境）。
-- vue：新测试文件（仿 book-view-tap 的 Reader mock）——跨页锚点：点击 `<a class="bt-mark-link" href="#n1">` 后 `update:page` 跳到目标页；同页锚点：目标元素加 `bt-note_active` 高亮且不翻页。
+### 3. Worker 离线程 JPEG 编码（新文件 `packages/exporter-pdf/src/raster-worker.ts`）
+- 能力检测（Worker / OffscreenCanvas / createImageBitmap / MessageChannel 全部可用才启用，否则整体回退现有主线程路径，Node/happy-dom 测试自动走回退）。
+- 流水线：主线程完成 SVG 解码 + **按 scale 直接 drawImage**（保持矢量直绘清晰度，不做先小后大缩放）→ `createImageBitmap(canvas)` → **transfer** 给 Worker → Worker 用 `OffscreenCanvas` 铺白底 1:1 绘制 → `convertToBlob('image/jpeg', quality)` → transfer 字节回主线程。
+- Worker 池（内联 Blob URL 源码，避免打包器 worker 插件依赖）：数量 = min(concurrency, hardwareConcurrency-1, 4)，轮询派发；导出结束/中止 terminate。
+- 中止：窗口循环 AbortError + 池 terminate；worker 内错误回传 reject 对应 job。
 
-### 4. 文档与 changeset
-- `docs/06` 注释交互小节：新增「文档内锚点链接跳转」说明；`docs/17` 导入篇：源元素 id 保留说明。
-- changeset：`@bibliotype/editor` patch（导入保留源 id）+ `@bibliotype/vue` patch（锚点跳转）。注明**存量书需重新导入**（旧数据里源 id 已丢失，无法事后恢复）。
+### 4. demo 接线（清晰度 UI）
+- `use-settings-snapshot.ts`：新增 `pdfRasterScale: 1 | 2 | 3 | 4`（缺省 2，随快照持久化）。
+- `SettingsMisc.vue`：「PDF 导出方式」下方新增「光栅清晰度」四档选择（标注各档 dpi 与体积/速度代价，印刷档提示超长书内存风险），仅对应用内直出生效。
+- `use-export.ts`：`scale: pdfRasterScale`；App.vue 接线；routing 测试更新。
+
+### 5. 测试
+- `print-pager.test.ts` raster 部分：注入带延迟的 mock `rasterize` 验证——嵌入顺序 = 页序、onProgress 每页一次递增、in-flight 峰值 ≤ concurrency、窗口中途 abort 正确抛出且已完成页计入进度、scale clamp 纯函数、非法 concurrency clamp。现有 mock 同步用例全部保持通过。
+- demo routing 测试：scale 来自设置的断言。
+
+### 6. 文档
+- `docs/08-export-pdf.md`：光栅直出章节更新（清晰度四档与体积/速度权衡、并发流水线、Worker 编码与能力回退）。
 
 ## 验证
 - `pnpm build` + `pnpm test` + `pnpm typecheck` 全量。
-- demo 手动：重新导入 EPUB → 点击注码 (1)(2)… 跳到注文（跨页翻页 + 高亮），Esc/滚动正常。
+- demo 手动：以《杜诗详注》分别以标准/高清档导出，对比清晰度与耗时；导出中点击中止；后台标签导出不停摆。
 
 ## 交付
-提交文本：`fix(editor,vue): 导入保留源元素 id + 阅读视图文档内锚点链接跳转，修注码点击"刷新"`
+提交文本：`feat(exporter-pdf): 光栅直出清晰度四档 + 并发流水线 + Worker 离线程 JPEG 编码`

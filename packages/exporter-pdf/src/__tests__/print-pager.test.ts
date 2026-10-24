@@ -15,7 +15,11 @@ import { DEFAULT_THEME, NODE_TYPES, createEmptyDocument, type BookDocument } fro
 import { CLASSICAL_LAYOUT_OPTIONS } from '@bibliotype/layout';
 import { Reader } from '@bibliotype/reader';
 import { createPrintPager, renderPrintHtml } from '../print-document.js';
-import { exportRasterPdf } from '../raster-pdf.js';
+import {
+  exportRasterPdf,
+  resolveRasterConcurrency,
+  resolveRasterScale,
+} from '../raster-pdf.js';
 
 /** 跨页长段样本：单段 78 字（A/B/C 各 26），每列 26 字 → 3 列，页主轴 60 → 拆两页 */
 function sliceDoc(): BookDocument {
@@ -29,6 +33,24 @@ function sliceDoc(): BookDocument {
   ];
   return doc;
 }
+
+/** 每段一页的多页样本：块 90px 完整落在页 200px 内（不触发跨页拆分），一段一页 */
+function pagesDoc(pageCount: number): BookDocument {
+  const doc = createEmptyDocument({ title: '多页' });
+  doc.root.children = Array.from({ length: pageCount }, (_, index) => ({
+    type: NODE_TYPES.PARAGRAPH,
+    id: `p-${index}`,
+    children: [{ type: 'text', text: `第${index}页` }],
+  }));
+  return doc;
+}
+
+/** pagesDoc 的分页口径（页主轴 100：一块 90px 落页，两块 180px 超页 → 一段一页） */
+const PAGES_OPTS = {
+  pageMainSize: 100,
+  context: { charsPerLine: 26, lineSize: 30 },
+  estimator: () => 90,
+} as const;
 
 /** 共享分页口径：页主轴 60 / 列宽 30 / 每列 26 字 */
 const SLICE_OPTS = {
@@ -226,7 +248,137 @@ describe('exportRasterPdf（应用内直出）', () => {
         signal: controller.signal,
       }),
     ).rejects.toMatchObject({ name: 'AbortError' });
+    /* 同步 abort：窗口只发出页 0，排空后计入进度即停 */
     expect(onProgress).toHaveBeenCalledTimes(1);
     expect(onProgress).toHaveBeenCalledWith(1, 2);
+  });
+
+  it('导出中中止：窗口内在途页全部排空计入进度，后续页不再发起', async () => {
+    const controller = new AbortController();
+    const resolvers: Array<(bytes: Uint8Array) => void> = [];
+    const rasterize = vi.fn((_html: string, _width: number, _height: number) => {
+      const index = rasterize.mock.calls.length - 1;
+      return new Promise<Uint8Array>((resolve) => {
+        resolvers[index] = resolve;
+      });
+    });
+    const onProgress = vi.fn();
+
+    const done = exportRasterPdf(pagesDoc(4), {
+      mode: 'paged',
+      ...PAGES_OPTS,
+      rasterize,
+      onProgress,
+      signal: controller.signal,
+    });
+    /* 窗口 0/1/2 在途时中止：填页停止，已发起的 3 页排空计入进度，页 3 不再发起 */
+    await vi.waitFor(() => expect(rasterize).toHaveBeenCalledTimes(3));
+    controller.abort();
+    resolvers[0]?.(JPEG_1PX);
+    resolvers[1]?.(JPEG_1PX);
+    resolvers[2]?.(JPEG_1PX);
+
+    await expect(done).rejects.toMatchObject({ name: 'AbortError' });
+    expect(onProgress.mock.calls).toEqual([
+      [1, 4],
+      [2, 4],
+      [3, 4],
+    ]);
+  });
+
+  it('并发窗口：乱序完成仍按页序嵌入，进度按嵌入序递增', async () => {
+    const total = 4;
+    const resolvers: Array<(bytes: Uint8Array) => void> = [];
+    const rasterize = vi.fn((_html: string, _width: number, _height: number) => {
+      const index = rasterize.mock.calls.length - 1;
+      return new Promise<Uint8Array>((resolve) => {
+        resolvers[index] = resolve;
+      });
+    });
+    const onProgress = vi.fn();
+
+    const done = exportRasterPdf(pagesDoc(total), {
+      mode: 'paged',
+      ...PAGES_OPTS,
+      rasterize,
+      onProgress,
+    });
+    /* 窗口缺省 3：页 0/1/2 已发起，主循环等待页 0 */
+    await vi.waitFor(() => expect(rasterize).toHaveBeenCalledTimes(3));
+    /* 乱序完成：先 2 → 1 → 0（页 0 嵌入后页 3 进窗），3 最后完成 */
+    resolvers[2]?.(JPEG_1PX);
+    resolvers[1]?.(JPEG_1PX);
+    resolvers[0]?.(JPEG_1PX);
+    await vi.waitFor(() => expect(rasterize).toHaveBeenCalledTimes(4));
+    resolvers[3]?.(JPEG_1PX);
+
+    const bytes = await done;
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(total);
+    expect(onProgress.mock.calls).toEqual([
+      [1, total],
+      [2, total],
+      [3, total],
+      [4, total],
+    ]);
+  });
+
+  it('并发窗口：同时在途任务数不超过 concurrency', async () => {
+    let active = 0;
+    let peak = 0;
+    const rasterize = vi.fn(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      active -= 1;
+      return JPEG_1PX;
+    });
+
+    const bytes = await exportRasterPdf(pagesDoc(6), {
+      mode: 'paged',
+      ...PAGES_OPTS,
+      rasterize,
+      concurrency: 2,
+    });
+
+    expect(peak).toBeLessThanOrEqual(2);
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(6);
+  });
+
+  it('并发窗口 1：退化为顺序执行仍完整导出', async () => {
+    const rasterize = vi.fn(async () => JPEG_1PX);
+    const onProgress = vi.fn();
+
+    const bytes = await exportRasterPdf(pagesDoc(3), {
+      mode: 'paged',
+      ...PAGES_OPTS,
+      rasterize,
+      onProgress,
+      concurrency: 1,
+    });
+
+    expect(rasterize).toHaveBeenCalledTimes(3);
+    expect(onProgress.mock.calls).toEqual([
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
+  });
+});
+
+describe('光栅参数收敛', () => {
+  it('scale clamp 1~4：非有限值回退 2，小数取整', () => {
+    expect(resolveRasterScale(undefined)).toBe(2);
+    expect(resolveRasterScale(Number.NaN)).toBe(2);
+    expect(resolveRasterScale(0)).toBe(1);
+    expect(resolveRasterScale(2.6)).toBe(3);
+    expect(resolveRasterScale(99)).toBe(4);
+  });
+
+  it('concurrency clamp 1~6：非有限值回退 3', () => {
+    expect(resolveRasterConcurrency(undefined)).toBe(3);
+    expect(resolveRasterConcurrency(Number.NaN)).toBe(3);
+    expect(resolveRasterConcurrency(0)).toBe(1);
+    expect(resolveRasterConcurrency(99)).toBe(6);
   });
 });

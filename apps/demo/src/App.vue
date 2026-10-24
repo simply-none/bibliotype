@@ -74,9 +74,11 @@ import { useStageSize } from './composables/use-stage-size.js';
 import { useLayoutTokens } from './composables/use-layout-tokens.js';
 import {
   DEFAULT_PDF_EXPORT_MODE,
+  DEFAULT_PDF_RASTER_SCALE,
   useSettingsSnapshot,
   bookIdFromTitle,
   type PdfExportMode,
+  type PdfRasterScale,
 } from './composables/use-settings-snapshot.js';
 import { useReaderSession } from './composables/use-reader-session.js';
 import { useEditSession } from './composables/use-edit-session.js';
@@ -117,6 +119,8 @@ const inspectorCollapsed = ref(false);
 const savedPosition = ref<string | undefined>(undefined);
 /** PDF 导出方式（「其他」分区；应用级偏好，随界面偏好快照持久化） */
 const pdfExportMode = ref<PdfExportMode>(DEFAULT_PDF_EXPORT_MODE);
+/** 光栅直出清晰度档位（「其他」分区；仅应用内直出生效） */
+const pdfRasterScale = ref<PdfRasterScale>(DEFAULT_PDF_RASTER_SCALE);
 
 /* 跨块回调晚绑定：layout 块构造时需要重排调度与界面偏好落盘，
    但其目标分别来自更晚创建的 reader / snapshot 块（破除构造期循环） */
@@ -182,6 +186,7 @@ const {
   uiDensity,
   uiMotion,
   pdfExportMode,
+  pdfRasterScale,
 });
 snapshotPersistBound = persistSettingsSnapshot;
 
@@ -212,6 +217,7 @@ watch(
     uiDensity,
     uiMotion,
     pdfExportMode,
+    pdfRasterScale,
   ],
   persistSettingsSnapshot,
 );
@@ -337,6 +343,7 @@ const { pdfExporting, pdfProgress, pdfPagedMode, compareOpen, onExportEpub, onEx
     reader,
     pushToast,
     pdfExportMode,
+    pdfRasterScale,
   });
 
 /* 左栏 tab / 弹窗开合 / 属性栏折叠（inspectorCollapsed 源状态在 App 持有） */
@@ -799,12 +806,14 @@ let perfProbe: PerfProbe | null = null;
       :ui-density="uiDensity"
       :ui-motion="uiMotion"
       :pdf-export-mode="pdfExportMode"
+      :pdf-raster-scale="pdfRasterScale"
       @update:night="night = $event; persistSettingsSnapshot()"
       @update:page-transition="pageTransition = $event; persistSettingsSnapshot()"
       @update:ui-skin="setUiSkin($event)"
       @update:ui-density="uiDensity = $event"
       @update:ui-motion="uiMotion = $event"
       @update:pdf-export-mode="pdfExportMode = $event"
+      @update:pdf-raster-scale="pdfRasterScale = $event"
       @apply-theme-tokens="onApplyThemeTokens"
       @close="closeSettings"
     />

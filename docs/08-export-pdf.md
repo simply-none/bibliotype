@@ -87,11 +87,13 @@ import { exportRasterPdf, downloadPdf } from '@bibliotype/exporter-pdf';
 
 const controller = new AbortController();
 const bytes = await exportRasterPdf(document, {
-  mode: 'paged',                     // 选项同 PrintDocumentOptions；mode 恆按 paged 处理
-  scale: 2,                          // 清晰度档位：1 = 96dpi 草稿 / 2 = 192dpi 高清（文件约 4 倍）
+  mode: 'paged',                     // 选项同 PrintDocumentOptions；mode 恒按 paged 处理
+  scale: 2,                          // 清晰度档位（clamp 1~4）：1=96dpi 草稿 / 2=192dpi 标准 /
+                                     // 3=288dpi 高清 / 4=384dpi 印刷；像素与文件按倍率平方增长
   quality: 0.92,                     // JPEG 质量
+  concurrency: 3,                    // 光栅化并发窗口（1~6）：解码 / 编码与下一页序列化重叠
   onProgress: (done, total) => report(done, total),
-  signal: controller.signal,         // 每页开始前检查，中止抛 AbortError
+  signal: controller.signal,         // 中止停止填入新页、排空在途页后抛 AbortError
 });
 downloadPdf(bytes, '论语.pdf');
 ```
@@ -100,14 +102,22 @@ downloadPdf(bytes, '论语.pdf');
 
 - 页面尺寸 = 布局 `pageSize` + 四周出血（与打印 CSS 的 `.bt-page` / `@page` 同一口径），
   PDF 页按 px→pt（96dpi → 72pt/in）换算，物理尺寸与打印稿一致；
-- 每页独立构建与销毁（不挂 DOM，仅借 `innerHTML` 解析后以 `XMLSerializer` 序列化，
-  输出天然 XML 合法），逐页 `setTimeout(0)` 让出主线程，导出期间 UI 不卡死；
+- **并发流水线**：光栅化按滑动窗口并发（`concurrency`，缺省 3），SVG 解码 / 编码与
+  下一页序列化重叠；PDF 页序恒按页码嵌入，进度与中止语义不受并发影响；
+- **Worker 离线程编码**：主线程完成 SVG 解码与按 scale 矢量直绘（清晰度来源，不做
+  先小后大缩放）后，`createImageBitmap` 位图 transfer 给 Worker 池（内联 Blob URL，
+  数量随 CPU 收敛）做白底 + JPEG 编码，字节零拷贝回传——编码段多核并行且主线程
+  只剩序列化与拼装，导出期间 UI 不卡死；能力不全（旧浏览器 / Node）自动整体回退
+  主线程 toBlob 路径；
+- 让出走 `MessageChannel` 宏任务（无 setTimeout 嵌套的 ~4ms 钳制），后台标签不停摆；
 - Chromium 的 SVG 图像加载禁**外部**资源，但系统字体与 data URI 图片可用——
   打印 CSS 字体按令牌落到系统字体族、图片在降级链路已是 data URI，恰好都可用；
-- `rasterize` 选项可注入单页 HTML→位图实现（Node 测试 mock 用，缺省浏览器实现）。
+- `rasterize` 选项可注入单页 HTML→位图实现（Node 测试 mock 用，注入后不启用
+  Worker 池，并发窗口仍生效）。
 
 demo 的「其他 → PDF 导出方式」（`pdfExportMode: 'in-app' | 'browser-dialog'`，应用级偏好、
-随界面偏好快照持久化，缺省 `in-app`）即在本路径与打印对话框路径之间路由；
+随界面偏好快照持久化，缺省 `in-app`）即在本路径与打印对话框路径之间路由；同分区
+「光栅清晰度」（`pdfRasterScale: 1 | 2 | 3 | 4`，缺省标准 192dpi）仅对本路径生效。
 Electron 宿主不受该设置影响，恒走矢量适配器。导出中顶栏 / 更多面板按钮显示
 「导出中 N/M」，再次点击即中止。
 

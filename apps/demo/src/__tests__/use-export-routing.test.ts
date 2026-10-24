@@ -21,7 +21,7 @@ import {
   printHtml,
   renderPrintHtml,
 } from '@bibliotype/exporter-pdf';
-import type { PdfExportMode } from '../composables/use-settings-snapshot.js';
+import type { PdfExportMode, PdfRasterScale } from '../composables/use-settings-snapshot.js';
 import { useExport, type ExportDeps } from '../composables/use-export.js';
 
 vi.mock('@bibliotype/exporter-pdf', () => ({
@@ -52,6 +52,7 @@ vi.mock('@bibliotype/exporter-pdf', () => ({
 function makeDeps(
   pdfExportMode: PdfExportMode,
   pushToast: ReturnType<typeof vi.fn> = vi.fn(),
+  pdfRasterScale: PdfRasterScale = 2,
 ): ExportDeps {
   const emptyMap = new Map<string, number>();
   return {
@@ -75,6 +76,7 @@ function makeDeps(
     } as unknown as ExportDeps['reader'],
     pushToast: pushToast as unknown as ExportDeps['pushToast'],
     pdfExportMode: ref(pdfExportMode),
+    pdfRasterScale: ref(pdfRasterScale),
   };
 }
 
@@ -88,10 +90,14 @@ describe('useExport：PDF 三分路由', () => {
     const deps = makeDeps('in-app');
     const { onExportPdf, pdfProgress } = useExport(deps);
 
-    let captured: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } | undefined;
+    let captured: {
+      signal?: AbortSignal;
+      onProgress?: (done: number, total: number) => void;
+      scale?: number;
+    } | undefined;
     vi.mocked(exportRasterPdf).mockImplementationOnce(async (_book, options) => {
       const opts = options ?? {};
-      captured = { signal: opts.signal, onProgress: opts.onProgress };
+      captured = { signal: opts.signal, onProgress: opts.onProgress, scale: opts.scale };
       opts.onProgress?.(1, 2);
       return new Uint8Array([9, 9]);
     });
@@ -103,10 +109,27 @@ describe('useExport：PDF 三分路由', () => {
     /* 进度先回填、finally 清空 */
     expect(captured?.onProgress).toBeDefined();
     expect(pdfProgress.value).toBeNull();
+    /* 清晰度档位来自设置（缺省标准 192dpi） */
+    expect(captured?.scale).toBe(2);
     expect(downloadPdf).toHaveBeenCalledTimes(1);
     expect(vi.mocked(downloadPdf).mock.calls[0]?.[1]).toBe('测试书.pdf');
     expect(printHtml).not.toHaveBeenCalled();
     expect(deps.pushToast).toHaveBeenCalledWith(expect.stringContaining('应用内直出'), 'success');
+  });
+
+  it('in-app：清晰度档位随设置传入光栅导出', async () => {
+    const deps = makeDeps('in-app', vi.fn(), 3);
+    const { onExportPdf } = useExport(deps);
+
+    let capturedScale: number | undefined;
+    vi.mocked(exportRasterPdf).mockImplementationOnce(async (_book, options) => {
+      capturedScale = options?.scale;
+      return new Uint8Array([9, 9]);
+    });
+
+    await onExportPdf();
+
+    expect(capturedScale).toBe(3);
   });
 
   it('browser-dialog：走 renderPrintHtml + 打印对话框，不走光栅', async () => {

@@ -32,7 +32,7 @@ import {
 } from '@bibliotype/exporter-pdf';
 import { createFontCheckProbe, splitFontFamilyList } from '@bibliotype/vue';
 import { lunyuDocument } from '../data/lunyu.js';
-import type { PdfExportMode } from './use-settings-snapshot.js';
+import type { PdfExportMode, PdfRasterScale } from './use-settings-snapshot.js';
 import type { LayoutTokensApi } from './use-layout-tokens.js';
 import type { ReaderSessionApi } from './use-reader-session.js';
 import type { useToast } from './use-toast.js';
@@ -59,11 +59,13 @@ export interface ExportDeps {
   pushToast: ReturnType<typeof useToast>['push'];
   /** PDF 导出方式（「其他」分区；仅影响纯浏览器环境，Electron 恒走矢量桥） */
   pdfExportMode: { value: PdfExportMode };
+  /** 光栅直出清晰度档位（「其他」分区；仅应用内直出生效） */
+  pdfRasterScale: { value: PdfRasterScale };
 }
 
 /** EPUB / PDF 导出动作与状态 */
 export function useExport(deps: ExportDeps) {
-  const { layout, reader: readerApi, pushToast, pdfExportMode } = deps;
+  const { layout, reader: readerApi, pushToast, pdfExportMode, pdfRasterScale } = deps;
 
   /** PDF 导出是否进行中（按钮置灰 + 文案切换；导出中再点 = 中止） */
   const pdfExporting = ref(false);
@@ -230,11 +232,12 @@ export function useExport(deps: ExportDeps) {
       }
 
       if (pdfExportMode.value === 'in-app') {
-        /* 应用内直出：逐页光栅化 → pdf-lib 拼装 → 直接下载（免打印对话框） */
+        /* 应用内直出：逐页光栅化 → pdf-lib 拼装 → 直接下载（免打印对话框）；
+         * 清晰度档位取「其他」分区设置（1~4，缺省标准 192dpi） */
         const bytes = await exportRasterPdf(book, {
           ...base,
           ...measured,
-          scale: 2,
+          scale: pdfRasterScale.value,
           signal,
           onProgress: (done, total) => {
             pdfProgress.value = { done, total };

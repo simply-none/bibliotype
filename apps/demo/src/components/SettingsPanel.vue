@@ -26,7 +26,7 @@ import {
 } from '@bibliotype/core';
 import type { LayoutOptions } from '@bibliotype/layout';
 import { BT_BREAKPOINTS, useBreakpoint } from '@bibliotype/vue';
-import type { PdfExportMode } from '../composables/use-settings-snapshot.js';
+import type { PdfExportMode, PdfRasterScale } from '../composables/use-settings-snapshot.js';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
 import type { UiDensity, UiMotion, UiSkinKey } from '../ui-skin.js';
 import AppIcon from './AppIcon.vue';
@@ -63,6 +63,8 @@ const props = defineProps<{
   uiMotion: UiMotion;
   /** PDF 导出方式（「其他」分区；应用级偏好，Electron 宿主不受影响） */
   pdfExportMode: PdfExportMode;
+  /** 光栅直出清晰度档位（「其他」分区；仅应用内直出生效） */
+  pdfRasterScale: PdfRasterScale;
 }>();
 
 const emit = defineEmits<{
@@ -74,6 +76,8 @@ const emit = defineEmits<{
   'update:ui-motion': [value: UiMotion];
   /** PDF 导出方式切换（「其他」分区） */
   'update:pdf-export-mode': [value: PdfExportMode];
+  /** 光栅清晰度切换（「其他」分区） */
+  'update:pdf-raster-scale': [value: PdfRasterScale];
   /** 主题预设应用（全量令牌，由 App 收敛为与基线的差量） */
   'apply-theme-tokens': [tokens: Record<string, string>];
   close: [];
@@ -340,7 +344,9 @@ async function onSave(): Promise<void> {
           <SettingsMisc
             v-else
             :pdf-export-mode="pdfExportMode"
+            :pdf-raster-scale="pdfRasterScale"
             @update:pdf-export-mode="emit('update:pdf-export-mode', $event)"
+            @update:pdf-raster-scale="emit('update:pdf-raster-scale', $event)"
           />
         </div>
       </div>

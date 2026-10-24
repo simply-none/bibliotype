@@ -53,6 +53,7 @@ async function mountAppearance(): Promise<{
         uiDensity: density.value,
         uiMotion: motion.value,
         pdfExportMode: 'in-app',
+        pdfRasterScale: 2,
         'onUpdate:ui-skin': (value: UiSkinKey) => {
           skin.value = value;
         },

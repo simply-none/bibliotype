@@ -43,6 +43,17 @@ export function isPdfExportMode(value: unknown): value is PdfExportMode {
   return value === 'in-app' || value === 'browser-dialog';
 }
 
+/** 光栅直出清晰度档位：canvas 缩放倍率（1=96dpi 草稿 / 2=192dpi 标准 / 3=288dpi 高清 / 4=384dpi 印刷） */
+export type PdfRasterScale = 1 | 2 | 3 | 4;
+
+/** 缺省清晰度：标准 192dpi（速度与文件体积平衡） */
+export const DEFAULT_PDF_RASTER_SCALE: PdfRasterScale = 2;
+
+/** 是否为合法清晰度档位（快照回灌容错） */
+export function isPdfRasterScale(value: unknown): value is PdfRasterScale {
+  return value === 1 || value === 2 || value === 3 || value === 4;
+}
+
 /** 界面偏好快照：主题键 + 夜间 / 视图模式 / 翻页动效 / 属性栏折叠 / 界面皮肤 */
 export interface SettingsSnapshot {
   themeKey: ThemeKey;
@@ -59,6 +70,8 @@ export interface SettingsSnapshot {
   uiMotion: UiMotion;
   /** PDF 导出方式（「其他」分区；Electron 宿主不受影响） */
   pdfExportMode: PdfExportMode;
+  /** 光栅直出清晰度档位（仅应用内直出生效） */
+  pdfRasterScale: PdfRasterScale;
 }
 
 /** 字符串哈希（FNV-1a，转 36 进制）：把任意书名（含中文）映射成稳定的作用域键短串 */
@@ -88,6 +101,7 @@ export interface SnapshotRefs {
   uiDensity: { value: UiDensity };
   uiMotion: { value: UiMotion };
   pdfExportMode: { value: PdfExportMode };
+  pdfRasterScale: { value: PdfRasterScale };
 }
 
 /** 界面偏好快照 + 阅读位置 / 页码读写 */
@@ -123,6 +137,9 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
         pdfExportMode: isPdfExportMode(parsed.pdfExportMode)
           ? parsed.pdfExportMode
           : DEFAULT_PDF_EXPORT_MODE,
+        pdfRasterScale: isPdfRasterScale(parsed.pdfRasterScale)
+          ? parsed.pdfRasterScale
+          : DEFAULT_PDF_RASTER_SCALE,
       };
     } catch {
       return null;
@@ -145,6 +162,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
     refs.uiDensity.value = snapshot.uiDensity;
     refs.uiMotion.value = snapshot.uiMotion;
     refs.pdfExportMode.value = snapshot.pdfExportMode;
+    refs.pdfRasterScale.value = snapshot.pdfRasterScale;
   }
 
   /** 收集当前界面偏好并落盘 */
@@ -159,6 +177,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
       uiDensity: refs.uiDensity.value,
       uiMotion: refs.uiMotion.value,
       pdfExportMode: refs.pdfExportMode.value,
+      pdfRasterScale: refs.pdfRasterScale.value,
     };
     try {
       window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));

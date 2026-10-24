@@ -8,6 +8,16 @@ export { renderPrintHtml, createPrintPager } from './print-document.js';
 export type { PrintDocumentOptions, PrintPager } from './print-document.js';
 export { exportRasterPdf } from './raster-pdf.js';
 export type { RasterPdfOptions } from './raster-pdf.js';
+export {
+  dedupeInlineImages,
+  rehydrateInlineImages,
+  INLINE_IMAGE_TOKEN_PREFIX,
+} from './image-dedup.js';
+export type {
+  DedupeInlineImagesOptions,
+  DedupeInlineImagesResult,
+  InlineImageAsset,
+} from './image-dedup.js';
 export { printBook, printHtml } from './print.js';
 export type { PrintHtmlOptions } from './print.js';
 export {

@@ -12,8 +12,8 @@
  *
  * 消费 layout / reader 两块产出的响应式引用，保证与屏幕预览同源。
  */
-import { ref } from 'vue';
-import { DEFAULT_THEME, FONT_TOKENS } from '@bibliotype/core';
+import { ref, shallowRef } from 'vue';
+import { DEFAULT_THEME, FONT_TOKENS, type BookDocument } from '@bibliotype/core';
 import {
   collectEpubGlyphProblems,
   exportEpub,
@@ -22,6 +22,7 @@ import {
 import {
   collectPdfGlyphProblems,
   createImageBlobRewriter,
+  dedupeInlineImages,
   downloadPdf,
   exportPdfBytes,
   exportRasterPdf,
@@ -29,6 +30,7 @@ import {
   renderPrintHtml,
   summarizePdfGlyphProblems,
   type PdfAdapterOptions,
+  type RasterPdfOptions,
 } from '@bibliotype/exporter-pdf';
 import { createFontCheckProbe, splitFontFamilyList } from '@bibliotype/vue';
 import { lunyuDocument } from '../data/lunyu.js';
@@ -50,6 +52,20 @@ interface ElectronPdfBridge {
 declare global {
   interface Window {
     electronPdf?: ElectronPdfBridge;
+    /**
+     * 桌面宿主通用 IPC（如渐离App preload 的 contextBridge 暴露）：
+     * 存在时「导出 PDF」优先走宿主矢量直出（`bibliotype:export-pdf` 会话：
+     * 分段 printToPDF → 落盘返回路径），契约见 docs/08 桌面宿主章节。
+     * 浏览器环境无此全局，路由不受影响。
+     */
+    ipcRenderer?: {
+      handlePromise: (channel: string, args?: unknown) => Promise<unknown>;
+      on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
+      removeListener: (
+        channel: string,
+        listener: (event: unknown, ...args: unknown[]) => void,
+      ) => void;
+    };
   }
 }
 
@@ -63,6 +79,144 @@ export interface ExportDeps {
   pdfRasterScale: { value: PdfRasterScale };
 }
 
+/** 收敛分段页数（clamp 100~2000） */
+function clampSegmentPages(segmentPages: number): number {
+  return Math.min(2000, Math.max(100, Math.round(segmentPages)));
+}
+
+/** 分段方案条目（from / to 为 0 起含端点页码） */
+export interface SegmentPlanItem {
+  /** 卷序号（1 起） */
+  index: number;
+  from: number;
+  to: number;
+}
+
+/** 按总页数与每卷页数计算分段方案（展示与实际导出同源） */
+export function buildSegmentPlan(totalPages: number, segmentPages: number): SegmentPlanItem[] {
+  const size = clampSegmentPages(segmentPages);
+  const total = Math.max(0, Math.floor(totalPages));
+  const count = Math.max(1, Math.ceil(total / size));
+  return Array.from({ length: count }, (_, index) => ({
+    index: index + 1,
+    from: index * size,
+    to: Math.min(total - 1, (index + 1) * size - 1),
+  }));
+}
+
+/** 分段导出执行器（弹窗驱动；桌面与浏览器各有一个实现） */
+export interface PdfSegmentedRunner {
+  /**
+   * 开始会话：书档 data URI 去重 → 逐张上传图片 → 主进程缓存分页器
+   *
+   * @param onUploadProgress 图片上传进度（done / total；浏览器实现不经过上传，恒 0/0）
+   * @returns 分页后的总页数（实际分段表据此计算）
+   */
+  start(onUploadProgress?: (done: number, total: number) => void): Promise<{ pageCount: number }>;
+  /** 打印一个页区间（0 起含端点）并落盘 → 文件路径（浏览器实现触发下载后返回文件名） */
+  exportSegment(from: number, to: number, filename: string): Promise<string>;
+}
+
+/**
+ * 创建分段导出执行器（桌面宿主实现）
+ *
+ * 会话协议（渐离App `bibliotype:export-*`）：书档 data URI 去重令牌化后逐张
+ * 上传（宿主收即写临时资源文件），`export-prepare` 在主进程缓存分页器——
+ * 后续逐段 `export-segment` 复用，整本 HTML 与书档均不过 IPC。
+ */
+export function createSegmentedPdfRunner(args: {
+  channel: (channel: string, args?: unknown) => Promise<unknown>;
+  book: BookDocument;
+  options: Record<string, unknown>;
+  title: string;
+}): PdfSegmentedRunner {
+  let exportId: string | null = null;
+  return {
+    async start(onUploadProgress) {
+      const { document: slimDocument, assets } = dedupeInlineImages(args.book);
+      const begin = (await args.channel('bibliotype:export-begin', {})) as {
+        exportId?: string;
+        error?: string;
+      };
+      if (begin?.exportId === undefined) {
+        throw new Error(`[桌面导出·开始会话] ${begin?.error ?? '未返回会话 id'}`);
+      }
+      exportId = begin.exportId;
+      for (let index = 0; index < assets.length; index += 1) {
+        const asset = assets[index]!;
+        onUploadProgress?.(index, assets.length);
+        const result = (await args.channel('bibliotype:export-asset', {
+          exportId,
+          token: asset.token,
+          dataUri: asset.dataUri,
+        })) as { success?: boolean; error?: string };
+        if (result?.success !== true) {
+          throw new Error(`[桌面导出·上传图片 ${asset.token}] ${result?.error ?? '接收失败'}`);
+        }
+      }
+      onUploadProgress?.(assets.length, assets.length);
+      const prepared = (await args.channel('bibliotype:export-prepare', {
+        exportId,
+        document: slimDocument,
+        options: args.options,
+      })) as { pageCount?: number; error?: string };
+      if (prepared?.pageCount === undefined) {
+        throw new Error(`[桌面导出·预分页] ${prepared?.error ?? '未返回页数'}`);
+      }
+      return { pageCount: prepared.pageCount };
+    },
+    async exportSegment(from, to, filename) {
+      if (exportId === null) throw new Error('[桌面导出·分段] 会话未开始');
+      const result = (await args.channel('bibliotype:export-segment', {
+        exportId,
+        from,
+        to,
+        filename,
+      })) as { success?: boolean; path?: string; error?: string };
+      if (result?.success !== true || result.path === undefined) {
+        throw new Error(`[桌面导出·分段 ${from + 1}-${to + 1}] ${result?.error ?? '导出失败'}`);
+      }
+      return result.path;
+    },
+  };
+}
+
+/**
+ * 创建分段导出执行器（浏览器实现）
+ *
+ * 大书在浏览器同样撞「整本光栅 + 单文件内存墙」：逐段调 `exportRasterPdf`
+ * 的页区间形态（`from` / `to`），每段独立光栅化为单卷 PDF 触发浏览器下载。
+ * 每次分卷共享同一份分页（exportRasterPdf 内部 createPrintPager，
+ * 与预览同源实测口径下页序一致），内存峰值 = 单卷。
+ */
+export function createBrowserSegmentedPdfRunner(args: {
+  book: () => BookDocument;
+  options: () => Record<string, unknown>;
+  scale: number;
+  signal: () => AbortSignal | undefined;
+  download: (bytes: Uint8Array, filename: string) => void;
+}): PdfSegmentedRunner {
+  return {
+    async start() {
+      /* 页数以预分页口径为准：用 exportRasterPdf 的空跑会重复整本光栅，
+       * 这里直接读 reader 的总页数由弹窗传入；浏览器实现无需上传资源 */
+      return { pageCount: 0 };
+    },
+    async exportSegment(from, to, filename) {
+      const bytes = await exportRasterPdf(args.book(), {
+        ...(args.options() as RasterPdfOptions),
+        scale: args.scale,
+        signal: args.signal(),
+        from,
+        to,
+      });
+      args.download(bytes, filename);
+      return filename;
+    },
+  };
+}
+
+
 /** EPUB / PDF 导出动作与状态 */
 export function useExport(deps: ExportDeps) {
   const { layout, reader: readerApi, pushToast, pdfExportMode, pdfRasterScale } = deps;
@@ -75,6 +229,11 @@ export function useExport(deps: ExportDeps) {
   let pdfAbort: AbortController | undefined;
   /** PDF 分页模式：true = 逐页（paged，与屏幕预览同源）/ false = 连续（auto，更快） */
   const pdfPagedMode = ref(true);
+  /** 桌面宿主分段导出弹窗：打开状态 / 执行器 / 书名 / 预览总页数 */
+  const segmentDialogOpen = ref(false);
+  const segmentRunner = shallowRef<PdfSegmentedRunner | null>(null);
+  const segmentTitle = ref('');
+  const segmentTotalPages = ref(0);
   /** 双页对照（D5）：以当前文档左右对页演示对照容器 */
   const compareOpen = ref(false);
 
@@ -172,6 +331,22 @@ export function useExport(deps: ExportDeps) {
   }
 
   /**
+   * 桌面宿主通用 IPC（渐离App preload 暴露的 contextBridge；浏览器为 undefined）
+   *
+   * 命中时「导出 PDF」打开分段导出弹窗：书档 + 打印选项交 `bibliotype:export-*`
+   * 会话（资源逐张上传收即落盘 / 按页区间分段 printToPDF 逐段落盘多文件）——
+   * 矢量小文件，绕开光栅路径的整本内存墙。
+   */
+  function getDesktopIpc():
+    | { channel: (channel: string, args?: unknown) => Promise<unknown> }
+    | undefined {
+    const bridge = typeof window !== 'undefined' ? window.ipcRenderer : undefined;
+    if (bridge === undefined || typeof bridge.handlePromise !== 'function') return undefined;
+    return { channel: (channel, args) => bridge.handlePromise(channel, args) };
+  }
+
+
+  /**
    * 导出 PDF（替代原「打印 PDF」）
    *
    * 分页模式（pdfPagedMode）：逐页（paged，与屏幕预览逐页同源）/ 连续（auto，更快）。
@@ -182,9 +357,13 @@ export function useExport(deps: ExportDeps) {
    * = 中止当前任务。
    */
   async function onExportPdf(): Promise<void> {
-    /* 导出中再点 = 中止：光栅路径逐页响应，打印对话框路径无可中止语义（不处理） */
+    /* 导出中再点 = 中止：光栅路径逐页响应；桌面宿主分段路径透传中止（当前段完成后
+     * 停止）；打印对话框路径无可中止语义（不处理） */
     if (pdfExporting.value) {
       pdfAbort?.abort();
+      void getDesktopIpc()
+        ?.channel('bibliotype:export-abort', {})
+        .catch(() => undefined);
       return;
     }
 
@@ -231,20 +410,39 @@ export function useExport(deps: ExportDeps) {
         return;
       }
 
-      if (pdfExportMode.value === 'in-app') {
-        /* 应用内直出：逐页光栅化 → pdf-lib 拼装 → 直接下载（免打印对话框）；
-         * 清晰度档位取「其他」分区设置（1~4，缺省标准 192dpi） */
-        const bytes = await exportRasterPdf(book, {
-          ...base,
-          ...measured,
-          scale: pdfRasterScale.value,
-          signal,
-          onProgress: (done, total) => {
-            pdfProgress.value = { done, total };
-          },
+      const desktop = getDesktopIpc();
+      if (desktop !== undefined) {
+        /* 桌面宿主（如渐离App）：打开分段导出弹窗——用户设置每卷页数、预览分段区域，
+         * 确认后弹窗内逐段矢量打印并独立落盘（`书名_00x.pdf`），不合并单文件。
+         * 书档里同一缺字图以完整 data URI 逐处重复（整本数百 MB），会话协议把
+         * 传输与打印都拆成有界小片（资源逐张上传收即落盘 / 每段独立 printToPDF）。 */
+        segmentRunner.value = createSegmentedPdfRunner({
+          channel: desktop.channel,
+          book,
+          options: { ...base, mode: 'paged' as const, ...measured },
+          title: book.metadata.title || '书籍',
         });
-        downloadPdf(bytes, `${book.metadata.title || '书籍'}.pdf`);
-        pushToast(`已导出 PDF（应用内直出，${base.mode === 'paged' ? '逐页' : '连续'}版面）`, 'success');
+        segmentTitle.value = book.metadata.title || '书籍';
+        segmentTotalPages.value = readerApi.reader.value.totalPages;
+        segmentDialogOpen.value = true;
+        return;
+      }
+
+      if (pdfExportMode.value === 'in-app') {
+        /* 浏览器「应用内直出」：同样打开分段导出弹窗——大书整本光栅 + 单文件
+         * 下载会撞内存墙，改为逐段光栅（exportRasterPdf 页区间形态）独立下载
+         * `书名_00x.pdf`；清晰度档位取「其他」分区设置。 */
+        segmentRunner.value = createBrowserSegmentedPdfRunner({
+          book: () => readerApi.reader.value.document ?? lunyuDocument,
+          options: () => ({ ...base, mode: 'paged' as const, ...measured }),
+          scale: pdfRasterScale.value,
+          signal: () => pdfAbort?.signal,
+          download: (bytes, filename) =>
+            downloadPdf(bytes, filename),
+        });
+        segmentTitle.value = book.metadata.title || '书籍';
+        segmentTotalPages.value = readerApi.reader.value.totalPages;
+        segmentDialogOpen.value = true;
         return;
       }
 
@@ -265,6 +463,9 @@ export function useExport(deps: ExportDeps) {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         pushToast('PDF 导出已中止', 'info');
+      } else if (error instanceof Error && error.message.includes('已中止')) {
+        /* 桌面宿主分段导出的中止经错误通道返回 */
+        pushToast('PDF 导出已中止', 'info');
       } else {
         pushToast(`导出 PDF 失败：${error instanceof Error ? error.message : String(error)}`, 'error');
       }
@@ -283,5 +484,10 @@ export function useExport(deps: ExportDeps) {
     download,
     onExportEpub,
     onExportPdf,
+    /** 桌面宿主分段导出弹窗（仅桌面宿主路由会打开） */
+    segmentDialogOpen,
+    segmentRunner,
+    segmentTitle,
+    segmentTotalPages,
   };
 }

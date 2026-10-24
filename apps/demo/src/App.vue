@@ -53,6 +53,7 @@ import AppToast from './components/AppToast.vue';
 import AppIcon from './components/AppIcon.vue';
 import AsidePanels from './components/AsidePanels.vue';
 import BookInfoDialog from './components/BookInfoDialog.vue';
+import PdfSegmentDialog from './components/export/PdfSegmentDialog.vue';
 import AttrInspector from './components/AttrInspector.vue';
 import EditorToolbar from './components/EditorToolbar.vue';
 import ProgressBar from './components/ProgressBar.vue';
@@ -337,8 +338,18 @@ const { infoEditable, currentMetadata, bookTitle, onMetadataSave } = useBookMeta
 });
 
 /* 导出 / 打印（EPUB · PDF）：与屏幕预览同源消费 layout / reader */
-const { pdfExporting, pdfProgress, pdfPagedMode, compareOpen, onExportEpub, onExportPdf } =
-  useExport({
+const {
+  pdfExporting,
+  pdfProgress,
+  pdfPagedMode,
+  compareOpen,
+  onExportEpub,
+  onExportPdf,
+  segmentDialogOpen,
+  segmentRunner,
+  segmentTitle,
+  segmentTotalPages,
+} = useExport({
     layout,
     reader,
     pushToast,
@@ -824,6 +835,15 @@ let perfProbe: PerfProbe | null = null;
       :editable="infoEditable"
       @save="onMetadataSave"
       @close="infoOpen = false"
+    />
+
+    <PdfSegmentDialog
+      :open="segmentDialogOpen"
+      :title="segmentTitle"
+      :total-pages="segmentTotalPages"
+      :runner="segmentRunner"
+      :default-segment-pages="500"
+      @update:open="segmentDialogOpen = $event"
     />
 
     <LibraryDrawer

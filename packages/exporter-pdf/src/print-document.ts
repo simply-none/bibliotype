@@ -159,6 +159,14 @@ export interface PrintPager {
   readonly documentCss: string;
   /** 渲染单页 `.bt-page` 片段（仅 paged；index 从 0 起） */
   renderPage(index: number): string;
+  /**
+   * 渲染页区间 [from, to]（0 起含端点，越界自动收敛）为独立 HTML 文档
+   *
+   * 分段打印用：结构与 `renderDocument()` 完全一致，仅正文含区间内页面——
+   * 每段可独立交给隐藏窗口 `printToPDF` 后按序合并（大书分段导出）。
+   * 仅 paged；auto 为流式单文档，调用即抛错。
+   */
+  renderPageRange(from: number, to: number): string;
   /** 渲染完整 HTML 文档（与 renderPrintHtml 产物逐字节一致） */
   renderDocument(): string;
 }
@@ -224,6 +232,9 @@ ${body}
       documentCss,
       renderPage(): string {
         throw new Error('auto 模式为流式单文档，无固定页可渲染；逐页导出请用 mode: "paged"。');
+      },
+      renderPageRange(): string {
+        throw new Error('auto 模式为流式单文档，无固定页区间可渲染；分段导出请用 mode: "paged"。');
       },
       renderDocument: () => wrapDocument(renderFlowBody(book, options)),
     };
@@ -304,6 +315,16 @@ ${body}
     pageCount: Math.max(1, pages.length),
     documentCss,
     renderPage,
+    /* 页区间子集文档：外壳与 renderDocument 一致，正文仅含区间内页面（分段打印用） */
+    renderPageRange: (from: number, to: number): string => {
+      const first = Math.max(0, Math.min(from, to));
+      const last = Math.min(Math.max(1, pages.length) - 1, Math.max(from, to));
+      const body = Array.from(
+        { length: Math.max(1, last - first + 1) },
+        (_, offset) => renderPage(first + offset),
+      ).join('\n');
+      return wrapDocument(body);
+    },
     /* 空书 pages 为空：length 兕底 1，renderPage(0) 走空白页分支 */
     renderDocument: () =>
       wrapDocument(

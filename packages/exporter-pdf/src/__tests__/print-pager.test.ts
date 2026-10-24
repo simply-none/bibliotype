@@ -147,6 +147,35 @@ describe('createPrintPager 与 renderPrintHtml 产物一致性', () => {
     expect(document).toContain(pager.documentCss);
   });
 
+  it('paged：renderPageRange 输出区间子集文档；全区间与 renderDocument 逐字节一致', () => {
+    const doc = sliceDoc();
+    const options = {
+      mode: 'paged' as const,
+      layout: CLASSICAL_LAYOUT_OPTIONS,
+      tokens: DEFAULT_THEME,
+      ...SLICE_OPTS,
+    };
+    const pager = createPrintPager(doc, options);
+
+    /* 单页子集：只含该页，不含区间外页面 */
+    const segment = pager.renderPageRange(1, 1);
+    expect(segment).toContain('data-page="2"');
+    expect(segment).not.toContain('data-page="1"');
+    expect(segment).toContain(pager.documentCss);
+    expect(segment.match(/class="bt-page"/g)).toHaveLength(1);
+
+    /* 越界自动收敛：区间超过末页时截到最后一页 */
+    expect(pager.renderPageRange(1, 99).match(/class="bt-page"/g)).toHaveLength(1);
+
+    /* 全区间与 renderDocument 逐字节一致（分段打印合并语义的基准） */
+    expect(pager.renderPageRange(0, pager.pageCount - 1)).toBe(pager.renderDocument());
+  });
+
+  it('auto：renderPageRange 抛错（流式单文档无固定页区间）', () => {
+    const pager = createPrintPager(sliceDoc(), { mode: 'auto' });
+    expect(() => pager.renderPageRange(0, 0)).toThrow(/mode: "paged"/);
+  });
+
   it('空书：pageCount 兜底 1，renderPage(0) 输出空白页', () => {
     const pager = createPrintPager(createEmptyDocument({ title: '空书' }), {
       mode: 'paged',
@@ -363,6 +392,40 @@ describe('exportRasterPdf（应用内直出）', () => {
       [3, 3],
     ]);
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(3);
+  });
+
+  it('页区间 from/to：只光栅化区间页并产出单卷，越界自动收敛', async () => {
+    const pages: string[] = [];
+    const rasterize = vi.fn(async (pageHtml: string) => {
+      pages.push(pageHtml);
+      return JPEG_1PX;
+    });
+
+    /* 区间 [1, 2]：只渲染第 2、3 页（0 起），单卷 2 页 */
+    const bytes = await exportRasterPdf(pagesDoc(4), {
+      mode: 'paged',
+      ...PAGES_OPTS,
+      rasterize,
+      from: 1,
+      to: 2,
+    });
+
+    expect(rasterize).toHaveBeenCalledTimes(2);
+    /* 页序正确：区间内按页码（data-page 2、3） */
+    expect(pages[0]).toContain('data-page="2"');
+    expect(pages[1]).toContain('data-page="3"');
+    const pdf = await PDFDocument.load(bytes);
+    expect(pdf.getPageCount()).toBe(2);
+
+    /* 越界收敛：from 超末页收敛为末页单页 */
+    const edge = await exportRasterPdf(pagesDoc(2), {
+      mode: 'paged',
+      ...PAGES_OPTS,
+      rasterize: async () => JPEG_1PX,
+      from: 99,
+      to: 99,
+    });
+    expect((await PDFDocument.load(edge)).getPageCount()).toBe(1);
   });
 });
 

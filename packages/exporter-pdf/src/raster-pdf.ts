@@ -49,6 +49,14 @@ export interface RasterPdfOptions extends PrintDocumentOptions {
   /** 中止信号：每轮循环检查，中止后抛 `AbortError` */
   signal?: AbortSignal;
   /**
+   * 页区间导出（0 起含端点，缺省整本）
+   *
+   * 分段多文件导出用：只光栅化 `[from, to]` 区间内的页面产出**单卷 PDF**，
+   * 与整本导出共用同一份分页（页序、页码、样式完全一致）；越界自动收敛。
+   */
+  from?: number;
+  to?: number;
+  /**
    * 单页光栅化回调（注入用）
    *
    * 输入单页 `.bt-page` 片段与页面 CSS 尺寸（px，已含出血放大），
@@ -152,6 +160,8 @@ export async function exportRasterPdf(
     onProgress,
     signal,
     rasterize,
+    from: rawFrom,
+    to: rawTo,
     ...printOptions
   } = options;
   const scale = resolveRasterScale(rawScale);
@@ -163,7 +173,11 @@ export async function exportRasterPdf(
   const height = layout.pageSize.height + bleed * 2;
 
   const pager = createPrintPager(book, { ...printOptions, mode: 'paged' });
-  const total = pager.pageCount;
+  /* 页区间收敛（0 起含端点）：缺省整本；越界截到合法范围 */
+  const lastPage = Math.max(1, pager.pageCount) - 1;
+  const from = Math.max(0, Math.min(Math.round(rawFrom ?? 0), lastPage));
+  const to = Math.max(from, Math.min(Math.round(rawTo ?? lastPage), lastPage));
+  const total = to - from + 1;
 
   /* Worker 池只在缺省光栅实现且能力齐备时启用（注入 rasterize 的测试路径不涉及） */
   const workerCount =
@@ -234,7 +248,7 @@ export async function exportRasterPdf(
         if (signal?.aborted === true) break;
         const index = nextToRaster;
         nextToRaster += 1;
-        const job = raster(pager.renderPage(index), width, height);
+        const job = raster(pager.renderPage(from + index), width, height);
         /* 主循环只按序 await 下一页；其余在途任务失败时避免 unhandled rejection */
         job.catch(() => undefined);
         inFlight.set(index, job);

@@ -14,7 +14,7 @@ import {
   DEFAULT_LAYOUT_OPTIONS,
   CLASSICAL_LAYOUT_OPTIONS,
 } from '@bibliotype/layout';
-import { FONT_TOKENS, createEmptyDocument } from '@bibliotype/core';
+import { FONT_TOKENS, NODE_TYPES, createEmptyDocument } from '@bibliotype/core';
 import {
   downloadPdf,
   exportRasterPdf,
@@ -24,29 +24,34 @@ import {
 import type { PdfExportMode, PdfRasterScale } from '../composables/use-settings-snapshot.js';
 import { useExport, type ExportDeps } from '../composables/use-export.js';
 
-vi.mock('@bibliotype/exporter-pdf', () => ({
-  collectPdfGlyphProblems: vi.fn(() => []),
-  createImageBlobRewriter: vi.fn(() => ({
-    rewrite: (src: string) => src,
-    revokeAll: vi.fn(),
-    uniqueCount: 0,
-  })),
-  downloadPdf: vi.fn(),
-  exportPdfBytes: vi.fn(
-    async (
-      _book: unknown,
-      options?: { adapter?: { toPdf: (html: string, opts?: unknown) => Promise<Uint8Array> } },
-    ) => {
-      /* 透传给 adapter，模拟真实实现的离屏窗口调用链 */
-      await options?.adapter?.toPdf('<html></html>', {});
-      return new Uint8Array([1, 2, 3]);
-    },
-  ),
-  exportRasterPdf: vi.fn(async () => new Uint8Array([9, 9])),
-  printHtml: vi.fn(),
-  renderPrintHtml: vi.fn(() => '<html><body>mock</body></html>'),
-  summarizePdfGlyphProblems: vi.fn(() => ''),
-}));
+vi.mock('@bibliotype/exporter-pdf', async (importOriginal) => {
+  /* 保留真实的 dedupeInlineImages（纯函数，桌面分支用它做 data URI 去重令牌化） */
+  const actual = await importOriginal<typeof import('@bibliotype/exporter-pdf')>();
+  return {
+    ...actual,
+    collectPdfGlyphProblems: vi.fn(() => []),
+    createImageBlobRewriter: vi.fn(() => ({
+      rewrite: (src: string) => src,
+      revokeAll: vi.fn(),
+      uniqueCount: 0,
+    })),
+    downloadPdf: vi.fn(),
+    exportPdfBytes: vi.fn(
+      async (
+        _book: unknown,
+        options?: { adapter?: { toPdf: (html: string, opts?: unknown) => Promise<Uint8Array> } },
+      ) => {
+        /* 透传给 adapter，模拟真实实现的离屏窗口调用链 */
+        await options?.adapter?.toPdf('<html></html>', {});
+        return new Uint8Array([1, 2, 3]);
+      },
+    ),
+    exportRasterPdf: vi.fn(async () => new Uint8Array([9, 9])),
+    printHtml: vi.fn(),
+    renderPrintHtml: vi.fn(() => '<html><body>mock</body></html>'),
+    summarizePdfGlyphProblems: vi.fn(() => ''),
+  };
+});
 
 /** 构造最小依赖（鸭子类型：只实现 onExportPdf 实际读取的成员） */
 function makeDeps(
@@ -83,53 +88,47 @@ function makeDeps(
 afterEach(() => {
   vi.clearAllMocks();
   delete window.electronPdf;
+  delete (window as unknown as { ipcRenderer?: unknown }).ipcRenderer;
 });
 
 describe('useExport：PDF 三分路由', () => {
-  it('in-app：走 exportRasterPdf（带 signal / onProgress / scale），直接下载', async () => {
+  it('in-app（浏览器）：打开分段导出弹窗，确认前不整本光栅、不直接下载', async () => {
     const deps = makeDeps('in-app');
-    const { onExportPdf, pdfProgress } = useExport(deps);
-
-    let captured: {
-      signal?: AbortSignal;
-      onProgress?: (done: number, total: number) => void;
-      scale?: number;
-    } | undefined;
-    vi.mocked(exportRasterPdf).mockImplementationOnce(async (_book, options) => {
-      const opts = options ?? {};
-      captured = { signal: opts.signal, onProgress: opts.onProgress, scale: opts.scale };
-      opts.onProgress?.(1, 2);
-      return new Uint8Array([9, 9]);
-    });
+    const { onExportPdf, segmentDialogOpen, segmentRunner, segmentTitle } = useExport(deps);
 
     await onExportPdf();
 
-    expect(exportRasterPdf).toHaveBeenCalledTimes(1);
-    expect(captured?.signal).toBeInstanceOf(AbortSignal);
-    /* 进度先回填、finally 清空 */
-    expect(captured?.onProgress).toBeDefined();
-    expect(pdfProgress.value).toBeNull();
-    /* 清晰度档位来自设置（缺省标准 192dpi） */
-    expect(captured?.scale).toBe(2);
-    expect(downloadPdf).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(downloadPdf).mock.calls[0]?.[1]).toBe('测试书.pdf');
+    /* 弹窗打开，逐段导出由弹窗确认后触发（exportRasterPdf 的页区间形态） */
+    expect(segmentDialogOpen.value).toBe(true);
+    expect(segmentRunner.value).not.toBeNull();
+    expect(segmentTitle.value).toBe('测试书');
+    expect(exportRasterPdf).not.toHaveBeenCalled();
+    expect(downloadPdf).not.toHaveBeenCalled();
     expect(printHtml).not.toHaveBeenCalled();
-    expect(deps.pushToast).toHaveBeenCalledWith(expect.stringContaining('应用内直出'), 'success');
   });
 
-  it('in-app：清晰度档位随设置传入光栅导出', async () => {
+  it('in-app：浏览器弹窗 runner 逐段调 exportRasterPdf 页区间并独立下载（_00x 命名）', async () => {
     const deps = makeDeps('in-app', vi.fn(), 3);
-    const { onExportPdf } = useExport(deps);
-
-    let capturedScale: number | undefined;
-    vi.mocked(exportRasterPdf).mockImplementationOnce(async (_book, options) => {
-      capturedScale = options?.scale;
-      return new Uint8Array([9, 9]);
-    });
-
+    const { onExportPdf, segmentRunner } = useExport(deps);
     await onExportPdf();
 
-    expect(capturedScale).toBe(3);
+    /* 模拟弹窗确认后的逐段导出：页区间 [0,99]，清晰度档位与命名随段传入 */
+    const downloads: Array<{ filename: string; bytes: Uint8Array }> = [];
+    vi.mocked(exportRasterPdf).mockImplementationOnce(async (_book, options) => {
+      expect(options?.from).toBe(0);
+      expect(options?.to).toBe(99);
+      expect(options?.scale).toBe(3);
+      return new Uint8Array([9, 9]);
+    });
+    vi.mocked(downloadPdf).mockImplementationOnce((bytes, filename) => {
+      downloads.push({ filename, bytes });
+    });
+
+    const path = await segmentRunner.value!.exportSegment(0, 99, '测试书_001.pdf');
+
+    expect(exportRasterPdf).toHaveBeenCalledTimes(1);
+    expect(path).toBe('测试书_001.pdf');
+    expect(downloads[0]?.filename).toBe('测试书_001.pdf');
   });
 
   it('browser-dialog：走 renderPrintHtml + 打印对话框，不走光栅', async () => {
@@ -163,46 +162,50 @@ describe('useExport：PDF 三分路由', () => {
     expect(deps.pushToast).toHaveBeenCalledWith(expect.stringContaining('Electron'), 'success');
   });
 
-  it('导出中再点 = 中止：signal 被打断，任务以 AbortError 收尾并提示', async () => {
-    const deps = makeDeps('in-app');
-    const { onExportPdf, pdfExporting } = useExport(deps);
-
-    let capturedSignal: AbortSignal | undefined;
-    vi.mocked(exportRasterPdf).mockImplementationOnce(async (_book, options) => {
-      const opts = options ?? {};
-      capturedSignal = opts.signal;
-      return new Promise((_, reject) => {
-        opts.signal?.addEventListener('abort', () =>
-          reject(new DOMException('PDF 导出已中止。', 'AbortError')),
-        );
-      });
+  it('桌面宿主（window.ipcRenderer）：打开分段导出弹窗，确认前不发导出 IPC', async () => {
+    const channels: string[] = [];
+    const handlePromise = vi.fn(async (channel: string) => {
+      channels.push(channel);
+      return { success: true };
     });
-
-    const first = onExportPdf();
-    await vi.waitFor(() => expect(capturedSignal).toBeDefined());
-    expect(pdfExporting.value).toBe(true);
-
-    onExportPdf();
-    await first;
-
-    expect(capturedSignal?.aborted).toBe(true);
-    expect(pdfExporting.value).toBe(false);
-    expect(deps.pushToast).toHaveBeenCalledWith('PDF 导出已中止', 'info');
-    expect(downloadPdf).not.toHaveBeenCalled();
-  });
-
-  it('失败路径：非中止错误 → error 提示，状态复位', async () => {
+    (window as unknown as { ipcRenderer?: unknown }).ipcRenderer = {
+      handlePromise,
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    };
     const deps = makeDeps('in-app');
-    const { onExportPdf, pdfExporting, pdfProgress } = useExport(deps);
+    /* 书档注入一张内联缺字图（分段弹窗确认后会去重令牌化并逐张上传） */
+    const doc = deps.reader.reader.value.document!;
+    (doc.root.children ??= []).push({
+      type: NODE_TYPES.GLYPH_IMAGE,
+      attrs: { src: 'data:image/png;base64,AAAA' },
+    });
+    const { onExportPdf, segmentDialogOpen, segmentRunner, segmentTitle, segmentTotalPages } =
+      useExport(deps);
+
+    await onExportPdf();
+
+    /* 打开弹窗即返回：begin / asset / prepare / segment 都由弹窗确认后触发 */
+    expect(channels).toEqual([]);
+    expect(segmentDialogOpen.value).toBe(true);
+    expect(segmentRunner.value).not.toBeNull();
+    expect(segmentTitle.value).toBe('测试书');
+    expect(exportRasterPdf).not.toHaveBeenCalled();
+    expect(downloadPdf).not.toHaveBeenCalled();
+    expect(printHtml).not.toHaveBeenCalled();
+  });
+  it('弹窗分段导出失败：段错误返回给弹窗（由弹窗标红该段并停止）', async () => {
+    const deps = makeDeps('in-app');
+    const { onExportPdf, segmentRunner } = useExport(deps);
+    await onExportPdf();
 
     vi.mocked(exportRasterPdf).mockImplementationOnce(async () => {
       throw new Error('画布导出 JPEG 失败。');
     });
 
-    await onExportPdf();
-
-    expect(pdfExporting.value).toBe(false);
-    expect(pdfProgress.value).toBeNull();
-    expect(deps.pushToast).toHaveBeenCalledWith(expect.stringContaining('导出 PDF 失败'), 'error');
+    await expect(segmentRunner.value!.exportSegment(0, 99, '测试书_001.pdf')).rejects.toThrow(
+      '画布导出 JPEG 失败',
+    );
+    expect(downloadPdf).not.toHaveBeenCalled();
   });
 });

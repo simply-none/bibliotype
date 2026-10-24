@@ -186,9 +186,62 @@ ipcMain.handle('pdf:export', async (event, html: string, options) => {
 ```
 
 注意：data: URL 窗口里 **`blob:` 引用会失效**——这正是 adapter 路径必须用 inline 图片的原因。
+超大书（千页级）HTML 达几十 MB，超出 data: URL 的实用上限——改用**临时文件 + `loadFile`**
+（参考实现见下节渐离App 的 `bibliotype:export-pdf`）。
 
 Node 无头浏览器（puppeteer）同理：`page.setContent(html)` → `page.pdf({ printBackground: true })`，
 包成同样的 `PdfExportAdapter` 即可。
+
+### 桌面宿主通用 IPC 路由（渐离App 集成）
+
+demo 的导出路由在 `window.electronPdf` 桥之后还有一个**桌面宿主分支**：检测到
+`window.ipcRenderer.handlePromise`（桌面壳 preload 的 contextBridge 通用暴露）时，
+「导出 PDF」打开**分段导出弹窗**——设置每卷页数、预览分段区域，确认后弹窗内
+**逐段矢量打印并独立落盘为 `书名_00x.pdf`**（不合并单文件，`PdfSegmentDialog`）。
+为什么要会话化：书档里同一缺字图以完整 data URI **逐处重复**（import-epub 内联
+策略），整本书档可达数百 MB，任何「整本一次过 IPC」（书档直传 / 大 HTML 直传）
+都会在 contextBridge 深拷贝 + structured clone 处撞「Array buffer allocation
+failed」；整本一次 printToPDF 也会撞隐藏窗口渲染上限。会话把传输与打印都拆成
+有界小片。浏览器无此全局，路由不受影响。
+
+通道契约（宿主侧实现约定，参考实现在渐离App `electron/main/module/bibliotype.ts`）：
+
+```ts
+/* ① 开始会话 */
+ipcRenderer.handlePromise('bibliotype:export-begin')            // → { exportId }
+/* ② 逐张上传内联图片（data URI 已去重：同一张图只传一次；
+ *    宿主收即写临时资源文件 <temp>/<exportId>/<token>.<ext>，内存 O(1)） */
+ipcRenderer.handlePromise('bibliotype:export-asset', {
+  exportId: string; token: string; dataUri: string;             // data:image/…
+})                                                              // → { success }
+/* ③ 预分页：主进程缓存分页器（一次分页，后续分段复用），返回总页数；
+ *    document 为瘦身书档（内联图片已替换为令牌，不过 IPC） */
+ipcRenderer.handlePromise('bibliotype:export-prepare', {
+  exportId: string;
+  document: BookDocument;        // 瘦身书档
+  options: PrintDocumentOptions; // layout / tokens / mode / 实测尺寸表 / bleed 等
+})                                                              // → { pageCount, error? }
+/* ④ 逐段打印落盘：每段一次调用，独立 PDF 文件（弹窗按段触发） */
+ipcRenderer.handlePromise('bibliotype:export-segment', {
+  exportId: string;
+  from: number; to: number;      // 页区间（0 起含端点）
+  filename: string;              // 书名_00x.pdf
+  dir?: string;
+})                                                              // → { success, path?, error? }
+```
+
+宿主实现要点：`export-prepare` 做 `rehydrateInlineImages(document, resolve)`（令牌 src
+还原为相对资源路径，宿主已把图片收即落盘到 `<temp>/<exportId>/`）并缓存
+`createPrintPager(document, { …options, mode: 'paged' })`；`export-segment` 用
+`renderPageRange(from, to)` 生成**只含该段页面的独立 HTML**（数 MB）→ 隐藏窗口
+`loadFile` → `printToPDF({ printBackground: true, margins: 0, preferCSSPageSize: true })`
+（段内 @page 已声明页面尺寸，含出血，与整本打印同口径）→ 写 fileCachePath 返回路径。
+宿主侧需能解析 bibliotype 构建产物（渐离App 走 vite 别名 `bibliotype-printer` 直连
+`packages/exporter-pdf/dist`，绕开 npm 无法安装 monorepo `workspace:*` 依赖的问题；
+`dedupeInlineImages` / `rehydrateInlineImages` / `createPrintPager` 由本包同源导出，
+两端同款实现）。另有单发合并形态 `bibliotype:export-run`（`{ html }` /
+`{ document, options, segmentPages }` → 合并单文件）与单发
+`bibliotype:export-pdf` 保留兼容，大书勿用。
 
 ## 浏览器打印降级（printHtml / printBook）
 

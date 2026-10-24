@@ -40,10 +40,12 @@ import type { BookEditor } from '@bibliotype/editor';
 import type { Command } from 'prosemirror-state';
 import { useEditorBinding, type EditorBinding } from '../use-editor.js';
 import { useKeyboardInset, type CaretRect } from '../use-keyboard-inset.js';
+import { resolveImageTarget, useImageLightbox } from '../use-image-lightbox.js';
 import PagedCanvas from '../paged-editor/PagedCanvas.vue';
 import { usePagedLayout } from '../paged-editor/use-paged-layout.js';
 import { locatePmPosition } from '../paged-editor/selection-bridge.js';
 import { resolveCaretTarget } from '../paged-editor/input-router.js';
+import BtImageLightbox from './BtImageLightbox.vue';
 import 'prosemirror-view/style/prosemirror.css';
 
 const props = defineProps<{
@@ -104,6 +106,13 @@ const props = defineProps<{
   scale?: number;
   /** paged 首轮分页就绪后定位页（自 0 起；「阅读当前页 → 进编辑」位置定位） */
   initialPage?: number;
+  /**
+   * 双击图片弹窗放大（lightbox，缺省 false）
+   *
+   * 开启后双击画布内插图（`div.bt-image`）或行内字图（`img.bt-glyph-image`）弹出
+   * `BtImageLightbox` 等比放大查看；用双击而非单击，避免与 PM 单击选中节点冲突。
+   */
+  imageLightbox?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -498,6 +507,19 @@ watch(
 
 /** 暴露给使用方的命令接口（编辑态目录跳转等） */
 defineExpose({ goToNode });
+
+/* 图片放大弹窗（imageLightbox）：双击画布内图片弹出，单击选中节点不受影响 */
+const { image: lightboxImage, open: openImageLightbox, close: closeImageLightbox } =
+  useImageLightbox();
+
+/** 双击命中图片（开启 imageLightbox 时）：打开弹窗；未命中交给 PM 默认行为 */
+function onImageDblclick(event: MouseEvent): void {
+  if (props.imageLightbox !== true) return;
+  const target = resolveImageTarget(event.target);
+  if (target === null) return;
+  event.preventDefault();
+  openImageLightbox(target);
+}
 </script>
 
 <template>
@@ -505,6 +527,7 @@ defineExpose({ goToNode });
     class="bt-editor"
     :data-keyboard="keyboardOpen ? 'open' : 'closed'"
     :style="{ '--bt-keyboard-inset': `${keyboardInset}px` }"
+    @dblclick="onImageDblclick"
   >
     <div v-if="$slots.default" class="bt-editor__toolbar">
       <slot v-bind="slotBinding" />
@@ -550,6 +573,8 @@ defineExpose({ goToNode });
         <span>正在分页…</span>
       </div>
     </div>
+    <!-- 图片放大弹窗（imageLightbox）：Teleport 到 body，关闭态不渲染 -->
+    <BtImageLightbox :image="lightboxImage" @close="closeImageLightbox" />
   </div>
 </template>
 

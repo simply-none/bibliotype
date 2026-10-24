@@ -591,6 +591,7 @@ let perfProbe: PerfProbe | null = null;
             :font-size="fontSizeNum"
             :page-transition="pageTransition"
             :initial-position="savedPosition"
+            :image-lightbox="true"
             @update:font-size="onFontSizeUpdate"
             @update:position="onReadingPosition"
             @mode-fallback="onModeFallback"
@@ -613,6 +614,7 @@ let perfProbe: PerfProbe | null = null;
             :editable="!editorReadonly"
             :scale="editorScale"
             :initial-page="editStartPage"
+            :image-lightbox="true"
             @update:visible-page="editorVisiblePage = $event"
           >
             <template #default="slotProps">

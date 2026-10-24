@@ -44,7 +44,9 @@ import { usePrefersReducedMotion } from '../prefers-reduced-motion.js';
 import { useBreakpoint } from '../use-breakpoint.js';
 import { BT_BREAKPOINTS } from '../breakpoints.js';
 import type { FlowChunk } from '@bibliotype/reader';
+import { resolveImageTarget, useImageLightbox } from '../use-image-lightbox.js';
 import BtNotePreview from './BtNotePreview.vue';
+import BtImageLightbox from './BtImageLightbox.vue';
 
 const props = withDefaults(
   defineProps<{
@@ -118,8 +120,15 @@ const props = withDefaults(
      * 不传则用「字数 / 每行字数 × 行高」估算；挂载后由 `ResizeObserver` 实测覆盖。
      */
     estimateFlowHeight?: (chunk: FlowChunk) => number;
+    /**
+     * 点击图片弹窗放大（lightbox，缺省 false）
+     *
+     * 开启后点击正文插图（`img.bt-image`）或行内字图（`img.bt-glyph-image`）弹出
+     * `BtImageLightbox` 等比放大查看；命中即消费该次点击，不再触发翻页分区。
+     */
+    imageLightbox?: boolean;
   }>(),
-  { fit: 'contain', mode: 'page', ariaLabel: '正文阅读区，可用方向键翻页' },
+  { fit: 'contain', mode: 'page', ariaLabel: '正文阅读区，可用方向键翻页', imageLightbox: false },
 );
 
 const emit = defineEmits<{
@@ -162,6 +171,31 @@ const {
   onRequestPage: (page) => props.reader.goToPage(page),
   onLocateNode: (nodeId) => locateFlowNode(nodeId),
 });
+
+/**
+ * 图片放大弹窗（imageLightbox）
+ *
+ * 页面正文是 `v-html` 字符串，与注释同走事件委托：命中图片即消费该次点击，
+ * 不再落入翻页分区（否则点图会翻页）。
+ */
+const { image: lightboxImage, open: openImageLightbox, close: closeImageLightbox } =
+  useImageLightbox();
+
+/** 点击命中图片（开启 imageLightbox 时）：打开弹窗并 preventDefault 消费该次点击 */
+function onImageClick(event: MouseEvent): void {
+  if (!props.imageLightbox) return;
+  const target = resolveImageTarget(event.target);
+  if (target === null) return;
+  event.preventDefault();
+  openImageLightbox(target);
+}
+
+/** scroll / flow 模式根容器点击委托：注释 → 图片弹窗（无翻页分区） */
+function onRootClick(event: MouseEvent): void {
+  onNoteClick(event);
+  if (event.defaultPrevented) return;
+  onImageClick(event);
+}
 
 /* =========================================================================
  * 模式判定 / 翻页动效（D5，前置声明：下方 note-interaction / mode 监听会引用）
@@ -738,12 +772,15 @@ function onPageTouchEnd(event: TouchEvent): void {
 /**
  * 单页模式点按分区（A3）
  *
- * 先交给注释委托（点击注码 / 回跳符号时由它消费并 preventDefault），未命中时按
+ * 先交给注释委托（点击注码 / 回跳符号时由它消费并 preventDefault），再交给图片
+ * 弹窗委托（imageLightbox 开启时点击插图 / 字图放大），命中均不再分区；未命中时按
  * 位置分区：左右边缘（各 20%）翻页，中部上抛 `tap-center` 由宿主呼出 / 收起 chrome。
  * 存在选区、刚完成滑动、点中链接或表单控件时不分区。
  */
 function onPageTap(event: MouseEvent): void {
   onNoteClick(event);
+  if (event.defaultPrevented) return;
+  onImageClick(event);
   if (event.defaultPrevented) return;
   if (hasTextSelection()) return;
   if (Date.now() - swipeEndedAt < TAP_SUPPRESS_MS) return;
@@ -1498,7 +1535,7 @@ defineExpose({
     @scroll="onScroll"
     @wheel="onWheel"
     @keydown="onScrollKeydown"
-    @click="onNoteClick"
+    @click="onRootClick"
     @pointerover="onNotePointerOver"
     @pointerout="onNotePointerOut"
     @focusin="onNoteFocusIn"
@@ -1541,7 +1578,7 @@ defineExpose({
     :data-mode-fallback="mode === 'scroll-flow' ? 'paged' : undefined"
     @scroll="onFlowScroll"
     @keydown="onFlowKeydown"
-    @click="onNoteClick"
+    @click="onRootClick"
     @pointerover="onNotePointerOver"
     @pointerout="onNotePointerOut"
     @focusin="onNoteFocusIn"
@@ -1573,6 +1610,9 @@ defineExpose({
     <span class="bt-sr-only" aria-live="polite">{{ flowProgressText }}</span>
     <BtNotePreview :preview="notePreview" />
   </div>
+
+  <!-- 图片放大弹窗（imageLightbox）：Teleport 到 body，关闭态不渲染 -->
+  <BtImageLightbox :image="lightboxImage" @close="closeImageLightbox" />
 </template>
 
 <style scoped>

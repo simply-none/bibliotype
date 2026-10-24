@@ -308,6 +308,32 @@ const note = useNoteInteraction({ reader });
 note.attach(rootElement);
 ```
 
+### 图片放大查看（lightbox）
+
+| 导出 | 用途 | 关键参数 / 事件 |
+| --- | --- | --- |
+| `BtImageLightbox` | 图片放大弹窗（Teleport 到 body：暗色遮罩 + 居中等比大图 + 说明文字） | `image: LightboxImage \| null`（null = 关闭态）、`maskClosable?`、`ariaLabel?`；emit `close` |
+| `useImageLightbox()` | 弹窗状态组合式（`image` ref + `open` / `close`） | 宿主自定义视图接线用 |
+| `resolveImageTarget(target)` | 事件目标 → 图片信息（命中判定纯函数） | 覆盖阅读页 `img.bt-image` / `img.bt-glyph-image`（原字取 `data-char`）与编辑画布 `div.bt-image[data-src]` 三种形态 |
+
+接线（默认关闭，开启需传 prop）：
+
+- `BtBookView`：`imageLightbox`（缺省 `false`）开启后**点击**正文插图或字图弹窗放大，
+  三种阅读模式（page / scroll / scroll-flow）均生效；命中即消费该次点击，
+  不再触发翻页分区（单页模式点图不再翻页）；
+- `BtEditor`：`imageLightbox`（缺省 `false`）开启后**双击**画布内图片弹窗放大——
+  用双击避免与 PM 单击选中节点冲突；
+- 关闭途径：遮罩点击 / `Esc` / 右上角关闭按钮；开启期间锁背景滚动（计数锁，
+  可与抽屉等浮层叠加）；说明文字字图显示「原字：X」、插图显示 alt；
+- 直排阅读流中的字图 90° 旋转不带入弹窗，恒以原图方向展示；
+- 视觉变量（均带默认值）：`--bt-lightbox-mask` / `--bt-lightbox-color` /
+  `--bt-lightbox-image-bg`（图片衬底，透明 PNG 字图以白衬底保持可读）。
+
+```vue
+<BtBookView :reader="reader" :image-lightbox="true" />
+<BtEditor :editor="editor" :image-lightbox="true" />
+```
+
 ### 主题与外观（D10）
 
 | 导出 | 用途 | 关键参数 / 事件 |

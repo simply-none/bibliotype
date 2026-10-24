@@ -125,6 +125,11 @@ export type {
   UseNoteInteractionOptions,
 } from './use-note-interaction.js';
 
+/* ---------- 图片放大查看 ---------- */
+export { default as BtImageLightbox } from './components/BtImageLightbox.vue';
+export { resolveImageTarget, useImageLightbox } from './use-image-lightbox.js';
+export type { LightboxImage, UseImageLightbox } from './use-image-lightbox.js';
+
 /* ---------- 主题与外观（D10） ---------- */
 export { default as BtThemePanel } from './components/BtThemePanel.vue';
 export { default as BtFontFallbackPanel } from './components/BtFontFallbackPanel.vue';

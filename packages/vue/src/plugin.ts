@@ -4,10 +4,11 @@
 import type { App, Plugin } from 'vue';
 import BtBookView from './components/BtBookView.vue';
 import BtEditor from './components/BtEditor.vue';
+import BtImageLightbox from './components/BtImageLightbox.vue';
 import BtPager from './components/BtPager.vue';
 import BtToc from './components/BtToc.vue';
 
-/** 创建插件（全局注册 BtBookView / BtPager / BtToc / BtEditor） */
+/** 创建插件（全局注册 BtBookView / BtPager / BtToc / BtEditor / BtImageLightbox） */
 export function createBibliotype(): Plugin {
   return {
     install(app: App): void {
@@ -15,6 +16,7 @@ export function createBibliotype(): Plugin {
       app.component('BtPager', BtPager);
       app.component('BtToc', BtToc);
       app.component('BtEditor', BtEditor);
+      app.component('BtImageLightbox', BtImageLightbox);
     },
   };
 }

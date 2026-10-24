@@ -121,6 +121,9 @@ const doc = epubToBookDocument(await file.arrayBuffer(), schema, { title: '来�
   段落被切开，原生 `width` / `height` 属性保留进 IR attrs——缺字替代图（小尺寸字形图）
   配合 `normalizeGlyphImages`（见 [05 字图内联](05-layout-and-html.md)）自动识别并归并
   回相邻段落；不确定形态保守保留并写报告，不丢数据。
+- 源元素 `id` 保留为节点 id（schema 解析层统一处理，HTML / docx / EPUB 同源）：
+  `<a href="#…">` 的跳转目标块（段落 / 列表项 / 标题等）由此可定位，阅读视图的
+  「点击注码跳注文」依赖它（见 [06 Vue 集成](06-vue-integration.md) 注释交互）。
 - 与 [07 EPUB 导出](07-export-epub.md) 构成 **导出 ↔ 导入往返**（导出产物可直接作为导入夹具）。
 
 ## 环境要求

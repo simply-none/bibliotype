@@ -105,4 +105,22 @@ describe('标准 HTML parseDOM', () => {
     expect(image?.attrs.src).toBe('/a.png');
     expect(image?.attrs.alt).toBe('图');
   });
+
+  it('源元素 id 保留为节点 id（文档内锚点目标依赖它）', () => {
+    const nodes = parseHtml('<p id="n1">注文一</p><h2 id="h-x">小节</h2>');
+    expect(nodes[0]?.attrs.id).toBe('n1');
+    expect(nodes[1]?.attrs.id).toBe('h-x');
+    expect(nodes[1]?.attrs.level).toBe(2);
+  });
+
+  it('bt-* 渲染产物 HTML 回解析不丢节点 id', () => {
+    const nodes = parseHtml('<div class="bt-paragraph" id="p-1">正文</div>');
+    expect(nodes[0]?.attrs.id).toBe('p-1');
+  });
+
+  it('无 id 的元素不受影响；getAttrs 已显式产出的键不被覆盖', () => {
+    const nodes = parseHtml('<p>普通段</p><h2 id="h2-x">标题</h2>');
+    expect(nodes[0]?.attrs.id).toBeNull();
+    expect(nodes[1]?.attrs.level).toBe(2);
+  });
 });

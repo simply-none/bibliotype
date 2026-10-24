@@ -209,14 +209,18 @@ describe('BtImageLightbox 缩放 / 平移', () => {
     return match === null ? 1 : Number.parseFloat(match[1] ?? '1');
   }
 
-  it('滚轮放大 / 缩小，以上限 8 倍限幅', async () => {
+  it('滚轮缩放恒居中：倍率变化不改平移偏移，且以上限 8 倍限幅', async () => {
     wrapper = mountOpen();
     await nextTick();
     expect(currentScale()).toBe(1);
 
-    root().dispatchEvent(wheelEvent(-100));
+    /* 光标偏离中心缩放：图片仍居中放大，不漂移 */
+    root().dispatchEvent(wheelEvent(-100, 150, 100));
     await nextTick();
     expect(currentScale()).toBeGreaterThan(1);
+    expect(root<HTMLElement>('.bt-lightbox__image').style.transform).toContain(
+      'translate(0px, 0px)',
+    );
 
     for (let index = 0; index < 40; index += 1) {
       root().dispatchEvent(wheelEvent(-100));
@@ -229,19 +233,19 @@ describe('BtImageLightbox 缩放 / 平移', () => {
     expect(currentScale()).toBeLessThan(8);
   });
 
-  it('双指捏合按指距比缩放（以指心为锚）', async () => {
+  it('双指捏合按指距比缩放（move / up 跟踪挂在 window）', async () => {
     wrapper = mountOpen();
     await nextTick();
     const el = root();
 
     el.dispatchEvent(pointerEvent('pointerdown', 1, 100, 200));
     el.dispatchEvent(pointerEvent('pointerdown', 2, 200, 200));
-    el.dispatchEvent(pointerEvent('pointermove', 2, 350, 200)); // 指距 100 → 250，倍率 2.5
+    window.dispatchEvent(pointerEvent('pointermove', 2, 350, 200)); // 指距 100 → 250，倍率 2.5
     await nextTick();
     expect(Math.abs(currentScale() - 2.5)).toBeLessThan(0.01);
 
-    el.dispatchEvent(pointerEvent('pointerup', 1, 100, 200));
-    el.dispatchEvent(pointerEvent('pointerup', 2, 350, 200));
+    window.dispatchEvent(pointerEvent('pointerup', 1, 100, 200));
+    window.dispatchEvent(pointerEvent('pointerup', 2, 350, 200));
   });
 
   it('放大后拖拽平移；拖后的遮罩 click 不当点按关闭', async () => {
@@ -251,8 +255,8 @@ describe('BtImageLightbox 缩放 / 平移', () => {
 
     el.dispatchEvent(wheelEvent(-100)); // 先放大
     el.dispatchEvent(pointerEvent('pointerdown', 1, 200, 200));
-    el.dispatchEvent(pointerEvent('pointermove', 1, 250, 230));
-    el.dispatchEvent(pointerEvent('pointerup', 1, 250, 230));
+    window.dispatchEvent(pointerEvent('pointermove', 1, 250, 230));
+    window.dispatchEvent(pointerEvent('pointerup', 1, 250, 230));
     await nextTick();
     expect(root<HTMLElement>('.bt-lightbox__image').style.transform).toContain('translate(50px, 30px)');
 
@@ -267,6 +271,19 @@ describe('BtImageLightbox 缩放 / 平移', () => {
     root<HTMLElement>('.bt-lightbox__mask').dispatchEvent(
       new MouseEvent('click', { bubbles: true }),
     );
+    await nextTick();
+    expect(wrapper.emitted('close')).toHaveLength(1);
+  });
+
+  it('指针手势跟踪下关闭按钮仍可点击；手势结束后 window 监听已摘除', async () => {
+    wrapper = mountOpen();
+    await nextTick();
+    const el = root();
+
+    /* 浏览器真实点击序列：pointerdown / up 先于 click（此前 capture 会吞掉 click） */
+    el.dispatchEvent(pointerEvent('pointerdown', 1, 300, 20));
+    window.dispatchEvent(pointerEvent('pointerup', 1, 300, 20));
+    root<HTMLButtonElement>('.bt-lightbox__close').click();
     await nextTick();
     expect(wrapper.emitted('close')).toHaveLength(1);
   });

@@ -179,6 +179,12 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
     return container.querySelector(`[id="${escapeAttr(refId)}"]`) as HTMLElement | null;
   };
 
+  /** 文档内锚点目标（源文档 `<a href="#…">` 指向的带 id 块，导入产物同源） */
+  const findAnchorElement = (targetId: string): HTMLElement | null => {
+    if (container === null) return null;
+    return container.querySelector(`[id="${escapeAttr(targetId)}"]`) as HTMLElement | null;
+  };
+
   /** 特性检测：happy-dom / 旧内核没有 scrollIntoView */
   const scrollTo = (element: Element | null): void => {
     if (element === null) return;
@@ -350,7 +356,30 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
       event.preventDefault();
       const noteId = closest(event.target, '[data-note-id]')?.getAttribute('data-note-id') ?? undefined;
       goToRef(refId, noteId);
+      return;
     }
+
+    /* 文档内锚点链接（导入注码多为 link 标记 `<a href="#…">`）：目标在本书内
+     * 即消费并跳转，避免浏览器默认锚点导航把预览页「刷新」到顶；解析不到
+     * （目标 id 不存在）时不拦截，交宿主 / 浏览器默认行为 */
+    const anchor = closest(event.target, 'a[href^="#"]');
+    if (anchor === null) return;
+    const targetId = stripHash(anchor.getAttribute('href'));
+    if (targetId === '') return;
+    const inPage = findAnchorElement(targetId);
+    if (inPage !== null) {
+      event.preventDefault();
+      activateElement(inPage);
+      return;
+    }
+    const page = reader.getPageOfNode(targetId);
+    if (page === undefined) return;
+    event.preventDefault();
+    goToPage(page);
+    afterRender(() => {
+      const target = findAnchorElement(targetId);
+      if (target !== null) activateElement(target);
+    });
   };
 
   const onPointerOver = (event: Event): void => {

@@ -178,6 +178,34 @@ function withDefaultMarkDom(type: string, spec: MarkSpec): MarkSpec {
   return next;
 }
 
+/**
+ * 为节点解析规则补充「保留源元素 id」
+ *
+ * 导入的 HTML / docx / EPUB 里 `<a href="#…">` 的跳转目标（段落 / 列表项 /
+ * 标题等）靠源 id 对应，parse 时丢 id 文档内锚点就断链；同时修复 bt-* 渲染
+ * 产物 HTML 回编辑器往返丢节点 id。克隆规则不改动共享 spec；规则已显式返回
+ * id 与返回 false / null 的跳过情形均保持原样；spec 未声明 id 属性时 PM 会
+ * 忽略多余键，无需特判。
+ */
+function withSourceIdParsing(spec: NodeSpec): NodeSpec {
+  if (spec.parseDOM === undefined || spec.parseDOM === null) return spec;
+  return {
+    ...spec,
+    parseDOM: spec.parseDOM.map((rule) => {
+      const original = rule.getAttrs;
+      return {
+        ...rule,
+        getAttrs: (dom: HTMLElement): Record<string, unknown> | false | null => {
+          const parsed = original !== undefined ? original(dom) : {};
+          if (!parsed) return parsed;
+          const id = dom.getAttribute('id');
+          return id !== null && parsed['id'] === undefined ? { ...parsed, id } : parsed;
+        },
+      };
+    }),
+  };
+}
+
 /** 规格注册冲突错误 */
 export class EditorSpecConflictError extends BibliotypeError {
   constructor(kind: 'node' | 'mark', type: string) {
@@ -326,7 +354,7 @@ export class EditorSchemaRegistry {
 
     const nodes: Record<string, NodeSpec> = {};
     for (const [type, entry] of this.nodes) {
-      nodes[type] = withDefaultNodeDom(type, entry.spec);
+      nodes[type] = withSourceIdParsing(withDefaultNodeDom(type, entry.spec));
     }
     const marks: Record<string, MarkSpec> = {};
     for (const [type, entry] of this.marks) {

@@ -7,11 +7,12 @@
  * alt）。关闭途径：遮罩点击 / Esc / 右上角关闭按钮（触屏无 Esc）；开启期间
  * `useScrollLock` 锁背景滚动（计数锁，可与抽屉等浮层叠加）。
  *
- * 缩放 / 平移：滚轮（以光标为锚）与双指捏合（以指心为锚）缩放，超出适配大小后
- * 可拖拽平移，双击图片复位。手势监听全部绑在弹窗根元素上——`image` 置 null 时
- * 整棵子树随 `v-if` 卸载，wheel / pointer 监听自动摘除，不会泄漏进阅读层干扰
- * 翻页滚轮与原生手势；`touch-action: none` + `draggable=false` 接管浏览器默认
- * 平移 / 捏合 / 拖图。缩放与平移状态在每次打开时重置，上一张的手势残留不带入。
+ * 缩放 / 平移：滚轮与双指捏合**恒以图片中心为锚居中放大**（1×~8×，只变倍率、
+ * 视觉中心不动），超出适配大小后可拖拽平移，双击图片复位。手势跟踪的 move / up
+ * 挂 window 且仅在手势进行中存在（首指按下挂、末指抬起摘，关闭 / 卸载强制摘），
+ * 不用 setPointerCapture（会把 click 重定向到根元素，关闭按钮与遮罩点击失效）；
+ * `touch-action: none` + `draggable=false` 接管浏览器默认平移 / 捏合 / 拖图。
+ * 缩放与平移状态在每次打开时重置，上一张的手势残留不带入。
  *
  * `image` 为 null 即关闭态（不渲染）。直排阅读流中的字图 90° 旋转不带入弹窗，
  * 恒以原图方向展示。视觉变量（美化口径同 BtDrawer，均带默认值）：
@@ -48,12 +49,19 @@ const caption = computed(() => {
 
 /* =========================================================================
  * 缩放 / 平移（滚轮 + 双指捏合 + 拖拽）
+ *
+ * 缩放恒以图片中心为锚：只变倍率、视觉中心不动（未平移时即一直居中放大）。
+ * 手势跟踪：pointerdown 绑在弹窗根元素；move / up / cancel 挂 window 且仅在
+ * 手势进行中存在（首指按下挂、末指抬起摘、关闭 / 卸载强制摘）——不用
+ * setPointerCapture，它会把后续 click 重定向到根元素，关闭按钮与遮罩点击会失效。
  * ========================================================================= */
 
 /** 缩放下限：1 = 适配窗口（contain 布局尺寸） */
 const MIN_SCALE = 1;
 /** 缩放上限（8 倍足够看扫描字图笔画细节） */
 const MAX_SCALE = 8;
+/** 判定拖动阈值（px）：超过视为手势，结束的 click 不当点按关闭遮罩 */
+const GESTURE_THRESHOLD = 6;
 
 /** 当前缩放倍率（1 = 适配窗口） */
 const scale = ref(1);
@@ -63,7 +71,7 @@ const offsetY = ref(0);
 /** 是否处于拖拽 / 捏合手势中（光标抓手态） */
 const dragging = ref(false);
 
-/** 图片元素（量取布局尺寸与中心；v-if 随开关自动绑定 / 置 null） */
+/** 图片元素（量取布局尺寸做平移限幅；v-if 随开关自动绑定 / 置 null） */
 const imageRef = ref<HTMLImageElement | null>(null);
 
 /** 按住的指针集合（pointerId → 坐标；1 指 = 拖拽平移，2 指 = 捏合缩放） */
@@ -77,11 +85,28 @@ let dragStart: { x: number; y: number } | null = null;
 let pressStart: { x: number; y: number } | null = null;
 /** 本次按压是否发生过大位移 */
 let gestured = false;
+/** window 手势监听是否已挂（仅手势进行中挂） */
+let gestureBound = false;
 
-/** 判定位移阈值（px）：超过视为拖动而非点按 */
-const GESTURE_THRESHOLD = 3;
+/** 摘 window 手势监听（幂等） */
+function unbindGesture(): void {
+  if (!gestureBound || typeof window === 'undefined') return;
+  gestureBound = false;
+  window.removeEventListener('pointermove', onWindowPointerMove);
+  window.removeEventListener('pointerup', onWindowPointerUp);
+  window.removeEventListener('pointercancel', onWindowPointerCancel);
+}
 
-/** 复位缩放与平移（关闭 / 换图 / 双击图片时调用） */
+/** 挂 window 手势监听（幂等；仅手势进行中存在，弹窗关闭即无监听） */
+function bindGesture(): void {
+  if (gestureBound || typeof window === 'undefined') return;
+  gestureBound = true;
+  window.addEventListener('pointermove', onWindowPointerMove);
+  window.addEventListener('pointerup', onWindowPointerUp);
+  window.addEventListener('pointercancel', onWindowPointerCancel);
+}
+
+/** 复位缩放与平移 + 摘手势监听（关闭 / 换图 / 双击图片时调用） */
 function resetTransform(): void {
   scale.value = 1;
   offsetX.value = 0;
@@ -92,30 +117,18 @@ function resetTransform(): void {
   dragStart = null;
   pressStart = null;
   gestured = false;
+  unbindGesture();
 }
 
-/**
- * 以视口锚点 (anchorX, anchorY) 缩放到 newScale（先限幅）
- *
- * 变换口径：`X = C + t + s·(X - C)`（C 为未变换布局中心，t 平移，s 倍率）；
- * 要求锚点下的图像点缩放后仍停在锚点，反解出新平移——滚轮以光标、捏合以
- * 指心为锚都走这里，缩放始终「盯住手指 / 光标处的内容」。
- */
-function zoomAt(newScale: number, anchorX: number, anchorY: number): void {
-  const img = imageRef.value;
-  if (img === null) return;
-  const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, newScale));
-  const rect = img.getBoundingClientRect();
-  const centerX = rect.left + rect.width / 2 - offsetX.value;
-  const centerY = rect.top + rect.height / 2 - offsetY.value;
-  const ratio = next / scale.value;
-  offsetX.value = (anchorX - centerX) * (1 - ratio) + offsetX.value * ratio;
-  offsetY.value = (anchorY - centerY) * (1 - ratio) + offsetY.value * ratio;
-  scale.value = next;
-  if (next === MIN_SCALE) {
+/** 居中缩放：只变倍率，图片视觉中心保持不动；回 1× 时平移归零 */
+function applyScale(next: number): void {
+  scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+  if (scale.value === MIN_SCALE) {
     offsetX.value = 0;
     offsetY.value = 0;
+    return;
   }
+  clampOffset();
 }
 
 /** 平移限幅：仅当缩放后图片超出视口才允许平移（不足则回正），避免图被甩出视野 */
@@ -130,12 +143,12 @@ function clampOffset(): void {
   offsetY.value = Math.min(maxY, Math.max(-maxY, offsetY.value));
 }
 
-/** 滚轮缩放（以光标为锚）；preventDefault 由 .prevent 修饰符承担 */
+/** 滚轮缩放（居中）；preventDefault 由 .prevent 修饰符承担 */
 function onWheel(event: WheelEvent): void {
-  const factor = Math.exp(-event.deltaY * 0.002);
-  zoomAt(scale.value * factor, event.clientX, event.clientY);
+  applyScale(scale.value * Math.exp(-event.deltaY * 0.002));
 }
 
+/** 首指按下（弹窗根元素）：登记指针并挂 window 跟踪后续移动 / 抬起 */
 function onPointerDown(event: PointerEvent): void {
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   pressStart = { x: event.clientX, y: event.clientY };
@@ -150,26 +163,18 @@ function onPointerDown(event: PointerEvent): void {
     dragStart = null;
     dragging.value = true;
   }
-  /* 捕获后续指针事件：手指移出弹窗仍持续收 move / up（环境不支持则跳过） */
-  const root = event.currentTarget;
-  if (root instanceof Element && typeof root.setPointerCapture === 'function') {
-    try {
-      root.setPointerCapture(event.pointerId);
-    } catch {
-      /* 指针可能已释放，无害 */
-    }
-  }
+  bindGesture();
 }
 
-function onPointerMove(event: PointerEvent): void {
-  if (pointers.size === 0 || !pointers.has(event.pointerId)) return;
+function onWindowPointerMove(event: PointerEvent): void {
+  if (!pointers.has(event.pointerId)) return;
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
-  /* 双指捏合：指距比 → 倍率，指心为锚 */
+  /* 双指捏合：指距比 → 倍率（居中缩放） */
   if (pointers.size >= 2 && pinchStartDistance > 0) {
     const [a, b] = [...pointers.values()];
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
-    zoomAt(pinchStartScale * (distance / pinchStartDistance), (a.x + b.x) / 2, (a.y + b.y) / 2);
+    applyScale(pinchStartScale * (distance / pinchStartDistance));
     gestured = true;
     return;
   }
@@ -187,9 +192,11 @@ function onPointerMove(event: PointerEvent): void {
   }
 }
 
-function onPointerUp(event: PointerEvent): void {
+function onWindowPointerUp(event: PointerEvent): void {
   pointers.delete(event.pointerId);
   if (pointers.size === 0) {
+    /* 末指抬起：摘监听并结束拖拽态 */
+    unbindGesture();
     dragStart = null;
     dragging.value = false;
     return;
@@ -202,8 +209,8 @@ function onPointerUp(event: PointerEvent): void {
   }
 }
 
-function onPointerCancel(event: PointerEvent): void {
-  onPointerUp(event);
+function onWindowPointerCancel(event: PointerEvent): void {
+  onWindowPointerUp(event);
 }
 
 /** 双击图片复位（回到适配大小与居中） */
@@ -277,9 +284,6 @@ onBeforeUnmount(() => {
       :aria-label="ariaLabel || '图片放大查看'"
       @wheel.prevent="onWheel"
       @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointercancel="onPointerCancel"
     >
       <div class="bt-lightbox__mask" @click="onMaskClick" />
       <figure class="bt-lightbox__stage">

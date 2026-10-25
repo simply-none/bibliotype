@@ -63,7 +63,7 @@ apps/demo/
  ├─ electron/
  │   └─ main/module/bibliotype-store.ts   主进程 IPC SQLite 执行器（见 N3）
  └─ scripts/
-     └─ sync-to-jianli.mjs               可选同步脚本（见 1.5）
+     └─ （同步脚本改由宿主侧提供：jianli-app `npm run sync:bibliotype`，见 1.6）
 ```
 
 > `apps/demo/electron/` 置于 demo `tsconfig.json` include 之外（不参与 web typecheck / 构建 / vitest），文件头注释注明复制目标与接线方式。
@@ -127,9 +127,14 @@ export interface HostEnvironment {
 - 通用代码里的行为改动照常走 note_npm 流程：测试 + changeset（涉及发包行为时）+ 文档（开发规范第六/七/九节）。
 - 禁止在 jianli 侧把改动散落到映射表之外的新文件（会产生第二上源，破坏一致性）。
 
-### 1.6 同步脚本（可选，推荐）
+### 1.6 同步脚本（已落地在宿主侧）
 
-`apps/demo/scripts/sync-to-jianli.mjs`：node 脚本执行 §1.4 映射 + 入口替换，支持 `--dry-run`；排除项内置；复制后打印「需手工确认的接线项」（依赖安装 / init 行 / 菜单注册）。减少频繁手工复制的失误。
+实现改为**宿主侧**脚本 `c:\cod\jianli\jianli-app\scripts\sync-bibliotype-studio.cjs`（`npm run sync:bibliotype`），原因：复制是宿主职责，且与既有 `copy:demo` 脚本同目录同风格，按宿主方言（CommonJS + 中文注释）维护。
+
+- 执行 §1.4 映射 + 入口替换；排除项（`__tests__` / `main.ts` / `host/web.ts`）内置；
+- 上源关键文件缺失即中止，避免误删宿主目录（目标目录整体重建）；
+- 支持 `BIBLIOTYPE_REPO` / `BIBLIOTYPE_STUDIO_DIR` 覆盖仓库与目标路径（换目录无需改脚本）；
+- 已实测：重复执行产出 100 个文件、`vue-tsc --noEmit` 绿。
 
 ---
 

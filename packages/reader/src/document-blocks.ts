@@ -12,7 +12,7 @@
  * - 尺寸估算可插拔（默认按文本长度 × 每行字符数估算行数）。
  */
 import { NODE_TYPES, isTextNode, type BookDocument, type BookNode } from '@bibliotype/core';
-import type { BlockAxis, MeasurableBlock } from '@bibliotype/layout';
+import { lineRuleOverhead, resolveLineRule, type BlockAxis, type MeasurableBlock } from '@bibliotype/layout';
 
 /** 结构容器类型（其首个叶块另起页） */
 const STRUCTURE_TYPES: ReadonlySet<string> = new Set([
@@ -132,12 +132,33 @@ export function collectNodeText(node: BookNode): string {
   return (node.children ?? []).map(collectNodeText).join('');
 }
 
-/** 默认估算器：按字符数折算行数 */
+/**
+ * 默认估算器：按字符数折算行数
+ *
+ * 行款折算（v2 批 4）：段落低格 / 挪抬使首行有效容量扣减
+ * （`lineRuleOverhead`，与渲染侧行内流空位盒同语义）——每行字数按
+ * 「容量 − 首行扣减」折算，低格段落的行数估算不再偏少。提行 / 平抬的
+ * 断列空耗取决于所在列剩余（无法预知），由实测路径承载（DOM 量尺含
+ * 行内流断列效果），估算不折算、文档记录。
+ */
 export const defaultEstimator: BlockSizeEstimator = (node, context) => {
   const length = collectNodeText(node).length;
-  const lines = Math.max(1, Math.ceil(length / Math.max(1, context.charsPerLine)));
+  const { firstLineIndentChars } = lineRuleOverhead(resolveLineRule(node));
+  const effectivePerLine = Math.max(1, context.charsPerLine - firstLineIndentChars);
+  const lines = Math.max(1, Math.ceil(length / effectivePerLine));
   return lines * context.lineSize + context.blockSpacing;
 };
+
+/**
+ * 节点是否要求列级断列（直排行内流）
+ *
+ * 段落行款属性 `breakLine` 或平抬（`lift: 'newline'`）→ 本块另起一列。
+ * 与批 3 行款命令、批 2 行内流断列标记同源（line-rules 解析）。
+ */
+function blockAxisColumnOf(node: BookNode): boolean {
+  const rule = resolveLineRule(node);
+  return rule.breakLine || rule.lift === 'newline';
+}
 
 /** 块提取选项 */
 export interface ExtractBlocksOptions {
@@ -396,6 +417,10 @@ export function extractBlocksIndexed(
         // breakBefore（如它正好是结构容器首块）会只让它独占一页、中间多出一张空白页
         ...(breakBefore ? { breakBefore: true } : {}),
         ...(isPageBreak ? { breakAfter: true } : {}),
+        /* 列级断列（直排行内流，v2 批 4）：段落行款 breakLine / 平抬（lift
+         * newline）→ 本块另起一列顶格起写（仍在本页）；paginator 在直排下
+         * 对齐列距，渲染侧行内流断列标记呈现同一语义 */
+        ...(!breakBefore && !isPageBreak && blockAxisColumnOf(node) ? { breakColumn: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
         ...(columns !== undefined && columns > 1 ? { columns } : {}),
       });

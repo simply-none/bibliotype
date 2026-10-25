@@ -22,6 +22,7 @@ import {
   DEFAULT_LAYOUT_OPTIONS,
   isVerticalMode,
   mergeLayoutOptions,
+  resolvePageCrossSize,
   resolvePageMainSize,
   resolveBottomSlack,
   type BlockAxis,
@@ -34,6 +35,9 @@ import {
   serializeNode,
   serializePageGutter,
   serializePageNotes,
+  serializeVerticalFlow,
+  isFlowParagraphType,
+  type SerializeNodeOptions,
 } from '@bibliotype/layout/html';
 import {
   Reader,
@@ -275,23 +279,52 @@ ${body}
       return `<section class="bt-page${pageSideClass(options, 0)}" data-page="1">${cropMarksOverlay(options)}</section>`;
     }
     const nodes = reader.getPageFragments(page.index);
+    /* 片段节点与分页 items 一一同序（getPageFragments 按 items 产出），
+     * 续排片段（fromLine > 0）凭此省略行款前缀 */
+    const items = page.items;
+    const nodeOptions: SerializeNodeOptions = {
+      tagOverrides: options.tagOverrides,
+      rewriteSrc: options.rewriteSrc,
+      verticalText: options.verticalText,
+      revisionView: options.revisionView ?? 'final',
+    };
+    const vertical = isVerticalMode(layout.writingMode);
+    /* 每行大字数（交叉轴 ÷ 字号）：夹注每子列容量 = 本值 × 2（与预览同口径） */
+    const bodyPx = Number.parseFloat(tokens[FONT_SIZE_TOKENS.BODY] ?? '16');
+    const charsPerColumn = Math.max(
+      4,
+      Math.round(
+        resolvePageCrossSize(layout, tokens) / (Number.isFinite(bodyPx) ? bodyPx : 16),
+      ),
+    );
     const content = nodes
-      .map((node) =>
-        serializeNode(node, {
-          tagOverrides: options.tagOverrides,
-          rewriteSrc: options.rewriteSrc,
-          verticalText: options.verticalText,
-          revisionView: options.revisionView ?? 'final',
-        }),
-      )
+      .map((node, i) => {
+        /* 直排段落 / 引文走行内流（与预览 BtBookView 同源，连排 + 行款标记）；
+         * 标题 / 版式块保持整块序列化 */
+        if (vertical && isFlowParagraphType(node.type)) {
+          return serializeVerticalFlow([node], {
+            charsPerColumn,
+            omitRulePrefix: (items[i]?.fromLine ?? 0) > 0,
+            nodeOptions,
+          });
+        }
+        return serializeNode(node, nodeOptions);
+      })
       .join('\n');
     /*
      * 逐页分栏（columns > 1）：正文包 .bt-page__flow（与预览 __flow 同构），
      * 分栏声明由 buildPrintCss 按 data-columns 下发；单栏不包，产物不变。
+     * 直排行内流：单栏时包 .bt-vflow 容器（连排 CSS 随 vertical 闸门输出；
+     * 分栏与行内流互斥——仿真模板固定单栏）。
      */
     const columns = reader.getPageColumns(page.index);
-    const openFlow = columns > 1 ? `<div class="bt-page__flow" data-columns="${columns}">\n` : '';
-    const closeFlow = columns > 1 ? '</div>\n' : '';
+    const openFlow =
+      columns > 1
+        ? `<div class="bt-page__flow" data-columns="${columns}">\n`
+        : vertical
+          ? '<div class="bt-page__flow bt-vflow">\n'
+          : '';
+    const closeFlow = columns > 1 || vertical ? '</div>\n' : '';
     /*
      * 页底注区（页底浮注开启时）：与预览同源（reader.getPageNotes +
      * serializePageNotes，承接跨页续注标记）；无注返回空串，未开启不出现。

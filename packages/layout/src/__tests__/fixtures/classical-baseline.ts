@@ -75,6 +75,10 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 修正：inline=列高 / block=列宽），盒宽与字步进经间接变量 --bt-vnote-pitch
  * 接入列距（非仿真直排不出现仿真变量名，隔离矩阵保持），基线重锁。
  * 2026-10-25 十五次更新（直排 v2 批 1）：双行夹注行内化——`.bt-double-note` 由
+ *
+ * 2026-10-25 十八次更新（批 4）：新增行款属性降级规则（段落 / 引文的
+ * data-indent 1~4 → text-indent、挪抬 :not([data-indent]) 补 1em——横排 /
+ * EPUB / 流式导出的低格呈现；直排行内流不受影响），样式表全文变化，基线重锁。
  * 块级双栏（display: block + column-count）改为行内括注随文（伪元素括号 +
  * 小字），容器段落继承清单不再含 double-note；新增 `.bt-ink-nail` 墨钉规则，
  * 样式表全文变化，基线重锁。
@@ -82,7 +86,7 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 正立文字的图片，直排汉字直立、字图同理恒不旋转（验收口径），样式表全文
  * 变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = 'a00acc33';
+export const CLASSICAL_CSS_FNV = '52bfd06b';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

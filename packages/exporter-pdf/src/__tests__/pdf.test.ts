@@ -662,3 +662,76 @@ describe('renderPrintHtml：页眉 / 页脚', () => {
     expect(none).not.toContain('--bt-page-header-size');
   });
 });
+
+describe('直排行内流导出（v2 批 4：与预览同源）', () => {
+  it('直排 paged：段落走行内流（bt-vflow / bt-vpara / 低格空位 / 夹注双列），横排不变', () => {
+    const doc = createEmptyDocument({ title: '直排导出' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        children: [
+          {
+            type: NODE_TYPES.PARAGRAPH,
+            id: 'p-1',
+            attrs: { indent: 2 },
+            children: [{ type: 'text', text: '子曰学而时习之。' }],
+          },
+          {
+            type: NODE_TYPES.PARAGRAPH,
+            id: 'p-2',
+            children: [
+              { type: 'text', text: '经文' },
+              { type: 'double-note', children: [{ type: 'text', text: '注文六字' }] },
+            ],
+          },
+        ],
+      },
+    ];
+    const vertical = renderPrintHtml(doc, {
+      mode: 'paged',
+      layout: { ...CLASSICAL_LAYOUT_OPTIONS },
+      pageMainSize: 600,
+      estimator: () => 60,
+    });
+    expect(vertical).toContain('bt-vflow');
+    expect(vertical).toContain('<span class="bt-vpara">');
+    expect(vertical).toContain('<span class="bt-vpad" data-n="2"></span>');
+    expect(vertical).toContain('bt-vnote-col');
+
+    const horizontal = renderPrintHtml(doc, {
+      mode: 'paged',
+      pageMainSize: 600,
+      estimator: () => 60,
+    });
+    expect(horizontal).not.toContain('bt-vflow');
+    expect(horizontal).not.toContain('bt-vpara');
+  });
+
+  it('续排片段（fromLine>0）不带行款前缀（不重复低格）', () => {
+    const doc = createEmptyDocument({ title: '续排' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        children: [
+          {
+            type: NODE_TYPES.PARAGRAPH,
+            attrs: { indent: 2 },
+            children: [{ type: 'text', text: '字'.repeat(200) }],
+          },
+        ],
+      },
+    ];
+    const html = renderPrintHtml(doc, {
+      mode: 'paged',
+      layout: { ...CLASSICAL_LAYOUT_OPTIONS },
+      pageMainSize: 120,
+      context: { charsPerLine: 20, lineSize: 24 },
+      estimator: () => 240,
+    });
+    /* 多页续排：第 2 页起（fromLine>0）不含空位盒 */
+    const pages = html.split('class="bt-page"').slice(2);
+    for (const page of pages) {
+      expect(page).not.toContain('bt-vpad');
+    }
+  });
+});

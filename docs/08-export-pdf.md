@@ -73,6 +73,12 @@ pager.renderDocument();   // 完整 HTML（与 renderPrintHtml 产物逐字节�
   `.bt-page__flow[data-columns]` 并按需下发分栏 CSS（同预览 `__flow` 声明，
   含 `column-fill: auto` 与子块 `break-inside: avoid`）；paged 下 body 根规则
   不再分栏（body 的栏会把 `.bt-page` 序列当栏内容排）；
+- **直排行内流同源**（v2 批 4）：直排 paged 的段落 / 引文与预览共享
+  `serializeVerticalFlow`（连排 / 双行夹注固定双列 / 低格与抬头标记），续排片段
+  自动省略行款前缀；`serializeVerticalFlow` 的 `nodeOptions` 透传
+  tagOverrides / rewriteSrc / verticalText / revisionView；
+- **行款属性降级**（auto / EPUB）：低格按 data-indent 属性选择器输出
+  `text-indent`（见 [03](03-classical-layout.md) 行款规则节）；提行 / 平抬降级为换段；
 - **页底浮注**：`footnoteFloat` / `noteMaxRatio` 透传内部 Reader（与预览同源，
   不传则宿主开了浮注的书导出会注全丢且逐页归属错位）；每页正文后渲染
   `.bt-page-notes` 注区（含跨页续注「续前页」标记）。

@@ -19,7 +19,8 @@
  */
 import { NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import { splitDoubleNoteLines, collectNodeTextOf } from '../double-note-split.js';
-import { escapeHtml, serializeNode } from './html-serializer.js';
+import { escapeHtml, serializeNode, type SerializeNodeOptions } from './html-serializer.js';
+import { sliceNodeByCharRange } from '../node-slice.js';
 import { resolveLineRule, type LineRule } from '../line-rules.js';
 
 /** 行内流序列化选项 */
@@ -33,6 +34,11 @@ export interface SerializeVerticalFlowOptions {
    * 重发会造成续页重复缩进；调用方（分页画布）按片段起点传值。
    */
   omitRulePrefix?: boolean;
+  /**
+   * 行内节点序列化选项透传（tagOverrides / rewriteSrc / verticalText /
+   * revisionView）——导出路径与预览共享同一序列化行为
+   */
+  nodeOptions?: SerializeNodeOptions;
 }
 
 /** 双行夹注类型（classical 插件节点，layout 不依赖 classical，按 kebab-case 字符串表列——与 reader 分块口径一致） */
@@ -75,31 +81,47 @@ function liftPrefix(rule: LineRule): string {
  * 「从上排到底」的古籍形制）；竖排 block 流自右向左，DOM 序即阅读序。
  * 超过两子列容量的注文截断（古籍超长注占多字位，列为后续扩展）。
  */
-function serializeDoubleNote(node: BookNode, charsPerColumn: number): string {
+function serializeDoubleNote(
+  node: BookNode,
+  charsPerColumn: number,
+  nodeOptions: SerializeNodeOptions | undefined,
+): string {
   const text = collectNodeTextOf(node);
   const [[right, left]] = splitDoubleNoteLines(text, charsPerColumn * 2);
   const extras = Object.entries(node.attrs ?? {})
     .filter(([key]) => key !== 'char')
     .map(([key, value]) => ` data-${key}="${escapeHtml(String(value))}"`)
     .join('');
+  /* 子列内容按字符区间切片：夹注内的行内标记（专名号 / 着重等）随所在
+   * 子列保留（右列 [0, cap)、左列 [cap, 末)，与 splitDoubleNoteLines 同口径）；
+   * 切片函数返回同类型节点，此处只取其子内容序列化（不嵌套容器标签） */
+  const cap = Math.min(text.length, charsPerColumn * 2);
+  const serializeChildrenOf = (sliced: BookNode): string =>
+    (sliced.children ?? []).map((child) => serializeNode(child, nodeOptions)).join('');
+  const rightHtml = serializeChildrenOf(sliceNodeByCharRange(node, 0, cap));
+  const leftHtml = serializeChildrenOf(sliceNodeByCharRange(node, cap, Number.MAX_SAFE_INTEGER));
   return (
     `<span class="bt-vnote"${extras}>` +
-    `<span class="bt-vnote-col">${escapeHtml(right)}</span>` +
-    `<span class="bt-vnote-col">${escapeHtml(left)}</span>` +
+    `<span class="bt-vnote-col">${rightHtml}</span>` +
+    `<span class="bt-vnote-col">${leftHtml}</span>` +
     `</span>`
   );
 }
 
 /** 段落子节点 → 行内流 HTML（夹注替换为 vnote 盒，其余原样序列化） */
-function serializeFlowChildren(node: BookNode, charsPerColumn: number): string {
+function serializeFlowChildren(
+  node: BookNode,
+  charsPerColumn: number,
+  nodeOptions: SerializeNodeOptions | undefined,
+): string {
   const parts: string[] = [];
   for (const child of node.children ?? []) {
     if (isTextNode(child)) {
-      parts.push(serializeNode(child));
+      parts.push(serializeNode(child, nodeOptions));
     } else if (child.type === DOUBLE_NOTE_TYPE) {
-      parts.push(serializeDoubleNote(child, charsPerColumn));
+      parts.push(serializeDoubleNote(child, charsPerColumn, nodeOptions));
     } else {
-      parts.push(serializeNode(child));
+      parts.push(serializeNode(child, nodeOptions));
     }
   }
   return parts.join('');
@@ -139,7 +161,7 @@ export function serializeVerticalFlow(
         ? ''
         : `${liftPrefix(rule)}${indent > 0 ? padBox(indent) : ''}`;
     parts.push(
-      `${prefix}<span class="bt-vpara">${serializeFlowChildren(node, chars)}</span>`,
+      `${prefix}<span class="bt-vpara">${serializeFlowChildren(node, chars, options.nodeOptions)}</span>`,
     );
   }
   return parts.join('');

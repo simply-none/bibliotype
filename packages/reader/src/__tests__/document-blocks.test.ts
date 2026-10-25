@@ -2,7 +2,7 @@
  * 文档块提取测试
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
+import { NODE_TYPES, createEmptyDocument, type BookDocument , type BookNode } from '@bibliotype/core';
 import {
   DEFAULT_MEASURE_CONTEXT,
   defaultEstimator,
@@ -610,5 +610,29 @@ describe('extractBlocksIndexed', () => {
     ];
     const indexed = extractBlocksIndexed(doc);
     expect(indexed.nodeById.get('/0')).toBe(doc.root.children?.[0]);
+  });
+});
+
+describe('defaultEstimator 行款折算（v2 批 4）', () => {
+  const context = { charsPerLine: 20, lineSize: 30, blockSpacing: 0 };
+  const para = (text: string, attrs?: Record<string, number | string>): BookNode => {
+    const node: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [{ type: 'text', text }],
+    };
+    if (attrs !== undefined) node.attrs = attrs;
+    return node;
+  };
+
+  it('无行款：40 字 ÷ 20 = 2 行', () => {
+    expect(defaultEstimator(para('字'.repeat(40)), context)).toBe(60);
+  });
+
+  it('低两格：首行容量扣 2 → 40 字需 3 行', () => {
+    expect(defaultEstimator(para('字'.repeat(40), { indent: 2 }), context)).toBe(90);
+  });
+
+  it('挪抬并入首行扣减（space = 1 字位）', () => {
+    expect(defaultEstimator(para('字'.repeat(40), { lift: 'space' }), context)).toBe(90);
   });
 });

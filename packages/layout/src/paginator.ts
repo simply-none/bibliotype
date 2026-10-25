@@ -44,6 +44,16 @@ export interface MeasurableBlock {
   breakBefore?: boolean;
   /** 强制本块之后换页 */
   breakAfter?: boolean;
+  /**
+   * 强制本块另起一**列**（直排行内流，v2 批 4）
+   *
+   * 来自段落行款属性 `breakLine` / 平抬（`lift: 'newline'`）：本块从新列
+   * 顶格起写（仍在本页，区别于 breakBefore 的另起页）。装箱把当前列的
+   * 剩余空间弃用（usedMainSize 向上对齐到行距 = 列距的整数倍），渲染侧
+   * 由行内流的断列标记（`bt-vbreak`）呈现同一语义——两端口径一致。
+   * 仅 `axis: 'column'`（直排）生效；横排降级为普通换段（无操作）。
+   */
+  breakColumn?: boolean;
   /** 与下一块保持同页 */
   keepWithNext?: boolean;
   /** 单行沿主轴的尺寸（px）；与 splittable 配合启用行级拆分 */
@@ -537,6 +547,18 @@ function paginateSingle(
       cur = startPage();
     }
     pendingBreak = false;
+
+    /* 列级断列（直排行内流）：当前列剩余空间弃用（对齐列距），本块从新列
+     * 顶格起写；横排（axis 'row'）无列概念，无操作 */
+    if (
+      !onFreshPage &&
+      block.breakColumn === true &&
+      blockAxisOf(block) === 'column' &&
+      (block.lineSize ?? 0) > 0
+    ) {
+      const pitch = block.lineSize!;
+      cur.usedMainSize = Math.ceil(cur.usedMainSize / pitch) * pitch;
+    }
 
     /* 页底浮注：不进正文流，落到本页注区（容量随之收缩） */
     if (noteArea !== undefined && block.floatToBottom === true) {

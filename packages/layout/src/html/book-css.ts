@@ -198,6 +198,27 @@ ${scoped('.bt-quote')} {
   margin: 1em 2em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
+/*
+ * 行款属性降级（直排 v2 批 4：横排 / EPUB / 流式导出的低格呈现）
+ *
+ * 直排行内流把低格渲染为段首空位盒（批 2）；非直排路径（横排 / EPUB reflow /
+ * 打印 auto）按 IR attrs 的 data-* 属性降级为首行缩进：indent 1~4 枚举输出，
+ * 挪抬（data-lift='space'）在**无低格并存**时补 1em（并存时 space 被吸收——
+ * 敬语段不设低格的排版惯例，与直排行内流的相加口径差异记录于 docs/03）。
+ * 属性选择器特异性 (0,2,0) 高于 .bt-paragraph 令牌规则 (0,1,0)——低格覆盖
+ * 令牌缩进 ✓；无行款属性的段落不受影响（EPUB 老引擎 flatten 路径不含 var()，
+ * 老引擎忽略属性规则时退化为令牌缩进，安全降级）。
+ */
+${[1, 2, 3, 4]
+  .map(
+    (n) =>
+      `${scoped(`.bt-paragraph[data-indent='${n}']`)} {\n  text-indent: ${n}em;\n}\n${scoped(`.bt-quote[data-indent='${n}']`)} {\n  text-indent: ${n}em;\n}`,
+  )
+  .join('\n')}
+${scoped(".bt-paragraph[data-lift='space']:not([data-indent])")},
+${scoped(".bt-quote[data-lift='space']:not([data-indent])")} {
+  text-indent: 1em;
+}
 ${scoped('.bt-list')} {
   margin: 0.5em 0;
   padding-inline-start: 1.6em;

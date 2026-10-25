@@ -282,3 +282,17 @@ describe('declarationToCss', () => {
     );
   });
 });
+
+describe('行款属性降级（横排 / EPUB，v2 批 4）', () => {
+  it('data-indent 1~4 → text-indent 覆盖令牌缩进；data-lift=space 无并存时补 1em', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    for (const n of [1, 2, 3, 4]) {
+      expect(css).toContain(`.bt-paragraph[data-indent='${n}'] {\n  text-indent: ${n}em;`);
+      expect(css).toContain(`.bt-quote[data-indent='${n}']`);
+    }
+    /* 挪抬与低格并存时 space 被吸收：选择器组含 :not([data-indent]) 门 */
+    expect(css).toContain(".bt-paragraph[data-lift='space']:not([data-indent]),");
+    /* 无行款属性的段落不受影响（令牌缩进规则保持） */
+    expect(css).toMatch(/\.bt-paragraph \{[^}]*text-indent: var\(--bt-text-indent-body\);/s);
+  });
+});

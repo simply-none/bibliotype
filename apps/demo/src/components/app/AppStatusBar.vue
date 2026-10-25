@@ -162,8 +162,11 @@ defineProps<{
             type="button"
             class="statusbar__button"
             :class="{ 'statusbar__button--on': viewMode !== 'page' }"
-            :disabled="!flowSupported && viewMode === 'page'"
-            :title="flowSupported ? '切换阅读形态：单页 / 连续滚动 / 流式' : '当前版式（直排 / 仿真）不支持流式阅读'"
+            :title="
+              flowSupported
+                ? '切换阅读形态：单页 / 连续滚动 / 流式'
+                : '切换阅读形态：单页 / 连续滚动（当前版式不支持流式）'
+            "
             @click="cycleViewMode"
           >
             {{ viewModeLabel }}

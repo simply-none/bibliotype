@@ -248,7 +248,6 @@ defineProps<{
             type="button"
             class="app__menu-button"
             :class="{ 'app__menu-button--active': viewMode !== 'page' }"
-            :disabled="!flowSupported && viewMode === 'page'"
             @click="onMobileAction(cycleViewMode)"
           >
             <AppIcon class="app__menu-icon" name="list" :size="18" :stroke-width="1.7" />

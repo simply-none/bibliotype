@@ -30,9 +30,15 @@ export function useViewMode(deps: ViewModeDeps) {
     return 'scroll-flow';
   });
 
-  /** 滚动模式是否支持流式阅读（直排 / 仿真版式下回落分页，与 BtBookView 口径一致） */
+  /**
+   * 当前版式是否支持流式阅读（只取决于版式，与 viewMode 无关）
+   *
+   * 直排 / 仿真版式下回落分页；供按钮提示、三态循环跳过与 H5 文案共用。
+   * 注意不能并入 `viewMode === 'scroll-flow'`：否则「单页」态下恒为 false，
+   * 会把「单页 / 连续滚动」切换按钮误判为不可用。
+   */
   const flowSupported = computed(
-    () => viewMode.value === 'scroll-flow' && !verticalRail.value && facsimilePreset.value === undefined,
+    () => !verticalRail.value && facsimilePreset.value === undefined,
   );
 
   /** 视图模式三态循环：page → scroll → scroll-flow → page（不支持的 scroll-flow 自动跳过） */

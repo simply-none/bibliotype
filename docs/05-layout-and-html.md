@@ -188,6 +188,11 @@ const variables = buildCssVariables(DEFAULT_THEME);
 
 均为纯函数，返回 kebab-case 声明对象，渲染层直接套用即可。
 
+demo 设置面板的页边距提供「常用组合」一键填充（默认 / 紧凑 / 宽绰 /
+古籍·天大地小 / 内侧装订 / 疏朗——天头 ≥ 地脚为古籍惯例，内侧装订在外侧
+基础上加宽左边距留书脊）；命中预设高亮回显，逐边微调后高亮熄灭（仍可
+自由调整），写入的仍是 `page-margin` 令牌（如 `'48px 56px 48px 56px'`）。
+
 ## 分页器
 
 `paginate` 细节见 [04 阅读器与分页](04-reader-and-pagination.md)：

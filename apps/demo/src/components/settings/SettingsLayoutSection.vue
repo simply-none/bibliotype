@@ -108,6 +108,36 @@ const fitScaleHint = computed(() => {
 
 const marginBox = computed(() => parseMarginBox(props.tokens[LAYOUT_TOKENS.PAGE_MARGIN]));
 
+/** 页边距常用组合预设（上右下左；天头≥地脚为古籍惯例，现代横排近似对称） */
+const MARGIN_PRESETS: ReadonlyArray<{ key: string; label: string; box: [number, number, number, number] }> = [
+  { key: 'default', label: '默认 48·56', box: [48, 56, 48, 56] },
+  { key: 'compact', label: '紧凑 32·40', box: [32, 40, 32, 40] },
+  { key: 'wide', label: '宽绰 64·72', box: [64, 72, 64, 72] },
+  { key: 'classic-v', label: '古籍·天大地小', box: [200, 120, 173, 90] },
+  { key: 'mirror', label: '内侧装订', box: [48, 56, 48, 80] },
+  { key: 'airy', label: '疏朗 96·66·74·42', box: [96, 66, 74, 42] },
+];
+
+/** 当前页边距是否命中某预设（高亮回显；未命中都不亮） */
+const activeMarginPreset = computed(() => {
+  const box = marginBox.value;
+  const hit = MARGIN_PRESETS.find((preset) =>
+    preset.box[0] === box.top &&
+    preset.box[1] === box.right &&
+    preset.box[2] === box.bottom &&
+    preset.box[3] === box.left,
+  );
+  return hit?.key ?? '';
+});
+
+/** 应用预设：一次性写入四边（仍可随后逐边微调，微调后预设高亮自动熄灭） */
+function applyMarginPreset(key: string): void {
+  const preset = MARGIN_PRESETS.find((item) => item.key === key);
+  if (preset === undefined) return;
+  const [top, right, bottom, left] = preset.box;
+  props.api.setToken(LAYOUT_TOKENS.PAGE_MARGIN, stringifyMarginBox({ top, right, bottom, left }));
+}
+
 function setMargin(side: 'top' | 'right' | 'bottom' | 'left', raw: string): void {
   const value = Number.parseFloat(raw);
   if (!Number.isFinite(value) || value < 0) return;
@@ -290,6 +320,19 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
         min="0"
         @input="setMargin(side, ($event.target as HTMLInputElement).value)"
       />
+    </div>
+    <!-- 常用组合一键填充（不熟悉版式者友好；命中预设高亮，逐边微调后熄灭） -->
+    <div class="panel__chips">
+      <button
+        v-for="preset in MARGIN_PRESETS"
+        :key="preset.key"
+        type="button"
+        class="panel__chip"
+        :class="{ 'panel__chip--active': activeMarginPreset === preset.key }"
+        @click="applyMarginPreset(preset.key)"
+      >
+        {{ preset.label }}
+      </button>
     </div>
   </div>
 

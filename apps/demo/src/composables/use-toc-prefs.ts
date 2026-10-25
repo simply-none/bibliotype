@@ -9,8 +9,9 @@
  */
 import { ref, watch, type Ref } from 'vue';
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '@bibliotype/vue';
+import { host } from '../host/index.js';
 
-/** localStorage 键 */
+/** localStorage 键（实际键经 host.storageKey 包装） */
 export const TOC_PREFS_KEY = 'bibliotype-demo:toc-prefs';
 
 /** 落盘间隔（拖拽期间连续变化，节流后再写） */
@@ -60,19 +61,19 @@ export interface UseTocPrefsReturn {
   resetWidth: () => void;
 }
 
-/** 读取 localStorage（不可用环境返回 null） */
+/** 读取 localStorage（不可用环境返回 null；键经宿主包装） */
 function readRaw(key: string): string | null {
   try {
-    return window.localStorage.getItem(key);
+    return window.localStorage.getItem(host.storageKey(key));
   } catch {
     return null;
   }
 }
 
-/** 写入 localStorage（隐私模式 / 配额满时静默忽略） */
+/** 写入 localStorage（隐私模式 / 配额满时静默忽略；键经宿主包装） */
 function writeRaw(key: string, value: string): void {
   try {
-    window.localStorage.setItem(key, value);
+    window.localStorage.setItem(host.storageKey(key), value);
   } catch {
     /* 存储不可用：不影响功能 */
   }

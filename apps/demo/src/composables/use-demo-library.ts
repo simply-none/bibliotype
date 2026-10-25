@@ -33,17 +33,14 @@ import type {
   RedactOptions,
   StringCipher,
 } from '@bibliotype/core';
-import { IndexedDbAdapter, IndexedDbVersionStore } from '@bibliotype/adapter-indexeddb';
 import { useBookLibrary } from '@bibliotype/vue';
 import type { UseBookLibraryReturn } from '@bibliotype/vue';
 import { reactive, ref, shallowRef, type Ref, type ShallowRef } from 'vue';
+import { host } from '../host/index.js';
 import { DEMO_VALIDATE_OPTIONS } from '../ir-types.js';
 import { demoZipCodec } from '../zip-codec.js';
 
-/** 书库库名 / 仓名 */
-const LIBRARY_DB = 'bibliotype-demo-library';
-const LIBRARY_STORE = 'books';
-/** 加密元信息（盐 + 校验串）与密文书的本地键 */
+/** 加密元信息（盐 + 校验串）与密文书的本地键（实际键经 host.storageKey 包装） */
 const CRYPTO_META_KEY = 'bibliotype-demo-crypto-meta';
 const SEALED_DOC_KEY = 'bibliotype-demo-sealed-draft';
 /** PBKDF2 迭代次数（demo 取较低值以缩短等待，生产建议 210000） */
@@ -71,7 +68,7 @@ interface CryptoMeta {
 
 /** 读取本地加密元信息 */
 function readCryptoMeta(): CryptoMeta | undefined {
-  const raw = globalThis.localStorage?.getItem(CRYPTO_META_KEY);
+  const raw = globalThis.localStorage?.getItem(host.storageKey(CRYPTO_META_KEY));
   if (raw === null || raw === undefined) {
     return undefined;
   }
@@ -100,15 +97,16 @@ function fromBase64(value: string): Uint8Array {
   return bytes;
 }
 
-/** 触发浏览器下载 */
+/**
+ * 触发文件下载（对外签名保持不变）
+ *
+ * 实现委托宿主：web 走浏览器下载，Electron 落宿主缓存目录。
+ *
+ * @param bytes 文件字节
+ * @param fileName 文件名（含扩展名）
+ */
 export function downloadBytes(bytes: Uint8Array, fileName: string): void {
-  const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  host.downloadBytes(bytes, fileName);
 }
 
 /** demo 书库 API */
@@ -155,8 +153,7 @@ export interface DemoLibraryApi {
 
 /** 组合式：demo 书库 */
 export function useDemoLibrary(): DemoLibraryApi {
-  const adapter = new IndexedDbAdapter({ databaseName: LIBRARY_DB, storeName: LIBRARY_STORE });
-  const versionStore = new IndexedDbVersionStore();
+  const { adapter, versionStore } = host.createLibraryStores();
   const library = useBookLibrary({ store: adapter, codec: demoZipCodec });
 
   const crypt = reactive<DemoCryptoState>({
@@ -183,7 +180,7 @@ export function useDemoLibrary(): DemoLibraryApi {
       const cipher = await deriveCipher(password, salt);
       const verifier = await cipher.encrypt('bibliotype-verifier');
       const meta: CryptoMeta = { salt: toBase64(salt), verifier: JSON.stringify(verifier) };
-      globalThis.localStorage?.setItem(CRYPTO_META_KEY, JSON.stringify(meta));
+      globalThis.localStorage?.setItem(host.storageKey(CRYPTO_META_KEY), JSON.stringify(meta));
       activeCipher.value = cipher;
       crypt.enabled = true;
       crypt.unlocked = true;
@@ -210,8 +207,8 @@ export function useDemoLibrary(): DemoLibraryApi {
   }
 
   function disableEncryption(): void {
-    globalThis.localStorage?.removeItem(CRYPTO_META_KEY);
-    globalThis.localStorage?.removeItem(SEALED_DOC_KEY);
+    globalThis.localStorage?.removeItem(host.storageKey(CRYPTO_META_KEY));
+    globalThis.localStorage?.removeItem(host.storageKey(SEALED_DOC_KEY));
     activeCipher.value = undefined;
     crypt.enabled = false;
     crypt.unlocked = false;
@@ -225,7 +222,7 @@ export function useDemoLibrary(): DemoLibraryApi {
     }
     const encrypted = createEncryptedStorageAdapter({ inner: adapter, cipher });
     await encrypted.save('sealed-draft', document, { updatedAt: Date.now() });
-    globalThis.localStorage?.setItem(SEALED_DOC_KEY, '1');
+    globalThis.localStorage?.setItem(host.storageKey(SEALED_DOC_KEY), '1');
   }
 
   async function openSealedDraft(): Promise<BookDocument | undefined> {

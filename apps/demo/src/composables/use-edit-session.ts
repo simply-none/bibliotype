@@ -14,9 +14,9 @@ import {
   buildClassicalEditorSchema,
 } from '@bibliotype/classical/editor';
 import { BookEditor, createBookEditorPlugins, createRevisionTrackingPlugin } from '@bibliotype/editor';
-import { IndexedDbAdapter } from '@bibliotype/adapter-indexeddb';
 import { Reader } from '@bibliotype/reader';
 import { BtEditor, type EditorBinding } from '@bibliotype/vue';
+import { host } from '../host/index.js';
 import { useDraftAutosave } from './use-draft-autosave.js';
 import type { StyleSettingsApi } from './use-style-settings.js';
 import type { useToast } from './use-toast.js';
@@ -60,11 +60,8 @@ export function useEditSession(deps: EditSessionDeps) {
   /** 进编辑时的定位页（阅读模式当前页；BtEditor 首轮分页就绪后滚到此页） */
   const editStartPage = ref(0);
 
-  /** 草稿存储适配器：本地 IndexedDB 持久化（库 / 仓名与正式文档库区分） */
-  const draftStore = new IndexedDbAdapter({
-    databaseName: 'bibliotype-demo',
-    storeName: 'drafts',
-  });
+  /** 草稿存储适配器：由宿主决定落盘介质（web = IndexedDB，Electron = SQLite） */
+  const draftStore = host.createDraftStore();
 
   /**
    * 自动保存调度器（策略见 use-draft-autosave）：

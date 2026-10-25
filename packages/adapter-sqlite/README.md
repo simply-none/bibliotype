@@ -59,6 +59,7 @@ const storage = new SqliteAdapter({ driver: createSqlJsDriver(new SQL.Database()
 | 资产 | `SqliteAssetStore`：`putAsset` / `getAsset` / `listAssets` / `deleteAsset` |
 | 历史版本 | `SqliteVersionStore`：`listVersions` / `saveVersion` / `loadVersion` / `deleteVersion` / `pruneVersions` |
 | 小载荷 KV | `SqliteKeyValueStore`：`get` / `set` / `remove` / `entries` |
+| 样式设置 | `SQLiteStyleStore`：`load` / `save` / `listPresets` / `savePreset` / `deletePreset` / `delete` / `clear` |
 
 ## 表结构（`PRAGMA user_version = 1`）
 
@@ -71,6 +72,30 @@ const storage = new SqliteAdapter({ driver: createSqlJsDriver(new SQL.Database()
 | `settings` | 样式 / 偏好小载荷 |
 
 首次打开自动建表建索引，重复打开幂等；库版本高于适配器支持时直接报错。
+
+## 样式设置（`SQLiteStyleStore`）
+
+`@bibliotype/vue` 的样式设置默认落 localStorage；桌面宿主可换成 SQLite：
+
+```ts
+import { SQLiteStyleStore } from '@bibliotype/adapter-sqlite';
+
+const styleStore = new SQLiteStyleStore({ driver });   // 与文档共用同一 driver
+
+const preset = await styleStore.savePreset({
+  id: 'preset-1',
+  name: '古籍直排',
+  scope: 'book:lunyu',
+  snapshot,
+  createdAt: Date.now(),
+});
+const restored = await styleStore.load('book:lunyu');
+```
+
+- 复用 `settings` 表做小载荷 KV，**不新增表**（`PRAGMA user_version` 仍为 1）；
+- 键为 `bt-style:snapshot:<scope>` 与 `bt-style:presets`（预设整体存一条 JSON，按 `createdAt` 降序）；
+- `clear()` 只删 `bt-style:*` 键，不影响宿主写入 `settings` 表的其它数据；`close()` 为空操作。
+
 
 ## 与 IndexedDbAdapter 的差异
 

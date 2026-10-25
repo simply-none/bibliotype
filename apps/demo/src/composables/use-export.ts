@@ -34,6 +34,7 @@ import {
 } from '@bibliotype/exporter-pdf';
 import { createFontCheckProbe, splitFontFamilyList } from '@bibliotype/vue';
 import { lunyuDocument } from '../data/lunyu.js';
+import { host } from '../host/index.js';
 import type { PdfExportMode, PdfRasterScale } from './use-settings-snapshot.js';
 import type { LayoutTokensApi } from './use-layout-tokens.js';
 import type { ReaderSessionApi } from './use-reader-session.js';
@@ -49,24 +50,17 @@ interface ElectronPdfBridge {
   exportPdf(html: string, options?: PdfAdapterOptions): Promise<Uint8Array>;
 }
 
-declare global {
-  interface Window {
-    electronPdf?: ElectronPdfBridge;
-    /**
-     * 桌面宿主通用 IPC（如渐离App preload 的 contextBridge 暴露）：
-     * 存在时「导出 PDF」优先走宿主矢量直出（`bibliotype:export-pdf` 会话：
-     * 分段 printToPDF → 落盘返回路径），契约见 docs/08 桌面宿主章节。
-     * 浏览器环境无此全局，路由不受影响。
-     */
-    ipcRenderer?: {
-      handlePromise: (channel: string, args?: unknown) => Promise<unknown>;
-      on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
-      removeListener: (
-        channel: string,
-        listener: (event: unknown, ...args: unknown[]) => void,
-      ) => void;
-    };
-  }
+/**
+ * 桌面宿主 preload 暴露的通用 IPC 桥（仅取 PDF 导出用到的三个方法）
+ *
+ * 刻意不写 `declare global { interface Window ... }`：宿主项目（如 Electron 应用）
+ * 往往已对 `window.ipcRenderer` 做了完整声明，重复声明会因修饰符 / 类型不一致
+ * 导致 `vue-tsc` 报 TS2687 / TS2717。这里改为局部类型 + `globalThis` 断言。
+ */
+interface DesktopIpcBridge {
+  handlePromise: (channel: string, args?: unknown) => Promise<unknown>;
+  on: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
+  removeListener: (channel: string, listener: (event: unknown, ...args: unknown[]) => void) => void;
 }
 
 export interface ExportDeps {
@@ -265,14 +259,16 @@ export function useExport(deps: ExportDeps) {
     if (issues.length > 0) pushToast(summarizePdfGlyphProblems(issues), 'info');
   }
 
-  /** 触发浏览器下载 */
-  function download(filename: string, blob: Blob): void {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(url);
+  /**
+   * 触发文件下载（委托宿主）
+   *
+   * web：浏览器下载；Electron：写宿主缓存目录并提示定位。
+   *
+   * @param filename 文件名（含扩展名）
+   * @param bytes 文件字节
+   */
+  function download(filename: string, bytes: Uint8Array): void {
+    host.downloadBytes(bytes, filename);
   }
 
   /** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得；含已保存的编辑内容） */
@@ -293,7 +289,7 @@ export function useExport(deps: ExportDeps) {
         problems.push(...list);
       },
     });
-    download('论语.epub', new Blob([new Uint8Array(bytes)], { type: 'application/epub+zip' }));
+    download('论语.epub', bytes);
     reportExportProblems(problems);
   }
 
@@ -327,7 +323,9 @@ export function useExport(deps: ExportDeps) {
 
   /** 宿主 PDF 桥（Electron 注入；浏览器为 undefined → 走降级） */
   function getElectronPdfBridge(): ElectronPdfBridge | undefined {
-    return typeof window !== 'undefined' ? window.electronPdf : undefined;
+    return typeof window !== 'undefined'
+      ? (window as unknown as { electronPdf?: ElectronPdfBridge }).electronPdf
+      : undefined;
   }
 
   /**
@@ -340,9 +338,13 @@ export function useExport(deps: ExportDeps) {
   function getDesktopIpc():
     | { channel: (channel: string, args?: unknown) => Promise<unknown> }
     | undefined {
-    const bridge = typeof window !== 'undefined' ? window.ipcRenderer : undefined;
+    const bridge =
+      typeof window !== 'undefined'
+        ? (window as unknown as { ipcRenderer?: DesktopIpcBridge }).ipcRenderer
+        : undefined;
     if (bridge === undefined || typeof bridge.handlePromise !== 'function') return undefined;
-    return { channel: (channel, args) => bridge.handlePromise(channel, args) };
+    /* 宿主 preload 的 handlePromise 多数要求传对象，这里兜底为空对象 */
+    return { channel: (channel, args) => bridge.handlePromise(channel, args ?? {}) };
   }
 
 

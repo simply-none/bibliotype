@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@bibliotype/adapter-indexeddb": "workspace:*",
+    "@bibliotype/adapter-sqlite": "workspace:*",
     "@bibliotype/annotation": "workspace:*",
     "@bibliotype/classical": "workspace:*",
     "@bibliotype/core": "workspace:*",

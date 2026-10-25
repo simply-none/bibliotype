@@ -15,6 +15,7 @@
 | 做导出 | [05](05-layout-and-html.md) → [07 EPUB（含字体内嵌）](07-export-epub.md) → [08 PDF 与打印（含精排）](08-export-pdf.md) → [32 DOCX](32-export-docx.md) → [06 图片 / 长图](06-vue-integration.md) |
 | 做文档导入 | [01](01-document-model.md) → [02 编辑器与插件](02-editor-and-plugins.md) → [17 文档导入](17-document-import.md) |
 | 做协同与存储 | [01](01-document-model.md) → [09 协同](09-collab.md) → [10 存储](10-storage-adapters.md) → [29 远端适配器](29-adapter-http.md) |
+| 做桌面（Electron）宿主接入 | [10 存储](10-storage-adapters.md) → [33 Electron 宿主接入](33-electron-host.md) → [15 SSR 与 Node 同构](15-ssr-and-node.md) |
 | 做标注与位置恢复 | [23 锚点](23-ir-validation-and-migration.md) → [24 标注](24-annotation.md) |
 | 做中文精排 | [25 中文排印](25-cjk-typography.md) → [04 阅读与分页](04-reader-and-pagination.md) → [18 排版引擎路线图](18-pagination-engine-roadmap.md) |
 | 做交叉引用 / 站点发布 | [26 交叉引用](26-cross-reference.md) → [28 静态站点](28-site-export.md) |
@@ -60,11 +61,12 @@
 | [30 文档统计与词表检查](30-document-stats.md) | 字数 / 词数 / 阅读时长 / 章节分布、错别字与敏感词检查 | `@bibliotype/core` |
 | [31 注释](31-notes.md) | 脚注 / 尾注 / 边注的类型归属、注码与编号、插入命令、`epub:type` 输出 | `core` / `editor` / `layout` / `exporter-epub` |
 | [32 DOCX 导出](32-export-docx.md) | IR → `.docx`：标题层级 / 命名样式 / 脚注 / 表格 / 图片，降级问题码与 mammoth 往返校验 | `@bibliotype/exporter-docx` |
+| [33 Electron 宿主接入](33-electron-host.md) | host 适配层端口、复制同步模型、`bibliotype:sql-*` IPC 契约、样式设置落 SQLite、导出通道 | `apps/demo` / `adapter-sqlite` |
 
 ## 架构总览
 
 ```text
-apps/demo                          ← 集成示例（Vue 3 + Vite）
+apps/demo                          ← 集成示例（Vue 3 + Vite；src/host 隔离 Web / Electron 差异）
  └── @bibliotype/vue               ← 组合式 API 与组件
       ├── @bibliotype/reader       ← 阅读状态机（分页 / 目录 / 搜索）
       │    └── @bibliotype/layout  ← 分页器 / 样式构建 / HTML 序列化

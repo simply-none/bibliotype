@@ -13,6 +13,7 @@ import { type BookMetadata } from '@bibliotype/core';
 import { BT_BREAKPOINTS, useBreakpoint } from '@bibliotype/vue';
 import { safeFilename, toCnmarcText, toDublinCoreJson } from '../catalog-export.js';
 import { useMetadataDraft } from '../composables/use-metadata-draft.js';
+import { host } from '../host/index.js';
 import AppIcon from './AppIcon.vue';
 import BookInfoEditForm from './BookInfoEditForm.vue';
 import BookInfoView from './BookInfoView.vue';
@@ -37,20 +38,9 @@ const { editing, draft, subdivisionOptions, startEdit, cancelEdit, save } = useM
   onSave: (patch) => emit('save', patch),
 });
 
-/** 触发文本下载（纯宿主行为，库内不写文件） */
-function downloadText(filename: string, text: string, mime: string): void {
-  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 /** 导出都柏林核心 JSON */
 function exportDublinCore(): void {
-  downloadText(
+  host.downloadText(
     `${safeFilename(props.metadata.title)}-dc.json`,
     toDublinCoreJson(props.metadata),
     'application/json',
@@ -59,7 +49,11 @@ function exportDublinCore(): void {
 
 /** 导出 CNMARC 字段行文本 */
 function exportCnmarc(): void {
-  downloadText(`${safeFilename(props.metadata.title)}-cnmarc.txt`, toCnmarcText(props.metadata), 'text/plain');
+  host.downloadText(
+    `${safeFilename(props.metadata.title)}-cnmarc.txt`,
+    toCnmarcText(props.metadata),
+    'text/plain',
+  );
 }
 </script>
 

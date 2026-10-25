@@ -30,6 +30,7 @@ import {
   resolveActiveFontToken,
   resolveFacsimilePresetTokens,
 } from '../facsimile-theme.js';
+import { host } from '../host/index.js';
 import { useStyleSettings, type StyleSettingsApi } from './use-style-settings.js';
 import { bookIdFromTitle } from './use-settings-snapshot.js';
 import { lunyuDocument } from '../data/lunyu.js';
@@ -63,7 +64,12 @@ export function useLayoutTokens(deps: LayoutTokensDeps) {
   /** 当前书籍 id（响应式）：切书后样式设置随之切到该书作用域并重新载入应用 */
   const currentBookId = ref(LUNYU_BOOK_ID);
 
-  const styleApi: StyleSettingsApi = useStyleSettings({ bookId: currentBookId, draft: true });
+  /** 样式存储由宿主注入：web = IndexedDB，Electron = SQLite */
+  const styleApi: StyleSettingsApi = useStyleSettings({
+    bookId: currentBookId,
+    draft: true,
+    store: host.createStyleSettingsStore(),
+  });
 
   /** 布局补丁（含页面尺寸；主题切换时清空） */
   const layoutPatch = styleApi.layoutPatch as Ref<Partial<LayoutOptions>>;

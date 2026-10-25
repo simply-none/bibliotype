@@ -12,8 +12,9 @@ import {
   type StyleSettingsBody,
   type StyleSettingsSnapshot,
 } from '@bibliotype/core';
+import { host } from '../host/index.js';
 
-/** 旧版 demo 设置快照键（迁移来源） */
+/** 旧版 demo 设置快照键（迁移来源；实际键经 host.storageKey 包装） */
 const LEGACY_SETTINGS_KEY = 'bt-demo:settings';
 
 /** 空主体（草稿初始化 / 重置用） */
@@ -72,7 +73,7 @@ export function buildSnapshot(
 export function readLegacySnapshot(): unknown {
   if (typeof window === 'undefined') return undefined;
   try {
-    const raw = window.localStorage.getItem(LEGACY_SETTINGS_KEY);
+    const raw = window.localStorage.getItem(host.storageKey(LEGACY_SETTINGS_KEY));
     return raw === null ? undefined : (JSON.parse(raw) as unknown);
   } catch {
     return undefined;

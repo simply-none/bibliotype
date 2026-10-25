@@ -53,7 +53,12 @@ VITE_BASE_PATH=/<repo>/ pnpm --dir apps/demo preview   # 预览按 base 挂载�
   单飞去重 + 上限兜底**，快照用 `getSharedDocument()`（共享 IR）并与 `markSaved()` 同一同步帧对齐
   —— 大文档（上万块 / 百万字）编辑时序列化与整本写入都不落在输入帧上（见 [docs/14](../../docs/14-faq.md) 第 6 条）；
 - 工具栏为单行布局，窗口过窄时支持鼠标横向滚动（滚轮 / 按住拖动平移）；
-- 各包均以 `workspace:*` 引用，demo 直接从 `dist` 消费，修改包后需先 `pnpm build`。
+- 各包均以 `workspace:*` 引用，demo 直接从 `dist` 消费，修改包后需先 `pnpm build`；
+- 宿主差异集中在 `src/host/`：通用代码只 `import { host } from '../host/index.js'`，
+  Web 侧入口指向 `host/web.ts`（IndexedDB + 浏览器下载），复制到 Electron 项目时用
+  `host/electron.ts` 覆盖 `host/index.ts`（IPC SQLite + 宿主导出通道）。
+  `electron/main/module/bibliotype-store.ts` 是配套的主进程 SQLite 执行器；
+  复制映射与 IPC 契约见 [docs/33](../docs/33-electron-host.md)。
 
 ## 相关
 

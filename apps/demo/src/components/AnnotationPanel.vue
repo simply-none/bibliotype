@@ -15,6 +15,7 @@ import {
 } from '@bibliotype/annotation';
 import { BtAnnotationSidebar, useAnnotations, useReaderBinding } from '@bibliotype/vue';
 import type { Reader } from '@bibliotype/reader';
+import { host } from '../host/index.js';
 
 const props = defineProps<{
   /** 阅读器实例 */
@@ -27,8 +28,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{ (event: 'close'): void }>();
 
-/** Demo 用 localStorage 标注存储（实现 AnnotationStorage 端口） */
-const storageKey = computed(() => `bt-demo:annotations:${props.bookId}`);
+/** Demo 用 localStorage 标注存储（实现 AnnotationStorage 端口；键经宿主包装防碰撞） */
+const storageKey = computed(() => host.storageKey(`bt-demo:annotations:${props.bookId}`));
 const storage: AnnotationStorage = {
   name: 'demo-localstorage',
   async loadAnnotations(bookId: string): Promise<AnnotationSet | undefined> {

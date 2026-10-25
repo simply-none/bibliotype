@@ -26,9 +26,10 @@ import {
   type UiMotion,
   type UiSkinKey,
 } from '../ui-skin.js';
+import { host } from '../host/index.js';
 import type { ThemeKey } from './use-app-themes.js';
 
-/** 阅读位置持久化键（D5）：以锚点为主，刷新 / 改字号后回到原句 */
+/** 阅读位置持久化键（D5）：以锚点为主，刷新 / 改字号后回到原句（实际键经 host.storageKey 包装） */
 export const POSITION_KEY = 'bibliotype-demo:position';
 /** 阅读位置 localStorage 键（页码自 0 起；文档内容草稿在 IndexedDB） */
 export const LAST_PAGE_KEY = 'bibliotype-demo:last-page';
@@ -115,7 +116,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
   /** 读取界面偏好快照（非法 / 缺失 → null，逐字段容错回退默认） */
   function readSettingsSnapshot(): SettingsSnapshot | null {
     try {
-      const raw = window.localStorage.getItem(SETTINGS_KEY);
+      const raw = window.localStorage.getItem(host.storageKey(SETTINGS_KEY));
       if (raw === null) return null;
       const parsed = JSON.parse(raw) as Partial<SettingsSnapshot>;
       /* 三档主题；旧快照 / 未知值一律回落 null（再走默认主题） */
@@ -191,7 +192,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
       pdfRasterScale: refs.pdfRasterScale.value,
     };
     try {
-      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));
+      window.localStorage.setItem(host.storageKey(SETTINGS_KEY), JSON.stringify(snapshot));
     } catch {
       /* 存储不可用环境忽略 */
     }
@@ -200,7 +201,10 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
   /** 读取上次保存的页码（非法 / 不可用 → 0） */
   function readLastPage(): number {
     try {
-      const raw = Number.parseInt(window.localStorage.getItem(LAST_PAGE_KEY) ?? '', 10);
+      const raw = Number.parseInt(
+        window.localStorage.getItem(host.storageKey(LAST_PAGE_KEY)) ?? '',
+        10,
+      );
       return Number.isFinite(raw) && raw > 0 ? raw : 0;
     } catch {
       return 0;
@@ -210,7 +214,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
   /** 落盘当前页码（存储不可用环境静默失败） */
   function writeLastPage(pageIndex: number): void {
     try {
-      window.localStorage.setItem(LAST_PAGE_KEY, String(pageIndex));
+      window.localStorage.setItem(host.storageKey(LAST_PAGE_KEY), String(pageIndex));
     } catch {
       /* 忽略 */
     }
@@ -219,7 +223,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
   /** 读取上次保存的阅读位置（锚点 JSON；缺省 undefined 走旧页码回退） */
   function readSavedPosition(): string | undefined {
     try {
-      const raw = window.localStorage.getItem(POSITION_KEY);
+      const raw = window.localStorage.getItem(host.storageKey(POSITION_KEY));
       return raw === null ? undefined : raw;
     } catch {
       return undefined;
@@ -229,7 +233,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
   /** 落盘当前阅读位置（锚点 JSON；存储不可用环境静默失败） */
   function writeSavedPosition(json: string): void {
     try {
-      window.localStorage.setItem(POSITION_KEY, json);
+      window.localStorage.setItem(host.storageKey(POSITION_KEY), json);
     } catch {
       /* 忽略 */
     }

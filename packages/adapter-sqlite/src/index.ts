@@ -41,3 +41,7 @@ export type { SqliteVersionStoreOptions } from './version-store.js';
 /* ---------- 小载荷 KV ---------- */
 export { SqliteKeyValueStore } from './key-value.js';
 export type { SqliteKeyValueStoreOptions } from './key-value.js';
+
+/* ---------- 样式设置 ---------- */
+export { SQLiteStyleStore } from './style-store.js';
+export type { SQLiteStyleStoreOptions } from './style-store.js';

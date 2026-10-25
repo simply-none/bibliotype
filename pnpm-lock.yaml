@@ -35,6 +35,9 @@ importers:
       '@bibliotype/adapter-indexeddb':
         specifier: workspace:*
         version: link:../../packages/adapter-indexeddb
+      '@bibliotype/adapter-sqlite':
+        specifier: workspace:*
+        version: link:../../packages/adapter-sqlite
       '@bibliotype/annotation':
         specifier: workspace:*
         version: link:../../packages/annotation

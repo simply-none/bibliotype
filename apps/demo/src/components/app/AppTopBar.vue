@@ -258,6 +258,9 @@ defineProps<{
   border: 1px solid transparent;
   border-radius: var(--ui-radius-sm);
   cursor: pointer;
+  /* 书名最多占应用栏 1/3：超长书名不再把右侧全局动作挤出栏外 */
+  max-width: 33.33vw;
+  min-width: 0;
 }
 
 .toolbar__book:hover {
@@ -274,9 +277,15 @@ defineProps<{
   font-size: var(--ui-font-lg);
   font-weight: 600;
   letter-spacing: 0.08em;
+  /* 超出 1/3 栏宽的部分省略：完整书名可在「书籍信息」里查看 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toolbar__book-icon {
+  flex: none;
   color: var(--ui-text-muted);
 }
 

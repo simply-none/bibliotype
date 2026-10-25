@@ -87,6 +87,8 @@
   writing-mode: vertical-rl;
   flex: none;
   width: 38px;
+  /* 对偶横排的 1/3 栏宽：书名竖列最多占栏高 1/3，超出仍在列内滚动 */
+  max-height: 33.33vh;
   gap: 8px;
   overflow-x: hidden;
   overflow-y: auto;

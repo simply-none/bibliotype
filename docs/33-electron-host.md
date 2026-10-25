@@ -155,8 +155,24 @@ Uint8Array 先在渲染端分块转 base64（`0x8000` 一段，避免 `String.fr
   直接写入宿主缓存目录（`fileCachePath` → 文档目录）并回传绝对路径，提示文案带路径；
 - PDF：恒走矢量打印引擎。优先 `window.electronPdf`（自包含 HTML → 离屏 `printToPDF`，
   单文件经 `host.downloadBytes` 落盘）；否则用 `window.ipcRenderer.handlePromise`
-  的 `bibliotype:export-*` 分段会话，逐段落盘 `书名_00x.pdf`；两者都不存在时
-  **明确报错**（不再静默回退浏览器打印，避免「点了没反应」）。
+  的 `bibliotype:export-*` 分段会话，逐段落盘 `书名_00x.pdf`；会话（begin / asset /
+  prepare）任一步失败时**自动回退** `bibliotype:export-pdf` 整本单发，两者都不存在
+  或都失败时明确报错（不再静默回退浏览器打印）。
+
+桌面 PDF 链路的三条硬约束（防「提示成功但没文件」）：
+
+1. **书档与打印选项必须先经 `toPlainPayload` 去代理**（`use-export.ts`）。Electron 44
+   实测：contextBridge 在「渲染端 → preload 函数参数」这层结构化克隆里 **支持
+   `Map` / `Set`，但 Vue 的 `ref` / `reactive` 值（Proxy）会直接抛
+   `An object could not be cloned.`**，且报错发生在渲染端——preload 里的消毒函数
+   来不及执行。书档未改动节点、`options.features` / `options.namedStyles` 都来自
+   `ref`，正是这类 Proxy；不先去代理就会「弹窗提示成功、磁盘零文件」。
+2. 主进程每次 `writeFileSync` 后 `statSync` 复核，0 字节即视为失败返回 `error`；
+3. 分段弹窗只有在**至少一段为「已完成」**时才显示「全部分段导出完成」，会话失败
+   （`segments.length === 0`）必须显示红色错误，而不是一句成功文案。
+
+主进程导出全程写 `main.log`（`electron-log`）：`export-begin / prepare / segment /
+run / export-pdf` 的页数、落盘路径、失败堆栈都可据此定位。
 
 **Web（`isDesktop === false`）**
 
@@ -175,6 +191,7 @@ Uint8Array 先在渲染端分块转 base64（`0x8000` 一段，避免 `String.fr
 | 保存后重启数据丢失 | 主进程未调用 `initBibliotypeStore()` 或数据库被写到了临时目录 | 确认调用点与实际库路径（`dir` / `fileName` 覆盖值或 `userData`），检查库文件是否生成 |
 | 下载无文件 | `export-*-to-cache` 通道未注册或参数结构不符 | 对照第六节通道表；同步查看主进程日志中的 `success: false` |
 | 导出提示「导出通道不可用」 | `host.isDesktop` 为 true 但 preload 既无 `electronPdf` 也无 `ipcRenderer` | 检查宿主 preload 暴露；桌面宿主不会回退浏览器打印 |
+| PDF 弹窗提示成功但目录无文件 | 书档 / 打印选项里的 Vue `ref` / `reactive`（Proxy）过 contextBridge 抛 `An object could not be cloned.`；旧弹窗又把零段当成功 | 两端都要修：渲染端先 `toPlainPayload` 去代理；弹窗以「至少一段完成」为成功条件。日志看 `main.log` 是否有 `[bibliotype:export-begin]` |
 | 提示导出成功但文件内容错乱 | 调用 `host.downloadText` 时把参数写反（`filename` 当 `text`） | 参数顺序固定为 `(text, filename, mime?)` |
 | 样式设置不落库 | 未用 `createStyleSettingsStore()` 覆盖 vue 默认 localStorage 实现 | 在调用 `useStyleSettings` 处显式传 `store` |
 | localStorage 键冲突 | 直写了未包装的键 | 所有读写必须经 `host.storageKey()` |

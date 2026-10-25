@@ -60,6 +60,11 @@
         <p v-if="upload !== null" class="seg-dialog__upload">
           上传图片资源 {{ upload.done }}/{{ upload.total }}…
         </p>
+        <!-- 会话 / 上传 / 预分页失败：必须在本阶段可见，否则零文件也会显示「全部完成」 -->
+        <p v-if="lastError !== ''" class="seg-dialog__error">{{ lastError }}</p>
+        <p v-else-if="phase === 'done' && segments.length === 0" class="seg-dialog__error">
+          导出未开始：宿主未返回任何分段（会话初始化失败）。
+        </p>
         <div class="seg-dialog__segments">
           <div
             v-for="segment in segments"
@@ -78,9 +83,7 @@
             </span>
           </div>
         </div>
-        <p v-if="phase === 'done'" class="seg-dialog__hint">
-          {{ failedCount > 0 ? `有 ${failedCount} 段导出失败，已完成的文件不受影响。` : '全部分段导出完成。' }}
-        </p>
+        <p v-if="phase === 'done'" class="seg-dialog__hint">{{ doneHint }}</p>
         <button
           v-if="phase === 'running'"
           type="button"
@@ -162,6 +165,25 @@ const lastError = ref('');
 /** 设置态的分段区域预览 */
 const plan = computed(() => buildSegmentPlan(props.totalPages, segmentPagesInput.value));
 const failedCount = computed(() => segments.value.filter((s) => s.status === 'failed').length);
+const doneCount = computed(() => segments.value.filter((s) => s.status === 'done').length);
+
+/**
+ * 完成后的一句话结论
+ *
+ * 关键：只有真有一段「已完成」才允许说成功。会话/预分页失败时 segments 为空，
+ * 此前会误显示「全部分段导出完成。」，用户看到成功却找不到文件。
+ */
+const doneHint = computed(() => {
+  if (doneCount.value > 0) {
+    return failedCount.value > 0
+      ? `有 ${failedCount.value} 段导出失败，已完成的 ${doneCount.value} 个文件不受影响。`
+      : '全部分段导出完成。';
+  }
+  if (failedCount.value > 0) {
+    return `有 ${failedCount.value} 段导出失败，未产生完成文件。`;
+  }
+  return '导出未产生任何文件，请按上方错误信息排查后重试。';
+});
 
 /** 状态中文文案 */
 function statusLabel(status: SegmentStatus): string {
@@ -225,7 +247,11 @@ async function startExport(): Promise<void> {
     const started = await runner.start((done, total) => {
       upload.value = { done, total };
     });
-    /* 浏览器实现不预分页（start 返回 0）：回退用弹窗打开时的预览页数 */
+    /* 浏览器实现不预分页（start 返回 0）：回退用弹窗打开时的预览页数；
+     * 桌面实现返回 0 说明宿主分页器为空，必须当作失败（否则零文件也会显示「全部完成」） */
+    if (started.pageCount === 0 && runner.kind === 'desktop') {
+      throw new Error('[桌面导出·预分页] 宿主返回 0 页，未生成任何分段文件');
+    }
     const pageCount = started.pageCount > 0 ? started.pageCount : props.totalPages;
     segments.value = buildSegmentPlan(pageCount, size).map((item, idx) => ({
       index: item.index,

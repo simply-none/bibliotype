@@ -79,6 +79,66 @@ function clampSegmentPages(segmentPages: number): number {
   return Math.min(2000, Math.max(100, Math.round(segmentPages)));
 }
 
+/**
+ * 跨 contextBridge 安全化：深拷贝为纯对象 / 数组 / Map / Set
+ *
+ * 背景（Electron 44 实测）：渲染端 → preload 的函数参数要过 contextBridge 的
+ * 结构化克隆；`Map` / `Set` 原样支持，但 **Vue 的 `ref` / `reactive` 值（Proxy）
+ * 会直接抛 `An object could not be cloned.`**，而报错发生在渲染端、preload 的
+ * 消毒函数还没机会执行——桌面导出因此静默失败（弹窗仍显示成功、磁盘无文件）。
+ *
+ * 书档里未改动的节点与打印选项的 `features` / `namedStyles` 都直接来自 ref，
+ * 必须先去代理再交给 IPC。
+ *
+ * @param value 待安全化的值（可含 Proxy / Map / Set / 数组 / 嵌套对象）
+ * @param seen 循环引用缓存（内部递归用）
+ * @returns 同结构纯值：Map 仍为 Map、Set 仍为 Set、对象为纯对象
+ */
+export function toPlainPayload<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  if (value === null || typeof value !== 'object') return value;
+  const tag = Object.prototype.toString.call(value);
+
+  if (tag === '[object Map]') {
+    const cached = seen.get(value as object) as Map<unknown, unknown> | undefined;
+    if (cached !== undefined) return cached as unknown as T;
+    const out = new Map<unknown, unknown>();
+    seen.set(value as object, out);
+    for (const [key, item] of value as unknown as Map<unknown, unknown>) {
+      out.set(toPlainPayload(key, seen), toPlainPayload(item, seen));
+    }
+    return out as unknown as T;
+  }
+
+  if (tag === '[object Set]') {
+    const cached = seen.get(value as object) as Set<unknown> | undefined;
+    if (cached !== undefined) return cached as unknown as T;
+    const out = new Set<unknown>();
+    seen.set(value as object, out);
+    for (const item of value as unknown as Set<unknown>) out.add(toPlainPayload(item, seen));
+    return out as unknown as T;
+  }
+
+  if (Array.isArray(value) || tag === '[object Object]') {
+    const cached = seen.get(value as object) as unknown;
+    if (cached !== undefined) return cached as T;
+    if (Array.isArray(value)) {
+      const out: unknown[] = [];
+      seen.set(value as object, out);
+      for (const item of value as unknown[]) out.push(toPlainPayload(item, seen));
+      return out as unknown as T;
+    }
+    const out: Record<string, unknown> = {};
+    seen.set(value as object, out);
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      out[key] = toPlainPayload((value as Record<string, unknown>)[key], seen);
+    }
+    return out as unknown as T;
+  }
+
+  /* Date / RegExp / TypedArray / ArrayBuffer 等结构化克隆原生支持的类型原样放行 */
+  return value;
+}
+
 /** 分段方案条目（from / to 为 0 起含端点页码） */
 export interface SegmentPlanItem {
   /** 卷序号（1 起） */
@@ -101,6 +161,8 @@ export function buildSegmentPlan(totalPages: number, segmentPages: number): Segm
 
 /** 分段导出执行器（弹窗驱动；桌面与浏览器各有一个实现） */
 export interface PdfSegmentedRunner {
+  /** 执行器类型（桌面 = 宿主会话；浏览器 = 逐段光栅下载） */
+  readonly kind: 'desktop' | 'browser';
   /**
    * 开始会话：书档 data URI 去重 → 逐张上传图片 → 主进程缓存分页器
    *
@@ -118,6 +180,10 @@ export interface PdfSegmentedRunner {
  * 会话协议（渐离App `bibliotype:export-*`）：书档 data URI 去重令牌化后逐张
  * 上传（宿主收即写临时资源文件），`export-prepare` 在主进程缓存分页器——
  * 后续逐段 `export-segment` 复用，整本 HTML 与书档均不过 IPC。
+ *
+ * 书档与打印选项在发送前一律经 `toPlainPayload` 去代理：它们直接来自
+ * `ref` / `reader`，是 Vue 的 Proxy，过 contextBridge 会抛
+ * `An object could not be cloned.`（曾在 Electron 里表现为「提示成功但无文件」）。
  */
 export function createSegmentedPdfRunner(args: {
   channel: (channel: string, args?: unknown) => Promise<unknown>;
@@ -126,41 +192,69 @@ export function createSegmentedPdfRunner(args: {
   title: string;
 }): PdfSegmentedRunner {
   let exportId: string | null = null;
+  /** 会话失败后单发回退的落盘路径（非 null 表示整本已由主进程一次打印完成） */
+  let fallbackPath: string | null = null;
+  /* 打印选项只随会话走一次：去代理后缓存，prepare 与单发回退共用 */
+  const options = toPlainPayload(args.options);
   return {
+    kind: 'desktop',
     async start(onUploadProgress) {
-      const { document: slimDocument, assets } = dedupeInlineImages(args.book);
-      const begin = (await args.channel('bibliotype:export-begin', {})) as {
-        exportId?: string;
-        error?: string;
-      };
-      if (begin?.exportId === undefined) {
-        throw new Error(`[桌面导出·开始会话] ${begin?.error ?? '未返回会话 id'}`);
-      }
-      exportId = begin.exportId;
-      for (let index = 0; index < assets.length; index += 1) {
-        const asset = assets[index]!;
-        onUploadProgress?.(index, assets.length);
-        const result = (await args.channel('bibliotype:export-asset', {
-          exportId,
-          token: asset.token,
-          dataUri: asset.dataUri,
-        })) as { success?: boolean; error?: string };
-        if (result?.success !== true) {
-          throw new Error(`[桌面导出·上传图片 ${asset.token}] ${result?.error ?? '接收失败'}`);
+      try {
+        const { document: slimDocument, assets } = dedupeInlineImages(args.book);
+        /* 去重后未改动的节点仍是原 Proxy：必须整体去代理后再过桥 */
+        const plainDocument = toPlainPayload(slimDocument);
+        const begin = (await args.channel('bibliotype:export-begin', {})) as {
+          exportId?: string;
+          error?: string;
+        };
+        if (begin?.exportId === undefined) {
+          throw new Error(`[桌面导出·开始会话] ${begin?.error ?? '未返回会话 id'}`);
         }
+        exportId = begin.exportId;
+        for (let index = 0; index < assets.length; index += 1) {
+          const asset = assets[index]!;
+          onUploadProgress?.(index, assets.length);
+          const result = (await args.channel('bibliotype:export-asset', {
+            exportId,
+            token: asset.token,
+            dataUri: asset.dataUri,
+          })) as { success?: boolean; error?: string };
+          if (result?.success !== true) {
+            throw new Error(`[桌面导出·上传图片 ${asset.token}] ${result?.error ?? '接收失败'}`);
+          }
+        }
+        onUploadProgress?.(assets.length, assets.length);
+        const prepared = (await args.channel('bibliotype:export-prepare', {
+          exportId,
+          document: plainDocument,
+          options,
+        })) as { pageCount?: number; error?: string };
+        if (prepared?.pageCount === undefined) {
+          throw new Error(`[桌面导出·预分页] ${prepared?.error ?? '未返回页数'}`);
+        }
+        return { pageCount: prepared.pageCount };
+      } catch (error) {
+        /* 会话链路（begin / asset / prepare）失败：改走主进程单发形态
+         * （一次性 renderPrintHtml + printToPDF + 落盘），保证「能导出」优先于
+         * 「分段省内存」；单发也失败时把两条原因一起抛出，便于定位。 */
+        const result = (await args.channel('bibliotype:export-pdf', {
+          document: toPlainPayload(args.book),
+          options,
+          filename: `${args.title || '书籍'}.pdf`,
+        })) as { success?: boolean; path?: string; error?: string };
+        if (result?.success === true && result.path !== undefined) {
+          fallbackPath = result.path;
+          return { pageCount: 1 };
+        }
+        throw new Error(
+          `[桌面导出] 分段会话失败：${error instanceof Error ? error.message : String(error)}；` +
+            `整本单发也失败：${result?.error ?? '未返回落盘路径'}`,
+        );
       }
-      onUploadProgress?.(assets.length, assets.length);
-      const prepared = (await args.channel('bibliotype:export-prepare', {
-        exportId,
-        document: slimDocument,
-        options: args.options,
-      })) as { pageCount?: number; error?: string };
-      if (prepared?.pageCount === undefined) {
-        throw new Error(`[桌面导出·预分页] ${prepared?.error ?? '未返回页数'}`);
-      }
-      return { pageCount: prepared.pageCount };
     },
     async exportSegment(from, to, filename) {
+      /* 单发回退：整本已落盘，只有一段，直接回传真实路径 */
+      if (fallbackPath !== null) return fallbackPath;
       if (exportId === null) throw new Error('[桌面导出·分段] 会话未开始');
       const result = (await args.channel('bibliotype:export-segment', {
         exportId,
@@ -192,6 +286,7 @@ export function createBrowserSegmentedPdfRunner(args: {
   download: (bytes: Uint8Array, filename: string) => void;
 }): PdfSegmentedRunner {
   return {
+    kind: 'browser',
     async start() {
       /* 页数以预分页口径为准：用 exportRasterPdf 的空跑会重复整本光栅，
        * 这里直接读 reader 的总页数由弹窗传入；浏览器实现无需上传资源 */

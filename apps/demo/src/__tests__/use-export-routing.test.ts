@@ -9,7 +9,7 @@
  * printHtml 触 iframe）：路由与状态机是本测试对象，光栅拼装在包内已测。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ref } from 'vue';
+import { isProxy, reactive, ref } from 'vue';
 import {
   DEFAULT_LAYOUT_OPTIONS,
   CLASSICAL_LAYOUT_OPTIONS,
@@ -22,7 +22,7 @@ import {
   renderPrintHtml,
 } from '@bibliotype/exporter-pdf';
 import type { PdfExportMode, PdfRasterScale } from '../composables/use-settings-snapshot.js';
-import { useExport, type ExportDeps } from '../composables/use-export.js';
+import { toPlainPayload, useExport, type ExportDeps } from '../composables/use-export.js';
 
 /**
  * 宿主判别式开关
@@ -217,6 +217,67 @@ describe('useExport：PDF 三分路由', () => {
     expect(downloadPdf).not.toHaveBeenCalled();
     expect(printHtml).not.toHaveBeenCalled();
   });
+  it('会话预分页失败：自动回退整本单发，返回真实落盘路径', async () => {
+    hostState.isDesktop = true;
+    const channels: string[] = [];
+    const handlePromise = vi.fn(async (channel: string) => {
+      channels.push(channel);
+      if (channel === 'bibliotype:export-begin') return { exportId: 'session-1' };
+      if (channel === 'bibliotype:export-prepare') return { error: '预分页失败（模拟）' };
+      if (channel === 'bibliotype:export-pdf') return { success: true, path: 'C:\\cache\\测试书.pdf' };
+      return { success: true };
+    });
+    (window as unknown as { ipcRenderer?: unknown }).ipcRenderer = {
+      handlePromise,
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    };
+    const deps = makeDeps('in-app');
+    const { onExportPdf, segmentRunner } = useExport(deps);
+    await onExportPdf();
+
+    const runner = segmentRunner.value!;
+    /* 会话失败 → 单发回退成功：整本作为 1 段，返回主进程真实路径 */
+    await expect(runner.start()).resolves.toEqual({ pageCount: 1 });
+    await expect(runner.exportSegment(0, 0, '测试书_001.pdf')).resolves.toBe(
+      'C:\\cache\\测试书.pdf',
+    );
+    expect(channels).toContain('bibliotype:export-pdf');
+    expect(channels).not.toContain('bibliotype:export-segment');
+  });
+
+  it('桌面会话：书档与打印选项先去代理再过桥（Map 仍为 Map）', async () => {
+    hostState.isDesktop = true;
+    const calls: Array<{ channel: string; args: Record<string, unknown> }> = [];
+    const handlePromise = vi.fn(async (channel: string, args: Record<string, unknown>) => {
+      calls.push({ channel, args });
+      if (channel === 'bibliotype:export-begin') return { exportId: 'session-2' };
+      if (channel === 'bibliotype:export-prepare') return { pageCount: 3 };
+      return { success: true };
+    });
+    (window as unknown as { ipcRenderer?: unknown }).ipcRenderer = {
+      handlePromise,
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    };
+    const deps = makeDeps('in-app');
+    /* 真实场景：reader 里的书档来自 ref / reactive，是 Vue 的 Proxy——
+     * 直接过 contextBridge 会抛「An object could not be cloned.」 */
+    expect(isProxy(deps.reader.reader.value.document)).toBe(true);
+    const { onExportPdf, segmentRunner } = useExport(deps);
+    await onExportPdf();
+
+    await expect(segmentRunner.value!.start()).resolves.toEqual({ pageCount: 3 });
+
+    const prepare = calls.find((call) => call.channel === 'bibliotype:export-prepare')!;
+    expect(isProxy(prepare.args['document'])).toBe(false);
+    expect(isProxy(prepare.args['options'])).toBe(false);
+    expect(isProxy((prepare.args['options'] as Record<string, unknown>)['features'])).toBe(false);
+    /* 实测表是 Map（跨桥原生支持），去代理后必须仍是 Map 而不是空对象 */
+    expect((prepare.args['options'] as Record<string, unknown>)['blockSizes']).toBeInstanceOf(Map);
+    expect(isProxy((prepare.args['options'] as Record<string, unknown>)['blockSizes'])).toBe(false);
+  });
+
   it('桌面宿主但无任何导出通道：明确报错，不静默落到浏览器打印', async () => {
     hostState.isDesktop = true;
     const deps = makeDeps('in-app');
@@ -243,5 +304,26 @@ describe('useExport：PDF 三分路由', () => {
       '画布导出 JPEG 失败',
     );
     expect(downloadPdf).not.toHaveBeenCalled();
+  });
+});
+
+describe('toPlainPayload：过 contextBridge 前的去代理', () => {
+  it('深拷贝响应式对象，Map / Set 仍为原生集合（非空对象）', () => {
+    const source = reactive({
+      tokens: { body: '16px' },
+      blockSizes: new Map<string, unknown>([['b1', { deep: 1 }]]),
+      marks: new Set<number>([1, 2]),
+    });
+
+    const plain = toPlainPayload(source);
+
+    expect(isProxy(plain)).toBe(false);
+    expect(isProxy(plain.tokens)).toBe(false);
+    expect(plain.blockSizes).toBeInstanceOf(Map);
+    expect(isProxy(plain.blockSizes)).toBe(false);
+    expect(plain.blockSizes.get('b1')).toEqual({ deep: 1 });
+    expect(isProxy(plain.blockSizes.get('b1'))).toBe(false);
+    expect(plain.marks).toBeInstanceOf(Set);
+    expect(Array.from(plain.marks)).toEqual([1, 2]);
   });
 });

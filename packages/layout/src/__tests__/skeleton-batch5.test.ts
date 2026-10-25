@@ -13,6 +13,19 @@ import { buildBookCss } from '../html/book-css.js';
 import { serializePageEar, serializePageGutter } from '../html/page-gutter.js';
 import { groupNodesByBand } from '../html/vertical-flow.js';
 import { paginate, type MeasurableBlock } from '../paginator.js';
+import { facsimilePageOf } from '../facsimile.js';
+import { PAGE_NUMBER_STYLES } from '../layout-options.js';
+
+/** 叶次 a/b 本地换算（与 reader.formatPageNumber 的 leaf-ab 分支同义，测试自证语义） */
+function formatPageNumberFor(pageNumber: number): string {
+  const digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  const leaf = Math.floor((pageNumber - 1) / 2) + 1;
+  const side = pageNumber % 2 === 1 ? '上' : '下';
+  const toCn = (v: number): string =>
+    v < 10 ? digits[v]! : v < 20 ? (v === 10 ? '十' : '十' + digits[v % 10]!) : String(v);
+  return `第${toCn(leaf)}叶·${side}`;
+}
+void PAGE_NUMBER_STYLES;
 
 /** 仿真布局（宋刻浙本口径的最小复刻） */
 function facLayout(extra: Record<string, unknown> = {}): LayoutOptions {

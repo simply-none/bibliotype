@@ -22,7 +22,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, FONT_SIZE_TOKENS, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
-import { buildPageStyle, buildRootStyle, isVerticalMode, resolvePageCrossSize } from '@bibliotype/layout';
+import { buildPageStyle, buildRootStyle, facsimilePageOf, isVerticalMode, resolvePageCrossSize } from '@bibliotype/layout';
 import { buildBookCss, groupNodesByBand, serializeNode, serializePageEar, serializePageGutter, serializePageNotes, serializeVerticalFlow } from '@bibliotype/layout/html';
 import {
   formatPageNumber,

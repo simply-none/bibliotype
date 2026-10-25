@@ -165,6 +165,20 @@ interface FacsimileOptions {
 - **已知限制**：与页底浮注（noteArea）并存未支持（bands 时忽略）；
   `bandRatio` 自定义占比的渲染端读取待后续；编辑画布（PagedCanvas）
   两截本暂按平铺处理。
+## 5.6 筒子叶对页与插图版式（v2 批 7）
+
+- **版心奇偶交替**：`facsimile.gutter.alternate: true`——线装对页展开时版心
+  相邻于中缝，偶数页（0 起）用 `side`、奇数页翻转；渲染端经
+  `facsimilePageOf(facsimile, pageIndex)` 取页级变体（版心定位 / 耳框 /
+  版心内缩全部随页），预览（page / scroll / 对页）、编辑画布、打印 paged
+  三端已接（打印侧 `.bt-page[data-gutter-side]` 镜像内缩）；分页与度量不分
+  侧（带宽尺寸对称）。已知限制 3「版心恒在左侧」自本批起解除；
+- **叶次 a/b 页码**：`pageNumberStyle: 'leaf-ab'`——一叶两半叶的页码体系
+  （奇数页「第 X 叶·上」、偶数页「第 X 叶·下」，中文叶数），与
+  decimal / chinese / roman 并行；
+- **插图版式**：`image.attrs.layout`（embedded 缺省嵌入正文 / full-width
+  整幅独占版心宽 / half-width 半幅居中）；复合版式（上图下文 / 左图右文 /
+  双面连式）由结构层承担（两截本 bands / 对页）。
 ## 6. 设置面板
 
 设置 →「古籍仿真」：
@@ -191,7 +205,7 @@ interface FacsimileOptions {
 
 1. **字体**：仓库不打包字体文件，模板只给系统字体栈，缺失回退 `Noto Serif CJK SC` / `serif`；
 2. **版框双边**用 CSS `border-style: double` 绘制（≥3px 才出双线），三段等分，不严格等于「外 2px / 间距 3px / 内 1px」的令牌比例——令牌只决定总厚度；
-3. **版心恒在左侧**（`side` 可改右，但同页不交替）：单页视图折口固定，分页因此与奇偶解耦；
+3. ~~版心恒在左侧~~（批 7 `gutter.alternate` 解除：奇偶交替、渲染随页；分页与度量仍不分侧——带宽对称）；
 4. **行款网格的残余漂移**：行款网格对齐层已把文本块统一到列距整数倍
    （见「界行对齐」一节）；仍不落格的有——子列数为奇数的超长双行小注
    （偏半格）、表格（单元格边框残差约 2px）、插图 / 大印章等非文本块，

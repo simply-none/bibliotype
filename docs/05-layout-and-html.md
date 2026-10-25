@@ -469,3 +469,7 @@ const html = serializeVerticalFlow(nodes, { charsPerColumn: 20 });
   对页三处）直排分支消费同一序列化器；
 - 估算口径：`lineRuleOverhead`（低格 / 挪抬占首行字位、提行另起）与
   `doubleNotePlaceholderChars`（n 字 → ⌈n/2⌉ 字位）供无 DOM 导出路径折算。
+
+## 插图版式（v2 批 7）
+
+`image.attrs.layout`：`embedded`（缺省，嵌入正文、基础版心限幅）/`full-width`（整幅独占版心宽）/`half-width`（半幅居中）——序列化透传 `data-layout`，CSS 属性分支渲染（`.bt-image[data-layout='…']`）。复合版式（上图下文 / 左图右文 / 双面连式）由结构层承担（两截本 `bands` / 对页）。

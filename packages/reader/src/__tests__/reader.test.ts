@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { Reader } from '../reader.js';
+import { formatPageNumber } from '../page-numbering.js';
 import type { BlockSizeEstimator } from '../document-blocks.js';
 
 /** 固定尺寸估算器：按节点 id 取尺寸 */
@@ -669,5 +670,17 @@ describe('Reader 脚注浮注（页底注区）', () => {
 
     expect(reader.getPageBlocks(0).map((block) => block.id)).toEqual(['p-1', 'en-1', 'mn-1']);
     expect(reader.getPageNoteItems(0)).toEqual([]);
+  });
+});
+
+describe('叶次 a/b 页码（v2 批 7）', () => {
+  it('leaf-ab 样式：奇数页第 X 叶·上、偶数页第 X 叶·下，与十进制 / 中文并行', () => {
+    expect(formatPageNumber(1, 'leaf-ab')).toBe('第一叶·上');
+    expect(formatPageNumber(2, 'leaf-ab')).toBe('第一叶·下');
+    expect(formatPageNumber(5, 'leaf-ab')).toBe('第三叶·上');
+    expect(formatPageNumber(6, 'leaf-ab')).toBe('第三叶·下');
+    /* 既有样式不受影响 */
+    expect(formatPageNumber(3, 'chinese')).toBe('三');
+    expect(formatPageNumber(3, 'decimal')).toBe('3');
   });
 });

@@ -103,6 +103,14 @@ export type GutterFishTailStyle =
 export interface FacsimileGutterOptions {
   /** 位于版框内侧哪一边 */
   side: GutterSide;
+  /**
+   * 版心奇偶交替（筒子叶，v2 批 7，缺省 false）
+   *
+   * 线装对页展开时版心相邻于中缝：偶数页（0 起）用 `side`、奇数页翻转——
+   * 渲染端经 `facsimilePageOf` 取页级变体（版心定位 / 耳框 / 内缩与页码
+   * 全部随页），分页与度量不分侧（带宽尺寸对称）。
+   */
+  alternate?: boolean;
   /** 带宽（px，主轴扣减量） */
   size: number;
   /** 口子：白口 / 细黑口 / 大黑口 */
@@ -194,4 +202,21 @@ export function isFacsimileEnabled(options: {
   facsimile?: FacsimileOptions | undefined;
 }): boolean {
   return options.facsimile !== undefined;
+}
+
+/**
+ * 页级仿真版式变体（筒子叶版心交替，v2 批 7）
+ *
+ * `gutter.alternate` 开启时，奇数页（0 起索引）翻转版心所在侧（耳框随行）；
+ * 未开启或未配置版心时原样返回。分页与度量不分侧（带宽对称），渲染端
+ * （预览 / 编辑画布 / 打印 paged）逐页调用本函数取变体。
+ */
+export function facsimilePageOf(
+  facsimile: FacsimileOptions | undefined,
+  pageIndex: number,
+): FacsimileOptions | undefined {
+  if (facsimile?.gutter?.alternate !== true) return facsimile;
+  if (pageIndex % 2 === 0) return facsimile;
+  const side: GutterSide = facsimile.gutter.side === 'left' ? 'right' : 'left';
+  return { ...facsimile, gutter: { ...facsimile.gutter, side } };
 }

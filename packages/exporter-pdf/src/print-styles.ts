@@ -233,9 +233,17 @@ export function buildPrintCss(input: PrintCssOptions): string {
       gutterSize > 0 && gutterSide !== undefined
         ? (() => {
             const box = resolveMarginBox(tokens);
-            return gutterSide === 'left'
-              ? `  padding-left: ${box.left + gutterSize + bleedPx}px;\n`
-              : `  padding-right: ${box.right + gutterSize + bleedPx}px;\n`;
+            const base =
+              gutterSide === 'left'
+                ? `  padding-left: ${box.left + gutterSize + bleedPx}px;\n`
+                : `  padding-right: ${box.right + gutterSize + bleedPx}px;\n`;
+            /* 筒子叶交替（v2 批 7）：奇偶页版心换侧——data-gutter-side 镜像内缩
+             * （print-document 逐页打标；对侧取对称页边距 + 同带宽） */
+            const alt =
+              gutterSide === 'left'
+                ? `\n.bt-page[data-gutter-side='right'] {\n  padding-left: ${box.right + gutterSize + bleedPx}px;\n  padding-right: ${box.left + bleedPx}px;\n}`
+                : `\n.bt-page[data-gutter-side='left'] {\n  padding-right: ${box.left + gutterSize + bleedPx}px;\n  padding-left: ${box.right + bleedPx}px;\n}`;
+            return base + alt;
           })()
         : '';
     /*

@@ -26,6 +26,7 @@ import {
   resolvePageCrossSize,
   resolvePageMainSize,
   resolveBottomSlack,
+  facsimilePageOf,
   type BlockAxis,
   type LayoutOptions,
   type VerticalTextOptions,
@@ -292,6 +293,8 @@ ${body}
       revisionView: options.revisionView ?? 'final',
     };
     const vertical = isVerticalMode(layout.writingMode);
+    /* 筒子叶版心交替（v2 批 7）：页级变体驱动版心 / 耳框 / 内缩随奇偶换侧 */
+    const pageFacsimile = facsimilePageOf(layout.facsimile, page.index);
     /* 每行大字数（交叉轴 ÷ 字号）：夹注每子列容量 = 本值 × 2（与预览同口径） */
     const bodyPx = Number.parseFloat(tokens[FONT_SIZE_TOKENS.BODY] ?? '16');
     const charsPerColumn = Math.max(
@@ -368,7 +371,7 @@ ${body}
     const gutter =
       gutterTexts === undefined
         ? ''
-        : serializePageGutter(gutterTexts, layout.facsimile);
+        : serializePageGutter(gutterTexts, pageFacsimile);
     const header =
       chrome !== undefined && chrome.header !== ''
         ? `<div class="bt-page-header">${escapeHtml(chrome.header)}</div>\n`
@@ -385,7 +388,7 @@ ${body}
      * 书耳 / 眉栏（v2 批 5）：仿真装饰选项开启时逐页输出——书耳竖排题本页
      * 篇名（reader.getPageEarText），眉栏为天头横线区（纯装饰）。
      */
-    const earHtml = serializePageEar(reader.getPageEarText(page.index), layout.facsimile);
+    const earHtml = serializePageEar(reader.getPageEarText(page.index), pageFacsimile);
     const eyebrowLine = layout.facsimile?.eyebrow === true ? '<div class="bt-page-eyebrow"></div>\n' : '';
     /*
      * 眉批 / 旁批装饰位（仿真直排，与预览 pageFlowParts 同口径）：head-note

@@ -117,7 +117,7 @@ export function toRomanNumeral(value: number, uppercase = false): string {
 }
 
 /** 支持的页码样式 */
-export type PageNumberStyle = 'decimal' | 'chinese' | 'roman';
+export type PageNumberStyle = 'decimal' | 'chinese' | 'roman' | 'leaf-ab';
 
 /**
  * 按样式格式化页码
@@ -134,6 +134,16 @@ export function formatPageNumber(pageNumber: number, style: PageNumberStyle): st
       } catch {
         return String(pageNumber);
       }
+    case 'leaf-ab': {
+      /* 筒子叶：一叶 = 两半叶（0 起页号 → 叶 = floor(n/2)+1，上/下 = 偶 / 奇） */
+      const leaf = Math.floor((pageNumber - 1) / 2) + 1;
+      const side = pageNumber % 2 === 1 ? '上' : '下';
+      try {
+        return `第${toChineseNumeral(leaf)}叶·${side}`;
+      } catch {
+        return `第${leaf}叶·${side}`;
+      }
+    }
     case 'roman':
       try {
         return toRomanNumeral(pageNumber);

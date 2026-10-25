@@ -324,6 +324,19 @@ ${scoped('.bt-image')} {
   max-width: ${imageMaxWidth}px;
   max-height: ${imageMaxHeight}px;
 }
+/*
+ * 插图版式（v2 批 7，§4）：整幅独占版心宽 / 半幅居中；嵌入（缺省）走基础
+ * 限幅。上图下文 / 左图右文 / 双面连式等复合版式由结构层承担（两截本
+ * bands / 对页），data-layout 由 image attrs 透传。
+ */
+${scoped(".bt-image[data-layout='full-width']")} {
+  inline-size: 100%;
+  object-fit: contain;
+}
+${scoped(".bt-image[data-layout='half-width']")} {
+  inline-size: 50%;
+  object-fit: contain;
+}
 ${scoped('.bt-break')} {
   border: 0;
   border-block-start: 1px solid var(--bt-${COLOR_TOKENS.NOTE_TEXT});

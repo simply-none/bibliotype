@@ -77,6 +77,7 @@ export {
   DEFAULT_GUTTER_FIELDS,
   DEFAULT_FACSIMILE_OPTIONS,
   isFacsimileEnabled,
+  facsimilePageOf,
 } from './facsimile.js';
 export type {
   FacsimileFrame,
@@ -87,6 +88,7 @@ export type {
   GutterSide,
   GutterMouth,
   GutterFishTail,
+  GutterFishTailStyle,
   PageGutterTexts,
 } from './facsimile.js';
 

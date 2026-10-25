@@ -23,7 +23,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isTextNode, type BookNode, type FeatureStyleSheet, type NamedStyleSet } from '@bibliotype/core';
 import { FONT_SIZE_TOKENS } from '@bibliotype/core';
-import { buildPageStyle, buildRootStyle, isVerticalMode, resolvePageCrossSize, type LayoutOptions } from '@bibliotype/layout';
+import { buildPageStyle, buildRootStyle, facsimilePageOf, isVerticalMode, resolvePageCrossSize, type LayoutOptions } from '@bibliotype/layout';
 import { buildBookCss, serializeNode, serializePageGutter, serializeVerticalFlow, isFlowParagraphType } from '@bibliotype/layout/html';
 import {
   buildPageChromeIndex,
@@ -240,14 +240,21 @@ const gutterIndex = computed<PageChromeIndex | null>(() => {
   return buildPageChromeIndex(doc.root);
 });
 
-const pageFrameStyle = computed(() => ({
-  ...buildPageStyle(pageSize.value, props.tokens),
-  ...buildRootStyle({
-    tokens: props.tokens,
-    options: props.options,
-    fontToken: props.fontToken,
-  }),
-}));
+/* 页框样式（筒子叶交替时版心内缩随页索引换侧——facsimilePageOf 变体） */
+function pageFrameStyleOf(index: number): Record<string, string | number> {
+  const pageOptions =
+    props.options.facsimile !== undefined
+      ? { ...props.options, facsimile: facsimilePageOf(props.options.facsimile, index) }
+      : props.options;
+  return {
+    ...buildPageStyle(pageSize.value, props.tokens),
+    ...buildRootStyle({
+      tokens: props.tokens,
+      options: pageOptions,
+      fontToken: props.fontToken,
+    }),
+  };
+}
 
 /* ---------- 虚拟化窗口 ---------- */
 
@@ -313,6 +320,8 @@ interface RenderedFrag {
 }
 
 interface RenderedPage {
+  /** 版心所在侧（筒子叶交替时逐页打标；undefined = 未启用交替） */
+  gutterSide?: string;
   index: number;
   /** 本页沿主轴的起始偏移（横排 = 距顶，直排 = 距右缘） */
   mainPos: number;
@@ -411,10 +420,17 @@ const renderedPages = computed<RenderedPage[]>(() => {
         flow: fragIsFlow(frag),
       })),
       numberText,
+      gutterSide:
+        props.options.facsimile?.gutter?.alternate === true
+          ? (facsimilePageOf(props.options.facsimile, i)?.gutter?.side ?? props.options.facsimile.gutter.side)
+          : undefined,
       gutterHtml:
         gutterTexts === undefined
           ? ''
-          : serializePageGutter(gutterTexts, props.options.facsimile),
+          : serializePageGutter(
+              gutterTexts,
+              facsimilePageOf(props.options.facsimile, i),
+            ),
       header,
       footer,
       chromeOn,
@@ -585,11 +601,13 @@ function slotStyle(page: RenderedPage): Record<string, string | number> {
     : { top: `${page.mainPos}px`, ...size };
 }
 
-const scaledFrameStyle = computed(() => ({
-  ...pageFrameStyle.value,
-  transform: `scale(${scrollScale.value})`,
-  transformOrigin: 'top left',
-}));
+function scaledFrameStyleOf(index: number): Record<string, string | number> {
+  return {
+    ...pageFrameStyleOf(index),
+    transform: `scale(${scrollScale.value})`,
+    transformOrigin: 'top left',
+  };
+}
 
 const editableNow = computed(() => props.editable && props.editor !== null && props.index !== null);
 
@@ -1058,7 +1076,7 @@ watch(
       >
         <div
           class="bt-paged-page"
-          :style="scaledFrameStyle"
+          :style="scaledFrameStyleOf(page.index)"
           @beforeinput="onBeforeInput"
           @compositionstart="onCompositionStart"
           @compositionend="onCompositionEnd"

@@ -367,6 +367,8 @@ export class Reader {
     const result = paginate(this.blocks, {
       pageMainSize: this.pageMainSize,
       bottomSlack: this.bottomSlackPx,
+      /* 两截本 / 三截本（v2 批 5）：结构节点 `bands` 声明驱动分截分页 */
+      ...(extracted.bands !== undefined ? { bands: extracted.bands } : {}),
       ...(this.footnoteFloat ? { noteArea: { maxRatio: this.noteMaxRatio } } : {}),
     });
     this.pages = result.pages;
@@ -738,6 +740,28 @@ export class Reader {
       chapterTitle: this.getPageChapterTitle(pageIndex),
       pageNumberText: formatPageNumber(pageIndex + 1, style),
     });
+  }
+
+  /**
+   * 书耳文本（本页篇名，v2 批 5）
+   *
+   * 仿真版式开启书耳（`facsimile.ear`）时返回本页所属章名（章名缺省回退
+   * 卷名、书名——耳题以篇名为常例）；封面页与未启用时返回 `undefined`
+   * （渲染端不产出耳框）。纯装饰、不参与分页与度量。
+   */
+  getPageEarText(pageIndex: number = this.pageIndex): string | undefined {
+    if (this.options.facsimile?.ear !== true || this.doc === undefined) {
+      return undefined;
+    }
+    if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= this.pages.length) {
+      return undefined;
+    }
+    if (this.isCoverPage(pageIndex)) return undefined;
+    const chapter = this.getPageChapterTitle(pageIndex).trim();
+    if (chapter !== '') return chapter;
+    const volume = this.getPageVolumeTitle(pageIndex).trim();
+    if (volume !== '') return volume;
+    return this.doc.metadata.title.trim();
   }
 
   /**

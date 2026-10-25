@@ -54,6 +54,13 @@ export interface MeasurableBlock {
    * 仅 `axis: 'column'`（直排）生效；横排降级为普通换段（无操作）。
    */
   breakColumn?: boolean;
+  /**
+   * 两截本 / 三截本截位序号（0 = 上截，v2 批 5）
+   *
+   * `paginateInner` 按截位分组（组内容量 = 页容量 × 截高占比），再把各截
+   * 页按序交错合并（同页含各截内容）。缺省 undefined = 不分截。
+   */
+  band?: number;
   /** 与下一块保持同页 */
   keepWithNext?: boolean;
   /** 单行沿主轴的尺寸（px）；与 splittable 配合启用行级拆分 */
@@ -188,6 +195,15 @@ export interface PaginateOptions {
   bottomSlack?: number;
   /** 孤寡行控制（缺省 2 / 2） */
   widowControl?: WidowControl;
+  /**
+   * 两截本 / 三截本声明（v2 批 5，缺省不分截）
+   *
+   * 提供时按块 `band` 序号分组，各截以「页容量 × 截高占比」独立分页，
+   * 页按序交错合并（同页含各截内容；某截页数不足则该位留空）。与分栏
+   * （columns）互斥——两截本固定单栏；与页底浮注并存未支持（bands 时
+   * noteArea 被忽略，文档记录）。
+   */
+  bands?: { count: number; ratios: readonly number[] };
   /**
    * 页底注区（脚注浮注，缺省不开启）
    *
@@ -647,6 +663,46 @@ function paginateInner(
   }
   if (blocks.length === 0) {
     return { pages: [], totalPages: 0, totalBlocks: 0 };
+  }
+
+  /*
+   * 两截本 / 三截本（v2 批 5）：按截位分组、各截独立分页、页按序交错合并。
+   * 与分栏互斥（bands 时忽略 columns 分组）；页底浮注并存未支持（bands 时
+   * 忽略 noteArea——文档记录）。空位页由存在该截内容的合并页自然缺失。
+   */
+  if (options.bands !== undefined && options.bands.count >= 2) {
+    const { count, ratios } = options.bands;
+    const bandPages: PaginatedPage[][] = [];
+    for (let band = 0; band < count; band += 1) {
+      const bandBlocks = blocks.filter((block) => (block.band ?? count - 1) === band);
+      const ratio = ratios[band] ?? 1 / count;
+      const result = paginateSingle(bandBlocks, {
+        ...options,
+        pageMainSize: Math.max(1, options.pageMainSize * ratio),
+        noteArea: undefined,
+        resume: undefined,
+      });
+      bandPages.push(result.pages);
+    }
+    const totalPages = Math.max(...bandPages.map((pages) => pages.length), 1);
+    const pages: PaginatedPage[] = [];
+    for (let index = 0; index < totalPages; index += 1) {
+      const items = bandPages.flatMap((pages) => pages[index]?.items ?? []);
+      if (items.length === 0) {
+        /* 各截本位均无内容（越界合并页）——跳过（全书页数由最大截决定） */
+        continue;
+      }
+      pages.push({
+        index: pages.length,
+        items,
+        blocks: items.map((item) => item.block),
+        usedMainSize: bandPages.reduce((sum, pages) => sum + (pages[index]?.usedMainSize ?? 0), 0),
+      });
+    }
+    if (pages.length === 0) {
+      return paginateSingle(blocks, { ...options, noteArea: undefined }, 1);
+    }
+    return { pages, totalPages: pages.length, totalBlocks: blocks.length };
   }
 
   const groups: { columns: number; blocks: MeasurableBlock[] }[] = [];

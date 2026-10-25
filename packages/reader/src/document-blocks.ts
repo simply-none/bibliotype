@@ -295,6 +295,8 @@ export interface ExtractedBlocks {
   blocks: MeasurableBlock[];
   /** 块 id → 源 IR 节点（id 口径与 blocks 一致；供切片 / 渲染免二次全树查找） */
   nodeById: Map<string, BookNode>;
+  /** 两截本 / 三截本声明（首个结构节点 `bands`；未声明为 undefined，v2 批 5） */
+  bands?: { count: number; ratios: readonly number[] };
 }
 
 /**
@@ -325,13 +327,43 @@ export function extractBlocksIndexed(
   const blocks: MeasurableBlock[] = [];
   const nodeById = new Map<string, BookNode>();
 
+  /*
+   * 两截本 / 三截本（v2 批 5）：扫描结构节点的 `bands` 声明（取首个声明——
+   * 一种版式全书统一），块级 `band` 属性（'upper' / 'middle' / 'lower'）
+   * 折算为序号标注到块上；未标注的块归最下截（正文）。
+   */
+  let bandsSpec: { count: number; ratios: readonly number[] } | undefined;
+  const scanBands = (node: BookNode): void => {
+    if (bandsSpec !== undefined) return;
+    const bands = node.attrs?.['bands'];
+    if (bands === 2 || bands === 3) {
+      const raw = node.attrs?.['bandRatio'];
+      const ratios =
+        Array.isArray(raw) && raw.length === bands && raw.every((v) => typeof v === 'number' && v > 0)
+          ? (raw as number[])
+          : bands === 2
+            ? [0.4, 0.6]
+            : [0.25, 0.35, 0.4];
+      bandsSpec = { count: bands, ratios };
+    }
+  };
+  const walkBandOf = (node: BookNode): number | undefined => {
+    const raw = node.attrs?.['band'];
+    if (raw === 'upper') return 0;
+    if (raw === 'middle') return 1;
+    if (raw === 'lower') return 2;
+    return undefined;
+  };
+
   const walk = (node: BookNode, path: string, flags: PendingFlags): void => {
+    scanBands(node);
     /* 分栏数沿结构树继承：chapter / section 的 attrs.columns 覆盖祖先值 */
     const columns = structureColumnsOf(node) ?? flags.columns;
     if (isLeafBlock(node)) {
       // 空书根不产块；其余叶块（或空容器）产出可测量块
       if (node.type === NODE_TYPES.BOOK) return;
       const id = node.id ?? path;
+      const bandIndex = walkBandOf(node);
       nodeById.set(id, node);
       // 实测尺寸优先（命中且为正），否则回退估算
       const measured = blockSizes?.get(id);
@@ -341,6 +373,7 @@ export function extractBlocksIndexed(
       // 判定时，整章块不可拆、只能一整页盛放，直排页宽小 → 被裁成「看起来空白」。
       // 标题 / 注文 / 牌记 / 封面等版式块恒整块呈现（见 ATOMIC_BLOCK_TYPES），不标。
       const splittable = !ATOMIC_BLOCK_TYPES.has(node.type);
+      const band = bandsSpec !== undefined ? (bandIndex ?? bandsSpec.count - 1) : undefined;
       // 分页符（break variant=page）：自身成一标记块，并强制其后一块另起一页
       const isPageBreak =
         node.type === NODE_TYPES.BREAK && node.attrs?.['variant'] === PAGE_BREAK_VARIANT;
@@ -440,7 +473,7 @@ export function extractBlocksIndexed(
   };
 
   walk(doc.root, '', {});
-  return { blocks, nodeById };
+  return { blocks, nodeById, bands: bandsSpec };
 }
 
 /**

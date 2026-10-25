@@ -23,7 +23,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { DEFAULT_THEME, FONT_SIZE_TOKENS, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, isVerticalMode, resolvePageCrossSize } from '@bibliotype/layout';
-import { buildBookCss, serializeNode, serializePageGutter, serializePageNotes, serializeVerticalFlow } from '@bibliotype/layout/html';
+import { buildBookCss, groupNodesByBand, serializeNode, serializePageEar, serializePageGutter, serializePageNotes, serializeVerticalFlow } from '@bibliotype/layout/html';
 import {
   formatPageNumber,
   parseReadingPosition,
@@ -304,6 +304,10 @@ interface SpreadPage {
   footer: string;
   notesHtml: string;
   gutterHtml: string;
+  /** 书耳 / 眉批天头 / 旁批界行外（仿真直排装饰位，v2 批 5） */
+  earHtml: string;
+  eyebrowHtml: string;
+  sideHtml: string;
   showPageNumber: boolean;
   numberText: string;
 }
@@ -320,6 +324,7 @@ const spreadPages = computed<SpreadPage[]>(() => {
     const firstBlock = nodes[0];
     const chrome = props.reader.getPageChromeTexts(index);
     const gutter = props.reader.getPageGutterTexts(index);
+    const parts = pageFlowParts(props.reader.getPageFragments(index));
     return {
       index,
       html: nodes.map((node) => serializeNode(node)).join('\n'),
@@ -328,6 +333,9 @@ const spreadPages = computed<SpreadPage[]>(() => {
       footer: chrome?.footer ?? '',
       notesHtml: pageNotesHtmlOf(index),
       gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
+      earHtml: serializePageEar(props.reader.getPageEarText(index), layout.value.facsimile),
+      eyebrowHtml: parts.eyebrow,
+      sideHtml: parts.side,
       showPageNumber:
         chrome === undefined && firstBlock !== undefined && !coverNodes.value.has(firstBlock),
       numberText: formatPageNumber(index + 1, pageNumberStyle.value),
@@ -375,15 +383,62 @@ function spreadPageStyle(page: SpreadPage) {
    * 双行夹注双列小字盒、低格 / 抬头 / 提行随文标记，容器 `.bt-vflow`
    * 自然换列——与 CSS 块流「段段换列」的半空版面相对；横排维持块级序列化。
    */
+  /** 眉批（head-note）/ 旁批（margin-note）节点判定（仿真直排装饰位分流用） */
+  const DECOR_NOTE_TYPES = new Set(['head-note', 'margin-note']);
+
+  /**
+   * 页内容三段分流（v2 批 5，仅仿真直排启用装饰位）：正文片段连排；
+   * 眉批收集到天头容器（多列小字）；旁批收集到界行外窄条。
+   * 非仿真直排与横排不分流（全量进 flow，与既有行为一致）。
+   */
+  const pageFlowParts = (
+    nodes: readonly BookNode[],
+  ): { flow: readonly BookNode[]; eyebrow: string; side: string } => {
+    if (!verticalWriting.value || !pageDecoration.value) {
+      return { flow: nodes, eyebrow: '', side: '' };
+    }
+    const flow = nodes.filter((node) => !isTextNode(node) && !DECOR_NOTE_TYPES.has(node.type));
+    const options = { charsPerColumn: readerColumnCapacity.value };
+    const eyebrow = nodes
+      .filter((node) => !isTextNode(node) && node.type === 'head-note')
+      .map((node) => serializeVerticalFlow([node], options))
+      .join('');
+    const side = nodes
+      .filter((node) => !isTextNode(node) && node.type === 'margin-note')
+      .map((node) => serializeVerticalFlow([node], options))
+      .join('');
+    return { flow, eyebrow, side };
+  };
+
+  /** 当前页正文流（仿真直排下分流眉批 / 旁批） */
+  const pageParts = computed(() => pageFlowParts(pageNodes.value));
+
+  /**
+   * 当前页 HTML 片段（文本叶子不输出）
+   *
+   * 直排（古籍直排 / 仿真）走**行内流连排**（v2 批 2）：段落行内化、
+   * 双行夹注双列小字盒、低格 / 抬头 / 提行随文标记，容器 `.bt-vflow`
+   * 自然换列——与 CSS 块流「段段换列」的半空版面相对；横排维持块级序列化。
+   */
   const pageHtml = computed(() => {
-    const nodes = pageNodes.value.filter((node) => !isTextNode(node));
     if (verticalWriting.value) {
-      return serializeVerticalFlow(nodes, {
+      return serializeVerticalFlow(pageParts.value.flow, {
         charsPerColumn: readerColumnCapacity.value,
       });
     }
-    return nodes.map((node) => serializeNode(node)).join('\n');
+    return pageNodes.value
+      .filter((node) => !isTextNode(node))
+      .map((node) => serializeNode(node))
+      .join('\n');
   });
+
+  /** 眉批天头容器 / 旁批界行外容器 / 书耳 / 眉栏线（当前页） */
+  const pageEyebrowHtml = computed(() => pageParts.value.eyebrow);
+  const pageSideHtml = computed(() => pageParts.value.side);
+  const earHtml = computed(() =>
+    serializePageEar(props.reader.getPageEarText(currentPage.value), layout.value.facsimile),
+  );
+  const showEyebrowLine = computed(() => layout.value.facsimile?.eyebrow === true);
 
 /**
  * 封面子树节点集合（判定页脚页码是否隐藏；元素子节点与叶块同属集合）
@@ -948,6 +1003,10 @@ interface RenderedPage {
   gutterHtml: string;
   /** 页底注区 HTML（空串 = 不渲染；未开启页底浮注或本页无注时恒为空） */
   notesHtml: string;
+  /** 书耳 / 眉批天头 / 旁批界行外（仿真直排装饰位，v2 批 5） */
+  earHtml: string;
+  eyebrowHtml: string;
+  sideHtml: string;
   showPageNumber: boolean;
   numberText: string;
   /** 页眉文本（空串 = 不渲染） */
@@ -975,12 +1034,16 @@ const renderedPages = computed<RenderedPage[]>(() => {
     const firstBlock = blockNodes[0];
     const chrome = props.reader.getPageChromeTexts(i);
     const gutter = props.reader.getPageGutterTexts(i);
+    const parts = pageFlowParts(props.reader.getPageFragments(i));
     list.push({
       index: i,
       mainPos: SCROLL_PADDING + i * step,
       html: blockNodes.map((node) => serializeNode(node)).join('\n'),
       gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
       notesHtml: pageNotesHtmlOf(i),
+      earHtml: serializePageEar(props.reader.getPageEarText(i), layout.value.facsimile),
+      eyebrowHtml: parts.eyebrow,
+      sideHtml: parts.side,
       // 启用页眉页脚后，页码归属页脚字段；未启用才走老的「页脚仅页码」
       showPageNumber:
         chrome === undefined && firstBlock !== undefined && !coverNodes.value.has(firstBlock),
@@ -1508,6 +1571,10 @@ defineExpose({
     <div v-if="spreadEnabled" class="bt-book-view__spread" :style="spreadStageStyle">
       <div v-for="p in spreadPages" :key="p.index" class="bt-reader-page" :style="spreadPageStyle(p)">
         <div v-if="p.header" class="bt-page-header">{{ p.header }}</div>
+        <div v-if="showEyebrowLine" class="bt-page-eyebrow" aria-hidden="true"></div>
+        <div v-if="p.earHtml" class="bt-page-ear-host" v-html="p.earHtml"></div>
+        <div v-if="p.eyebrowHtml" class="bt-page-eyebrow-host" v-html="p.eyebrowHtml"></div>
+        <div v-if="p.sideHtml" class="bt-page-side-host" v-html="p.sideHtml"></div>
         <div
           class="bt-reader-page__flow"
           :class="{ 'is-multicolumn': p.columns > 1, 'bt-vflow': verticalWriting }"
@@ -1523,6 +1590,10 @@ defineExpose({
     <div v-else class="bt-book-view__stage" :style="stageStyle">
       <div class="bt-reader-page" :style="scaledPageStyle">
         <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>
+        <div v-if="showEyebrowLine" class="bt-page-eyebrow" aria-hidden="true"></div>
+        <div v-if="earHtml" class="bt-page-ear-host" v-html="earHtml"></div>
+        <div v-if="pageEyebrowHtml" class="bt-page-eyebrow-host" v-html="pageEyebrowHtml"></div>
+        <div v-if="pageSideHtml" class="bt-page-side-host" v-html="pageSideHtml"></div>
         <div
           class="bt-reader-page__flow"
           :class="{ 'is-multicolumn': currentPageColumns > 1, 'bt-vflow': verticalWriting }"
@@ -1572,6 +1643,10 @@ defineExpose({
       >
         <div class="bt-reader-page" :style="scaledPageStyle">
           <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
+        <div v-if="showEyebrowLine" class="bt-page-eyebrow" aria-hidden="true"></div>
+        <div v-if="page.earHtml" class="bt-page-ear-host" v-html="page.earHtml"></div>
+        <div v-if="page.eyebrowHtml" class="bt-page-eyebrow-host" v-html="page.eyebrowHtml"></div>
+        <div v-if="page.sideHtml" class="bt-page-side-host" v-html="page.sideHtml"></div>
           <div
             class="bt-reader-page__flow"
             :class="{ 'is-multicolumn': page.columns > 1, 'bt-vflow': verticalWriting }"

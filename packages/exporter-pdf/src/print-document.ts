@@ -15,6 +15,7 @@ import {
   FONT_SIZE_TOKENS,
   LAYOUT_TOKENS,
   type BookDocument,
+  type BookNode,
   type RevisionView,
 } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
@@ -33,10 +34,12 @@ import {
   buildBookCss,
   escapeHtml,
   serializeNode,
+  serializePageEar,
   serializePageGutter,
   serializePageNotes,
   serializeVerticalFlow,
   isFlowParagraphType,
+  groupNodesByBand,
   type SerializeNodeOptions,
 } from '@bibliotype/layout/html';
 import {
@@ -297,20 +300,36 @@ ${body}
         resolvePageCrossSize(layout, tokens) / (Number.isFinite(bodyPx) ? bodyPx : 16),
       ),
     );
-    const content = nodes
-      .map((node, i) => {
-        /* 直排段落 / 引文走行内流（与预览 BtBookView 同源，连排 + 行款标记）；
-         * 标题 / 版式块保持整块序列化 */
-        if (vertical && isFlowParagraphType(node.type)) {
-          return serializeVerticalFlow([node], {
-            charsPerColumn,
-            omitRulePrefix: (items[i]?.fromLine ?? 0) > 0,
-            nodeOptions,
-          });
-        }
-        return serializeNode(node, nodeOptions);
-      })
-      .join('\n');
+    const serializeFlowOne = (node: BookNode, i: number): string =>
+      serializeVerticalFlow([node], {
+        charsPerColumn,
+        omitRulePrefix: (items[i]?.fromLine ?? 0) > 0,
+        nodeOptions,
+      });
+    /* 两截本 / 三截本（v2 批 5）：页内含分截内容时按截位包分层容器（与预览同构；
+     * 截高由 CSS flex-grow 缺省比例 2:3 / 5:7:8 承担） */
+    const bands = vertical ? groupNodesByBand(nodes) : undefined;
+    const content = bands
+      ? `<div class="bt-bands">` +
+        bands
+          .map(
+            (bandNodes, band) =>
+              `<div class="bt-band" data-band="${band}">${bandNodes
+                .map((node) => serializeFlowOne(node, nodes.indexOf(node)))
+                .join('')}</div>`,
+          )
+          .join('<div class="bt-band-rule" aria-hidden="true"></div>') +
+        `</div>`
+      : nodes
+          .map((node, i) => {
+            /* 直排段落 / 引文走行内流（与预览 BtBookView 同源，连排 + 行款标记）；
+             * 标题 / 版式块保持整块序列化 */
+            if (vertical && isFlowParagraphType(node.type)) {
+              return serializeFlowOne(node, i);
+            }
+            return serializeNode(node, nodeOptions);
+          })
+          .join('\n');
     /*
      * 逐页分栏（columns > 1）：正文包 .bt-page__flow（与预览 __flow 同构），
      * 分栏声明由 buildPrintCss 按 data-columns 下发；单栏不包，产物不变。
@@ -362,9 +381,38 @@ ${body}
               formatPageNumber(page.index + 1, layout.pageNumberStyle),
             )}</div>\n`
           : '';
+    /*
+     * 书耳 / 眉栏（v2 批 5）：仿真装饰选项开启时逐页输出——书耳竖排题本页
+     * 篇名（reader.getPageEarText），眉栏为天头横线区（纯装饰）。
+     */
+    const earHtml = serializePageEar(reader.getPageEarText(page.index), layout.facsimile);
+    const eyebrowLine = layout.facsimile?.eyebrow === true ? '<div class="bt-page-eyebrow"></div>\n' : '';
+    /*
+     * 眉批 / 旁批装饰位（仿真直排，与预览 pageFlowParts 同口径）：head-note
+     * 收集到天头容器、margin-note 收集到界行外窄条；横排与非仿真不分流。
+     */
+    let eyebrowHost = '';
+    let sideHost = '';
+    if (vertical && layout.facsimile !== undefined) {
+      const eyebrowParts = nodes.filter((node) => node.type === 'head-note');
+      const sideParts = nodes.filter((node) => node.type === 'margin-note');
+      if (eyebrowParts.length > 0) {
+        eyebrowHost =
+          `<div class="bt-page-eyebrow-host">` +
+          eyebrowParts.map((node) => serializeVerticalFlow([node], { charsPerColumn, nodeOptions })).join('') +
+          `</div>\n`;
+      }
+      if (sideParts.length > 0) {
+        sideHost =
+          `<div class="bt-page-side-host">` +
+          sideParts.map((node) => serializeVerticalFlow([node], { charsPerColumn, nodeOptions })).join('') +
+          `</div>\n`;
+      }
+    }
     return (
       `<section class="bt-page${pageSideClass(options, page.index)}" data-page="${page.index + 1}">\n` +
-      `${openFlow}${content}\n${closeFlow}` +
+      `${eyebrowLine}${earHtml}${openFlow}${content}\n${closeFlow}` +
+      `${eyebrowHost}${sideHost}` +
       `${notesHtml}` +
       `${gutter}${header}${footer}${cropMarksOverlay(options)}</section>`
     );

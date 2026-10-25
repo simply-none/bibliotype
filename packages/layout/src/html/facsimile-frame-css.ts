@@ -13,6 +13,7 @@ import type { LayoutOptions } from '../layout-options.js';
 import {
   FACSIMILE_FRAMES,
   FACSIMILE_RULES,
+  GUTTER_FISH_TAIL_STYLES,
   GUTTER_MOUTHS,
   type FacsimileOptions,
 } from '../facsimile.js';
@@ -74,6 +75,7 @@ export function buildFacsimileDecorationCss(
   if (facsimile === undefined) return '';
 
   const rules: string[] = [];
+  const scoped = (selector: string): string => `${containerSelector} ${selector}`;
   const frameColor = `var(--bt-page-frame-color, ${DEFAULT_FRAME_COLOR})`;
   const ruleColor = `var(--bt-page-rule-color, ${DEFAULT_FRAME_COLOR})`;
   const gutterColor = `var(--bt-gutter-color, ${DEFAULT_FRAME_COLOR})`;
@@ -119,7 +121,6 @@ export function buildFacsimileDecorationCss(
 
   /* ---------- 3. 版心（书口）：竖向窄带 + 上下文字 + 鱼尾 ---------- */
   if (gutter !== undefined && gutterSize > 0) {
-    const scoped = (selector: string): string => `${containerSelector} ${selector}`;
     const mouthBar = MOUTH_BAR_WIDTHS[gutter.mouth];
     const mouthRule =
       mouthBar !== undefined
@@ -137,13 +138,35 @@ export function buildFacsimileDecorationCss(
       `${scoped('.bt-page-gutter__field')} {\n  max-height: 8em;\n  overflow: hidden;\n  white-space: nowrap;\n}`,
     );
     if (gutter.fishTail !== 'none') {
-      /* 下鱼尾垂直镜像：真实双鱼尾上下「相向」（上尾叉口向下、下尾叉口向上） */
+      /*
+       * 鱼尾（v2 批 5 扩展）：N 尾（1~4）沿版心带**均布**且上下**相向**交替
+       * （奇数序尾叉口向下、偶数序尾垂直镜像向上——真实鱼尾的对向形制）；
+       * 样式四态：黑（实心，缺省）/ 白（外框描线、内部镂空）/ 线（细线勾形）/
+       * 花（花形剪裁）。定位百分比按 N 均分（留出天地余量）。
+       */
+      const count =
+        gutter.fishTail === 'quadruple'
+          ? 4
+          : gutter.fishTail === 'triple'
+            ? 3
+            : gutter.fishTail === 'double'
+              ? 2
+              : 1;
+      const style = gutter.fishTailStyle ?? GUTTER_FISH_TAIL_STYLES.BLACK;
+      const shapeByStyle: Record<string, string> = {
+        black: `  background: ${gutterColor};\n  clip-path: polygon(100% 0, 0 50%, 100% 100%, 100% 66%, 30% 50%, 100% 34%);\n`,
+        white: `  background: transparent;\n  border: 1.5px solid ${gutterColor};\n  clip-path: polygon(100% 0, 0 50%, 100% 100%, 100% 66%, 30% 50%, 100% 34%);\n`,
+        line: `  background: transparent;\n  border-block-end: 1.5px solid ${gutterColor};\n`,
+        floral: `  background: ${gutterColor};\n  clip-path: polygon(50% 0, 68% 18%, 92% 14%, 88% 38%, 100% 50%, 88% 62%, 92% 86%, 68% 82%, 50% 100%, 32% 82%, 8% 86%, 12% 62%, 0 50%, 12% 38%, 8% 14%, 32% 18%);\n`,
+      };
+      const positionRules = Array.from({ length: count }, (_, index) => {
+        /* 均布：把版心带除去两端余量后按 N+1 等分落位；偶数序尾垂直镜像相向 */
+        const top = Math.round(((index + 1) * 100) / (count + 1));
+        const flip = index % 2 === 1 ? '\n  transform: scaleY(-1);' : '';
+        return `${scoped(`.bt-page-gutter__fish:nth-of-type(${index + 1})`)} {\n  top: ${top}%;${flip}\n}`;
+      }).join('\n');
       rules.push(
-        `${scoped('.bt-page-gutter__fish')} {\n  position: absolute;\n  left: 12%;\n  right: 12%;\n  height: 0.6em;\n  background: ${gutterColor};\n  clip-path: polygon(100% 0, 0 50%, 100% 100%, 100% 66%, 30% 50%, 100% 34%);\n}\n${scoped(
-          ".bt-page-gutter__fish:nth-of-type(1)",
-        )} {\n  top: 26%;\n}\n${scoped(
-          ".bt-page-gutter__fish:nth-of-type(2)",
-        )} {\n  top: 62%;\n  transform: scaleY(-1);\n}`,
+        `${scoped('.bt-page-gutter__fish')} {\n  position: absolute;\n  left: 12%;\n  right: 12%;\n  height: 0.6em;\n${shapeByStyle[style] ?? shapeByStyle.black!}}${positionRules}`,
       );
     }
     /* 版心已承载叶次时，页脚页码重复显示 → 隐藏（页眉页脚配置不受影响） */
@@ -151,6 +174,31 @@ export function buildFacsimileDecorationCss(
       rules.push(`${scoped('.bt-page-number')} {\n  display: none;\n}`);
     }
   }
+
+  /* ---------- 4. 书耳（耳题）：版框外上角的小方框，题本页篇名 ---------- */
+  if (facsimile.ear === true) {
+    rules.push(
+      `${scoped('.bt-page-ear')} {\n  position: absolute;\n  /* 版框外上角：外侧偏移 = 版框线厚 + 间隙（随版框形态） */\n  writing-mode: vertical-rl;\n  font-size: 0.62em;\n  letter-spacing: 0.1em;\n  color: ${frameColor};\n  border: 1px solid ${frameColor};\n  padding: 0.3em 0.12em;\n  max-height: 8em;\n  overflow: hidden;\n  white-space: nowrap;\n  pointer-events: none;\n}\n${scoped(`.bt-page-ear[data-side='left']`)} {\n  left: calc(var(--bt-fs-inset-left) - 1.6em);\n  top: var(--bt-fs-inset-top);\n}\n${scoped(`.bt-page-ear[data-side='right']`)} {\n  right: calc(var(--bt-fs-inset-right) - 1.6em);\n  top: var(--bt-fs-inset-top);\n}`,
+    );
+  }
+
+  /* ---------- 5. 眉栏：版框上方天头处的横线区（套印本评点区界线） ---------- */
+  if (facsimile.eyebrow === true) {
+    rules.push(
+      `${scoped('.bt-page-eyebrow')} {\n  position: absolute;\n  top: calc(var(--bt-fs-inset-top) / 2);\n  left: var(--bt-fs-inset-left);\n  right: var(--bt-fs-inset-right);\n  height: calc(var(--bt-fs-inset-top) / 2 - 0.4em);\n  border-block-end: 1px solid ${ruleColor};\n  overflow: hidden;\n  pointer-events: none;\n}`,
+    );
+  }
+
+  /* ---------- 6. 眉批 / 旁批装饰位（v2 批 5，渲染层分流的承接容器） ----------
+   *
+   * 眉批（head-note）→ 天头容器（版框上方，多列小字横向并排）；旁批
+   * （margin-note）→ 界行外窄条（版心带对侧）。渲染层把对应片段从行内流
+   * 分流进容器（BtBookView / 打印 paged 同口径），编辑画布保持 flow 原位。
+   * 眉批宿主用物理 translateY 上移到天头（页框书写方向无关）。
+   */
+  rules.push(
+    `${scoped('.bt-page-eyebrow-host')} {\n  position: absolute;\n  top: var(--bt-fs-inset-top);\n  transform: translateY(calc(-100% - 0.3em));\n  left: var(--bt-fs-inset-left);\n  right: var(--bt-fs-inset-right);\n  display: flex;\n  flex-direction: row;\n  justify-content: flex-start;\n  gap: 0.6em;\n  writing-mode: vertical-rl;\n  font-size: 0.62em;\n  line-height: 1.4;\n  color: ${ruleColor};\n  max-height: calc(var(--bt-fs-inset-top) - 0.6em);\n  overflow: hidden;\n  pointer-events: none;\n}\n${scoped('.bt-page-eyebrow-host .bt-head-note')} {\n  display: block;\n  margin: 0;\n  padding: 0;\n  border: 0;\n  font-size: inherit;\n}\n${scoped('.bt-page-side-host')} {\n  position: absolute;\n  top: var(--bt-fs-inset-top);\n  bottom: var(--bt-fs-inset-bottom);\n  writing-mode: vertical-rl;\n  font-size: 0.62em;\n  line-height: 1.4;\n  color: ${ruleColor};\n  overflow: hidden;\n  pointer-events: none;\n}\n${scoped(`.bt-page-side-host[data-side='left']`)} {\n  right: calc(var(--bt-fs-inset-right) - 1.6em);\n  inline-size: 1.4em;\n}\n${scoped(`.bt-page-side-host[data-side='right']`)} {\n  left: calc(var(--bt-fs-inset-left) - 1.6em);\n  inline-size: 1.4em;\n}\n${scoped('.bt-page-side-host .bt-margin-note')} {\n  display: block;\n  margin: 0;\n  padding: 0;\n  font-size: inherit;\n}`,
+  );
 
   return rules.join('\n\n');
 }

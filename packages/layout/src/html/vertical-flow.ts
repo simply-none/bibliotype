@@ -166,3 +166,38 @@ export function serializeVerticalFlow(
   }
   return parts.join('');
 }
+
+/**
+ * 页片段的截位分组（两截本 / 三截本，v2 批 5）
+ *
+ * 结构节点声明 `bands` 时，内容节点带 `band` 属性（'upper' / 'middle' /
+ * 'lower'，缺省最下截）。本函数探测页内是否存在分截内容并按截位分组；
+ * 非分截页返回 undefined（调用方走普通行内流）。
+ *
+ * @returns 截位数组（索引 = 截位序号；元素为该截片段节点），或 undefined
+ */
+export function groupNodesByBand(
+  nodes: readonly BookNode[],
+): readonly (readonly BookNode[])[] | undefined {
+  const isBanded = (node: BookNode): boolean =>
+    node.attrs?.['band'] === 'upper' ||
+    node.attrs?.['band'] === 'middle' ||
+    node.attrs?.['band'] === 'lower';
+  const bandOf = (node: BookNode): number => {
+    const raw = node.attrs?.['band'];
+    return raw === 'upper' ? 0 : raw === 'middle' ? 1 : 2;
+  };
+  const banded = nodes.filter((node) => !isTextNode(node) && isBanded(node));
+  if (banded.length === 0) return undefined;
+  const hasDefault = nodes.some((node) => !isTextNode(node) && !isBanded(node));
+  const explicitMax = Math.max(...banded.map(bandOf));
+  /* 缺省（无 band 属性）节点归最下截：两截本 upper 显式 + 正文缺省 → 2 截；
+   * 三截本 upper / middle 显式 + lower 缺省 → 3 截。全显式时 = 显式数。 */
+  const count = explicitMax + (hasDefault ? 2 : 1);
+  const groups: BookNode[][] = Array.from({ length: count }, () => []);
+  for (const node of nodes) {
+    if (isTextNode(node)) continue;
+    groups[isBanded(node) ? bandOf(node) : count - 1]!.push(node);
+  }
+  return groups;
+}

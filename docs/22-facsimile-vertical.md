@@ -131,6 +131,40 @@ interface FacsimileOptions {
 版心余数区（各模板 `textWidth ÷ 列距` 均有余数），末列裁字与
 骑线自然消失；量尺实测随 CSS 同步，分页容量口径不变。
 
+## 5.5 版面骨架扩展（v2 批 5）
+
+仿真装饰层新增四件（全部纯装饰，不参与分页与度量）：
+
+- **书耳（耳题）**：`facsimile.ear: true` 开启——版框外上角的小方框竖排
+  题本页篇名（`reader.getPageEarText`：章名 → 卷名 → 书名回退；位置随版心
+  所在侧镜像）。三端渲染 `serializePageEar(text, facsimile)`；
+- **鱼尾扩展**：数量枚举至三 / 四尾（`GUTTER_FISH_TAILS`），多尾沿版心带
+  均布且上下**相向**交替（偶数序尾垂直镜像）；新增 `fishTailStyle`
+  （black 实心 / white 外框镂空 / line 细线勾形 / floral 花形剪裁），
+  序列化输出 `data-fish-style` 供 CSS 分型；
+- **眉栏**：`facsimile.eyebrow: true` 开启——版框上方天头横线区（套印本
+  评点区界线）；
+- **眉批 / 旁批装饰位**：仿真直排下 `head-note` 收集到天头容器
+  （`.bt-page-eyebrow-host`，多列小字横排于版框上方）、`margin-note`
+  收集到界行外窄条（`.bt-page-side-host`，版心带对侧）——预览与打印
+  paged 分流，编辑画布保持 flow 原位（工作台可编辑）。
+
+花栏（竹节 / 博古 / 卍字栏）按计划列为低优先可选，顺延未实现（border-image
+纹样方案，需美术资源）。两截本 / 三截本见下节。
+
+### 两截本 / 三截本（两截楼）
+
+结构节点声明 `bands: 2 | 3`（可选 `bandRatio`，缺省 2 截 0.4/0.6、3 截
+0.25/0.35/0.4）+ 内容节点 `band: 'upper' | 'middle' | 'lower'` 归截：
+
+- **分截分页**：paginator 按截位分组，各截以「页容量 × 截高占比」独立
+  装箱，页按序交错合并（同页含各截内容；某截页数不足则该位仅他截）；
+- **渲染**：页内容包 `.bt-bands` 分层容器（物理纵向堆叠各截、截间
+  `.bt-band-rule` 横线、截高按 flex-grow 比例 2:3 / 5:7:8），各截内部
+  独立行内流连排（互不跨截）；预览与打印 paged 同构；
+- **已知限制**：与页底浮注（noteArea）并存未支持（bands 时忽略）；
+  `bandRatio` 自定义占比的渲染端读取待后续；编辑画布（PagedCanvas）
+  两截本暂按平铺处理。
 ## 6. 设置面板
 
 设置 →「古籍仿真」：

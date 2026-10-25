@@ -68,11 +68,31 @@ export const GUTTER_FISH_TAILS = {
   SINGLE: 'single',
   /** 双鱼尾 */
   DOUBLE: 'double',
+  /** 三鱼尾 */
+  TRIPLE: 'triple',
+  /** 四鱼尾 */
+  QUADRUPLE: 'quadruple',
 } as const;
 
 /** 鱼尾形态联合类型 */
 export type GutterFishTail =
   (typeof GUTTER_FISH_TAILS)[keyof typeof GUTTER_FISH_TAILS];
+
+/** 鱼尾样式（§2：黑 / 白 / 线 / 花鱼尾） */
+export const GUTTER_FISH_TAIL_STYLES = {
+  /** 黑鱼尾（实心，缺省） */
+  BLACK: 'black',
+  /** 白鱼尾（版心留白刻出鱼形——外框描线） */
+  WHITE: 'white',
+  /** 线鱼尾（细线勾形） */
+  LINE: 'line',
+  /** 花鱼尾（花形装饰） */
+  FLORAL: 'floral',
+} as const;
+
+/** 鱼尾样式联合类型 */
+export type GutterFishTailStyle =
+  (typeof GUTTER_FISH_TAIL_STYLES)[keyof typeof GUTTER_FISH_TAIL_STYLES];
 
 /**
  * 版心（书口）配置
@@ -85,10 +105,12 @@ export interface FacsimileGutterOptions {
   side: GutterSide;
   /** 带宽（px，主轴扣减量） */
   size: number;
-  /** 口子：白口 / 黑口 */
+  /** 口子：白口 / 细黑口 / 大黑口 */
   mouth: GutterMouth;
-  /** 鱼尾：无 / 单 / 双 */
+  /** 鱼尾数量：无 / 单 / 双 / 三 / 四（多尾沿版心带均布、上下相向交替） */
   fishTail: GutterFishTail;
+  /** 鱼尾样式（缺省黑鱼尾；白 / 线 / 花鱼尾见各枚举注释） */
+  fishTailStyle?: GutterFishTailStyle;
   /** 竖写字段（自上而下）；复用页眉页脚字段枚举 */
   fields: readonly PageChromeField[];
 }
@@ -103,6 +125,20 @@ export interface FacsimileOptions {
   rule: FacsimileRule;
   /** 版心（可选；缺省不渲染书口） */
   gutter?: FacsimileGutterOptions;
+  /**
+   * 书耳（耳题，可选；缺省不渲染）
+   *
+   * 版框外上角的小方框，题本页篇名（文本取 reader 的本页章名，纯装饰、
+   * 不参与分页与度量）。
+   */
+  ear?: boolean;
+  /**
+   * 眉栏（可选；缺省不绘制）
+   *
+   * 版框上方天头处的横线区（套印本评点用）；眉批的天头装饰位（批 5 渲染层）
+   * 落在该区内。
+   */
+  eyebrow?: boolean;
 }
 
 /** 仿真专有字体族令牌键（core `ThemeToken` 之外的扩展键，按扩展令牌透传） */

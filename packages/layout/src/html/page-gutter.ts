@@ -40,7 +40,17 @@ export function serializePageGutter(
    * 段与段之间，而不是一律堆到末尾——模板字段顺序变了（如卷次替代篇卷），
    * 鱼尾仍处在版心的视觉中点 / 三分点。
    */
-  const fishCount = gutter.fishTail === 'double' ? 2 : gutter.fishTail === 'single' ? 1 : 0;
+  /* 鱼尾数量：三 / 四尾与单 / 双同机制（沿字段段均布、渲染层相向交替） */
+  const fishCount =
+    gutter.fishTail === 'quadruple'
+      ? 4
+      : gutter.fishTail === 'triple'
+        ? 3
+        : gutter.fishTail === 'double'
+          ? 2
+          : gutter.fishTail === 'single'
+            ? 1
+            : 0;
   const fishAfter = new Set<number>();
   let previous = 0;
   for (let index = 1; index <= fishCount; index += 1) {
@@ -61,7 +71,29 @@ export function serializePageGutter(
   });
 
   return (
-    `<div class="bt-page-gutter" data-side="${gutter.side}" data-mouth="${gutter.mouth}" data-fish="${gutter.fishTail}">` +
+    `<div class="bt-page-gutter" data-side="${gutter.side}" data-mouth="${gutter.mouth}" data-fish="${gutter.fishTail}" data-fish-style="${gutter.fishTailStyle ?? 'black'}">` +
     `${body}</div>`
   );
+}
+
+/**
+ * 序列化书耳（耳题，v2 批 5）
+ *
+ * 版框外上角的小方框，竖排题本页篇名。`facsimile.ear` 未开启、篇名缺省
+ * 或封面页（调用方传 undefined）时返回空串，调用方无需判断即可拼入。
+ * 视觉由 `book-css` 的 `.bt-page-ear` 规则负责（位置随版心所在侧镜像）。
+ *
+ * @param text 本页篇名（reader.getPageEarText 产物）
+ * @param facsimile 仿真版式（取 `ear` 开关与版心所在侧——耳框在版框外、
+ *   与版心对侧呼应）
+ */
+export function serializePageEar(
+  text: string | undefined,
+  facsimile: FacsimileOptions | undefined,
+): string {
+  if (facsimile?.ear !== true) return '';
+  const trimmed = (text ?? '').trim();
+  if (trimmed === '') return '';
+  const side = facsimile.gutter?.side ?? 'left';
+  return `<div class="bt-page-ear" data-side="${side}">${escapeHtml(trimmed)}</div>`;
 }

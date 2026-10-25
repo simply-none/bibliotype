@@ -22,6 +22,8 @@
  *   bibliotype:sql-tx-begin / commit / rollback → void
  *
  * 接线方式：宿主主进程入口调用一次 `initBibliotypeStore()`（改动后需重启主进程）。
+ * 库文件缺省为 `<userData>/bibliotype.db`；宿主可传 `dir` / `fileName` 放到自己的数据目录
+ * （如与主库 db.sqlite 同级并加宿主前缀）。
  */
 import { app, ipcMain } from 'electron';
 import defaultSqlite3 from 'sqlite3';
@@ -29,8 +31,14 @@ import type { Database } from 'sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** 数据库文件名（放在宿主 userData 目录） */
+/** 缺省数据库文件名（放在宿主 userData 目录） */
 const DB_FILE_NAME = 'bibliotype.db';
+
+/** 库文件所在目录（init 时可覆盖；undefined 表示缺省 userData） */
+let dbDir: string | undefined;
+
+/** 库文件名（init 时可覆盖） */
+let dbFileName = DB_FILE_NAME;
 
 /** 悬挂事务回收阈值（ms）：渲染端崩溃 / 未提交时强制回滚，避免写锁常驻 */
 const TX_TIMEOUT_MS = 30_000;
@@ -52,6 +60,18 @@ type WireValue = string | number | null | Uint8Array;
 
 /** 绑定参数：位置数组或命名对象 */
 type WireParams = readonly WireValue[] | Record<string, WireValue>;
+
+/**
+ * 初始化选项：宿主可把库文件放到自己的数据目录
+ *
+ * 不传时沿用缺省；宿主侧通常传入与主库同级的目录并加前缀文件名，便于统一备份 / 定位。
+ */
+export interface BibliotypeStoreOptions {
+  /** 库文件所在目录（缺省 `app.getPath('userData')`） */
+  dir?: string;
+  /** 库文件名（缺省 `bibliotype.db`） */
+  fileName?: string;
+}
 
 /**
  * 把渲染端参数转换为 sqlite3 可绑定的值
@@ -91,9 +111,9 @@ function normalizeRow(row: Record<string, unknown> | undefined): Record<string, 
   return result;
 }
 
-/** 数据库文件绝对路径 */
+/** 数据库文件绝对路径（目录 / 文件名可由宿主在 init 时覆盖） */
 function dbFilePath(): string {
-  return path.join(app.getPath('userData'), DB_FILE_NAME);
+  return path.join(dbDir ?? app.getPath('userData'), dbFileName);
 }
 
 /**
@@ -234,9 +254,14 @@ async function rollbackTransaction(): Promise<void> {
  * 注册 IPC 通道（幂等）
  *
  * 在宿主主进程入口调用一次；主窗口与独立工作台窗口共用同一连接。
+ *
+ * @param options 库文件目录 / 文件名覆盖（可选）
+ * @returns 无
  */
-export function initBibliotypeStore(): void {
+export function initBibliotypeStore(options: BibliotypeStoreOptions = {}): void {
   if (registered) return;
+  dbDir = options.dir;
+  dbFileName = options.fileName ?? DB_FILE_NAME;
   registered = true;
 
   ipcMain.handle('bibliotype:sql-exec', async (_event, args: { sql: string }) => {

@@ -104,13 +104,16 @@ Uint8Array 先在渲染端分块转 base64（`0x8000` 一段，避免 `String.fr
 | `bibliotype:sql-all` | `{ sql, params? }` | `row[]` |
 | `bibliotype:sql-tx-begin` / `-commit` / `-rollback` | — | `void` |
 
-- 库文件：`app.getPath('userData')/bibliotype.db`；打开后 `WAL` + `busy_timeout = 5000`，
-  并 `serialize()` 保证同连接语句按提交顺序执行；
+- 库文件：缺省 `app.getPath('userData')/bibliotype.db`；宿主可通过
+  `initBibliotypeStore({ dir, fileName })` 改到自己的数据目录（例如与主库 `db.sqlite` 同级、
+  文件名加宿主前缀 `jianli-app-bibliotype.db`，便于统一备份与定位）。打开后 `WAL` +
+  `busy_timeout = 5000`，并 `serialize()` 保证同连接语句按提交顺序执行；
 - 参数 / 返回值走结构化克隆：BLOB 在渲染端是 `Uint8Array`，主进程内部转 `Buffer`，
   查询返回的 `Buffer` 再转回 `Uint8Array`；
 - 事务单槽：`BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK`，嵌套报错；悬挂事务 **30s** 超时自动回滚
   （渲染端崩溃不会把库锁在写事务里）；
-- 接线：宿主主进程入口调用一次 `initBibliotypeStore()`（幂等；改动后需重启主进程）。
+- 接线：宿主主进程入口调用一次 `initBibliotypeStore()`（幂等；改动后需重启主进程）；
+  传 `{ dir, fileName }` 可指定库位置（未传即 `userData/bibliotype.db`）。
 
 ## 七、样式设置落 SQLite
 
@@ -131,8 +134,9 @@ Uint8Array 先在渲染端分块转 base64（`0x8000` 一段，避免 `String.fr
 2. 按第三节映射复制源码，`host/electron.ts` 覆盖为 `host/index.ts`；
 3. 主进程入口调用 `initBibliotypeStore()` 并重启；
 4. 注册 wrapper 路由页与菜单入口（宿主维护，不从 demo 同步）；
-5. 首启动验证：`userData/bibliotype.db` 生成五表（`documents` / `chunks` / `assets` /
-   `versions` / `settings`），保存文档后 `chunks` 有行。
+5. 首启动验证：库文件生成五表（`documents` / `chunks` / `assets` /
+   `versions` / `settings`），保存文档后 `chunks` 有行（缺省 `userData/bibliotype.db`，
+   传入 `{ dir, fileName }` 时以指定路径为准）。
 
 ## 九、导出链路
 
@@ -148,7 +152,7 @@ Uint8Array 先在渲染端分块转 base64（`0x8000` 一段，避免 `String.fr
 | --- | --- | --- |
 | 启动报「桌面宿主 IPC 不可用」 | preload 未暴露 `ipcRenderer`，或渲染页不在宿主窗口内 | 检查 preload 的 `contextBridge` 暴露与窗口 `webPreferences` |
 | 所有读写都报「不支持嵌套事务」 | 某次 `save` 外层已开事务，内层又调 `transaction` | 把多步写入合并进同一回调；驱动端口本就不支持嵌套 |
-| 保存后重启数据丢失 | 主进程未调用 `initBibliotypeStore()` 或数据库被写到了临时目录 | 确认调用点与 `userData` 路径，检查 `bibliotype.db` 是否生成 |
+| 保存后重启数据丢失 | 主进程未调用 `initBibliotypeStore()` 或数据库被写到了临时目录 | 确认调用点与实际库路径（`dir` / `fileName` 覆盖值或 `userData`），检查库文件是否生成 |
 | 下载无文件 | `export-*-to-cache` 通道未注册或参数结构不符 | 对照第六节通道表；同步查看主进程日志中的 `success: false` |
 | 样式设置不落库 | 未用 `createStyleSettingsStore()` 覆盖 vue 默认 localStorage 实现 | 在调用 `useStyleSettings` 处显式传 `store` |
 | localStorage 键冲突 | 直写了未包装的键 | 所有读写必须经 `host.storageKey()` |

@@ -481,6 +481,9 @@ const html = serializeVerticalFlow(nodes, { charsPerColumn: 20 });
 - **量尺同形态**：`pagination-measure` 在直排时对块输出同构 HTML 实测——
   行边界与夹注原子性随真实布局自洽；预览 `BtBookView`（page / scroll /
   对页三处）直排分支消费同一序列化器；
+  量表用 `position: fixed` 离屏（`left: -100000px`）：`fixed` 的盒不参与文档
+  滚动区，长文档主轴长到数十万 px 也不会把文档撑出横滚条（横滚条又会吃掉
+  视口高度，让 `100vh` 外壳连带冒出一条几乎滚不动的竖条）；
 - 估算口径：`lineRuleOverhead`（低格 / 挪抬占首行字位、提行另起）与
   `doubleNotePlaceholderChars`（n 字 → ⌈n/2⌉ 字位）供无 DOM 导出路径折算。
 

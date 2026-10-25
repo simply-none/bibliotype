@@ -55,6 +55,16 @@ describe('measureBlockSizes', () => {
     expect(document.getElementById('bt-measure-css')).toBeNull();
   });
 
+  it('量尺工作表用 fixed 定位：盒不参与文档滚动区，长文档不撑出横 / 竖滚动条', () => {
+    measurePagination({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });
+    const sheet = document.getElementById('bt-measure-sheet');
+    expect(sheet).not.toBeNull();
+    // fixed（而非 absolute）是关键：直排长文档量表主轴可长到几十万 px，
+    // absolute + left:-100000 的右缘仍落在文档内 → 文档横滚条 → 连带一条竖滚条。
+    expect(sheet?.style.position).toBe('fixed');
+    disposeMeasureSheet();
+  });
+
   it('实测值为正的块才会进入映射（非正丢弃）', () => {
     // 无 DOM 布局时全部推进量为 0 → 空映射，不含任何 p-* 键
     const sizes = measureBlockSizes({ doc: sampleDoc(), options: DEFAULT_LAYOUT_OPTIONS });

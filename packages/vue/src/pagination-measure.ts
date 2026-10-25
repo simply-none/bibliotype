@@ -194,8 +194,14 @@ function applySheetStyle(
     sheet.style.setProperty(prop, value);
   }
   // 定交叉轴尺、主轴随内容，离屏不可见但保留布局盒（visibility:hidden 仍产生度量）
+  //
+  // 必须用 fixed 而非 absolute：长文档（尤其直排）量尺主轴会长到几十万 px，
+  // absolute 定位在 left:-100000px 时右缘仍落在文档内（如 -100000 + 511277），
+  // 会把文档的横向可滚动区撑到那一步，冒出一条几乎滚不动的横条；横条又吃掉
+  // 视口高度，`height:100vh` 的外壳随之多出 15px，再连带出一条同样无意义的竖条。
+  // fixed 元素的盒不参与文档滚动区计算，量尺再宽也不会撑出滚动条。
   const auto = `${Math.max(1, Math.round(contentMain))}px`;
-  sheet.style.position = 'absolute';
+  sheet.style.position = 'fixed';
   sheet.style.left = '-100000px';
   sheet.style.top = '0';
   if (axis.vertical) {

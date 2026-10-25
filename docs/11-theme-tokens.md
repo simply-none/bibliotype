@@ -254,3 +254,10 @@ const report = analyzeGlyphCoverage('子曰𠀋', ['Songti', 'Kaiti'], probe);
 - 令牌消费方：[05 版式与 HTML](05-layout-and-html.md)（buildBookCss / buildRootStyle）
 - 插件机制：[02 编辑器与插件](02-editor-and-plugins.md)
 - 古籍覆盖：[03 古籍排版](03-classical-layout.md)
+
+## 套印墨色变量（v2 批 6）
+
+批点套印的色层取 `--bt-ink-red` / `--bt-ink-blue` / `--bt-ink-yellow` 变量
+（缺省朱 `#a33a2a`、蓝 `#2f5a8f`、黄 `#8a6d1f`，主题可覆盖）；正文 / 缺省
+恒为墨色。单色印刷交付用导出选项 `monoInk`（或 `buildBookCss({ monoInk: true })`）
+跳过色层，见 [03 古籍排版](03-classical-layout.md)「批点套印」。

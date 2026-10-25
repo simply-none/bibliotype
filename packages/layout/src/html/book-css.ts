@@ -44,6 +44,13 @@ export interface BuildBookCssOptions {
   options: LayoutOptions;
   /** 正文字体族令牌键（默认 FONT_TOKENS.BODY，古籍可传 CLASSICAL_BODY） */
   fontToken?: string;
+  /**
+   * 单色模式（v2 批 6，默认 false）
+   *
+   * true 时跳过套印墨色规则（`data-ink` 色层）——批注 / 圈点回归全墨
+   * （继承正文色），用于单色印刷交付。
+   */
+  monoInk?: boolean;
   /** 根容器选择器（默认 'body'；阅读器视图可传自身容器，如 '.bt-reader-page'） */
   containerSelector?: string;
   /**
@@ -565,6 +572,35 @@ ${scoped('.bt-colophon')} {
   letter-spacing: 0.05em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
+${scoped('.bt-general-review')} {
+  /* 卷末总评（v2 批 6）：与跋语并列的结构部件——多段总评文字以分隔线起首 */
+  display: block;
+  margin: 1.4em 0 0.6em;
+  padding-block-start: 0.6em;
+  border-block-start: 1px solid #9a9488;
+  border-block-start: 1px solid color-mix(in srgb, var(--bt-${COLOR_TOKENS.NOTE_TEXT}) 35%, transparent);
+  font-size: 0.85em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}
+/*
+ * 套印墨色（v2 批 6）：注 / 批类节点带 data-ink 属性时按色层着色
+ * （朱墨套印——批注圈点用朱，可扩蓝黄多评家分色）。单色模式（monoInk）
+ * 跳过本段即回归全墨；色值走主题可覆盖变量（--bt-ink-*）。
+ */
+${
+  input.monoInk === true
+    ? ''
+    : [
+        ['red', '#a33a2a'],
+        ['blue', '#2f5a8f'],
+        ['yellow', '#8a6d1f'],
+      ]
+        .map(
+          ([color, fallback]) =>
+            `${scoped(`[data-ink='${color}']`)} {\n  color: var(--bt-ink-${color}, ${fallback});\n}`,
+        )
+        .join('\n')
+}
 ${scoped('.bt-head-note .bt-paragraph')},
 ${scoped('.bt-tail-note .bt-paragraph')},
 ${scoped('.bt-collation-note .bt-paragraph')},
@@ -726,6 +762,15 @@ ${scoped(".bt-mark-circle-emphasis[data-style='triangle']")} {
 }
 ${scoped(".bt-mark-circle-emphasis[data-style='sesame']")} {
   text-emphasis: sesame;
+}
+/*
+ * 圈点双位（v2 批 6，§11.4）：句读标记居字右下（缺省，见基础规则
+ * text-emphasis-position: under right）；文法符号（密圈 / 密点 / 抹）居字右
+ * （直排惯行）——两类符号各安其位、不争空间。data-position 由 mark attrs
+ * 透传（编辑侧 setMarkAttrs('circle-emphasis', { position: 'grammar' })）。
+ */
+${scoped(".bt-mark-circle-emphasis[data-position='grammar']")} {
+  text-emphasis-position: right center;
 }
 ${scoped('.bt-mark-note-ref')} {
   font-size: 0.72em;

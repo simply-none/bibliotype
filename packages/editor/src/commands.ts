@@ -487,6 +487,45 @@ export function setBlockStyleId(styleId: string | null): Command {
   };
 }
 
+/* ---------- 套印墨色（直排 v2 批 6） ---------- */
+
+/** 套印墨色作用的目标块（注 / 批类容器） */
+const INK_TARGET_TYPES: ReadonlySet<string> = new Set([
+  'footnote',
+  'endnote',
+  'margin-note',
+  'head-note',
+  'tail-note',
+  'collation-note',
+  'double-note',
+  'inline-note',
+  'general-review',
+]);
+
+/**
+ * 设置套印墨色（朱墨套印：批注 / 注文用朱等）
+ *
+ * 作用于光标所在（或选区内首个）注 / 批类节点的 `inkColor` 属性；
+ * 传 `'black'` 或 null 清除（回归全墨）。渲染经 data-ink 属性选择器取
+ * `--bt-ink-*` 变量；单色模式（monoInk）下色层不输出。
+ */
+export function setInkColor(
+  color: 'red' | 'blue' | 'yellow' | 'black' | null,
+): Command {
+  return (state, dispatch) => {
+    const { $from } = state.selection;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const node = $from.node(depth);
+      if (!INK_TARGET_TYPES.has(node.type.name)) continue;
+      const value = color !== null && color !== 'black' ? color : null;
+      const attrs = mergeAttrsPatch(node.attrs, node.type.spec.attrs, { inkColor: value });
+      dispatch?.(state.tr.setNodeMarkup($from.before(depth), undefined, attrs));
+      return true;
+    }
+    return false;
+  };
+}
+
 /* ---------- 行款规则（直排 v2 批 3：低格 / 抬头 / 提行） ---------- */
 
 /** 行款命令的目标块类型（正文段落与引文；标题 / 版式块不参与连排行款） */

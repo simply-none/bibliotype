@@ -295,4 +295,34 @@ describe('行款属性降级（横排 / EPUB，v2 批 4）', () => {
     /* 无行款属性的段落不受影响（令牌缩进规则保持） */
     expect(css).toMatch(/\.bt-paragraph \{[^}]*text-indent: var\(--bt-text-indent-body\);/s);
   });
+});
+
+describe('套印墨色与圈点双位（v2 批 6）', () => {
+  it('data-ink 色层：朱 / 蓝 / 黄属性选择器取 --bt-ink-* 变量；monoInk 跳过', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toContain("body [data-ink='red'] {");
+    expect(css).toContain('color: var(--bt-ink-red, #a33a2a);');
+    expect(css).toContain("data-ink='blue']");
+    expect(css).toContain("data-ink='yellow']");
+    const mono = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      monoInk: true,
+    });
+    expect(mono).not.toContain("data-ink='red']");
+    /* 单色模式其余产物不变 */
+    expect(mono).toContain('.bt-paragraph {');
+  });
+
+  it('圈点双位：文法符号（data-position=grammar）居字右，句读缺省右下', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toContain('.bt-mark-circle-emphasis {');
+    expect(css).toContain('text-emphasis-position: under right;');
+    expect(css).toContain(".bt-mark-circle-emphasis[data-position='grammar'] {\n  text-emphasis-position: right center;\n}");
+  });
+
+  it('卷末总评：结构块样式（分隔线起首、注文色）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toMatch(/\.bt-general-review \{[^}]*border-block-start: 1px solid/s);
+  });
 });

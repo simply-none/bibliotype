@@ -62,6 +62,15 @@ export const NOTE_NODE_ATTRS = {
 } as const;
 
 /**
+ * 套印墨色属性（v2 批 6）：注 / 批类节点的 `inkColor`（black / red / blue /
+ * yellow，缺省 null = 全墨）。渲染经 `data-ink-*` 属性选择器取 `--bt-ink-*`
+ * 变量；朱墨套印的色层与单色模式（buildBookCss `monoInk`）见 book-css。
+ */
+export const INK_COLOR_ATTR = {
+  inkColor: { default: null },
+} as const;
+
+/**
  * 读取 `<td>` / `<th>` 的跨行跨列与对齐
  *
  * - 跨行跨列按 HTML 原生属性读取，非正 / 非法值归一为 1（默认值会在 PM → IR 时省略）；
@@ -348,8 +357,8 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       ],
     },
   },
-  { type: NODE_TYPES.ENDNOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
-  { type: NODE_TYPES.MARGIN_NOTE, spec: { group: 'block', content: 'block+', attrs: NOTE_NODE_ATTRS } },
+  { type: NODE_TYPES.ENDNOTE, spec: { group: 'block', content: 'block+', attrs: { ...NOTE_NODE_ATTRS, ...INK_COLOR_ATTR } } },
+  { type: NODE_TYPES.MARGIN_NOTE, spec: { group: 'block', content: 'block+', attrs: { ...NOTE_NODE_ATTRS, ...INK_COLOR_ATTR } } },
 
   /* ---------- 行内节点 ---------- */
   // text 节点规格由 ProseMirror 特殊处理，仅需归入 inline group

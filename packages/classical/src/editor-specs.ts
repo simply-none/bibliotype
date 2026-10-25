@@ -12,6 +12,7 @@ import { NAMESPACES } from '@bibliotype/core';
 import {
   COMMON_MARK_ATTRS,
   COMMON_NODE_ATTRS,
+  INK_COLOR_ATTR,
   STRUCTURE_NODE_ATTRS,
   type EditorMarkSpecEntry,
   type EditorNodeSpecEntry,
@@ -94,12 +95,12 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   {
     type: CLASSICAL_NODE_TYPES.HEAD_NOTE,
     namespace: ns,
-    spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS },
+    spec: { group: 'block', content: 'block+', attrs: { ...COMMON_NODE_ATTRS, ...INK_COLOR_ATTR } },
   },
   {
     type: CLASSICAL_NODE_TYPES.TAIL_NOTE,
     namespace: ns,
-    spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS },
+    spec: { group: 'block', content: 'block+', attrs: { ...COMMON_NODE_ATTRS, ...INK_COLOR_ATTR } },
   },
 
   /* ---------- 校勘 ---------- */

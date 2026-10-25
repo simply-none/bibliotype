@@ -85,6 +85,8 @@ export interface EpubExportOptions {
    * 显式传 `'marked'`。`'original'` 输出接受全部修订前的原稿。
    */
   revisionView?: RevisionView;
+  /** 单色模式（v2 批 6，缺省 false）：跳过套印墨色规则，批注 / 圈点回归全墨 */
+  monoInk?: boolean;
   /** OPF 版本（缺省 '3.0'；京东读书等 RMSDK 显式传 '2.0'） */
   version?: '2.0' | '3.0';
   /** 单内容文档未压缩字节上限（缺省 256KiB；导入型扁平书按此拆分为多文档） */

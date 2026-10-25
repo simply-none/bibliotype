@@ -133,6 +133,24 @@ Vue 侧 `useAnnotationSuggestions({ document, revision?, apply })` 把建议编�
 `BtAnnotationSuggestions` 是配套面板：类别筛选、逐条接受 / 拒绝、改标点 / 改类别、
 批量确认与「采纳为标点」。详见 [06 Vue 集成](06-vue-integration.md#句读--专名建议k3)。
 
+## 批点套印（直排 v2 批 6）
+
+朱墨套印的色层落在注 / 批类节点与圈点标记的 `inkColor` 属性
+（`red` / `blue` / `yellow`；缺省全墨）——批注圈点用朱，可扩蓝黄多评家分色：
+
+- **命令**：`setInkColor(color | null)` 作用于光标所在注 / 批类节点
+  （footnote / endnote / margin-note / head-note / tail-note / collation-note /
+  double-note / inline-note / general-review）；`black` / null 回归全墨；
+- **渲染**：`data-ink` 属性选择器取 `--bt-ink-*` 变量（主题可覆盖色值），
+  预览 / EPUB / PDF 全路径输出（批点套印不限仿真书）；
+- **单色模式**：`buildBookCss({ monoInk: true })`（PDF / EPUB 导出选项
+  `monoInk` 透传）跳过色层规则——批注圈点回归全墨，单色印刷交付；
+- **圈点双位**（§11.4）：句读标记居字右下（缺省）；文法符号（密圈 / 密点）
+  经圈点标记 `position: 'grammar'`（`setMarkAttrs`）居字右——两类不争空间；
+  密度档受 CSS text-emphasis 能力限制顺延（以 style 实心 / 镂空二维替代）；
+- **卷末总评**：`general-review` 节点（批 1）配 `.bt-general-review` 结构块
+  样式（分隔线起首、注文色、小一号）；
+- 注码圈码：注码标记 marker 直接用 ① ② 等圈码字形（内容层，置于被注字后）。
 ## 行款规则（直排 v2 批 4）
 
 古籍行款——正文连排、段界靠格位——由段落 / 引文的行款属性承载（批 1 登记、

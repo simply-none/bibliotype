@@ -150,6 +150,7 @@ export type { NoteRole, NoteLabelStyle, NoteEntry, CollectNotesOptions } from '.
 
 /* ---------- 术语一致性 ---------- */
 export { checkGlossary, validateGlossary } from './ir/glossary.js';
+export { INK_COLORS, inkColorVarOf, type InkColor } from './ink.js';
 export type {
   GlossaryTerm,
   GlossaryTermUsage,

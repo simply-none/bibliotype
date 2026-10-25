@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { TextSelection, type Command } from 'prosemirror-state';
 import {
+  setInkColor,
   setLineIndent,
   setLift,
   toggleBreakLine,
@@ -102,5 +103,41 @@ describe('行款命令（setLineIndent / setLift / toggleBreakLine）', () => {
     expect(run(editor, setLift('space'))).toBe(false);
     expect(run(editor, toggleBreakLine())).toBe(false);
     expect(editor.getDocument()).toEqual(before);
+  });
+});
+
+describe('setInkColor（套印墨色，v2 批 6）', () => {
+  it('朱色写入 inkColor=red；black / null 清除回归全墨', () => {
+    const editor = new BookEditor({ schema: buildEditorSchema(), document: oneParaDoc('子曰') });
+    caretFirstPara(editor);
+    /* 段落不在 INK 目标集 → 先插入批注容器场景改用 margin-note 文档 */
+    const doc = createEmptyDocument({ title: '套印' });
+    doc.root.children = [
+      {
+        type: NODE_TYPES.CHAPTER,
+        children: [
+          { type: NODE_TYPES.MARGIN_NOTE, id: 'mn-1', children: [{ type: 'text', text: '旁批：此句有深意。' }] },
+        ],
+      },
+    ];
+    const ed = new BookEditor({ schema: buildEditorSchema(), document: doc });
+    ed.dispatch(ed.editorState.tr.setSelection(TextSelection.create(ed.editorState.doc, 2)));
+    expect(run(ed, setInkColor('red'))).toBe(true);
+    expect(ed.editorState.doc.child(0).child(0).attrs['inkColor']).toBe('red');
+    expect(run(ed, setInkColor('black'))).toBe(true);
+    expect(ed.editorState.doc.child(0).child(0).attrs['inkColor']).toBeNull();
+
+    /* PM → IR 导出带 inkColor */
+    ed.dispatch(ed.editorState.tr.setSelection(TextSelection.create(ed.editorState.doc, 2)));
+    run(ed, setInkColor('blue'));
+    const node = ed.getDocument().root.children?.[0]?.children?.[0]!;
+    expect(node.attrs?.['inkColor']).toBe('blue');
+    void editor;
+  });
+
+  it('段落不命中：正文光标处返回 false', () => {
+    const editor = new BookEditor({ schema: buildEditorSchema(), document: oneParaDoc('子曰') });
+    caretFirstPara(editor);
+    expect(run(editor, setInkColor('red'))).toBe(false);
   });
 });

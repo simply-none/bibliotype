@@ -80,13 +80,18 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * data-indent 1~4 → text-indent、挪抬 :not([data-indent]) 补 1em——横排 /
  * EPUB / 流式导出的低格呈现；直排行内流不受影响），样式表全文变化，基线重锁。
  * 块级双栏（display: block + column-count）改为行内括注随文（伪元素括号 +
+ *
+ * 2026-10-25 十九次更新（批 6）：新增套印墨色规则（data-ink 朱 / 蓝 / 黄 →
+ * --bt-ink-* 变量，全路径输出——批点套印不限仿真书；monoInk 时跳过）与圈点
+ * 双位变体（data-position=grammar 居字右）、卷末总评 .bt-general-review 结构
+ * 块样式，样式表全文变化，基线重锁。
  * 小字），容器段落继承清单不再含 double-note；新增 `.bt-ink-nail` 墨钉规则，
  * 样式表全文变化，基线重锁。
  * 2026-10-24 十四次更新：移除直排字图 `transform: rotate(90deg)`——缺字字形图是
  * 正立文字的图片，直排汉字直立、字图同理恒不旋转（验收口径），样式表全文
  * 变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '52bfd06b';
+export const CLASSICAL_CSS_FNV = '90414413';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

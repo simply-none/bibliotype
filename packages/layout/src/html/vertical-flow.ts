@@ -26,6 +26,13 @@ import { resolveLineRule, type LineRule } from '../line-rules.js';
 export interface SerializeVerticalFlowOptions {
   /** 每行大字数（版心高 ÷ 字位步进；夹注每子列小字容量 = 本值 × 2） */
   charsPerColumn: number;
+  /**
+   * 续排片段：跳过行款前缀（空位 / 断列）
+   *
+   * 行切片的续页片段（fromLine > 0）是段落中段——低格 / 抬头属于段首，
+   * 重发会造成续页重复缩进；调用方（分页画布）按片段起点传值。
+   */
+  omitRulePrefix?: boolean;
 }
 
 /** 双行夹注类型（classical 插件节点，layout 不依赖 classical，按 kebab-case 字符串表列——与 reader 分块口径一致） */
@@ -36,6 +43,16 @@ const FLOW_PARAGRAPH_TYPES: ReadonlySet<string> = new Set([
   NODE_TYPES.PARAGRAPH,
   NODE_TYPES.QUOTE,
 ]);
+
+/**
+ * 节点是否参与行内流连排（段落 / 引文）
+ *
+ * 供分页画布判定片段的渲染通道：连排片段以行内流序列化并作行内呈现，
+ * 其余（标题 / 版式块）保持整块。
+ */
+export function isFlowParagraphType(type: string): boolean {
+  return FLOW_PARAGRAPH_TYPES.has(type);
+}
 
 /** 空位盒：N 字位高（1em 宽）——低格 / 挪抬的列首空位与抬升列首 */
 function padBox(n: number): string {
@@ -117,7 +134,10 @@ export function serializeVerticalFlow(
      * 无论段起位于列首还是列中，语义均为「低 N 格起写」✓）
      */
     const indent = rule.indentChars + (rule.lift === 'space' ? 1 : 0);
-    const prefix = `${liftPrefix(rule)}${indent > 0 ? padBox(indent) : ''}`;
+    const prefix =
+      options.omitRulePrefix === true
+        ? ''
+        : `${liftPrefix(rule)}${indent > 0 ? padBox(indent) : ''}`;
     parts.push(
       `${prefix}<span class="bt-vpara">${serializeFlowChildren(node, chars)}</span>`,
     );

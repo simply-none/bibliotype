@@ -87,7 +87,7 @@
 
 | 按钮 | 前提 | 效果 / 落点 | 命令 | 属性补录 | 限制 |
 | --- | --- | --- | --- | --- | --- |
-| 双行注 | 光标在叶块内 | 当前叶块之后插入容器，光标进入 | `insertDoubleNote()` | — | 落点跟随最内层块 |
+| 双行夹注 | 同段选区 / 光标 | 行内包裹夹注（随文连排），光标进入 | `wrapDoubleNote()` | — | 跨段选区不生效；旧 `insertDoubleNote()` 为别名 |
 | 眉批 | 同上 | 插入 `head-note` | `insertHeadNote()` | — | 版心外落位由分页决定 |
 | 校勘记 | 同上 | 插入 `collation-note` | `insertCollationNote()` | — | 与「出校符号」配合，需手动配对 |
 | 出校符号 | 任意 | 光标处插入 ○ | `insertCollationSymbol()` | `collation-mark.symbol` | 渲染靠 `.bt-collation-mark::after` |
@@ -102,6 +102,11 @@
 | 脚注 | 同上 | 插入 `footnote` | `insertBlockOfType(footnote)` | — | 与正文靠「注Ref」手动配对 |
 | 尾注 | 同上 | 插入 `endnote` | `insertBlockOfType(endnote)` | — | 导出按块顺序，不自动编号 |
 | 边注 | 同上 | 插入 `margin-note` | `insertBlockOfType(margin-note)` | — | 直排 / 横排落位不同 |
+| 低两格 / 顶格 | 光标在段落 / 引文内 | 段落行款属性（indent） | `setLineIndent(n|null)` | `indent` | 直排=列首空 N 字位、横排=首行缩进；v2 批 3 |
+| 挪抬 / 平抬 | 同上 | 抬头敬语（lift / liftLevel） | `setLift(type, level?)` | `lift` / `liftLevel` | 平抬=提行顶格，单双三四抬经 level；v2 批 3 |
+| 提行 | 同上 | 另起一列（breakLine 切换） | `toggleBreakLine()` | `breakLine` | 区别于另起页的分页符；v2 批 3 |
+| 墨钉 | 任意 | 光标处插入占位黑块 | `insertInkNail()` | — | 未定字占位（1em 实心方）；v2 批 3 |
+| 总评 | 光标在叶块内 | 插入 `general-review` | `insertGeneralReview(title?)` | `title` | 卷末总评（结构块，title 供目录提取）；v2 批 3 |
 
 ### 3.6 右端工具
 

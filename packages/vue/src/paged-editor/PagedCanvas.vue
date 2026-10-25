@@ -22,8 +22,9 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isTextNode, type BookNode, type FeatureStyleSheet, type NamedStyleSet } from '@bibliotype/core';
-import { buildPageStyle, buildRootStyle, isVerticalMode, type LayoutOptions } from '@bibliotype/layout';
-import { buildBookCss, serializeNode, serializePageGutter } from '@bibliotype/layout/html';
+import { FONT_SIZE_TOKENS } from '@bibliotype/core';
+import { buildPageStyle, buildRootStyle, isVerticalMode, resolvePageCrossSize, type LayoutOptions } from '@bibliotype/layout';
+import { buildBookCss, serializeNode, serializePageGutter, serializeVerticalFlow, isFlowParagraphType } from '@bibliotype/layout/html';
 import {
   buildPageChromeIndex,
   formatPageNumber,
@@ -140,13 +141,20 @@ function syncStyle(): void {
   // fragTextNodes / domPosInFrag 的字符偏移映射不受影响，也不改动共享的 serializeNode。
   const emptyBlockRule =
     `\n${FRAG_SELECTOR} :is(.bt-paragraph, .bt-heading):empty::before {\n  content: "\\200B";\n}\n`;
+  /*
+   * 直排行内流（v2 批 3）：连排片段（段落 / 引文）以行内呈现——片段边界
+   * 不再断列，正文跨片段在同一列连排（与预览 BtBookView 同形态）；空段落
+   * 的行内 span 无行盒，同样以零宽字符撑出落点。
+   */
+  const verticalFlowRule =
+    `\n${CONTAINER_SELECTOR}__flow.bt-vflow > ${FRAG_SELECTOR}--inline {\n  display: inline;\n}\n${CONTAINER_SELECTOR}__flow.bt-vflow > ${FRAG_SELECTOR}--inline > .bt-vpara:empty::before {\n  content: "\\200B";\n}\n`;
   let el = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   if (el === null) {
     el = document.createElement('style');
     el.id = STYLE_ELEMENT_ID;
     document.head.appendChild(el);
   }
-  const next = css + continuationRule + pageStartRule + emptyBlockRule;
+  const next = css + continuationRule + pageStartRule + emptyBlockRule + verticalFlowRule;
   if (el.textContent !== next) el.textContent = next;
 }
 
@@ -300,6 +308,8 @@ interface RenderedFrag {
   fromLine: number;
   lineCount: number;
   html: string;
+  /** 直排行内流片段（段落 / 引文）——容器与片段以行内呈现实现跨片段连排 */
+  flow: boolean;
 }
 
 interface RenderedPage {
@@ -318,18 +328,36 @@ interface RenderedPage {
   chromeOn: boolean;
 }
 
-/** 序列化缓存（node 引用级）：增量重排复用同一片段节点 → 免重复 serializeNode */
+/* 直排行内流：每行大字数（交叉轴 ÷ 字号，与预览 readerColumnCapacity 同口径） */
+const flowCharsPerColumn = computed(() => {
+  const cross = resolvePageCrossSize(props.options, props.tokens);
+  const size = Number.parseFloat(props.tokens[FONT_SIZE_TOKENS.BODY] ?? '16');
+  return Math.max(4, Math.round(cross / (Number.isFinite(size) ? size : 16)));
+});
+
+/* 序列化缓存（node 引用级 + 通道键）：增量重排复用同一片段节点 → 免重复序列化 */
 const htmlCache = new WeakMap<BookNode, string>();
 
 function fragHtml(frag: PagedFragment): string {
   const node: BookNode = frag.node;
   if (isTextNode(node)) return '';
+  const flow = verticalWriting.value && isFlowParagraphType(node.type);
   let html = htmlCache.get(node);
   if (html === undefined) {
-    html = serializeNode(node);
+    html = flow
+      ? serializeVerticalFlow([node], {
+          charsPerColumn: flowCharsPerColumn.value,
+          /* 续排片段（fromLine>0）是段落中段：低格 / 抬头属段首，重发会重复缩进 */
+          omitRulePrefix: frag.fromLine > 0,
+        })
+      : serializeNode(node);
     htmlCache.set(node, html);
   }
   return html;
+}
+
+function fragIsFlow(frag: PagedFragment): boolean {
+  return verticalWriting.value && !isTextNode(frag.node) && isFlowParagraphType(frag.node.type);
 }
 
 const renderedPages = computed<RenderedPage[]>(() => {
@@ -380,6 +408,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
         fromLine: frag.fromLine,
         lineCount: frag.lineCount,
         html: fragHtml(frag),
+        flow: fragIsFlow(frag),
       })),
       numberText,
       gutterHtml:
@@ -1036,11 +1065,12 @@ watch(
           @paste="onPaste"
           @keydown="onKeydown"
         >
-          <div class="bt-paged-page__flow">
+          <div class="bt-paged-page__flow" :class="{ 'bt-vflow': verticalWriting }">
             <div
               v-for="frag in page.frags"
               :key="frag.key"
               class="bt-paged-frag"
+              :class="{ 'bt-paged-frag--inline': frag.flow }"
               :data-block-id="frag.blockId"
               :data-from-line="frag.fromLine"
               :data-line-count="frag.lineCount"

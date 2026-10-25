@@ -144,11 +144,12 @@ describe('createToolbarRows · 行分层与顺序', () => {
     ]);
   });
 
-  it('古籍行 9 项、插入行 18 项，且仅「表格」带稳定 key', () => {
+  it('古籍行 9 项、插入行 25 项（含行款组 7 项），且仅「表格」带稳定 key', () => {
     const { ctx } = fakeCtx();
     const rows = createToolbarRows(ctx, []);
     expect(rows[1]?.actions).toHaveLength(9);
-    expect(rows[2]?.actions).toHaveLength(18);
+    /* 18 + 行款组 7（低两格/顶格/挪抬/平抬/提行/墨钉/总评） */
+    expect(rows[2]?.actions).toHaveLength(25);
     expect(rows[2]?.actions.filter((action) => action.key === 'table')).toHaveLength(1);
     expect(actionOf(rows, 'insert', '表格').key).toBe('table');
   });

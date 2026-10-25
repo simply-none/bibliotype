@@ -95,6 +95,9 @@ off();
 | `insertFootnote` / `insertEndnote` / `insertMarginNote` / `insertNote` | 脚注 / 尾注 / 边注，按同类现存数量自动编号，缺省同时写正文上标引用（见 [31 注释](31-notes.md)） |
 | `insertNoteRef({ targetId })` | 为已有注释补一条正文上标引用（`noteref` 标记，双向跳转） |
 | `insertToc(options?)` | 生成 / 刷新目录页（见下节） |
+| `setLineIndent(n|null)` | 行款·低格：直排列首空 N 字位 / 横排首行缩进（0~4，null 清除；v2 批 3） |
+| `setLift(type, level?)` | 行款·抬头：空抬/挪抬（space）、平抬（newline + level 1~4）、none 清除（v2 批 3） |
+| `toggleBreakLine()` | 行款·提行另起一列（breakLine 切换；区别于另起页，v2 批 3） |
 
 ### 目录生成 / 刷新（`insertToc`）
 

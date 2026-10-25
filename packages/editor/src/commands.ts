@@ -487,6 +487,80 @@ export function setBlockStyleId(styleId: string | null): Command {
   };
 }
 
+/* ---------- 行款规则（直排 v2 批 3：低格 / 抬头 / 提行） ---------- */
+
+/** 行款命令的目标块类型（正文段落与引文；标题 / 版式块不参与连排行款） */
+const LINE_RULE_TARGET_TYPES: ReadonlySet<string> = new Set(['paragraph', 'quote']);
+
+/**
+ * 从选区向上找最近的行款目标块
+ *
+ * @returns 块前置位置与节点；未命中返回 null
+ */
+function findLineRuleTarget(state: { selection: { $from: { depth: number; node(depth: number): PmNode; before(depth: number): number } } }): {
+  pos: number;
+  node: PmNode;
+} | null {
+  const { $from } = state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (!LINE_RULE_TARGET_TYPES.has(node.type.name)) continue;
+    return { pos: $from.before(depth), node };
+  }
+  return null;
+}
+
+/**
+ * 设置低格（直排 = 列首空 N 字位起写，横排 = 首行缩进 N 字）
+ *
+ * @param n 字位数（0~4；传 null / 0 清除）
+ */
+export function setLineIndent(n: number | null): Command {
+  return (state, dispatch) => {
+    const target = findLineRuleTarget(state);
+    if (target === null) return false;
+    const value = typeof n === 'number' && Number.isFinite(n) && n >= 1 ? Math.min(4, Math.round(n)) : null;
+    const attrs = mergeAttrsPatch(target.node.attrs, target.node.type.spec.attrs, { indent: value });
+    dispatch?.(state.tr.setNodeMarkup(target.pos, undefined, attrs));
+    return true;
+  };
+}
+
+/**
+ * 设置抬头形式（古籍敬语格式）
+ *
+ * @param lift `'space'` 空抬 / 挪抬（行内空一字）、`'newline'` 平抬（提行顶格）、
+ *   `'none'` 清除
+ * @param level 单 / 双 / 三 / 四抬（提行高出 N 字，1~4；仅 newline 生效，缺省 1）
+ */
+export function setLift(lift: 'none' | 'space' | 'newline', level = 1): Command {
+  return (state, dispatch) => {
+    const target = findLineRuleTarget(state);
+    if (target === null) return false;
+    const levelValue = lift === 'newline' ? Math.min(4, Math.max(1, Math.round(level))) : null;
+    const attrs = mergeAttrsPatch(target.node.attrs, target.node.type.spec.attrs, {
+      lift: lift === 'none' ? null : lift,
+      liftLevel: levelValue,
+    });
+    dispatch?.(state.tr.setNodeMarkup(target.pos, undefined, attrs));
+    return true;
+  };
+}
+
+/** 切换提行另起（本段另起一列，区别于另起页的分页符） */
+export function toggleBreakLine(): Command {
+  return (state, dispatch) => {
+    const target = findLineRuleTarget(state);
+    if (target === null) return false;
+    const next = target.node.attrs['breakLine'] === true ? null : true;
+    const attrs = mergeAttrsPatch(target.node.attrs, target.node.type.spec.attrs, {
+      breakLine: next,
+    });
+    dispatch?.(state.tr.setNodeMarkup(target.pos, undefined, attrs));
+    return true;
+  };
+}
+
 /**
  * 批量套用命名样式
  *

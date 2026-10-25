@@ -11,7 +11,10 @@ import {
   insertPageBreak,
   insertTable,
   mergeCells,
+  setLift,
+  setLineIndent,
   splitCell,
+  toggleBreakLine,
 } from '@bibliotype/editor';
 import {
   insertBorderFrame,
@@ -20,8 +23,10 @@ import {
   insertColophon,
   wrapDoubleNote,
   insertFishTail,
+  insertGeneralReview,
   insertHeadNote,
   insertImprint,
+  insertInkNail,
   insertSeal,
   insertTailNote,
 } from '@bibliotype/classical/editor';
@@ -240,6 +245,70 @@ export function createInsertActions(ctx: ToolbarActionContext): readonly Toolbar
         use: '插入边注（页边小字）容器',
         where: '当前叶块之后；光标进入新容器',
         limit: '直排 / 横排的边注落位不同，由样式表与分页决定',
+      },
+    },
+    {
+      label: '低两格',
+      run: () => ctx.execute(setLineIndent(2)),
+      title: '当前段落低两格起写——引文 / 按语的段界标记',
+      usage: {
+        use: '低两格：直排=列首空两字位，横排=首行缩进两字（古籍段界标记）',
+        where: '光标所在段落（整段生效）',
+        limit: '仅段落 / 引文；清除请用「顶格」',
+      },
+    },
+    {
+      label: '顶格',
+      run: () => ctx.execute(setLineIndent(null)),
+      title: '清除当前段落的低格与抬头（恢复顶格连排）',
+      usage: {
+        use: '清除低格 / 抬头标记，段落回到顶格连排',
+        where: '光标所在段落（整段生效）',
+      },
+    },
+    {
+      label: '挪抬',
+      run: () => ctx.execute(setLift('space')),
+      title: '空抬 / 挪抬：段首空一字位（对尊称的轻度敬格式）',
+      usage: {
+        use: '空抬 / 挪抬：段首空一字位（敬语轻度形式）',
+        where: '光标所在段落（整段生效）',
+      },
+    },
+    {
+      label: '平抬',
+      run: () => ctx.execute(setLift('newline')),
+      title: '平抬：提行顶格另起一列（敬语提行形式）',
+      usage: {
+        use: '平抬：提行另起一列、顶格书写（敬语提行形式）',
+        where: '光标所在段落（整段生效）',
+      },
+    },
+    {
+      label: '提行',
+      run: () => ctx.execute(toggleBreakLine()),
+      title: '当前段落另起一列（话题转换 / 长引提行；再点恢复连排）',
+      usage: {
+        use: '提行另起：本段从新列顶格起写（区别于另起页的分页符）',
+        where: '光标所在段落（整段生效）',
+      },
+    },
+    {
+      label: '墨钉',
+      run: () => ctx.execute(insertInkNail()),
+      title: '在光标处插入墨钉（未定字的占位黑块）',
+      usage: {
+        use: '插入墨钉：底本未定字的占位黑块（待校后补刻的痕迹）',
+        where: '光标处（行内原子）',
+      },
+    },
+    {
+      label: '总评',
+      run: () => ctx.execute(insertGeneralReview('总评')),
+      title: '在当前叶块之后插入卷末总评',
+      usage: {
+        use: '插入卷末总评容器（评点本的卷末总评文字）',
+        where: '当前叶块之后；光标进入新容器',
       },
     },
   ];

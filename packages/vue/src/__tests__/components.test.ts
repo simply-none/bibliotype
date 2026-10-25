@@ -250,6 +250,35 @@ describe('BtBookView', () => {
       vi.useRealTimers();
     }
   });
+
+  it('facing 模式滚轮一次翻一整对（2 页）', async () => {
+    vi.useFakeTimers();
+    try {
+      const reader = createPagedReader(6);
+      const wrapper = mount(BtBookView, { props: { reader, mode: 'page', spread: 'facing' } });
+      const view = wrapper.find('.bt-book-view');
+
+      // 首页对（0-1）→ 第二对（2-3）：一次滚轮直接跨 2 页
+      await view.trigger('wheel', { deltaY: 200 });
+      expect(reader.currentPage).toBe(2);
+
+      vi.advanceTimersByTime(400);
+      await view.trigger('wheel', { deltaY: 200 });
+      expect(reader.currentPage).toBe(4);
+
+      // 已在最后一对（4-5）：继续向前不移动页态
+      vi.advanceTimersByTime(400);
+      await view.trigger('wheel', { deltaY: 200 });
+      expect(reader.currentPage).toBe(4);
+
+      // 反向一次退一整对
+      vi.advanceTimersByTime(400);
+      await view.trigger('wheel', { deltaY: -300 });
+      expect(reader.currentPage).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('BtPager', () => {
@@ -284,6 +313,33 @@ describe('BtPager', () => {
     const buttons = wrapper.findAll('button');
     expect(buttons[0]?.attributes('disabled')).toBeUndefined();
     expect(buttons[1]?.attributes('disabled')).toBeDefined();
+  });
+
+  it('step=2 一次翻两页，最后一对起禁用下一页', async () => {
+    const reader = createPagedReader(6);
+    const wrapper = mount(BtPager, { props: { reader, step: 2 } });
+
+    // 首页禁用上一页
+    expect(wrapper.findAll('button')[0]?.attributes('disabled')).toBeDefined();
+
+    const nextButton = () => {
+      const button = wrapper.findAll('button')[1];
+      if (button === undefined) throw new Error('未找到下一页按钮');
+      return button;
+    };
+
+    await nextButton().trigger('click');
+    expect(reader.currentPage).toBe(2);
+    await nextButton().trigger('click');
+    expect(reader.currentPage).toBe(4);
+
+    // 4 + 2 >= 6：最后一对，下一页禁用
+    expect(nextButton().attributes('disabled')).toBeDefined();
+
+    const prevButton = wrapper.findAll('button')[0];
+    if (prevButton === undefined) throw new Error('未找到上一页按钮');
+    await prevButton.trigger('click');
+    expect(reader.currentPage).toBe(2);
   });
 });
 

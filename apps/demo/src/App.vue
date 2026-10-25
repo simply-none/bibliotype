@@ -37,7 +37,7 @@
  * use-app-lifecycle），本文件只做组装接线与启动 / 卸载流程；组合式之间经参数
  * 传递依赖（依赖注入），不互相 import 全局单例。
  */
-import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue';
 import { type OutlineItem } from '@bibliotype/reader';
 import {
   BtBookView,
@@ -366,6 +366,9 @@ function exitCompare(): void {
 watch(mode, (next) => {
   if (next === 'edit') compareOpen.value = false;
 });
+
+/** 对页对照（桌面）翻页按整对推进：状态栏按钮一次 2 页，与滚轮 / 键盘一致 */
+const pageTurnStep = computed(() => (compareOpen.value && !mobileShell.value ? 2 : 1));
 
 /* 左栏 tab / 弹窗开合 / 属性栏折叠（inspectorCollapsed 源状态在 App 持有） */
 const {
@@ -755,6 +758,7 @@ let perfProbe: PerfProbe | null = null;
       :flow-supported="flowSupported"
       :view-mode-label="viewModeLabel"
       :rail-layout="railLayout"
+      :page-step="pageTurnStep"
       :open-mobile-tab="openMobileTab"
       :open-mobile-inspector="openMobileInspector"
       :toggle-edit-mode="toggleEditMode"

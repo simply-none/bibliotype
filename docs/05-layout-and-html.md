@@ -444,7 +444,7 @@ summarizeGlyphImageReport(report); // '已将 3 张缺字图归入文字流；1 
 
 - **分栏**：`chapter` / `section` 的 `attrs.columns`（1~3）经 `extractBlocks` 传给 `MeasurableBlock.columns`；分页器按「页容量 × 栏数」装箱，栏数变化开新页，产物页带 `page.columns`。
 - **渲染**：`BtBookView` 在正文流上按页设置 `column-count` + `column-fill: auto`，子块 `break-inside: avoid`；多栏量尺按栏宽（页宽扣栏间距后均分）实测。
-- **对页**：`BtBookView` 新增 `spread="facing"`，左右并排渲染相邻两页（偶数页在左），两页之间留 24px 中缝（画布色）并各自投影，缩放按「双页宽 + 中缝」计算；EPUB 仍为重排流，不套对页。
+- **对页**：`BtBookView` 新增 `spread="facing"`，左右并排渲染相邻两页（偶数页在左），两页之间留 24px 中缝（画布色）并各自投影，缩放按「双页宽 + 中缝」计算；对页翻页步长为 2（键盘 / 滚轮 / 滑动 / 边缘点按一次跨一整对）；EPUB 仍为重排流，不套对页。
 - **分栏符**：`break(variant='column')` + `insertColumnBreak`；CSS `break-before: column`，单栏退化为细分隔标记。分页器不重算列填充（列内断点由 CSS 执行），极端情况下可能留白。
 
 ## 相关

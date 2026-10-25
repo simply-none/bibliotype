@@ -3,13 +3,23 @@
  * 翻页控件（BtPager）
  *
  * 上一页 / 页码 / 下一页；状态经 useReaderBinding 响应式桥更新。
+ * `step` 指定单次翻页步长（默认 1）：对页阅读传 2，一次跨一整对。
  */
 import type { Reader } from '@bibliotype/reader';
 import { useReaderBinding } from '../use-reader.js';
 
-const props = defineProps<{ reader: Reader }>();
+const props = withDefaults(defineProps<{ reader: Reader; step?: number }>(), { step: 1 });
 
-const { currentPage, totalPages, pageNumberText, prev, next } = useReaderBinding(props.reader);
+const { currentPage, totalPages, pageNumberText, goToPage } = useReaderBinding(props.reader);
+
+/** 步进 clamp：不足一步时落到首 / 末页，避免越界 */
+function next(): boolean {
+  return goToPage(Math.min(currentPage.value + props.step, totalPages.value - 1));
+}
+
+function prev(): boolean {
+  return goToPage(Math.max(currentPage.value - props.step, 0));
+}
 </script>
 
 <template>
@@ -18,7 +28,7 @@ const { currentPage, totalPages, pageNumberText, prev, next } = useReaderBinding
       type="button"
       class="bt-pager__button"
       aria-label="上一页"
-      :disabled="currentPage <= 0"
+      :disabled="currentPage < step"
       @click="prev()"
     >
       上一页
@@ -28,7 +38,7 @@ const { currentPage, totalPages, pageNumberText, prev, next } = useReaderBinding
       type="button"
       class="bt-pager__button"
       aria-label="下一页"
-      :disabled="currentPage >= totalPages - 1"
+      :disabled="currentPage + step >= totalPages"
       @click="next()"
     >
       下一页

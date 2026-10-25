@@ -210,7 +210,9 @@ refresh();                                      // 外部 loadDocument 后同步
 
 `BtBookView` 新增 `fontSize` prop 与 `update:fontSize` 事件：page 模式双指缩放上抛字号（12–32px 夹紧），重排由宿主负责；scroll 模式容器可聚焦，PageUp / PageDown / 空格 / Home / End 滚动一屏。
 
-`BtBookView` 另新增 `spread="single" | "facing"`：facing 下 page 模式并排渲染相邻两页（偶数页在左），缩放按双页宽计算；scroll 模式不受影响。
+`BtBookView` 另新增 `spread="single" | "facing"`：facing 下 page 模式并排渲染相邻两页（偶数页在左），缩放按双页宽计算，翻页步长为 2（键盘 / 滚轮 / 滑动 / 边缘点按一次跨一整对）；scroll 模式不受影响。
+
+`BtPager` 新增可选 `step`（默认 1）：对页阅读传 2，按钮一次翻一整对；禁用态按「剩余页数不足一步」判定。
 
 ## 新增组件（P2）：书架 / 备份 / 加密 / 修订 / 版本
 
@@ -420,7 +422,7 @@ props：`mode`（`columns` / `facing`）、`gap`、`leftLabel` / `rightLabel`；
 - 传 `right`：左右并排各一份 `BtBookView`（`mode='columns'`），可独立翻页；`syncPages` 开启时**双向页码同步**（重入守卫 + 越界钳制）；
 - 两侧位置经 `update:position` 汇总（`side: 'left' \| 'right'`），宿主持久化可分别保存；
 - `tokens` / `fontToken` / `fontSize` / `features` / `namedStyles` 透传给内部 `BtBookView`，对页与单页共用同一套主题 / 字体 / 样式来源（古籍仿真纸色一致）；
-- Demo 集成：对照**就地替换主区**（隐藏目录栏、不叠加原正文），宿主舞台高度有界、`fit='contain'` 且容器不内滚，滚轮专用于翻页；顶栏「逐页」之后提供「退出对照」，进入编辑态自动退出。
+- Demo 集成：对照**就地替换主区**（隐藏目录栏、不叠加原正文），宿主舞台高度有界、`fit='contain'` 且容器不内滚，滚轮专用于翻页；状态栏翻页按钮按整对推进（`step=2`），与滚轮 / 键盘一致；顶栏「逐页」之后提供「退出对照」，进入编辑态自动退出。
 
 ### 翻页动效降级规则
 

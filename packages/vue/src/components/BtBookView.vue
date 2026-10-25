@@ -85,7 +85,7 @@ const props = withDefaults(
      * 对页模式（仅 page 模式）：single 单页 / facing 左右双页
      *
      * facing 下当前页与相邻页成对显示（偶数页在左），缩放宽按双页计算；
-     * 翻页步长仍为 1，跨过页对时整体换对。
+     * 翻页步长为 2：键盘 / 滚轮 / 滑动 / 边缘点按一次跨过一整对。
      */
     spread?: 'single' | 'facing';
     /**
@@ -698,6 +698,36 @@ const stageStyle = computed(() => ({
   height: `${pageSize.value.height * scale.value}px`,
 }));
 
+/* ---------- page 模式翻页步长 ---------- */
+
+/**
+ * 对页锚点：对页始终以偶数页起头成对展示；单页模式即当前页
+ *
+ * 页态可能落在某一对的右页（如目录跳页、单页模式残留），成对换页需先回到本对左页。
+ */
+const spreadAnchor = computed(() =>
+  spreadEnabled.value ? currentPage.value - (currentPage.value % 2) : currentPage.value,
+);
+
+/**
+ * 向前翻一屏
+ *
+ * 对页模式一次跨一整对（+2 页），避免只换到本对右页、视觉上「没翻」而要操作两次；
+ * 已到最后一对时返回 false（不移动页态）。
+ */
+function turnForward(): boolean {
+  if (!spreadEnabled.value) return props.reader.nextPage();
+  const target = spreadAnchor.value + 2;
+  return target < props.reader.totalPages ? props.reader.goToPage(target) : false;
+}
+
+/** 向后翻一屏：对页模式同样一次退一整对（-2 页） */
+function turnBackward(): boolean {
+  if (!spreadEnabled.value) return props.reader.prevPage();
+  const target = spreadAnchor.value - 2;
+  return target >= 0 ? props.reader.goToPage(target) : false;
+}
+
 /* ---------- page 模式滚轮翻页 ---------- */
 
 /** 滚轮翻页的主轴累计阈值（px）：凑够一格才翻，避免高灵敏滚轮一格连翻数页 */
@@ -725,9 +755,9 @@ function onPageKeydown(event: KeyboardEvent): void {
   } else if (event.key === 'End') {
     handled = props.reader.goToPage(props.reader.totalPages - 1);
   } else if (KEY_FORWARD.has(event.key)) {
-    handled = props.reader.nextPage();
+    handled = turnForward();
   } else if (KEY_BACKWARD.has(event.key)) {
-    handled = props.reader.prevPage();
+    handled = turnBackward();
   }
   if (handled) event.preventDefault();
 }
@@ -839,9 +869,9 @@ function onPageTouchEnd(event: TouchEvent): void {
   swipeEndedAt = Date.now();
   const forward = verticalWriting.value ? dx > 0 : dx < 0;
   if (forward) {
-    props.reader.nextPage();
+    turnForward();
   } else {
-    props.reader.prevPage();
+    turnBackward();
   }
 }
 
@@ -873,11 +903,11 @@ function onPageTap(event: MouseEvent): void {
   const forwardZone = verticalWriting.value ? ratio <= EDGE_TAP_RATIO : ratio >= 1 - EDGE_TAP_RATIO;
   const backwardZone = verticalWriting.value ? ratio >= 1 - EDGE_TAP_RATIO : ratio <= EDGE_TAP_RATIO;
   if (backwardZone) {
-    props.reader.prevPage();
+    turnBackward();
     return;
   }
   if (forwardZone) {
-    props.reader.nextPage();
+    turnForward();
     return;
   }
   emit('tap-center');
@@ -939,7 +969,7 @@ function onPageWheel(event: WheelEvent): void {
   if (Math.abs(wheelAcc) < WHEEL_PAGE_THRESHOLD) return;
   const forward = wheelAcc > 0;
   wheelAcc = 0;
-  const flipped = forward ? props.reader.nextPage() : props.reader.prevPage();
+  const flipped = forward ? turnForward() : turnBackward();
   if (flipped) {
     event.preventDefault();
     wheelLockAt = now + WHEEL_PAGE_COOLDOWN;

@@ -69,6 +69,8 @@ defineProps<{
   viewModeLabel: string;
   /** 是否直排（缩放「适应高度 / 适应宽度」文案） */
   railLayout: boolean;
+  /** 翻页按钮步长（双页对照桌面态为 2，其余为 1） */
+  pageStep: number;
   /** 打开 H5 左抽屉某面板 */
   openMobileTab: (tab: AsideTab) => void;
   /** 打开 H5 属性 sheet */
@@ -99,6 +101,7 @@ defineProps<{
           :key="`${themeKey}-${readerEpoch}`"
           class="statusbar__pager"
           :reader="reader"
+          :step="pageStep"
         />
         <span v-else class="statusbar__readout">第 {{ editorVisiblePage + 1 }} 页</span>
         <span class="statusbar__spacer" />
@@ -153,7 +156,12 @@ defineProps<{
     <template v-else-if="mode === 'read'">
       <div class="statusbar__cluster">
         <ProgressBar :key="`${themeKey}-${readerEpoch}`" class="statusbar__progress" :reader="reader" />
-        <BtPager :key="`${themeKey}-${readerEpoch}`" class="statusbar__pager" :reader="reader" />
+        <BtPager
+          :key="`${themeKey}-${readerEpoch}`"
+          class="statusbar__pager"
+          :reader="reader"
+          :step="pageStep"
+        />
         <BtDocumentStats class="statusbar__stats" :stats="stats" :compact="true" />
       </div>
       <div class="statusbar__cluster">

@@ -133,9 +133,9 @@
   margin-inline-start: 0;
 }
 
-/* 滚动条从横向改到纵向（基线规则给的是 height） */
+/* 滚动条从横向改到纵向（基线规则给的是 height）；窄列里把预设宽度夹到 6px */
 .app--rail :deep(.toolbar__actions::-webkit-scrollbar) {
-  width: 6px;
+  width: min(var(--bt-scrollbar-size, 6px), 6px);
   height: auto;
 }
 
@@ -171,7 +171,7 @@
 
 /* 行与行的分隔：基线 border-block-start 转置后 = 物理右缘，正好是列间竖线 */
 .app__rail :deep(.editor-toolbar__row::-webkit-scrollbar) {
-  width: 6px;
+  width: min(var(--bt-scrollbar-size, 6px), 6px);
   height: auto;
 }
 
@@ -292,7 +292,7 @@
 }
 
 .app--rail .statusbar::-webkit-scrollbar {
-  width: 6px;
+  width: min(var(--bt-scrollbar-size, 6px), 6px);
 }
 
 .app--rail :deep(.statusbar__spacer) {

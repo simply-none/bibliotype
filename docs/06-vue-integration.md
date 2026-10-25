@@ -412,6 +412,12 @@ const suggestions = useAnnotationSuggestions({
 
 流式分支按 `data-flow-key` 渲染分块：已挂载分块 `v-html` 逐块序列化（`serializeNode` 开启 `anchorIds`），未挂载分块渲染估算高度骨架占位（`aria-hidden`）。滚动以 rAF 节流，按视口位置经 `resolveMountWindow` 计算挂载窗口（`flowRootMargin` 控制预取余量）、取视口首块经 `reader.getPositionForNode` 回写 `update:position`；`ResizeObserver` 实测高度并做滚动补偿。
 
+滚动条外观可由宿主令牌注入：`--bt-scrollbar-size`（宽度）、`--bt-scrollbar-thumb` / `-thumb-hover`（滑块 / 悬停色）、
+`--bt-scrollbar-thumb-border` / `-radius`、`--bt-scrollbar-track`（轨槽色），均有向默认值回落的 fallback。
+组件内 `::-webkit-scrollbar` 规则自带 scoped 属性，特异性高于宿主全局规则，因此悬停色也在组件内写了一份；
+标准属性（`scrollbar-width` / `scrollbar-color`）收在 `@supports not selector(::-webkit-scrollbar)` 中，
+避免 Chromium 因命中标准属性而整体丢弃伪元素（会退化成带箭头的系统滚动条）。
+
 ### `BtSpreadLayout`（双栏 / 对页纯布局容器）
 
 props：`mode`（`columns` / `facing`）、`gap`、`leftLabel` / `rightLabel`；插槽 `left` / `right`。中缝分隔 + 可选标签，窄窗（`<720px`）上下堆叠。`BtCompareView` 与 `BtCollationCompare` 共用此容器，中缝 / 比例 / 响应式规则只有一套实现。

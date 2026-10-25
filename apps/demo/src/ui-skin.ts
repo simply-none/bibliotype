@@ -22,6 +22,28 @@ export type UiDensity = 'comfortable' | 'compact';
 /** 动效偏好：auto 跟随系统，off 显式关闭 */
 export type UiMotion = 'auto' | 'off';
 
+/**
+ * 滚动条样式键（与 `styles/scrollbars.css` 的 `[data-scrollbar]` 一一对应）
+ *
+ * 只改滚动条观感（粗细 / 轨槽 / 滑块纹理），不碰正文纸色与壳层色板。
+ */
+export type ScrollbarStyleKey = 'ink' | 'scroll' | 'bamboo';
+
+/** 一套滚动条样式的元数据 */
+export interface ScrollbarStyle {
+  key: ScrollbarStyleKey;
+  label: string;
+  /** 设置面板里的一句话说明（用户语言，不出现实现词） */
+  description: string;
+  /** 设置面板预览条：尺寸与配色（与样式表同值） */
+  preview: {
+    size: number;
+    track: string;
+    thumb: string;
+    radius: string;
+  };
+}
+
 /** 一套皮肤的元数据 */
 export interface UiSkin {
   key: UiSkinKey;
@@ -44,6 +66,41 @@ export const DEFAULT_UI_DENSITY: UiDensity = 'comfortable';
 
 /** 默认动效偏好 */
 export const DEFAULT_UI_MOTION: UiMotion = 'auto';
+
+/** 默认滚动条样式（墨线：最不抢正文的细线） */
+export const DEFAULT_SCROLLBAR_STYLE: ScrollbarStyleKey = 'ink';
+
+/**
+ * 三套滚动条样式
+ *
+ * 顺序即展示顺序：默认项排第一。颜色与 `styles/scrollbars.css` 的令牌块同值，
+ * 供设置面板的迷你预览条直接复用（不必真的渲染一个可滚容器）。
+ */
+export const SCROLLBAR_STYLES: readonly ScrollbarStyle[] = [
+  {
+    key: 'ink',
+    label: '墨线',
+    description: '极细的墨色滑块，安静贴边、不抢正文，日常阅读推荐。',
+    preview: { size: 8, track: 'transparent', thumb: 'rgb(60 58 52 / 35%)', radius: '999px' },
+  },
+  {
+    key: 'scroll',
+    label: '卷轴',
+    description: '檀木轴杆配浅色轨槽，像卷轴两端的轴头，横竖滚动都沉稳。',
+    preview: { size: 12, track: '#e8e1d3', thumb: '#8c5a2b', radius: '3px' },
+  },
+  {
+    key: 'bamboo',
+    label: '竹简',
+    description: '竹节纹理轨槽配深竹色滑块，呼应竖排简牍的书卷气。',
+    preview: { size: 12, track: '#e3e8dd', thumb: '#6b8f5e', radius: '4px' },
+  },
+];
+
+/** 滚动条样式键全集（与 `SCROLLBAR_STYLES` 同步维护） */
+export const SCROLLBAR_STYLE_KEYS: readonly ScrollbarStyleKey[] = SCROLLBAR_STYLES.map(
+  (style) => style.key,
+);
 
 /**
  * 四套皮肤
@@ -94,6 +151,11 @@ export function isUiDensity(value: unknown): value is UiDensity {
 /** 是否为合法动效偏好 */
 export function isUiMotion(value: unknown): value is UiMotion {
   return value === 'auto' || value === 'off';
+}
+
+/** 是否为合法滚动条样式键 */
+export function isScrollbarStyleKey(value: unknown): value is ScrollbarStyleKey {
+  return typeof value === 'string' && (SCROLLBAR_STYLE_KEYS as readonly string[]).includes(value);
 }
 
 /**

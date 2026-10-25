@@ -1,27 +1,30 @@
 /**
  * 界面皮肤状态（美化 P0 / P4）
  *
- * 皮肤 / 密度 / 动效只决定壳层观感，与阅读纸面主题正交；夜间纸面（night）
- * 由主题块持有，深色皮肤联动点亮夜间。三个开关落到 <html> data-*，
+ * 皮肤 / 密度 / 动效 / 滚动条样式只决定壳层观感，与阅读纸面主题正交；夜间纸面（night）
+ * 由主题块持有，深色皮肤联动点亮夜间。各开关落到 <html> data-*，
  * 抽屉 / 设置 / 书籍信息等 Teleport 到 body 的浮层因此共用同一套壳色令牌。
  */
 import { computed, ref, watchEffect, type ComputedRef, type Ref } from 'vue';
 import {
+  DEFAULT_SCROLLBAR_STYLE,
   DEFAULT_UI_DENSITY,
   DEFAULT_UI_MOTION,
   DEFAULT_UI_SKIN,
   resolveUiSkin,
+  type ScrollbarStyleKey,
   type UiDensity,
   type UiMotion,
   type UiSkin,
   type UiSkinKey,
 } from '../ui-skin.js';
 
-/** 皮肤 / 密度 / 动效状态与 <html> 同步 */
+/** 皮肤 / 密度 / 动效 / 滚动条样式状态与 <html> 同步 */
 export function useAppSkin(deps: { night: Ref<boolean> }): {
   uiSkin: Ref<UiSkinKey>;
   uiDensity: Ref<UiDensity>;
   uiMotion: Ref<UiMotion>;
+  scrollbarStyle: Ref<ScrollbarStyleKey>;
   activeSkin: ComputedRef<UiSkin>;
   setUiSkin: (next: UiSkinKey) => void;
 } {
@@ -31,6 +34,8 @@ export function useAppSkin(deps: { night: Ref<boolean> }): {
   const uiDensity = ref<UiDensity>(DEFAULT_UI_DENSITY);
   /** 动效偏好：auto 跟随系统，off 显式关闭 */
   const uiMotion = ref<UiMotion>(DEFAULT_UI_MOTION);
+  /** 滚动条样式（墨线 / 卷轴 / 竹简）：只改滚动条观感 */
+  const scrollbarStyle = ref<ScrollbarStyleKey>(DEFAULT_SCROLLBAR_STYLE);
 
   /** 当前皮肤元数据（预览色 / 深色判定 / theme-color 同步） */
   const activeSkin = computed(() => resolveUiSkin(uiSkin.value));
@@ -50,6 +55,7 @@ export function useAppSkin(deps: { night: Ref<boolean> }): {
     root.dataset.skin = uiSkin.value;
     root.dataset.density = uiDensity.value;
     root.dataset.motion = uiMotion.value;
+    root.dataset.scrollbar = scrollbarStyle.value;
     root.dataset.night = deps.night.value ? 'true' : 'false';
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta instanceof HTMLMetaElement) meta.content = activeSkin.value.preview.canvas;
@@ -66,5 +72,5 @@ export function useAppSkin(deps: { night: Ref<boolean> }): {
     if (resolveUiSkin(next).dark) deps.night.value = true;
   }
 
-  return { uiSkin, uiDensity, uiMotion, activeSkin, setUiSkin };
+  return { uiSkin, uiDensity, uiMotion, scrollbarStyle, activeSkin, setUiSkin };
 }

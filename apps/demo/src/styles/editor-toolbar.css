@@ -25,7 +25,13 @@
   padding: 3px 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+}
+
+/* 仅 Firefox：Chromium 写了 scrollbar-width 就会丢掉下方 ::-webkit-scrollbar 令牌 */
+@supports not selector(::-webkit-scrollbar) {
+  .editor-toolbar__row {
+    scrollbar-width: thin;
+  }
 }
 
 .editor-toolbar__row + .editor-toolbar__row {
@@ -42,12 +48,14 @@
 }
 
 .editor-toolbar__row::-webkit-scrollbar {
-  height: 6px;
+  height: var(--bt-scrollbar-size, 6px);
 }
 
 .editor-toolbar__row::-webkit-scrollbar-thumb {
-  background: var(--ui-border, #e2ddd2);
-  border-radius: var(--ui-radius-xs, 4px);
+  background-color: var(--bt-scrollbar-thumb, var(--ui-border, #e2ddd2));
+  background-clip: padding-box;
+  border: var(--bt-scrollbar-thumb-border, 2px solid transparent);
+  border-radius: var(--bt-scrollbar-radius, var(--ui-radius-xs, 4px));
 }
 
 /* 成组按钮（实用区）：下沉底 + 胶囊分段，与顶栏三态按钮同调 */

@@ -1,0 +1,148 @@
+/**
+ * 滚动条样式（Demo）
+ *
+ * 三套预设（`[data-scrollbar]`，由「设置 → 其他 → 滚动条样式」切换）：
+ * - `ink` 墨线（默认）：极细墨色滑块、透明轨槽，安静不抢正文；
+ * - `scroll` 卷轴：檀木轴杆 + 浅色轨槽，像卷轴两端的轴头；
+ * - `bamboo` 竹简：竹节纹理轨槽 + 深竹色滑块，呼应竖排简牍。
+ *
+ * 令牌挂在 `:root` / `[data-scrollbar]` 上，所有滚动容器（含包内组件与 Teleport
+ * 浮层）共用；细窄竖列（顶栏按钮列 / 直排工具列）在各自样式里把宽度夹到 6px，
+ * 避免 12px 的卷轴 / 竹简把人挤没。
+ *
+ * 只改观感，不设 `scrollbar-gutter`、不动任何盒尺寸；`::-webkit-scrollbar` 一旦
+ * 命中即由浏览器按经典滚动条计宽，因此各容器原本就用 thin 的宽度差保持在 1~2px。
+ *
+ * 注意 Chromium 的互斥：元素上只要写了 `scrollbar-width` / `scrollbar-color`，
+ * 同一元素的 `::-webkit-scrollbar-*` 伪元素即整体失效（回落到系统标准滚动条，
+ * 尺寸只认 thin，两端还会带回三角箭头）。所以标准属性只放在下面
+ * `@supports not selector(::-webkit-scrollbar)` 里，给真正不支持伪元素的 Firefox 用；
+ * 各组件里的 `scrollbar-width` 兜底也按同样条件包裹，别让它污染 Chromium 的经典样式。
+ */
+
+/* ---------- 预设令牌：墨线（默认，无 JS 首帧也生效） ---------- */
+
+:root {
+  --bt-scrollbar-size: 8px;
+  --bt-scrollbar-radius: 999px;
+  /* Firefox 只认颜色：滑块 / 轨槽各给一个纯色令牌 */
+  --bt-scrollbar-thumb: rgb(60 58 52 / 32%);
+  --bt-scrollbar-thumb-hover: rgb(140 90 43 / 80%);
+  /* 透明内描边 + padding-box 裁切 = 滑块与轨槽之间的呼吸缝 */
+  --bt-scrollbar-thumb-border: 2px solid transparent;
+  --bt-scrollbar-thumb-image: none;
+  --bt-scrollbar-track: transparent;
+  --bt-scrollbar-track-image: none;
+  /* 横向条单独一份纹理：竖向条上 0deg 的横纹是「竹节」，横向条要竖着排才像竹片 */
+  --bt-scrollbar-track-image-horizontal: none;
+  --bt-scrollbar-track-shadow: none;
+}
+
+/* 支持 color-mix 时跟随皮肤取色（墨色 / 高对比皮肤下不会糊成一片） */
+@supports (color: color-mix(in srgb, red, blue)) {
+  :root {
+    --bt-scrollbar-thumb: color-mix(in srgb, var(--ui-text) 32%, transparent);
+    --bt-scrollbar-thumb-hover: color-mix(in srgb, var(--ui-accent) 80%, transparent);
+  }
+}
+
+/* ---------- 预设令牌：卷轴 ---------- */
+
+[data-scrollbar='scroll'] {
+  --bt-scrollbar-size: 12px;
+  --bt-scrollbar-radius: 4px;
+  --bt-scrollbar-thumb: var(--ui-accent);
+  --bt-scrollbar-thumb-hover: var(--ui-accent-strong);
+  --bt-scrollbar-thumb-border: 2px solid transparent;
+  --bt-scrollbar-track: rgb(140 90 43 / 14%);
+  --bt-scrollbar-track-image: none;
+  --bt-scrollbar-track-image-horizontal: none;
+  --bt-scrollbar-track-shadow: inset 0 0 0 1px rgb(140 90 43 / 32%);
+}
+
+/* ---------- 预设令牌：竹简 ---------- */
+
+[data-scrollbar='bamboo'] {
+  --bt-scrollbar-size: 12px;
+  --bt-scrollbar-radius: 4px;
+  --bt-scrollbar-thumb: #6b8f5e;
+  --bt-scrollbar-thumb-hover: #7fa06f;
+  --bt-scrollbar-thumb-border: 2px solid transparent;
+  --bt-scrollbar-track: rgb(107 143 94 / 14%);
+  /* 0deg 重复渐变：沿纵向逐节排布，像一片片竹简 */
+  --bt-scrollbar-track-image: repeating-linear-gradient(
+    0deg,
+    transparent 0 6px,
+    rgb(107 143 94 / 26%) 6px 7px
+  );
+  /* 横向条转 90deg：竹片竖着并排，接上直排书页的简牍感 */
+  --bt-scrollbar-track-image-horizontal: repeating-linear-gradient(
+    90deg,
+    transparent 0 6px,
+    rgb(107 143 94 / 26%) 6px 7px
+  );
+  --bt-scrollbar-track-shadow: inset 0 0 0 1px rgb(107 143 94 / 35%);
+}
+
+/* ---------- 全局规则（WebKit / Blink） ---------- */
+
+html ::-webkit-scrollbar {
+  width: var(--bt-scrollbar-size);
+  height: var(--bt-scrollbar-size);
+}
+
+html ::-webkit-scrollbar-track {
+  background-color: var(--bt-scrollbar-track);
+  background-image: var(--bt-scrollbar-track-image);
+  box-shadow: var(--bt-scrollbar-track-shadow);
+}
+
+/* 横向条换用竖排纹理（竹简预设下才非 none） */
+html ::-webkit-scrollbar-track:horizontal {
+  background-image: var(--bt-scrollbar-track-image-horizontal);
+}
+
+html ::-webkit-scrollbar-thumb {
+  background-color: var(--bt-scrollbar-thumb);
+  background-image: var(--bt-scrollbar-thumb-image);
+  background-clip: padding-box;
+  border: var(--bt-scrollbar-thumb-border);
+  border-radius: var(--bt-scrollbar-radius);
+}
+
+html ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--bt-scrollbar-thumb-hover);
+}
+
+html ::-webkit-scrollbar-thumb:active {
+  background-color: var(--bt-scrollbar-thumb-hover);
+}
+
+/* 去掉两端箭头，只留轨槽与滑块（古籍书架不应出现系统三角）。
+   单写 display:none 在部分 Chromium 版本上仍留位，故把宽高一并归零。 */
+html ::-webkit-scrollbar-button,
+html ::-webkit-scrollbar-button:single-button,
+html ::-webkit-scrollbar-button:vertical:start:decrement,
+html ::-webkit-scrollbar-button:vertical:end:increment,
+html ::-webkit-scrollbar-button:horizontal:start:decrement,
+html ::-webkit-scrollbar-button:horizontal:end:increment {
+  display: none;
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
+html ::-webkit-scrollbar-corner {
+  background: var(--bt-scrollbar-track);
+}
+
+/* ---------- Firefox：只支持 slim + 双色 ---------- */
+
+/* 仅给「没有 `::-webkit-scrollbar` 的引擎」使用：Chromium 一旦命中这两条，
+   上方所有伪元素规则都会失效（见文件头）。 */
+@supports not selector(::-webkit-scrollbar) {
+  html * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--bt-scrollbar-thumb) var(--bt-scrollbar-track);
+  }
+}

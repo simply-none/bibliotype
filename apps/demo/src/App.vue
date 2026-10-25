@@ -101,7 +101,7 @@ const { items: toasts, push: pushToast, dismiss: dismissToast } = useToast();
 const { themeKey, night, theme: themeBase } = useAppThemes();
 
 /* 界面皮肤 / 密度 / 动效（壳层观感与阅读纸面正交；<html> data-* 同步在块内） */
-const { uiSkin, uiDensity, uiMotion, setUiSkin } = useAppSkin({ night });
+const { uiSkin, uiDensity, uiMotion, scrollbarStyle, setUiSkin } = useAppSkin({ night });
 
 /* H5 断点与单列骨架开合状态 */
 const { breakpoint, mobileShell, mobileAsideOpen, mobileMenuOpen, mobileInspectorOpen } =
@@ -186,6 +186,7 @@ const {
   uiSkin,
   uiDensity,
   uiMotion,
+  scrollbarStyle,
   pdfExportMode,
   pdfRasterScale,
 });
@@ -217,6 +218,7 @@ watch(
     uiSkin,
     uiDensity,
     uiMotion,
+    scrollbarStyle,
     pdfExportMode,
     pdfRasterScale,
   ],
@@ -851,6 +853,7 @@ let perfProbe: PerfProbe | null = null;
       :ui-skin="uiSkin"
       :ui-density="uiDensity"
       :ui-motion="uiMotion"
+      :scrollbar-style="scrollbarStyle"
       :pdf-export-mode="pdfExportMode"
       :pdf-raster-scale="pdfRasterScale"
       @update:night="night = $event; persistSettingsSnapshot()"
@@ -858,6 +861,7 @@ let perfProbe: PerfProbe | null = null;
       @update:ui-skin="setUiSkin($event)"
       @update:ui-density="uiDensity = $event"
       @update:ui-motion="uiMotion = $event"
+      @update:scrollbar-style="scrollbarStyle = $event"
       @update:pdf-export-mode="pdfExportMode = $event"
       @update:pdf-raster-scale="pdfRasterScale = $event"
       @apply-theme-tokens="onApplyThemeTokens"

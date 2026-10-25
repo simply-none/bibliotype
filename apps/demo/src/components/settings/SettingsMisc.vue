@@ -1,23 +1,34 @@
 <script setup lang="ts">
 /**
- * 「其他」分区：导出与杂项偏好
+ * 「其他」分区：滚动条、导出与杂项偏好
  *
- * PDF 导出方式与光栅清晰度是应用级偏好（非样式草稿）：本组件只上抛事件，
- * 持久化由父级界面偏好快照负责。字段语义化命名（`pdfExportMode` /
- * `pdfRasterScale`），UI 只暴露用户语言，不出现实现层技术词。
+ * 滚动条样式、PDF 导出方式与光栅清晰度都是应用级偏好（非样式草稿）：本组件只上抛
+ * 事件，持久化由父级界面偏好快照负责。字段语义化命名（`scrollbarStyle` /
+ * `pdfExportMode` / `pdfRasterScale`），UI 只暴露用户语言，不出现实现层技术词。
  */
 import type { PdfExportMode, PdfRasterScale } from '../../composables/use-settings-snapshot.js';
+import {
+  DEFAULT_SCROLLBAR_STYLE,
+  SCROLLBAR_STYLES,
+  type ScrollbarStyleKey,
+} from '../../ui-skin.js';
 
-defineProps<{
-  /** PDF 导出方式（应用级偏好，落盘由父级快照负责） */
-  pdfExportMode: PdfExportMode;
-  /** 光栅直出清晰度档位（仅应用内直出生效） */
-  pdfRasterScale: PdfRasterScale;
-}>();
+withDefaults(
+  defineProps<{
+    /** PDF 导出方式（应用级偏好，落盘由父级快照负责） */
+    pdfExportMode: PdfExportMode;
+    /** 光栅直出清晰度档位（仅应用内直出生效） */
+    pdfRasterScale: PdfRasterScale;
+    /** 滚动条样式（墨线 / 卷轴 / 竹简；应用级偏好） */
+    scrollbarStyle?: ScrollbarStyleKey;
+  }>(),
+  { scrollbarStyle: DEFAULT_SCROLLBAR_STYLE },
+);
 
 const emit = defineEmits<{
   'update:pdf-export-mode': [value: PdfExportMode];
   'update:pdf-raster-scale': [value: PdfRasterScale];
+  'update:scrollbar-style': [value: ScrollbarStyleKey];
 }>();
 
 /** PDF 导出方式选项（顺序即展示顺序：默认项排第一） */
@@ -59,9 +70,39 @@ const PDF_RASTER_SCALES: ReadonlyArray<{
 
 <template>
   <p class="panel__hint">
-    导出与杂项偏好，选择即时生效并记入本地。桌面客户端（Electron）宿主下 PDF
-    恒走打印引擎矢量直出，不受此项影响。
+    滚动条、导出与杂项偏好，选择即时生效并记入本地。桌面客户端（Electron）宿主下 PDF
+    恒走打印引擎矢量直出，不受导出项影响。
   </p>
+
+  <div class="panel__field">
+    <span class="panel__label">滚动条样式</span>
+    <div class="panel__scrollbar-styles">
+      <button
+        v-for="item in SCROLLBAR_STYLES"
+        :key="item.key"
+        type="button"
+        class="panel__scrollbar-style"
+        :class="{ 'panel__scrollbar-style--active': scrollbarStyle === item.key }"
+        :data-scrollbar-style="item.key"
+        :aria-pressed="scrollbarStyle === item.key"
+        :style="{
+          '--preview-size': `${item.preview.size}px`,
+          '--preview-track': item.preview.track,
+          '--preview-thumb': item.preview.thumb,
+          '--preview-radius': item.preview.radius,
+        }"
+        @click="emit('update:scrollbar-style', item.key)"
+      >
+        <span class="panel__scrollbar-preview" aria-hidden="true">
+          <span class="panel__scrollbar-preview-thumb" />
+        </span>
+        <span class="panel__scrollbar-style-text">
+          <span class="panel__scrollbar-style-label">{{ item.label }}</span>
+          <span class="panel__scrollbar-style-desc">{{ item.description }}</span>
+        </span>
+      </button>
+    </div>
+  </div>
 
   <div class="panel__field">
     <span class="panel__label">PDF 导出方式</span>
@@ -105,6 +146,89 @@ const PDF_RASTER_SCALES: ReadonlyArray<{
 <style scoped src="../../styles/settings-controls.css"></style>
 
 <style scoped>
+/* 滚动条样式卡：迷你竖条预览 + 名称 / 一句说明（与导出卡同一视觉语言） */
+.panel__scrollbar-styles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ui-space-2, 6px);
+}
+
+@media (max-width: 767px) {
+  .panel__scrollbar-styles {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel__scrollbar-style {
+  display: flex;
+  gap: var(--ui-space-2, 6px);
+  align-items: flex-start;
+  padding: var(--ui-space-2, 6px);
+  background: var(--ui-surface-raised, #faf8f4);
+  border: var(--ui-border-width, 1px) solid var(--ui-border, #e2ddd2);
+  border-radius: var(--ui-radius-md, 12px);
+  cursor: pointer;
+  text-align: start;
+  transition:
+    border-color var(--ui-dur-fast, 120ms) var(--ui-ease, ease),
+    box-shadow var(--ui-dur-fast, 120ms) var(--ui-ease, ease);
+}
+
+.panel__scrollbar-style:hover {
+  border-color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__scrollbar-style--active {
+  border-color: var(--ui-accent, #8c5a2b);
+  box-shadow: inset 0 0 0 1px var(--ui-accent, #8c5a2b);
+}
+
+/* 预览条：竖轨 + 滑块，尺寸 / 配色由卡片上的预览变量给出（与样式表同值） */
+.panel__scrollbar-preview {
+  position: relative;
+  flex: none;
+  width: calc(var(--preview-size, 8px) + 6px);
+  height: 46px;
+  overflow: hidden;
+  background-color: var(--preview-track, transparent);
+  border: 1px solid var(--ui-border, #e2ddd2);
+  border-radius: calc((var(--preview-size, 8px) + 6px) / 2);
+}
+
+.panel__scrollbar-preview-thumb {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  width: var(--preview-size, 8px);
+  height: 22px;
+  background-color: var(--preview-thumb, #8a8578);
+  border-radius: var(--preview-radius, 999px);
+  transform: translateX(-50%);
+}
+
+.panel__scrollbar-style-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-1, 4px);
+  min-width: 0;
+}
+
+.panel__scrollbar-style-label {
+  font-size: var(--ui-font-sm, 12px);
+  font-weight: 600;
+  color: var(--ui-text, #3c3a34);
+}
+
+.panel__scrollbar-style--active .panel__scrollbar-style-label {
+  color: var(--ui-accent, #8c5a2b);
+}
+
+.panel__scrollbar-style-desc {
+  font-size: var(--ui-font-xs, 11px);
+  line-height: 1.6;
+  color: var(--ui-text-muted, #8a8578);
+}
+
 /* 导出方式卡：标题 + 一句说明，选中项描边强调（与皮肤卡同一视觉语言） */
 .panel__export-modes {
   display: grid;

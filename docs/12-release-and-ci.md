@@ -273,9 +273,26 @@ happy-dom 无布局，需要尺寸的用例自己 mock `getBoundingClientRect()`
 | 色值唯一源 | `apps/demo/src/styles.css` 的 `[data-skin='…']` 块；组件内不得再写字面色，一律 `var(--ui-*)` |
 | 元数据源 | `apps/demo/src/ui-skin.ts` 的 `UI_SKINS`（名称 / `dark` / 预览色）；新增皮肤 = 两份文件各加一条，同键同名 |
 | 挂载点 | `data-skin` / `data-density` / `data-motion` / `data-night` 挂 `<html>`（不是 `.app`）：弹层都 Teleport 到 body，只有根上的令牌能穿过传送门 |
-| 持久化 | `localStorage['bibliotype-demo:settings']` 内的 `uiSkin` / `uiDensity` / `uiMotion`；读回逐字段容错，未知值回落默认，旧快照缺键也不报错 |
+| 持久化 | `localStorage['bibliotype-demo:settings']` 内的 `uiSkin` / `uiDensity` / `uiMotion` / `scrollbarStyle`；读回逐字段容错，未知值回落默认，旧快照缺键也不报错 |
 | 无闪烁 | `index.html` 头部内联脚本（非 module）在样式生效前写同一批 `data-*` 与 `meta[name=theme-color]`，存储不可用时静默走默认皮肤 |
 | 主题色 | `meta[name="theme-color"]` 跟皮肤 `canvas` 色，避免手机上「黑壳 + 白顶栏」裂缝 |
+
+### 滚动条样式（设置 → 其他）
+
+三套古籍风预设由注册表驱动，切换即写 `<html>` 的 `data-scrollbar`，令牌层在
+`apps/demo/src/styles/scrollbars.css`，全局滚动容器与包内 `BtBookView` 共用一份观感：
+
+| 预设键 | 名称 | 观感 | 主要令牌 |
+| --- | --- | --- | --- |
+| `ink`（缺省） | 墨线 | 极细墨色滑块、透明轨槽 | 8px，`color-mix` 跟 `--ui-text` |
+| `scroll` | 卷轴 | 檀木轴杆 + 浅褐轨槽内描边 | 12px，`--ui-accent` |
+| `bamboo` | 竹简 | 竹色滑块 + 竹节纹理轨槽 | 12px，竖条 0deg / 横条 90deg 重复渐变 |
+
+**Chromium 互斥陷阱**：元素上只要写了 `scrollbar-width` / `scrollbar-color`，同一元素的
+`::-webkit-scrollbar-*` 伪元素即整体失效（回退到系统标准滚动条：尺寸只认 thin、两端带三角箭头）。
+因此标准属性一律包在 `@supports not selector(::-webkit-scrollbar)` 里（只对 Firefox 生效），
+`::-webkit-scrollbar-button` 同时 `display:none` + 宽高 0，防止部分版本留位。
+直排窄列（顶栏按钮列 / 工具列 / 状态栏）把宽夹到 `min(var(--bt-scrollbar-size), 6px)`，12px 预设不会把人挤没。
 
 ### 两处同改的陷阱
 

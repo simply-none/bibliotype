@@ -363,31 +363,22 @@ defineProps<{
   justify-content: flex-start;
   gap: 6px 14px;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--demo-control-border) transparent;
+}
+
+/* 仅 Firefox 的标准属性：Chromium 一旦命中 scrollbar-width / scrollbar-color，
+   同一元素的 ::-webkit-scrollbar 令牌（尺寸 / 轨槽 / 无箭头）就全部失效。 */
+@supports not selector(::-webkit-scrollbar) {
+  .toolbar__actions {
+    scrollbar-width: thin;
+    /* 颜色跟随「设置 → 其他 → 滚动条样式」的预设令牌（见 styles/scrollbars.css） */
+    scrollbar-color: var(--bt-scrollbar-thumb, var(--demo-control-border))
+      var(--bt-scrollbar-track, transparent);
+  }
 }
 
 /* 单行不换行：未溢出时由首组自动外边距把整排推到右端；溢出时外边距归零，从行首可滚动 */
 .toolbar__actions > .toolbar__group:first-child {
   margin-inline-start: auto;
-}
-
-/* 鼠标可拖的细横向滚动条（WebKit/Blink），随演示配色令牌换色 */
-.toolbar__actions::-webkit-scrollbar {
-  height: 6px;
-}
-
-.toolbar__actions::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.toolbar__actions::-webkit-scrollbar-thumb {
-  background: var(--demo-control-border);
-  border-radius: 3px;
-}
-
-.toolbar__actions::-webkit-scrollbar-thumb:hover {
-  background: var(--demo-accent);
 }
 
 /* 拖动中：抓取光标 + 禁止选中文本（结束拖动后移除） */

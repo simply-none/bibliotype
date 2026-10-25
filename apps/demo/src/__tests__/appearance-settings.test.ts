@@ -52,6 +52,7 @@ async function mountAppearance(): Promise<{
         uiSkin: skin.value,
         uiDensity: density.value,
         uiMotion: motion.value,
+        scrollbarStyle: 'ink',
         pdfExportMode: 'in-app',
         pdfRasterScale: 2,
         'onUpdate:ui-skin': (value: UiSkinKey) => {

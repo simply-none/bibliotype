@@ -28,7 +28,7 @@ import type { LayoutOptions } from '@bibliotype/layout';
 import { BT_BREAKPOINTS, useBreakpoint } from '@bibliotype/vue';
 import type { PdfExportMode, PdfRasterScale } from '../composables/use-settings-snapshot.js';
 import type { StyleSettingsApi } from '../composables/use-style-settings.js';
-import type { UiDensity, UiMotion, UiSkinKey } from '../ui-skin.js';
+import type { ScrollbarStyleKey, UiDensity, UiMotion, UiSkinKey } from '../ui-skin.js';
 import AppIcon from './AppIcon.vue';
 import FeatureStyleEditor from './FeatureStyleEditor.vue';
 import SettingsAppearance from './settings/SettingsAppearance.vue';
@@ -61,6 +61,8 @@ const props = defineProps<{
   uiDensity: UiDensity;
   /** 动效开关：auto = 跟随系统 prefers-reduced-motion */
   uiMotion: UiMotion;
+  /** 滚动条样式（墨线 / 卷轴 / 竹简；「其他」分区） */
+  scrollbarStyle: ScrollbarStyleKey;
   /** PDF 导出方式（「其他」分区；应用级偏好，Electron 宿主不受影响） */
   pdfExportMode: PdfExportMode;
   /** 光栅直出清晰度档位（「其他」分区；仅应用内直出生效） */
@@ -74,6 +76,8 @@ const emit = defineEmits<{
   'update:ui-skin': [value: UiSkinKey];
   'update:ui-density': [value: UiDensity];
   'update:ui-motion': [value: UiMotion];
+  /** 滚动条样式切换（「其他」分区） */
+  'update:scrollbar-style': [value: ScrollbarStyleKey];
   /** PDF 导出方式切换（「其他」分区） */
   'update:pdf-export-mode': [value: PdfExportMode];
   /** 光栅清晰度切换（「其他」分区） */
@@ -345,8 +349,10 @@ async function onSave(): Promise<void> {
             v-else
             :pdf-export-mode="pdfExportMode"
             :pdf-raster-scale="pdfRasterScale"
+            :scrollbar-style="scrollbarStyle"
             @update:pdf-export-mode="emit('update:pdf-export-mode', $event)"
             @update:pdf-raster-scale="emit('update:pdf-raster-scale', $event)"
+            @update:scrollbar-style="emit('update:scrollbar-style', $event)"
           />
         </div>
       </div>

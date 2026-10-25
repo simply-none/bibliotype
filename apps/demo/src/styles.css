@@ -2,9 +2,11 @@
  * 全局基础样式入口（Demo）
  *
  * 仅做聚合与级联排序：`base`（重置 / 尺度令牌 / H5 基线 / 题签徽标）→
- * `skins`（四套皮肤语义色 + 密度）→ `interaction`（触控反馈 / 焦点环 / 动效开关）。
+ * `skins`（四套皮肤语义色 + 密度）→ `scrollbars`（三套滚动条预设）→
+ * `interaction`（触控反馈 / 焦点环 / 动效开关）。
  * `@import` 顺序即 CSS 源序，令牌覆盖关系与拆分前一致；main.ts 引用本文件不变。
  */
 @import './styles/base.css';
 @import './styles/skins.css';
+@import './styles/scrollbars.css';
 @import './styles/interaction.css';

@@ -1761,8 +1761,45 @@ defineExpose({
   /* 缩放后超出容器时可滚达四边（fitScale > 适配尺寸 / fit none 原尺寸大页）；
      常规 contain 适配不溢出，不会真的冒出滚动条 */
   overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+
+/* 滚动条跟随宿主注入的 --bt-scrollbar-* 令牌（Demo 设置面板的「墨线 / 卷轴 / 竹简」即走这里）。
+   尺寸 / 轨槽 / 无箭头只能靠伪元素，故 WebKit 单独写；标准属性收进 @supports 条件块，
+   避免 Chromium 因命中 scrollbar-width 而整体丢弃上面这套伪元素。 */
+.bt-book-view::-webkit-scrollbar {
+  width: var(--bt-scrollbar-size, 8px);
+  height: var(--bt-scrollbar-size, 8px);
+}
+
+.bt-book-view::-webkit-scrollbar-track {
+  background-color: var(--bt-scrollbar-track, transparent);
+}
+
+.bt-book-view::-webkit-scrollbar-thumb {
+  background-color: var(--bt-scrollbar-thumb, rgba(0, 0, 0, 0.25));
+  background-clip: padding-box;
+  border: var(--bt-scrollbar-thumb-border, 2px solid transparent);
+  border-radius: var(--bt-scrollbar-radius, 999px);
+}
+
+/* 本组选择器带 scoped 属性，特异性高于宿主的全局 hover 规则，故悬停色也要就地写一份 */
+.bt-book-view::-webkit-scrollbar-thumb:hover,
+.bt-book-view::-webkit-scrollbar-thumb:active {
+  background-color: var(--bt-scrollbar-thumb-hover, rgba(0, 0, 0, 0.45));
+}
+
+.bt-book-view::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .bt-book-view {
+    scrollbar-width: thin;
+    scrollbar-color: var(--bt-scrollbar-thumb, rgba(0, 0, 0, 0.25))
+      var(--bt-scrollbar-track, transparent);
+  }
 }
 
 /* 居中改用 auto 外边距：空间富余时仍居中；溢出时 auto 退化为 0（起点锚定），
@@ -1962,8 +1999,13 @@ defineExpose({
   display: block;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .bt-book-view--flow {
+    scrollbar-width: thin;
+    scrollbar-color: var(--bt-scrollbar-thumb, rgba(0, 0, 0, 0.25))
+      var(--bt-scrollbar-track, transparent);
+  }
 }
 .bt-book-view--flow:focus {
   outline: none;

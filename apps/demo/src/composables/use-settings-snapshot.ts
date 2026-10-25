@@ -13,12 +13,15 @@
  * 推导本书设置作用域 id。
  */
 import {
+  DEFAULT_SCROLLBAR_STYLE,
   DEFAULT_UI_DENSITY,
   DEFAULT_UI_MOTION,
   DEFAULT_UI_SKIN,
+  isScrollbarStyleKey,
   isUiDensity,
   isUiMotion,
   isUiSkinKey,
+  type ScrollbarStyleKey,
   type UiDensity,
   type UiMotion,
   type UiSkinKey,
@@ -68,6 +71,8 @@ export interface SettingsSnapshot {
   uiDensity: UiDensity;
   /** 动效偏好 */
   uiMotion: UiMotion;
+  /** 滚动条样式（墨线 / 卷轴 / 竹简） */
+  scrollbarStyle: ScrollbarStyleKey;
   /** PDF 导出方式（「其他」分区；Electron 宿主不受影响） */
   pdfExportMode: PdfExportMode;
   /** 光栅直出清晰度档位（仅应用内直出生效） */
@@ -100,6 +105,7 @@ export interface SnapshotRefs {
   uiSkin: { value: UiSkinKey };
   uiDensity: { value: UiDensity };
   uiMotion: { value: UiMotion };
+  scrollbarStyle: { value: ScrollbarStyleKey };
   pdfExportMode: { value: PdfExportMode };
   pdfRasterScale: { value: PdfRasterScale };
 }
@@ -134,6 +140,9 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
         uiSkin: isUiSkinKey(parsed.uiSkin) ? parsed.uiSkin : DEFAULT_UI_SKIN,
         uiDensity: isUiDensity(parsed.uiDensity) ? parsed.uiDensity : DEFAULT_UI_DENSITY,
         uiMotion: isUiMotion(parsed.uiMotion) ? parsed.uiMotion : DEFAULT_UI_MOTION,
+        scrollbarStyle: isScrollbarStyleKey(parsed.scrollbarStyle)
+          ? parsed.scrollbarStyle
+          : DEFAULT_SCROLLBAR_STYLE,
         pdfExportMode: isPdfExportMode(parsed.pdfExportMode)
           ? parsed.pdfExportMode
           : DEFAULT_PDF_EXPORT_MODE,
@@ -161,6 +170,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
     refs.uiSkin.value = snapshot.uiSkin;
     refs.uiDensity.value = snapshot.uiDensity;
     refs.uiMotion.value = snapshot.uiMotion;
+    refs.scrollbarStyle.value = snapshot.scrollbarStyle;
     refs.pdfExportMode.value = snapshot.pdfExportMode;
     refs.pdfRasterScale.value = snapshot.pdfRasterScale;
   }
@@ -176,6 +186,7 @@ export function useSettingsSnapshot(refs: SnapshotRefs) {
       uiSkin: refs.uiSkin.value,
       uiDensity: refs.uiDensity.value,
       uiMotion: refs.uiMotion.value,
+      scrollbarStyle: refs.scrollbarStyle.value,
       pdfExportMode: refs.pdfExportMode.value,
       pdfRasterScale: refs.pdfRasterScale.value,
     };

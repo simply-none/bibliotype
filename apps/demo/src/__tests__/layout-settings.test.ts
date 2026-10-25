@@ -58,6 +58,7 @@ async function mountLayoutSection(
         uiSkin: 'paper',
         uiDensity: 'comfortable',
         uiMotion: 'auto',
+        scrollbarStyle: 'ink',
         pdfExportMode: 'in-app',
         pdfRasterScale: 2,
         fitScale,

@@ -24,6 +24,25 @@ import {
 import type { PdfExportMode, PdfRasterScale } from '../composables/use-settings-snapshot.js';
 import { useExport, type ExportDeps } from '../composables/use-export.js';
 
+/**
+ * 宿主判别式开关
+ *
+ * use-export 以 `host.isDesktop` 决定走 Electron 通道还是浏览器通道；
+ * 真宿主由构建期复制决定，测试里用可变 mock 覆盖两种环境。
+ */
+const hostState = vi.hoisted(() => ({ isDesktop: false }));
+
+vi.mock('../host/index.js', () => ({
+  host: {
+    /** 是否桌面宿主（测试内可变） */
+    get isDesktop() {
+      return hostState.isDesktop;
+    },
+    /** 落盘结果（测试内恒成功；路径由用例自行断言） */
+    downloadBytes: vi.fn(() => ({ ok: true })),
+  },
+}));
+
 vi.mock('@bibliotype/exporter-pdf', async (importOriginal) => {
   /* 保留真实的 dedupeInlineImages（纯函数，桌面分支用它做 data URI 去重令牌化） */
   const actual = await importOriginal<typeof import('@bibliotype/exporter-pdf')>();
@@ -87,6 +106,7 @@ function makeDeps(
 
 afterEach(() => {
   vi.clearAllMocks();
+  hostState.isDesktop = false;
   delete window.electronPdf;
   delete (window as unknown as { ipcRenderer?: unknown }).ipcRenderer;
 });
@@ -148,6 +168,7 @@ describe('useExport：PDF 三分路由', () => {
   });
 
   it('Electron 桥存在：恒走矢量直出，设置项不影响', async () => {
+    hostState.isDesktop = true;
     const bridgeExport = vi.fn(async () => new Uint8Array([7]));
     window.electronPdf = { exportPdf: bridgeExport };
     const deps = makeDeps('in-app');
@@ -158,11 +179,13 @@ describe('useExport：PDF 三分路由', () => {
     expect(bridgeExport).toHaveBeenCalledTimes(1);
     expect(exportRasterPdf).not.toHaveBeenCalled();
     expect(printHtml).not.toHaveBeenCalled();
-    expect(downloadPdf).toHaveBeenCalledTimes(1);
+    /* 桌面分支不走浏览器 Blob 下载，由宿主端口落盘 */
+    expect(downloadPdf).not.toHaveBeenCalled();
     expect(deps.pushToast).toHaveBeenCalledWith(expect.stringContaining('Electron'), 'success');
   });
 
   it('桌面宿主（window.ipcRenderer）：打开分段导出弹窗，确认前不发导出 IPC', async () => {
+    hostState.isDesktop = true;
     const channels: string[] = [];
     const handlePromise = vi.fn(async (channel: string) => {
       channels.push(channel);
@@ -194,6 +217,19 @@ describe('useExport：PDF 三分路由', () => {
     expect(downloadPdf).not.toHaveBeenCalled();
     expect(printHtml).not.toHaveBeenCalled();
   });
+  it('桌面宿主但无任何导出通道：明确报错，不静默落到浏览器打印', async () => {
+    hostState.isDesktop = true;
+    const deps = makeDeps('in-app');
+    const { onExportPdf, segmentDialogOpen } = useExport(deps);
+
+    await onExportPdf();
+
+    expect(segmentDialogOpen.value).toBe(false);
+    expect(printHtml).not.toHaveBeenCalled();
+    expect(renderPrintHtml).not.toHaveBeenCalled();
+    expect(deps.pushToast).toHaveBeenCalledWith(expect.stringContaining('导出通道不可用'), 'error');
+  });
+
   it('弹窗分段导出失败：段错误返回给弹窗（由弹窗标红该段并停止）', async () => {
     const deps = makeDeps('in-app');
     const { onExportPdf, segmentRunner } = useExport(deps);

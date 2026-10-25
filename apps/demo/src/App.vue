@@ -873,6 +873,7 @@ let perfProbe: PerfProbe | null = null;
       :metadata="currentMetadata"
       :editable="infoEditable"
       @save="onMetadataSave"
+      @notify="pushToast"
       @close="infoOpen = false"
     />
 

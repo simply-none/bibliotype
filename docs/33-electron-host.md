@@ -34,16 +34,22 @@
 | 成员 | 说明 |
 | --- | --- |
 | `hostName` | 链路名（`indexeddb` / `sqlite`），设置面板展示用 |
+| `isDesktop` | **导出 / 能力分支的唯一判别式**（Web 恒 `false`，Electron 恒 `true`） |
 | `createLibraryStores()` | 返回 `{ adapter: StorageAdapter, versionStore: DocumentVersionStore }` |
 | `createDraftStore()` | 编辑草稿存储（单条记录，键固定 `current`） |
 | `createStyleSettingsStore()` | 样式快照 / 预设存储（`StyleSettingsStore`） |
-| `downloadBytes(bytes, filename)` | 二进制导出（EPUB 等） |
-| `downloadText(text, filename, mime?)` | 文本导出（DublinCore / CNMARC 等，`mime` 缺省 `text/plain`） |
+| `downloadBytes(bytes, filename)` | 二进制导出（EPUB 等），返回 `ExportFileResult { ok, path?, error? }` |
+| `downloadText(text, filename, mime?)` | 文本导出（DublinCore / CNMARC 等，`mime` 缺省 `text/plain`），返回 `ExportFileResult` |
 | `storageKey(key)` | 包装 localStorage 键（Web 原样返回，Electron 加 `bt:` 前缀） |
+
+导出结果类型 `ExportFileResult`：Web 侧浏览器下载无绝对路径（`path` 缺省，恒 `ok: true`）；
+Electron 侧由主进程 `export-*-to-cache` 落盘并回传 `path`，失败时带 `error`
+（上层据此提示真实失败原因，不再「点了没反应」）。
 
 调用点分布在 `use-demo-library`、`use-edit-session`、`use-layout-tokens`、`use-export`、
 `use-settings-snapshot`、`use-toc-prefs`、`style-settings-persist`、`AnnotationPanel.vue`、
-`BookInfoDialog.vue`——这些文件两侧完全一致，不含任何 `electron` / `indexedDB` 判断分支。
+`BookInfoDialog.vue`——这些文件两侧完全一致，环境差异全部经 `host` 端口消化；
+需要分叉的行为统一读 `host.isDesktop`，不写 `window.electronPdf` / `ipcRenderer` 之类的探针判断。
 
 ## 三、目录与复制映射
 
@@ -140,11 +146,25 @@ Uint8Array 先在渲染端分块转 base64（`0x8000` 一段，避免 `String.fr
 
 ## 九、导出链路
 
-- EPUB / 文本类导出：`host.downloadBytes` / `host.downloadText` →
-  `export-buffer-to-cache` / `export-text-to-cache`，直接写入宿主缓存目录并提示文件定位；
-- PDF：沿用 demo 既有双桥（`window.electronPdf` 或 `window.ipcRenderer.handlePromise`
-  的 `bibliotype:export-*` 会话），未接入宿主通道时自动回退浏览器 `window.print()`；
-- 两条链路都不依赖 File System Access API。
+唯一判别式是 `host.isDesktop`（见第二节），两条链路互不交叉：
+
+**桌面（`isDesktop === true`）**
+
+- EPUB / 文本 / 书库压缩包：`host.downloadBytes` / `host.downloadText` →
+  主进程 `export-buffer-to-cache` / `export-text-to-cache`（`sendSync`），
+  直接写入宿主缓存目录（`fileCachePath` → 文档目录）并回传绝对路径，提示文案带路径；
+- PDF：恒走矢量打印引擎。优先 `window.electronPdf`（自包含 HTML → 离屏 `printToPDF`，
+  单文件经 `host.downloadBytes` 落盘）；否则用 `window.ipcRenderer.handlePromise`
+  的 `bibliotype:export-*` 分段会话，逐段落盘 `书名_00x.pdf`；两者都不存在时
+  **明确报错**（不再静默回退浏览器打印，避免「点了没反应」）。
+
+**Web（`isDesktop === false`）**
+
+- EPUB / 文本：Blob + `a[download]`；
+- PDF：按「其他」分区设置走应用内逐段光栅直出（`exportRasterPdf` + `pdf-lib`）
+  或浏览器打印对话框（手动另存为 PDF）。
+
+两条链路都不依赖 File System Access API。
 
 ## 十、排查
 
@@ -154,6 +174,8 @@ Uint8Array 先在渲染端分块转 base64（`0x8000` 一段，避免 `String.fr
 | 所有读写都报「不支持嵌套事务」 | 某次 `save` 外层已开事务，内层又调 `transaction` | 把多步写入合并进同一回调；驱动端口本就不支持嵌套 |
 | 保存后重启数据丢失 | 主进程未调用 `initBibliotypeStore()` 或数据库被写到了临时目录 | 确认调用点与实际库路径（`dir` / `fileName` 覆盖值或 `userData`），检查库文件是否生成 |
 | 下载无文件 | `export-*-to-cache` 通道未注册或参数结构不符 | 对照第六节通道表；同步查看主进程日志中的 `success: false` |
+| 导出提示「导出通道不可用」 | `host.isDesktop` 为 true 但 preload 既无 `electronPdf` 也无 `ipcRenderer` | 检查宿主 preload 暴露；桌面宿主不会回退浏览器打印 |
+| 提示导出成功但文件内容错乱 | 调用 `host.downloadText` 时把参数写反（`filename` 当 `text`） | 参数顺序固定为 `(text, filename, mime?)` |
 | 样式设置不落库 | 未用 `createStyleSettingsStore()` 覆盖 vue 默认 localStorage 实现 | 在调用 `useStyleSettings` 处显式传 `store` |
 | localStorage 键冲突 | 直写了未包装的键 | 所有读写必须经 `host.storageKey()` |
 

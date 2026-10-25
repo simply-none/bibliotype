@@ -86,12 +86,21 @@ export interface HostEnvironment {
   createDraftStore(): StorageAdapter;
   /** 样式设置存储（useStyleSettings 的 store 注入） */
   createStyleSettingsStore(): StyleSettingsStore;
-  /** 二进制下载（EPUB / 整库备份 / PDF 浏览器兜底） */
-  downloadBytes(bytes: Uint8Array, filename: string): void;
+  /** 是否桌面宿主（导出 / 能力分支的唯一判别式） */
+  readonly isDesktop: boolean;
+  /** 二进制下载（EPUB / 整库备份 / PDF） */
+  downloadBytes(bytes: Uint8Array, filename: string): ExportFileResult;
   /** 文本下载（编目 DC JSON / CNMARC 等） */
-  downloadText(text: string, filename: string): void;
+  downloadText(text: string, filename: string, mime?: string): ExportFileResult;
   /** localStorage 键包装（electron 侧加前缀防碰撞；web 侧原样返回） */
   storageKey(key: string): string;
+}
+
+/** 导出结果：web 无路径恒 ok；electron 由主进程回传落盘路径 / 失败原因 */
+interface ExportFileResult {
+  ok: boolean;
+  path?: string;
+  error?: string;
 }
 ```
 
@@ -105,10 +114,11 @@ export interface HostEnvironment {
 | createLibraryStores | `new IndexedDbAdapter({databaseName:'bibliotype-demo-library', storeName:'books'})` + `new IndexedDbVersionStore()`（现状逻辑搬迁） | `new SqliteAdapter({driver})` + `new SqliteVersionStore({driver})`，driver 来自 `createIpcSqliteDriver()` |
 | createDraftStore | `new IndexedDbAdapter({databaseName:'bibliotype-demo', storeName:'drafts'})`（现状逻辑搬迁） | 同一 driver 的 `new SqliteAdapter({driver})` |
 | createStyleSettingsStore | `createStyleStore()`（adapter-indexeddb 自动降级，现状逻辑） | `new SQLiteStyleStore({driver})`（N2 交付） |
-| downloadBytes / downloadText | `Blob` + `URL.createObjectURL` + `<a download>`（现状 `downloadBytes` 逻辑搬迁） | `window.ipcRenderer.sendSync('export-buffer-to-cache', {base64, filename})` / `('export-text-to-cache', {text, filename})`；返回 `{success, path}` → toast 展示路径，点击经 `open-file-in-assets-manager` 通道定位文件 |
+| downloadBytes / downloadText | `Blob` + `URL.createObjectURL` + `<a download>`（现状 `downloadBytes` 逻辑搬迁），返回 `{ ok: true }` | `window.ipcRenderer.sendSync('export-buffer-to-cache', {base64, filename})` / `('export-text-to-cache', {text, filename})`；`invokeSync` 把 `{success, path, message}` 归一为 `ExportFileResult`，toast 展示落盘路径 |
+| isDesktop | `false`（PDF 按设置走光栅 / 打印对话框） | `true`（PDF 恒走矢量打印引擎；无通道明确报错） |
 | storageKey | `(key) => key` | `(key) => \`bt:${key}\`` |
 
-**electron.ts 自包含边界（硬约束）**：只准使用 `window.ipcRenderer` 全局（复用 `use-export.ts` 既有 `declare global` 声明）、`@bibliotype/*` 已发包、web 标准 API；**禁止 import jianli-app 模块或 `@/` alias**——保证 note_npm 侧 `vue-tsc` 可解析、复制即用。base64 编码在渲染端完成（`btoa` + 二进制转字符串，或 `FileReader.readAsDataURL` 剥前缀）。
+**electron.ts 自包含边界（硬约束）**：只准使用 `window.ipcRenderer` 全局（局部接口 + `as unknown as` 断言，**不写 `declare global`**，避免与宿主类型冲突）、`@bibliotype/*` 已发包、web 标准 API；**禁止 import jianli-app 模块或 `@/` alias**——保证 note_npm 侧 `vue-tsc` 可解析、复制即用。base64 编码在渲染端完成（`btoa` + 分块拼接）。
 
 ### 1.4 复制映射表
 
@@ -154,12 +164,12 @@ export interface HostEnvironment {
 | [use-edit-session.ts](apps/demo/src/composables/use-edit-session.ts#L64) | `new IndexedDbAdapter({databaseName:'bibliotype-demo', storeName:'drafts'})` 硬编码 | 改为 `host.createDraftStore()` |
 | [use-layout-tokens.ts](apps/demo/src/composables/use-layout-tokens.ts#L66) | `useStyleSettings({ bookId: currentBookId, draft: true })` 未传 store（内部自动 IndexedDB） | 增补 `store: host.createStyleSettingsStore()` |
 | [use-style-settings.ts](apps/demo/src/composables/use-style-settings.ts#L72) | `store = options.store ?? createStyleStore()` | 保留缺省链路不动（注入优先生效；web host 传入的就是原逻辑） |
-| [use-export.ts](apps/demo/src/composables/use-export.ts#L269-L276) | `download()` 内置 Blob + `a[download]` | 改为经 host（EPUB 下载、浏览器 PDF 兜底共用）；PDF 双桥（`window.electronPdf` L329、`getDesktopIpc()` L340）**零改动** |
+| [use-export.ts](apps/demo/src/composables/use-export.ts#L263-L307) | `download()` 内置 Blob + `a[download]`；PDF 靠 `window.electronPdf` / `getDesktopIpc()` 探针决定路由，Electron 缺桥时静默落到浏览器打印 | `download()` 转发 `host.downloadBytes` 并返回 `ExportFileResult`；EPUB 加 try/catch + 失败/路径提示；`onExportPdf` 以 `host.isDesktop` 分叉：桌面走矢量桥（经 host 落盘）或 `bibliotype:export-*` 会话，无通道明确报错；Web 保持光栅 / 打印对话框 |
+| [BookInfoDialog.vue](apps/demo/src/components/BookInfoDialog.vue#L43-L86) | 组件本地 `downloadText`（Blob + `a[download]`，编目 DC/CNMARC 导出用）；后改为 `host.downloadText` 但**参数写反**导致静默失败 | 统一 `exportText(text, filename, mime, label)` → `host.downloadText(text, filename, mime)`，结果经 `notify` emit 转全局 toast（Electron 带落盘路径） |
 | [use-settings-snapshot.ts](apps/demo/src/composables/use-settings-snapshot.ts#L32-L36) | 导出常量 `POSITION_KEY` / `LAST_PAGE_KEY` / `SETTINGS_KEY`（`bibliotype-demo:*`） | 三键读写经 `host.storageKey()` 包装（常量名保留，值经包装） |
 | [use-toc-prefs.ts](apps/demo/src/composables/use-toc-prefs.ts#L14) | `TOC_PREFS_KEY = 'bibliotype-demo:toc-prefs'` | 同上 |
 | [ui-skin.ts](apps/demo/src/ui-skin.ts) | 皮肤键直接写 localStorage | 键经 `host.storageKey()` |
 | [AnnotationPanel.vue](apps/demo/src/components/AnnotationPanel.vue#L31) | `` `bt-demo:annotations:${props.bookId}` `` | 键经 `host.storageKey()` |
-| [BookInfoDialog.vue](apps/demo/src/components/BookInfoDialog.vue#L41-L48) | 组件本地 `downloadText`（Blob + `a[download]`，编目 DC/CNMARC 导出用） | 删除本地实现，改转发 `host.downloadText` |
 | [style-settings-persist.ts](apps/demo/src/composables/style-settings-persist.ts#L17) | `bt-demo:settings` 旧版迁移键 | 经 `host.storageKey()`（迁移语义两侧一致） |
 
 > localStorage 键全表（electron 侧经 `storageKey()` 后实际键 = `bt:` + 原键）：
@@ -316,7 +326,7 @@ pnpm build && pnpm typecheck && pnpm test         # 全仓交付底线（turbo �
 | 3 | 单连接串行吞吐上限 | demo 规模够用；后续并发需求升级路径：主进程换 better-sqlite3 + `createBetterSqliteDriver`（包内已支持），渲染端零改动 |
 | 4 | `bibliotype:export-*` 会话单槽：路由页与独立工作台窗口同时导出互踩（exportId 覆盖） | 已知限制，J6 文档注明；体验上两入口短时不会同时导出 |
 | 5 | vue 3.5 特性回落 | J1 检查项；命中在通用代码侧改并回传 demo |
-| 6 | `host/electron.ts` 的 `window.ipcRenderer` / `electronPdf` 类型 | 复用 `use-export.ts` 既有 `declare global`，不重复声明（冲突会编译错） |
+| 6 | `host/electron.ts` 与 `use-export.ts` 的 `window.ipcRenderer` / `electronPdf` 类型 | 一律局部接口 + `as unknown as` 断言，**不写 `declare global`**（宿主已有完整声明，重复声明会 TS2687 / TS2717） |
 | 7 | electron host 自包含边界破坏（import jianli 模块） | §1.3 硬约束 + N6 的 `vue-tsc` 把关（alias 解析失败即编译错） |
 | 8 | `crypto.subtle` secure context | Electron `file://` / localhost 均可信，预期可用；J5-11 实测兜底 |
 | 9 | newSql 通道误用 | 存储一律走 `bibliotype:sql-*` 专用通道；jianli 红线：严禁裸 `new-sql:execute`（自动建表劫持 / PRAGMA 无结果 / SELECT 在 data.rows 三坑不适用于专用通道） |

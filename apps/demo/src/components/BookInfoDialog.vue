@@ -22,6 +22,8 @@ const props = defineProps<{ metadata: BookMetadata; editable?: boolean }>();
 const emit = defineEmits<{
   close: [];
   save: [patch: Partial<BookMetadata>];
+  /** 导出结果反馈（外层统一转 toast；Electron 宿主会带落盘路径） */
+  notify: [message: string, tone: 'success' | 'error'];
 }>();
 
 /**
@@ -38,21 +40,48 @@ const { editing, draft, subdivisionOptions, startEdit, cancelEdit, save } = useM
   onSave: (patch) => emit('save', patch),
 });
 
+/**
+ * 导出文本内容并反馈结果
+ *
+ * 参数顺序与宿主端口一致：`downloadText(text, filename, mime)`。
+ * Web 侧走浏览器下载（无路径）；Electron 侧由主进程落盘并回传绝对路径，
+ * 失败时把原因透出（此前参数颠倒 + 结果被忽略，导致导出「点了没反应」）。
+ *
+ * @param text 文本内容
+ * @param filename 文件名（含扩展名）
+ * @param mime MIME 类型
+ * @param label 人类可读的导出名称（用于提示文案）
+ */
+function exportText(text: string, filename: string, mime: string, label: string): void {
+  const result = host.downloadText(text, filename, mime);
+  if (!result.ok) {
+    emit('notify', `${label}导出失败：${result.error ?? '未知原因'}`, 'error');
+    return;
+  }
+  emit(
+    'notify',
+    result.path === undefined ? `已导出${label}` : `已导出${label}：${result.path}`,
+    'success',
+  );
+}
+
 /** 导出都柏林核心 JSON */
 function exportDublinCore(): void {
-  host.downloadText(
-    `${safeFilename(props.metadata.title)}-dc.json`,
+  exportText(
     toDublinCoreJson(props.metadata),
+    `${safeFilename(props.metadata.title)}-dc.json`,
     'application/json',
+    '都柏林核心 JSON',
   );
 }
 
 /** 导出 CNMARC 字段行文本 */
 function exportCnmarc(): void {
-  host.downloadText(
-    `${safeFilename(props.metadata.title)}-cnmarc.txt`,
+  exportText(
     toCnmarcText(props.metadata),
+    `${safeFilename(props.metadata.title)}-cnmarc.txt`,
     'text/plain',
+    'CNMARC 文本',
   );
 }
 </script>

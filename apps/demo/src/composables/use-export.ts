@@ -1,13 +1,13 @@
 /**
  * 导出 / 打印（EPUB · PDF）
  *
+ * 环境判别式：`host.isDesktop`（web 宿主恒 false，Electron 宿主恒 true）。
+ * - Web：EPUB / 文本走浏览器下载；PDF 按「其他」分区设置走应用内光栅直出或打印对话框。
+ * - Electron：EPUB / 文本经宿主同步 IPC 直接落盘（回传绝对路径）；PDF 恒走矢量打印引擎
+ *   （`bibliotype:export-*` 分段会话，逐段落盘）。桌面通道缺失时明确报错，不静默降级。
+ *
  * EPUB：按当前主题、字号行距与配色令牌所见即所得导出（含已保存编辑内容），
  * 导出前跑 epubcheck 规则子集校验，error 汇总提示（避免「自研能开、第三方打不开」）。
- * PDF 三条路径——
- * 1. Electron 宿主（window.electronPdf）：自包含 HTML → printToPDF 矢量直出，恒定可用；
- * 2. 浏览器「应用内直出」（pdfExportMode 缺省）：exportRasterPdf 逐页光栅化后
- *    经 pdf-lib 拼成 PDF 直接下载，免打印对话框、带进度可中止，大部头显著更快；
- * 3. 浏览器「浏览器对话框导出」：blob 化去重 + 隐藏 iframe 打印（需手动另存为 PDF）。
  * 缺字（K6）只警告、不阻断。
  *
  * 消费 layout / reader 两块产出的响应式引用，保证与屏幕预览同源。
@@ -35,6 +35,7 @@ import {
 import { createFontCheckProbe, splitFontFamilyList } from '@bibliotype/vue';
 import { lunyuDocument } from '../data/lunyu.js';
 import { host } from '../host/index.js';
+import type { ExportFileResult } from '../host/types.js';
 import type { PdfExportMode, PdfRasterScale } from './use-settings-snapshot.js';
 import type { LayoutTokensApi } from './use-layout-tokens.js';
 import type { ReaderSessionApi } from './use-reader-session.js';
@@ -262,13 +263,14 @@ export function useExport(deps: ExportDeps) {
   /**
    * 触发文件下载（委托宿主）
    *
-   * web：浏览器下载；Electron：写宿主缓存目录并提示定位。
+   * web：浏览器下载；Electron：写宿主缓存目录并返回落盘路径。
    *
    * @param filename 文件名（含扩展名）
    * @param bytes 文件字节
+   * @returns 导出结果（Electron 含落盘路径；失败含原因）
    */
-  function download(filename: string, bytes: Uint8Array): void {
-    host.downloadBytes(bytes, filename);
+  function download(filename: string, bytes: Uint8Array): ExportFileResult {
+    return host.downloadBytes(bytes, filename);
   }
 
   /** 导出 EPUB（按当前主题、字号行距与配色令牌，所见即所得；含已保存的编辑内容） */
@@ -279,18 +281,29 @@ export function useExport(deps: ExportDeps) {
     /* 导出前校验（epubcheck 规则子集）：error 级问题在此汇总提示，
        避免「自研阅读器能开、京东读书 / 微信读书打不开」的兼容黑洞。 */
     const problems: ValidationProblem[] = [];
-    const bytes = exportEpub(book, {
-      layout: layout.effectiveLayout.value,
-      tokens: layout.tokens.value,
-      fontToken,
-      features: layout.features.value,
-      namedStyles: layout.namedStyles.value,
-      onValidation: (list) => {
-        problems.push(...list);
-      },
-    });
-    download('论语.epub', bytes);
-    reportExportProblems(problems);
+    let bytes: Uint8Array;
+    try {
+      bytes = exportEpub(book, {
+        layout: layout.effectiveLayout.value,
+        tokens: layout.tokens.value,
+        fontToken,
+        features: layout.features.value,
+        namedStyles: layout.namedStyles.value,
+        onValidation: (list) => {
+          problems.push(...list);
+        },
+      });
+    } catch (error) {
+      /* 生成阶段异常（书档异常 / 字体资源缺失）不能静默：此前无捕获会让点击毫无反应 */
+      pushToast(`导出 EPUB 失败：${error instanceof Error ? error.message : String(error)}`, 'error');
+      return;
+    }
+    const result = download('论语.epub', bytes);
+    if (!result.ok) {
+      pushToast(`导出 EPUB 失败：${result.error ?? '未知原因'}`, 'error');
+      return;
+    }
+    reportExportProblems(problems, result.path);
   }
 
   /**
@@ -298,10 +311,21 @@ export function useExport(deps: ExportDeps) {
    *
    * 无问题：一条「已导出 EPUB」成功提示；有问题：按 error / warning 给不同语气，
    * 并把前 3 条明细带进文案（完整清单仍逐条打印到 console）。
+   *
+   * @param problems 校验问题清单
+   * @param savedPath 落盘绝对路径（Electron 宿主有值；Web 缺省）
    */
-  function reportExportProblems(problems: readonly ValidationProblem[]): void {
+  function reportExportProblems(
+    problems: readonly ValidationProblem[],
+    savedPath?: string,
+  ): void {
     if (problems.length === 0) {
-      pushToast('已导出 EPUB（校验通过）', 'success');
+      pushToast(
+        savedPath === undefined
+          ? '已导出 EPUB（校验通过）'
+          : `已导出 EPUB（校验通过）：${savedPath}`,
+        'success',
+      );
       return;
     }
     const errors = problems.filter((p) => p.severity === 'error');
@@ -354,9 +378,11 @@ export function useExport(deps: ExportDeps) {
    * 分页模式（pdfPagedMode）：逐页（paged，与屏幕预览逐页同源）/ 连续（auto，更快）。
    * 逐页模式附带屏幕实测数据（与预览同源）；连续模式由打印引擎分页。
    *
-   * 路由：Electron 桥恒走矢量直出（设置项不影响宿主）；无桥时按「其他」分区的
-   * 导出方式走应用内光栅直出（带进度，可中止）或浏览器打印对话框。导出中再点
-   * = 中止当前任务。
+   * 路由（判别式 `host.isDesktop`）：
+   * - Electron：矢量桥（window.electronPdf）优先并直接落盘；否则用 preload 的
+   *   ipcRenderer 打开 `bibliotype:export-*` 分段会话弹窗。两者都缺则明确报错。
+   * - Web：按「其他」分区的导出方式走应用内光栅直出（带进度，可中止）或浏览器打印对话框。
+   * 导出中再点 = 中止当前任务。
    */
   async function onExportPdf(): Promise<void> {
     /* 导出中再点 = 中止：光栅路径逐页响应；桌面宿主分段路径透传中止（当前段完成后
@@ -399,21 +425,38 @@ export function useExport(deps: ExportDeps) {
     pdfAbort = new AbortController();
     const { signal } = pdfAbort;
     try {
-      const bridge = getElectronPdfBridge();
-      if (bridge !== undefined) {
-        /* adapter 路径：自包含 HTML（不传 rewriteSrc，离屏窗口拿不到 blob: URL） */
-        const bytes = await exportPdfBytes(book, {
-          ...base,
-          ...measured,
-          adapter: { toPdf: (html, opts) => bridge.exportPdf(html, opts) },
-        });
-        downloadPdf(bytes, `${book.metadata.title || '书籍'}.pdf`);
-        pushToast('已导出 PDF（Electron 打印引擎）', 'success');
-        return;
-      }
+      /* 判别式：桌面宿主恒走 Electron 打印引擎；Web 走浏览器光栅 / 打印对话框 */
+      if (host.isDesktop) {
+        const bridge = getElectronPdfBridge();
+        if (bridge !== undefined) {
+          /* 矢量桥：自包含 HTML → 离屏窗口 printToPDF（不传 rewriteSrc，离屏窗口拿不到 blob: URL），
+           * 结果经宿主 IPC 直接落盘（不走浏览器 Blob 下载）。 */
+          const bytes = await exportPdfBytes(book, {
+            ...base,
+            ...measured,
+            adapter: { toPdf: (html, opts) => bridge.exportPdf(html, opts) },
+          });
+          const result = download(`${book.metadata.title || '书籍'}.pdf`, bytes);
+          if (!result.ok) throw new Error(result.error ?? '写入 PDF 文件失败');
+          pushToast(
+            result.path === undefined
+              ? '已导出 PDF（Electron 打印引擎）'
+              : `已导出 PDF（Electron 打印引擎）：${result.path}`,
+            'success',
+          );
+          return;
+        }
 
-      const desktop = getDesktopIpc();
-      if (desktop !== undefined) {
+        const desktop = getDesktopIpc();
+        if (desktop === undefined) {
+          /* 无桌面通道：明确报错。此前会静默落到浏览器打印对话框，在 Electron 里表现为「点了没反应」 */
+          pushToast(
+            'Electron 导出通道不可用：preload 未暴露 ipcRenderer / electronPdf，无法调用矢量打印引擎',
+            'error',
+          );
+          return;
+        }
+
         /* 桌面宿主（如渐离App）：打开分段导出弹窗——用户设置每卷页数、预览分段区域，
          * 确认后弹窗内逐段矢量打印并独立落盘（`书名_00x.pdf`），不合并单文件。
          * 书档里同一缺字图以完整 data URI 逐处重复（整本数百 MB），会话协议把

@@ -25,8 +25,13 @@ const strategy = ref<BackupConflictStrategy>('merge');
 async function exportLibrary(): Promise<void> {
   busy.value = true;
   try {
-    await props.api.exportLibrary();
-    emit('notify', '整库备份已导出');
+    const result = await props.api.exportLibrary();
+    /* 桌面宿主会回传绝对路径；失败时把原因透出，不再无条件报「已导出」 */
+    if (!result.ok) {
+      emit('notify', `整库备份导出失败：${result.error ?? '未知原因'}`);
+      return;
+    }
+    emit('notify', result.path === undefined ? '整库备份已导出' : `整库备份已导出：${result.path}`);
   } finally {
     busy.value = false;
   }

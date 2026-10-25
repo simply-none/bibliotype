@@ -10,9 +10,9 @@
  */
 import { IndexedDbAdapter, IndexedDbVersionStore, createStyleStore } from '@bibliotype/adapter-indexeddb';
 import type { StorageAdapter, StyleSettingsStore } from '@bibliotype/core';
-import type { HostEnvironment, HostLibraryStores } from './types.js';
+import type { ExportFileResult, HostEnvironment, HostLibraryStores } from './types.js';
 
-export type { HostEnvironment, HostLibraryStores } from './types.js';
+export type { ExportFileResult, HostEnvironment, HostLibraryStores } from './types.js';
 
 /** 书库库名 / 仓名（与改造前一致） */
 const LIBRARY_DB = 'bibliotype-demo-library';
@@ -39,6 +39,7 @@ function downloadBlob(blob: Blob, filename: string): void {
 /** Web 宿主实现（浏览器缺省链路） */
 export const host: HostEnvironment = {
   hostName: 'indexeddb',
+  isDesktop: false,
 
   /** 书库：IndexedDB 文档适配器 + IndexedDB 版本仓 */
   createLibraryStores(): HostLibraryStores {
@@ -58,14 +59,16 @@ export const host: HostEnvironment = {
     return createStyleStore();
   },
 
-  /** 二进制下载：Blob + a[download] */
-  downloadBytes(bytes: Uint8Array, filename: string): void {
+  /** 二进制下载：Blob + a[download]（浏览器无落盘路径，返回成功即可） */
+  downloadBytes(bytes: Uint8Array, filename: string): ExportFileResult {
     downloadBlob(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }), filename);
+    return { ok: true };
   },
 
   /** 文本下载：Blob（按需指定 MIME） */
-  downloadText(text: string, filename: string, mime: string = 'text/plain'): void {
+  downloadText(text: string, filename: string, mime: string = 'text/plain'): ExportFileResult {
     downloadBlob(new Blob([text], { type: `${mime};charset=utf-8` }), filename);
+    return { ok: true };
   },
 
   /** localStorage 键：web 侧原样返回 */

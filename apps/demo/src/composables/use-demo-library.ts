@@ -37,6 +37,7 @@ import { useBookLibrary } from '@bibliotype/vue';
 import type { UseBookLibraryReturn } from '@bibliotype/vue';
 import { reactive, ref, shallowRef, type Ref, type ShallowRef } from 'vue';
 import { host } from '../host/index.js';
+import type { ExportFileResult } from '../host/types.js';
 import { DEMO_VALIDATE_OPTIONS } from '../ir-types.js';
 import { demoZipCodec } from '../zip-codec.js';
 
@@ -98,15 +99,17 @@ function fromBase64(value: string): Uint8Array {
 }
 
 /**
- * 触发文件下载（对外签名保持不变）
+ * 触发文件下载（委托宿主）
  *
- * 实现委托宿主：web 走浏览器下载，Electron 落宿主缓存目录。
+ * web 走浏览器下载（无路径）；Electron 落宿主缓存目录并回传路径。
+ * 返回结果供调用方提示真实成败（此前 `void` 会把桌面落盘失败静默掉）。
  *
  * @param bytes 文件字节
  * @param fileName 文件名（含扩展名）
+ * @returns 导出结果（Electron 含落盘路径；失败含原因）
  */
-export function downloadBytes(bytes: Uint8Array, fileName: string): void {
-  host.downloadBytes(bytes, fileName);
+export function downloadBytes(bytes: Uint8Array, fileName: string): ExportFileResult {
+  return host.downloadBytes(bytes, fileName);
 }
 
 /** demo 书库 API */
@@ -123,8 +126,8 @@ export interface DemoLibraryApi {
   saveBook: (document: BookDocument, id: string) => Promise<void>;
   /** 读取书库文档 */
   readBook: (id: string) => Promise<BookDocument | undefined>;
-  /** 导出整库 */
-  exportLibrary: () => Promise<void>;
+  /** 导出整库（返回落盘结果：Electron 带路径，失败带原因） */
+  exportLibrary: () => Promise<ExportFileResult>;
   /** 从备份恢复 */
   importLibrary: (bytes: Uint8Array, strategy: BackupConflictStrategy) => Promise<void>;
   /** 记录快照 */
@@ -250,7 +253,7 @@ export function useDemoLibrary(): DemoLibraryApi {
     return adapter.load(id);
   }
 
-  async function exportLibrary(): Promise<void> {
+  async function exportLibrary(): Promise<ExportFileResult> {
     const summaries: DocumentSummary[] = await adapter.list();
     progress.value = { current: 0, total: summaries.length };
     const books: { id: string; title: string; archive: Uint8Array }[] = [];
@@ -281,8 +284,9 @@ export function useDemoLibrary(): DemoLibraryApi {
       books,
       settings: { demo: true },
     });
-    downloadBytes(await demoZipCodec.zip(files), 'bibliotype-library.zip');
+    const result = downloadBytes(await demoZipCodec.zip(files), 'bibliotype-library.zip');
     progress.value = null;
+    return result;
   }
 
   async function importLibrary(

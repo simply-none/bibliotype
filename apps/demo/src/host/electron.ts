@@ -21,9 +21,9 @@ import type {
   SqliteStatement,
 } from '@bibliotype/adapter-sqlite';
 import type { StorageAdapter, StyleSettingsStore } from '@bibliotype/core';
-import type { HostEnvironment, HostLibraryStores } from './types.js';
+import type { ExportFileResult, HostEnvironment, HostLibraryStores } from './types.js';
 
-export type { HostEnvironment, HostLibraryStores } from './types.js';
+export type { ExportFileResult, HostEnvironment, HostLibraryStores } from './types.js';
 
 /** 桌面宿主 preload 暴露的 IPC 桥（只取本适配层用到的两个方法） */
 interface DesktopIpcBridge {
@@ -47,19 +47,28 @@ async function invoke<T>(channel: string, args?: unknown): Promise<T> {
   return (await bridge.handlePromise(channel, args)) as T;
 }
 
-/** 调用主进程同步通道（导出落盘；失败仅告警，不中断界面） */
-function invokeSync(channel: string, args: unknown): void {
+/**
+ * 调用主进程同步通道（导出落盘）
+ *
+ * 主进程 `export-*-to-cache` 返回 `{ success, path?, message? }`；本函数把它归一为
+ * `ExportFileResult`，让上层能提示真实失败原因与实际落盘路径（不再静默吞掉）。
+ *
+ * @param channel 主进程通道名
+ * @param args 通道参数
+ * @returns 导出结果（IPC 不可用 / 写入失败时 `ok = false`）
+ */
+function invokeSync(channel: string, args: unknown): ExportFileResult {
   const bridge = getBridge();
   if (bridge === undefined) {
-    console.warn(`[bibliotype-host] 桌面宿主 IPC 不可用（${channel}）`);
-    return;
+    return { ok: false, error: `桌面宿主 IPC 不可用（${channel}）` };
   }
   const result = bridge.sendSync(channel, args) as
-    | { success?: boolean; path?: string; error?: string }
+    | { success?: boolean; path?: string; message?: string; error?: string }
     | undefined;
-  if (result?.success === false) {
-    console.warn(`[bibliotype-host] ${channel} 失败：${result.error ?? '未知原因'}`);
+  if (result?.success === true) {
+    return { ok: true, path: result.path };
   }
+  return { ok: false, error: result?.message ?? result?.error ?? '写入文件失败' };
 }
 
 /**
@@ -151,6 +160,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 /** Electron 宿主实现（宿主项目内的 `host/index.ts`） */
 export const host: HostEnvironment = {
   hostName: 'sqlite',
+  isDesktop: true,
 
   /** 书库：SQLite 文档适配器 + SQLite 版本仓（同一驱动 / 同一库文件） */
   createLibraryStores(): HostLibraryStores {
@@ -171,17 +181,17 @@ export const host: HostEnvironment = {
     return new SQLiteStyleStore({ driver: getSharedDriver() });
   },
 
-  /** 二进制下载：base64 → 宿主缓存目录（主进程落盘并提示定位） */
-  downloadBytes(bytes: Uint8Array, filename: string): void {
-    invokeSync('export-buffer-to-cache', {
+  /** 二进制下载：base64 → 宿主缓存目录（主进程落盘并返回路径） */
+  downloadBytes(bytes: Uint8Array, filename: string): ExportFileResult {
+    return invokeSync('export-buffer-to-cache', {
       base64: bytesToBase64(bytes),
       filename,
     });
   },
 
-  /** 文本下载：直接写宿主缓存目录 */
-  downloadText(text: string, filename: string): void {
-    invokeSync('export-text-to-cache', { text, filename });
+  /** 文本下载：直接写宿主缓存目录（返回实际路径） */
+  downloadText(text: string, filename: string): ExportFileResult {
+    return invokeSync('export-text-to-cache', { text, filename });
   },
 
   /** localStorage 键：加 `bt:` 前缀，避免与宿主自身键冲突 */

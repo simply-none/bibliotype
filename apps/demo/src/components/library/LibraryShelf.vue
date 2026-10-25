@@ -60,8 +60,16 @@ async function openFromShelf(id: string): Promise<void> {
 
 async function exportFromShelf(id: string): Promise<void> {
   const result = await props.api.library.exportBook(id);
-  downloadBytes(result.bytes, result.fileName);
-  emit('notify', `已导出《${result.title}》`);
+  const write = downloadBytes(result.bytes, result.fileName);
+  /* 桌面宿主落盘失败 / 带路径：如实反馈（Web 侧恒成功且无路径） */
+  if (!write.ok) {
+    emit('notify', `《${result.title}》导出失败：${write.error ?? '未知原因'}`);
+    return;
+  }
+  emit(
+    'notify',
+    write.path === undefined ? `已导出《${result.title}》` : `已导出《${result.title}》：${write.path}`,
+  );
 }
 
 async function importToShelf(bytes: Uint8Array): Promise<void> {

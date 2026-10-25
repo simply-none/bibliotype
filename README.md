@@ -165,14 +165,18 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 
 | 选项 | 建议值 |
 | --- | --- |
-| 类型 | **Granular Access Token**（或 Classic 的 **Automation** token） |
-| Permissions | `Read and write`（需要发布权限） |
-| Packages and scopes | 选 `@bibliotype`（或 All packages） |
+| 类型 | **Granular Access Token**（npm 自 2025-11 起只支持此类） |
+| Permissions | `Read and write` |
+| 发布方式 | **publish and stage**（选 *stage only* 无法直接发布） |
+| Packages and scopes | **必须显式选中 `@bibliotype` 这个 scope**（*All packages* 只覆盖签发时已存在的包，首次发布的 23 个新包不在其中，会得到 404） |
+| Organizations | 若界面要求，勾选 `bibliotype` 组织 |
 | Bypass 2FA | **勾选**（否则非交互发布会因缺 OTP 失败，`EOTP`） |
 | Expiration | 按需（如 90 天；到期后重签发并更新文件） |
 
-若账号开启了 2FA，**不要**用 Classic 的 *Publish* 类型令牌（它仍要 OTP），
-务必用 Automation 或勾了 Bypass 2FA 的 Granular token。
+> 签发令牌后**不要**修改它的权限——granular token 只能在签发时设定，改动等于重签。
+
+> 换句话说：**任何发布都必须用勾了 Bypass 2FA 的 Granular token**，
+> 交互式 `npm login` + OTP 只适合临时手工发布，脚本批量发布用不了。
 
 **③ 把令牌写入 `.npmrc.publish`**（项目根，已 `.gitignore`，不会入库）
 
@@ -276,8 +280,9 @@ pnpm release
 | 报错 / 现象 | 原因与处理 |
 | --- | --- |
 | `npm ERR! 401 Unauthorized` / `ENEEDAUTH` | token 缺失或过期：检查 `.npmrc.publish` 的 `_authToken`，重新签发 |
+| `404 Not Found - PUT https://registry.npmjs.org/@bibliotype%2f...` | 令牌未授权该 scope：Granular token 的 *Packages and scopes* 必须显式勾选 **`@bibliotype`**（选 *All packages* 只覆盖签发时已存在的包，首次发布的新包不在其中），且发布方式选 **publish and stage**（stage only 不能直接发） |
 | `npm ERR! 403 ... scope` / `404 Scope not found` | `@bibliotype` scope 不属于当前账号：创建组织并加入成员（见 0.①） |
-| `npm ERR! 403 ... two-factor` / `EOTP` | 令牌未勾 Bypass 2FA：改用 Automation token 或勾选 Bypass |
+| `npm ERR! 403 ... two-factor` / `EOTP` | 令牌未勾 Bypass 2FA：重签 granular token 并勾选 Bypass 2FA |
 | `npm ERR! 403 ... cannot publish over` | 该版本已存在：改代码后重跑 `pnpm version:rc` 生成新版本号（重跑同版本会被自动跳过） |
 | `[publish] 错误：... 与待发版本 ... 不一致` | 本地 `package.json` 被改过：重新执行 `pnpm version:rc` / `version:latest:reuse` |
 | `[publish] 错误：未找到 .release/pending.json` | 还没应用版本：先跑 `pnpm version:rc`（或 `:all`） |

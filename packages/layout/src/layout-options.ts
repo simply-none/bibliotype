@@ -20,6 +20,8 @@ export const PAGE_NUMBER_STYLES = {
   CHINESE: 'chinese',
   /** 罗马数字 */
   ROMAN: 'roman',
+  /** 叶次 a/b（一叶两半叶：第 X 叶·上 / 下，筒子叶页码体系） */
+  LEAF_AB: 'leaf-ab',
 } as const;
 
 /** 页码样式联合类型 */

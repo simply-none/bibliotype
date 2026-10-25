@@ -12,6 +12,11 @@ import {
 } from '@bibliotype/layout';
 import type { PageChromeField } from './settings-types.js';
 import type { StyleSettingsApi } from '../../composables/use-style-settings.js';
+import {
+  PAGE_CHROME_PRESETS,
+  resolvePageChromePreset,
+  type PageChromePreset,
+} from './settings-presets.js';
 
 const props = defineProps<{
   /** 样式设置 API（状态 + 持久化 + 预设） */
@@ -62,9 +67,39 @@ function toggleChrome(enabled: boolean): void {
     });
   }
 }
+
+/** 当前配置命中哪个组合预设（四字段全等；单项微调后熄灭） */
+const activeChromePreset = computed(() => resolvePageChromePreset(chrome.value));
+
+/** 套用组合预设：一次写入页眉 / 页脚内容与占位 */
+function applyChromePreset(preset: PageChromePreset): void {
+  patchChrome({
+    header: preset.header,
+    headerSize: preset.headerSize,
+    footer: preset.footer,
+    footerSize: preset.footerSize,
+  });
+}
 </script>
 
 <template>
+  <div class="panel__field">
+    <span class="panel__label">常用组合</span>
+    <div class="panel__chips">
+      <button
+        v-for="preset in PAGE_CHROME_PRESETS"
+        :key="preset.key"
+        type="button"
+        class="panel__chip"
+        :class="{ 'panel__chip--active': activeChromePreset === preset.key }"
+        @click="applyChromePreset(preset)"
+      >
+        {{ preset.label }}
+      </button>
+    </div>
+    <span class="panel__hint">组合预设一次写入页眉 / 页脚内容与占位，单项微调后高亮熄灭。</span>
+  </div>
+
   <label class="panel__switch">
     <input type="checkbox" :checked="chromeEnabled" @change="toggleChrome(($event.target as HTMLInputElement).checked)" />
     启用页眉 / 页脚（占用版心，开启后重新分页）

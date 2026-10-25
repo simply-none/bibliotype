@@ -13,6 +13,7 @@ import {
   FACSIMILE_PRESETS,
   FACSIMILE_RULES,
   GUTTER_FISH_TAILS,
+  GUTTER_FISH_TAIL_STYLES,
   GUTTER_MOUTHS,
   GUTTER_SIDES,
   isVerticalMode,
@@ -25,6 +26,7 @@ import {
 import type { PageChromeField } from './settings-types.js';
 import type { StyleSettingsApi } from '../../composables/use-style-settings.js';
 import { isFacsimilePresetModified } from '../../facsimile-theme.js';
+import { GUTTER_WIDTH_PRESETS, resolveNumericPreset } from './settings-presets.js';
 
 const props = defineProps<{
   /** 样式设置 API（状态 + 持久化 + 预设） */
@@ -57,11 +59,21 @@ const MOUTH_ENTRIES = [
   { value: GUTTER_MOUTHS.BLACK_WIDE, label: '大黑口' },
 ] as const;
 
-/** 鱼尾选项 */
+/** 鱼尾选项（三尾 / 四尾：多尾沿版心带均布、上下相向交替） */
 const FISH_ENTRIES = [
   { value: GUTTER_FISH_TAILS.NONE, label: '无' },
   { value: GUTTER_FISH_TAILS.SINGLE, label: '单鱼尾' },
   { value: GUTTER_FISH_TAILS.DOUBLE, label: '双鱼尾' },
+  { value: GUTTER_FISH_TAILS.TRIPLE, label: '三鱼尾' },
+  { value: GUTTER_FISH_TAILS.QUADRUPLE, label: '四鱼尾' },
+] as const;
+
+/** 鱼尾样式选项（缺省黑鱼尾；未选鱼尾时整行置灰） */
+const FISH_STYLE_ENTRIES = [
+  { value: GUTTER_FISH_TAIL_STYLES.BLACK, label: '黑鱼尾' },
+  { value: GUTTER_FISH_TAIL_STYLES.WHITE, label: '白鱼尾' },
+  { value: GUTTER_FISH_TAIL_STYLES.LINE, label: '线鱼尾' },
+  { value: GUTTER_FISH_TAIL_STYLES.FLORAL, label: '花鱼尾' },
 ] as const;
 
 /** 版心竖写字段选项（顺序与默认字段一致） */
@@ -95,6 +107,23 @@ const facsimileGrid = computed(() => resolveFacsimileGrid(props.layout, props.to
 
 /** 仿真装饰仅在直排下渲染（横排给提示） */
 const vertical = computed(() => isVerticalMode(props.layout.writingMode));
+
+/** 当前鱼尾样式（未配置回显缺省黑鱼尾） */
+const activeFishStyle = computed(
+  () => facsimile.value?.gutter?.fishTailStyle ?? GUTTER_FISH_TAIL_STYLES.BLACK,
+);
+
+/** 当前版心带宽命中哪档预设（数值输入保留，未命中全部熄灭） */
+const activeGutterWidth = computed(() =>
+  resolveNumericPreset(facsimile.value?.gutter?.size, GUTTER_WIDTH_PRESETS),
+);
+
+/** 写入版心带宽（预设与数值输入共用，负数忽略） */
+function setGutterWidth(value: string): void {
+  const size = Number.parseFloat(value);
+  if (!Number.isFinite(size) || size < 0) return;
+  patchGutter({ size });
+}
 
 /** 套用模板（单次布局补丁；令牌由主题侧按模板 id 派生，不写令牌补丁） */
 function onApplyFacsimilePreset(id: string): void {
@@ -231,6 +260,24 @@ function toggleGutterField(field: PageChromeField, checked: boolean): void {
       显示版心（书口：书名 / 篇卷 / 叶次 + 鱼尾）
     </label>
 
+    <label class="panel__switch">
+      <input
+        type="checkbox"
+        :checked="facsimile.ear === true"
+        @change="patchFacsimile({ ear: ($event.target as HTMLInputElement).checked })"
+      />
+      书耳（版框外上角耳框题篇名）
+    </label>
+
+    <label class="panel__switch">
+      <input
+        type="checkbox"
+        :checked="facsimile.eyebrow === true"
+        @change="patchFacsimile({ eyebrow: ($event.target as HTMLInputElement).checked })"
+      />
+      眉栏（天头横线区，套印评点界线）
+    </label>
+
     <template v-if="facsimile.gutter">
       <div class="panel__row">
         <div class="panel__field">
@@ -265,7 +312,27 @@ function toggleGutterField(field: PageChromeField, checked: boolean): void {
         </div>
       </div>
 
-      <label class="panel__field">
+      <div class="panel__field">
+        <span class="panel__label">鱼尾样式</span>
+        <div class="panel__chips">
+          <button
+            v-for="item in FISH_STYLE_ENTRIES"
+            :key="item.value"
+            type="button"
+            class="panel__chip"
+            :class="{ 'panel__chip--active': activeFishStyle === item.value }"
+            :disabled="facsimile.gutter?.fishTail === GUTTER_FISH_TAILS.NONE"
+            @click="patchGutter({ fishTailStyle: item.value })"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+        <span v-if="facsimile.gutter?.fishTail === GUTTER_FISH_TAILS.NONE" class="panel__hint">
+          未选鱼尾，样式暂不可用。
+        </span>
+      </div>
+
+      <div class="panel__field">
         <span class="panel__label">版心带宽 px（从版心扣除，改动会重排）</span>
         <input
           type="number"
@@ -273,9 +340,21 @@ function toggleGutterField(field: PageChromeField, checked: boolean): void {
           min="0"
           max="120"
           :value="facsimile.gutter?.size ?? 0"
-          @input="patchGutter({ size: Number(($event.target as HTMLInputElement).value) })"
+          @input="setGutterWidth(($event.target as HTMLInputElement).value)"
         />
-      </label>
+        <div class="panel__chips">
+          <button
+            v-for="preset in GUTTER_WIDTH_PRESETS"
+            :key="preset.key"
+            type="button"
+            class="panel__chip"
+            :class="{ 'panel__chip--active': activeGutterWidth === preset.key }"
+            @click="setGutterWidth(preset.value)"
+          >
+            {{ preset.label }}
+          </button>
+        </div>
+      </div>
 
       <div class="panel__field">
         <span class="panel__label">版心内容</span>
@@ -292,6 +371,15 @@ function toggleGutterField(field: PageChromeField, checked: boolean): void {
           </button>
         </div>
       </div>
+
+      <label v-if="vertical" class="panel__switch">
+        <input
+          type="checkbox"
+          :checked="facsimile.gutter?.alternate === true"
+          @change="patchGutter({ alternate: ($event.target as HTMLInputElement).checked })"
+        />
+        版心交替（筒子叶：版心随奇偶页换侧）
+      </label>
     </template>
 
     <p class="panel__hint">

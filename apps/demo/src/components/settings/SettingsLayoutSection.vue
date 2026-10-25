@@ -8,7 +8,13 @@
  * 与夜间配色是演示态快捷预设，只上抛事件、不进草稿。
  */
 import { computed } from 'vue';
-import { COLOR_TOKENS, FONT_SIZE_TOKENS, FONT_TOKENS, LAYOUT_TOKENS } from '@bibliotype/core';
+import {
+  COLOR_TOKENS,
+  DEFAULT_THEME,
+  FONT_SIZE_TOKENS,
+  FONT_TOKENS,
+  LAYOUT_TOKENS,
+} from '@bibliotype/core';
 import {
   PAGE_NUMBER_STYLES,
   PAGE_SIZES,
@@ -30,6 +36,18 @@ import {
   resolveSlackPreset,
   stringifyMarginBox,
 } from './settings-utils.js';
+import {
+  FONT_SIZE_PRESETS,
+  FONT_STACK_PRESETS,
+  LAYOUT_PACKAGE_PRESETS,
+  LETTER_SPACING_PRESETS,
+  LINE_HEIGHT_PRESETS,
+  TEXT_INDENT_PRESETS,
+  resolveFontStackPreset,
+  resolveNumericPreset,
+  type FontStackPreset,
+  type LayoutPackagePreset,
+} from './settings-presets.js';
 
 const props = defineProps<{
   /** 样式设置 API（状态 + 持久化 + 预设） */
@@ -202,6 +220,54 @@ function numOf(key: string): string {
   return extractTokenNum(props.tokens[key]);
 }
 
+/** 写入单个令牌（单项档位 / 组合套餐共用） */
+function setTokenPreset(key: string, value: string): void {
+  props.api.setToken(key, value);
+}
+
+/** 套用版式套餐：一次写入五组令牌，不锁定、不触碰配色 / 字体令牌 */
+function applyLayoutPackage(preset: LayoutPackagePreset): void {
+  for (const [key, value] of Object.entries(preset.tokens)) props.api.setToken(key, value);
+}
+
+/* ---------- 单项档位命中回显（手输未命中即全部熄灭） ---------- */
+
+const activeFontSizePreset = computed(() =>
+  resolveNumericPreset(props.tokens[FONT_SIZE_TOKENS.BODY], FONT_SIZE_PRESETS),
+);
+const activeLineHeightPreset = computed(() =>
+  resolveNumericPreset(props.tokens[LAYOUT_TOKENS.LINE_HEIGHT], LINE_HEIGHT_PRESETS),
+);
+const activeLetterSpacingPreset = computed(() =>
+  resolveNumericPreset(props.tokens[LAYOUT_TOKENS.LETTER_SPACING], LETTER_SPACING_PRESETS),
+);
+const activeTextIndentPreset = computed(() =>
+  resolveNumericPreset(props.tokens[LAYOUT_TOKENS.TEXT_INDENT], TEXT_INDENT_PRESETS),
+);
+
+/**
+ * 是否古籍系主题
+ *
+ * 古籍直排（古籍正文字体被主题覆盖）或古籍仿真启用时，正文字体预设要同步写
+ * `font-family-classical-body`，保证「正文字体随主题口径」；现代横排只写正文。
+ */
+const classicalFamily = computed(() => {
+  const classicalBody = props.tokens[FONT_TOKENS.CLASSICAL_BODY];
+  return (
+    props.layout.facsimile !== undefined ||
+    (classicalBody !== undefined && classicalBody !== DEFAULT_THEME[FONT_TOKENS.CLASSICAL_BODY])
+  );
+});
+
+/** 当前正文字体命中哪档预设 */
+const activeFontStack = computed(() => resolveFontStackPreset(props.tokens[FONT_TOKENS.BODY]));
+
+/** 套用字体栈预设（古籍系同步写古籍正文字体） */
+function applyFontStack(preset: FontStackPreset): void {
+  props.api.setToken(FONT_TOKENS.BODY, preset.stack);
+  if (classicalFamily.value) props.api.setToken(FONT_TOKENS.CLASSICAL_BODY, preset.stack);
+}
+
 const FONT_FAMILY_FIELDS: ReadonlyArray<[string, string]> = [
   [FONT_TOKENS.BODY, '正文'],
   [FONT_TOKENS.HEADING, '标题'],
@@ -244,6 +310,26 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
         {{ mode === WRITING_MODES.HORIZONTAL_TB ? '横排' : mode === WRITING_MODES.VERTICAL_RL ? '竖排右起' : '竖排左起' }}
       </button>
     </div>
+  </div>
+
+  <!-- 版式套餐：一次写入字号 / 行距 / 字距 / 缩进 / 页边距，不锁定、仍可逐项微调 -->
+  <div class="panel__field">
+    <span class="panel__label">版式套餐（字号 / 行距 / 字距 / 缩进 / 页边距）</span>
+    <div class="panel__chips">
+      <button
+        v-for="preset in LAYOUT_PACKAGE_PRESETS"
+        :key="preset.key"
+        type="button"
+        class="panel__chip"
+        :title="preset.hint"
+        @click="applyLayoutPackage(preset)"
+      >
+        {{ preset.label }}
+      </button>
+    </div>
+    <span class="panel__hint">
+      点选即写入整体协调的版式，各单项仍可单独微调；下方单项预设会显示命中状态。
+    </span>
   </div>
 
   <div class="panel__row">
@@ -369,9 +455,10 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
         <option :value="PAGE_NUMBER_STYLES.DECIMAL">阿拉伯数字</option>
         <option :value="PAGE_NUMBER_STYLES.CHINESE">中文数字</option>
         <option :value="PAGE_NUMBER_STYLES.ROMAN">罗马数字</option>
+        <option :value="PAGE_NUMBER_STYLES.LEAF_AB">叶次（第 X 叶·上/下）</option>
       </select>
     </label>
-    <label class="panel__field">
+    <div class="panel__field">
       <span class="panel__label">正文字号 px</span>
       <input
         type="number"
@@ -381,28 +468,76 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
         max="48"
         @input="numToken(FONT_SIZE_TOKENS.BODY, `${($event.target as HTMLInputElement).value}px`)"
       />
-    </label>
+      <div class="panel__chips">
+        <button
+          v-for="preset in FONT_SIZE_PRESETS"
+          :key="preset.key"
+          type="button"
+          class="panel__chip"
+          :class="{ 'panel__chip--active': activeFontSizePreset === preset.key }"
+          @click="setTokenPreset(FONT_SIZE_TOKENS.BODY, preset.value)"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+    </div>
   </div>
 
   <div class="panel__row">
-    <label class="panel__field">
+    <div class="panel__field">
       <span class="panel__label">行距</span>
       <input type="number" class="panel__input" :value="numOf(LAYOUT_TOKENS.LINE_HEIGHT)" min="1" max="3" step="0.05"
         @input="numToken(LAYOUT_TOKENS.LINE_HEIGHT, ($event.target as HTMLInputElement).value)" />
-    </label>
-    <label class="panel__field">
+      <div class="panel__chips">
+        <button
+          v-for="preset in LINE_HEIGHT_PRESETS"
+          :key="preset.key"
+          type="button"
+          class="panel__chip"
+          :class="{ 'panel__chip--active': activeLineHeightPreset === preset.key }"
+          @click="setTokenPreset(LAYOUT_TOKENS.LINE_HEIGHT, preset.value)"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+    </div>
+    <div class="panel__field">
       <span class="panel__label">字距</span>
       <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.LETTER_SPACING] ?? ''" placeholder="0.02em"
         @input="numToken(LAYOUT_TOKENS.LETTER_SPACING, ($event.target as HTMLInputElement).value)" />
-    </label>
+      <div class="panel__chips">
+        <button
+          v-for="preset in LETTER_SPACING_PRESETS"
+          :key="preset.key"
+          type="button"
+          class="panel__chip"
+          :class="{ 'panel__chip--active': activeLetterSpacingPreset === preset.key }"
+          @click="setTokenPreset(LAYOUT_TOKENS.LETTER_SPACING, preset.value)"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+    </div>
   </div>
 
   <div class="panel__row">
-    <label class="panel__field">
+    <div class="panel__field">
       <span class="panel__label">首行缩进</span>
       <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.TEXT_INDENT] ?? ''" placeholder="2em"
         @input="numToken(LAYOUT_TOKENS.TEXT_INDENT, ($event.target as HTMLInputElement).value)" />
-    </label>
+      <div class="panel__chips">
+        <button
+          v-for="preset in TEXT_INDENT_PRESETS"
+          :key="preset.key"
+          type="button"
+          class="panel__chip"
+          :class="{ 'panel__chip--active': activeTextIndentPreset === preset.key }"
+          @click="setTokenPreset(LAYOUT_TOKENS.TEXT_INDENT, preset.value)"
+        >
+          {{ preset.label }}
+        </button>
+      </div>
+    </div>
     <label class="panel__field">
       <span class="panel__label">栏间距</span>
       <input type="text" class="panel__input" :value="tokens[LAYOUT_TOKENS.COLUMN_GAP] ?? ''" placeholder="2.5em"
@@ -442,6 +577,21 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
 
   <div class="panel__field">
     <span class="panel__label">字体族</span>
+    <div class="panel__chips">
+      <button
+        v-for="preset in FONT_STACK_PRESETS"
+        :key="preset.key"
+        type="button"
+        class="panel__chip"
+        :class="{ 'panel__chip--active': activeFontStack === preset.key }"
+        @click="applyFontStack(preset)"
+      >
+        {{ preset.label }}
+      </button>
+    </div>
+    <span class="panel__hint">
+      字体预设写正文字体；古籍直排 / 古籍仿真主题下同步写古籍正文字体，现代横排只改正文。
+    </span>
     <label v-for="[key, label] in FONT_FAMILY_FIELDS" :key="key" class="panel__stack">
       <span class="panel__sub-label">{{ label }}</span>
       <input type="text" class="panel__input" :value="tokens[key] ?? ''"

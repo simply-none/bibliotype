@@ -13,7 +13,7 @@ interface LayoutOptions {
   pageSize: PageSize;                       // { name, width, height }（px，96dpi）
   columns: number;                          // 分栏数 1~3
   pageSizeMode?: PageSizeMode;              // 开本适配：'width' | 'height' | 'h5' | 'fixed'（缺省 fixed）
-  pageNumberStyle: PageNumberStyle;         // 'decimal' | 'chinese' | 'roman'
+  pageNumberStyle: PageNumberStyle;         // 'decimal' | 'chinese' | 'roman' | 'leaf-ab'
   combineUpright: CombineUprightOptions;    // 直排数字/英文策略（D3，含长数字串汉字分组）
   facsimile?: FacsimileOptions;             // 古籍仿真版式（缺省 undefined = 不启用）
 }
@@ -192,6 +192,15 @@ demo 设置面板的页边距提供「常用组合」一键填充（默认 / 紧
 古籍·天大地小 / 内侧装订 / 疏朗——天头 ≥ 地脚为古籍惯例，内侧装订在外侧
 基础上加宽左边距留书脊）；命中预设高亮回显，逐边微调后高亮熄灭（仍可
 自由调整），写入的仍是 `page-margin` 令牌（如 `'48px 56px 48px 56px'`）。
+
+「版面与页面」其余设置同样带预设：顶部「版式套餐」（现代标准 / 紧凑电子 /
+疏朗典藏 / 古籍刻本 / 大字阅读）一次写入字号 / 行距 / 字距 / 首行缩进 /
+页边距五组令牌（不锁定，仍可逐项微调）；正文字号、行距、字距、首行缩进各
+有单项 chips，命中按数值全等回显、手输微调后熄灭；正文字体提供宋体 / 黑体 /
+楷体 / 仿宋四档字体栈，古籍直排与古籍仿真主题下同步写 `font-family-classical-body`。
+「页眉页脚」分区另备关闭 / 经典 / 学术 / 宽裕四组组合预设（页眉 / 页脚内容与
+占位一并写入，四字段全等才高亮）。页码样式下拉含叶次 a/b（`leaf-ab`，一叶
+两半叶：奇数页第 X 叶·上、偶数页第 X 叶·下）。
 
 ## 分页器
 

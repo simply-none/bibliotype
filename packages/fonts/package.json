@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/fonts",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "字体内嵌与子集化：用字统计、可插拔子集后端、@font-face 与许可声明 - bibliotype 内核包",
   "type": "module",
   "license": "MIT",

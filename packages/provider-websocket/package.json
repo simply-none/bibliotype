@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/provider-websocket",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "协同网络传输：WebSocket Provider（重连 + 离线队列）、BroadcastChannel 多标签与参考服务端 - bibliotype 协同包",
   "type": "module",
   "license": "MIT",

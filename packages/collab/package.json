@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/collab",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "协同校勘：IR ⇄ Y.Doc 映射、会话与 Provider 抽象 - bibliotype 协同包",
   "type": "module",
   "license": "MIT",

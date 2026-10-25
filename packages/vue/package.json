@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/vue",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "Vue 3 阅读器封装：useReader 组合式桥与 BookView / Pager / Toc 组件 - bibliotype 框架封装包",
   "type": "module",
   "license": "MIT",

@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/adapter-http",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "远端存储适配器（REST：文档 + 资产）- bibliotype 存储适配包",
   "type": "module",
   "license": "MIT",

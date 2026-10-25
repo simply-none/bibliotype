@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/import",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "基础文档导入：Markdown / HTML → BookDocument（零外部重依赖，复用 editor 转换层） - bibliotype 导入包",
   "type": "module",
   "license": "MIT",

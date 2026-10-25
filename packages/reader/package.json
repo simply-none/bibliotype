@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/reader",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "阅读器状态机：分页、翻页、目录与进度 - bibliotype 阅读包",
   "type": "module",
   "license": "MIT",

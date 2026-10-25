@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/layout",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "分页、直排/横排、多栏与样式构建 - bibliotype 排版包",
   "type": "module",
   "license": "MIT",

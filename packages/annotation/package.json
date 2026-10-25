@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/annotation",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "批注 / 高亮 / 书签 / 评论模型与存储 - bibliotype 标注包",
   "type": "module",
   "license": "MIT",

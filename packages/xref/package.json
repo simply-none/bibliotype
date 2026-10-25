@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/xref",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "两遍排版页码索引与交叉引用（参见第 X 页 / 引得）- bibliotype 引用包",
   "type": "module",
   "license": "MIT",

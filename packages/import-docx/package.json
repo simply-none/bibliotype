@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/import-docx",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "docx 导入：.docx → HTML（mammoth）→ BookDocument（复用 @bibliotype/import 的 HTML 通路） - bibliotype docx 导入包",
   "type": "module",
   "license": "MIT",

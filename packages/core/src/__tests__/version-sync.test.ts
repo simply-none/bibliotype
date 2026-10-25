@@ -194,6 +194,13 @@ describe('I6 版本单源一致性', () => {
       );
     });
 
+    it('负例：漏传版本号时抛错且保持原值（防止写入字面量 undefined）', () => {
+      const root = createFixture({});
+      const versionTsPath = join(root, 'packages/core/src/version.ts');
+      expect(() => updateCoreVersionTs(root)).toThrowError(/有效的版本号/);
+      expect(readFileSync(versionTsPath, 'utf8')).toContain(`VERSION = '${DATE_VERSION}'`);
+    });
+
     it('updateVersionField 同值二次写入零 diff', () => {
       const root = createFixture({});
       const manifestPath = join(root, 'packages/core/package.json');

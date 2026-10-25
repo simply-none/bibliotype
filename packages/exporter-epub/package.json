@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/exporter-epub",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "EPUB 3 导出：IR → 语义 XHTML + OPF/nav 打包，可选内嵌子集字体（零后端，浏览器与 Node 同构）- bibliotype 导出包",
   "type": "module",
   "license": "MIT",

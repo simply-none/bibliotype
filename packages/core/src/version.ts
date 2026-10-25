@@ -5,4 +5,4 @@
  * 发布时由 scripts/version.mjs 单源写回（与各包 package.json 的 version 同值），
  * scripts/check-version.mjs 在 release:check 中校验一致性，无需手工同步。
  */
-export const VERSION = '0.1.0';
+export const VERSION = '26.10.25-rc.1';

@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/import-epub",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "epub 导入：.epub（zip + OPF + XHTML）→ BookDocument（复用 @bibliotype/import 的 HTML 通路） - bibliotype epub 导入包",
   "type": "module",
   "license": "MIT",

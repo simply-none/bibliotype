@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/core",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "IR Schema、事件总线、插件与节点注册、主题令牌 - bibliotype 核心包",
   "type": "module",
   "license": "MIT",

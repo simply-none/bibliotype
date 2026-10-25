@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/typography-cjk",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "中文排印规则：禁则避头尾、标点挤压、中西文混排间距 - bibliotype 排印包",
   "type": "module",
   "license": "MIT",

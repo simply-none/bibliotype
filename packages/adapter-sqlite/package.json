@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/adapter-sqlite",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "SQLite 存储适配器：文档分片、资产 BLOB、书架摘要与历史版本（驱动由宿主注入） - bibliotype 存储包",
   "type": "module",
   "license": "MIT",

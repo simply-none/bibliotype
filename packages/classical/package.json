@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/classical",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "古籍专有节点与标记定义（双行小注、夹注、校勘、专名号等）- bibliotype 古籍包",
   "type": "module",
   "license": "MIT",

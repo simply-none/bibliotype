@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/exporter-pdf",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "PDF 导出：IR → 打印文档（@page 尺寸 / 预分页固定页）+ 打印辅助（window.print）+ 印前精排（对页 / 出血 / 裁切线 / DPI 与 CMYK 提示）- bibliotype 导出包",
   "type": "module",
   "license": "MIT",

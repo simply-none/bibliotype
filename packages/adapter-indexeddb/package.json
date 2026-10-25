@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/adapter-indexeddb",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "IndexedDB 存储适配器（Web 端持久化）+ 内存适配器 - bibliotype 存储包",
   "type": "module",
   "license": "MIT",

@@ -147,19 +147,144 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 ## 版本与发布
 
 版本号采用**日期形式**：正式版 `26.10.12`（年.月.日），预发布 `26.10.12-rc.1`。
-**增量发布**：只有出现在变更说明里的公开包才升版并发布，未变更包版本保持不变。
-发布流程四步（详见 [docs/12-release-and-ci.md](docs/12-release-and-ci.md)）：
+**增量发布**：只有出现在变更说明里的公开包才升版并发布，未变更包的版本号与 npm 上的
+产物保持不变。发布走**本机手动命令**，npm 令牌存在项目根 `.npmrc.publish`（已 gitignore）。
 
-```bash
-pnpm changeset           # 1. 改动完成后记录变更说明
-pnpm version:rc          # 2. 只给变更包应用日期版本与 CHANGELOG（或 pnpm version:latest）
-pnpm release:check       # 3. 预检：core 版本对账 + 构建 + publish --dry-run（可选）
-pnpm release:rc          # 4. 构建并批量发布到 npm（或 pnpm release 正式发布）
+### 0. 一次性准备（首次发布前做）
+
+**① 确认 scope 归属**：`@bibliotype/*` 属于 `@bibliotype` 这个 scope，只有该 scope 的
+所有者 / 组织成员才能发布。
+
+- 若 npm 用户名就是 `bibliotype`：直接可发；
+- 否则去 <https://www.npmjs.com/org/create> 创建组织 `bibliotype`（免费 Public 计划即可），
+  把当前账号设为成员（Owner / Developer）。
+
+> 未处理这一步的典型报错是 `npm ERR! 404 Scope not found` 或 `403 Forbidden`。
+
+**② 生成 npm Access Token**：<https://www.npmjs.com/settings/~/tokens> → *Generate New Token*
+
+| 选项 | 建议值 |
+| --- | --- |
+| 类型 | **Granular Access Token**（或 Classic 的 **Automation** token） |
+| Permissions | `Read and write`（需要发布权限） |
+| Packages and scopes | 选 `@bibliotype`（或 All packages） |
+| Bypass 2FA | **勾选**（否则非交互发布会因缺 OTP 失败，`EOTP`） |
+| Expiration | 按需（如 90 天；到期后重签发并更新文件） |
+
+若账号开启了 2FA，**不要**用 Classic 的 *Publish* 类型令牌（它仍要 OTP），
+务必用 Automation 或勾了 Bypass 2FA 的 Granular token。
+
+**③ 把令牌写入 `.npmrc.publish`**（项目根，已 `.gitignore`，不会入库）
+
+```ini
+# c:\cod\note_npm\.npmrc.publish
+registry=https://registry.npmjs.org/
+//registry.npmjs.org/:_authToken=npm_xxxxxxxxxxxxxxxxxxxx
 ```
 
-首次发布用 `pnpm version:rc:all`（全量 23 个包）；rc 转正式版用 `pnpm version:latest:reuse`。
-npm token 存在项目根 `.npmrc.publish`（已 gitignore），发布脚本自动挂载并强制
-`registry.npmjs.org`。
+> `.npmrc`（已入库）只放 workspace 配置，**不要**把 token 写进去。
+> `scripts/publish.mjs` 会自动把 `.npmrc.publish` 挂成用户级 npmrc，并强制
+> `--registry=https://registry.npmjs.org/`（本机全局配置可能是 npmmirror 镜像站）。
+
+**④ 验证令牌可用（可选，但建议）**
+
+PowerShell：
+
+```powershell
+$env:NPM_CONFIG_USERCONFIG = Join-Path $PWD '.npmrc.publish'
+npm whoami --registry=https://registry.npmjs.org/   # 应打印你的 npm 用户名
+```
+
+bash / Git Bash：
+
+```bash
+NPM_CONFIG_USERCONFIG="$PWD/.npmrc.publish" npm whoami --registry=https://registry.npmjs.org/
+```
+
+> 本流程**不需要** `npm login`：登录态由 `.npmrc.publish` 里的 `_authToken` 提供。
+> 若你确实执行过 `npm login`，令牌会写进用户级 `~/.npmrc`；但只要项目内存在
+> `.npmrc.publish`，发布脚本就只认它（`~/.npmrc` 被覆盖），两者不要混用。
+
+### 1. 首次发布（全量 23 个包，rc 通道）
+
+首次必须用 `--all`：`@bibliotype/collab` 没有独立变更说明，但被
+`provider-websocket` 依赖，漏发会让已发布包依赖一个不存在的版本。
+
+```bash
+# ① 应用版本号：全部公开包升到当日 rc 版本，并写出待发清单 .release/pending.json
+pnpm version:rc:all
+
+# ② 预检：core 版本对账 + 全仓构建 + 发布 dry-run（不真正上传，不需要 token 也能跑）
+pnpm release:check
+
+# ③ 提交并打 tag（提交由维护者执行）
+git add -A
+git commit -m "chore(release): v26.10.25-rc.1"
+git tag v26.10.25-rc.1
+
+# ④ 真正发布（构建 + 批量上传，token 从这里开始生效）
+pnpm release:rc
+```
+
+发布过程的预期输出：`[publish] 已认证：<用户名>` → 待发包清单 → 每个包的
+`... publish ... + @bibliotype/xxx@26.10.25-rc.1`。中途失败可直接重跑同一条命令，
+registry 上已存在同版本的包会被自动跳过。
+
+### 2. 核验发布结果
+
+```bash
+npm view @bibliotype/core dist-tags --registry=https://registry.npmjs.org/
+# → { rc: '26.10.25-rc.1' }   （首次只发 rc，所以还没有 latest 标签）
+
+npm view @bibliotype/reader@26.10.25-rc.1 dependencies --registry=https://registry.npmjs.org/
+# 内部依赖应已被 pnpm 改写成具体版本号，而不是 workspace:*
+```
+
+消费方安装 rc：`npm i @bibliotype/core@rc`；或显式 `@bibliotype/core@26.10.25-rc.1`。
+
+### 3. 提升为正式版（rc → latest）
+
+rc 阶段已消费掉全部变更说明，直接跑 `version:latest` 会因无变更说明退出码 2，
+必须用 `--reuse-pending`（复用待发清单，只改版本号，不重复写 CHANGELOG）：
+
+```bash
+pnpm version:latest:reuse
+git add -A
+git commit -m "chore(release): v26.10.25"
+git tag v26.10.25
+pnpm release            # = 构建 + publish --tag latest
+git push origin master --follow-tags
+```
+
+核验：`npm view @bibliotype/core dist-tags` 的 `latest` 应为 `26.10.25`。
+
+### 4. 之后的日常发布（增量）
+
+```bash
+pnpm changeset          # 只勾选本次真正改动的包
+pnpm version:rc         # 只升这些包；未变更包版本不动
+pnpm release:check      # 预检（可选）
+git add -A && git commit -m "chore(release): v<版本>" && git tag v<版本>
+pnpm release:rc
+pnpm version:latest:reuse
+git add -A && git commit -m "chore(release): v<正式版本>" && git tag v<正式版本>
+pnpm release
+```
+
+### 5. 常见报错
+
+| 报错 / 现象 | 原因与处理 |
+| --- | --- |
+| `npm ERR! 401 Unauthorized` / `ENEEDAUTH` | token 缺失或过期：检查 `.npmrc.publish` 的 `_authToken`，重新签发 |
+| `npm ERR! 403 ... scope` / `404 Scope not found` | `@bibliotype` scope 不属于当前账号：创建组织并加入成员（见 0.①） |
+| `npm ERR! 403 ... two-factor` / `EOTP` | 令牌未勾 Bypass 2FA：改用 Automation token 或勾选 Bypass |
+| `npm ERR! 403 ... cannot publish over` | 该版本已存在：改代码后重跑 `pnpm version:rc` 生成新版本号（重跑同版本会被自动跳过） |
+| `[publish] 错误：... 与待发版本 ... 不一致` | 本地 `package.json` 被改过：重新执行 `pnpm version:rc` / `version:latest:reuse` |
+| `[publish] 错误：未找到 .release/pending.json` | 还没应用版本：先跑 `pnpm version:rc`（或 `:all`） |
+| `[publish] 错误：依赖版本在 npm 上不存在` | 依赖包未发：先发依赖，或首次发布改用 `pnpm version:rc:all` |
+| 安装时提示找不到包 | 本机 registry 指向镜像站：`npm i --registry=https://registry.npmjs.org/`，镜像同步有延迟 |
+
+完整设计说明见 [docs/12-release-and-ci.md](docs/12-release-and-ci.md)。
 
 ## 许可
 

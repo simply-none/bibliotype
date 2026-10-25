@@ -285,6 +285,8 @@ export function updateVersionField(pkg, newVersion) {
  * 兼容单双引号与调用方自定义路径（测试用 tmp fixture）。
  */
 export function updateCoreVersionTs(root = ROOT, newVersion, versionTsPath = join(root, 'packages/core/src/version.ts')) {
+  // 调用方漏传版本号时会写进字面量 undefined，这里显式拦截（曾导致 release:check 失败）
+  if (typeof newVersion !== 'string' || newVersion === '') throw new Error('updateCoreVersionTs 需要有效的版本号');
   const raw = readFileSync(versionTsPath, 'utf8');
   const pattern = /(export const VERSION\s*=\s*['"])[^'"]+(['"])/;
   if (!pattern.test(raw)) {
@@ -349,7 +351,7 @@ export async function run(argv = process.argv.slice(2)) {
     updateVersionField(pkg, version);
     if (!options.reusePending) prependChangelog(pkg, version, entriesByPackage.get(pkg.name));
   }
-  if (targets.some((p) => p.name === CORE_PACKAGE)) updateCoreVersionTs();
+  if (targets.some((p) => p.name === CORE_PACKAGE)) updateCoreVersionTs(ROOT, version);
   writePending({ channel: options.channel, version, packages: targets.map((p) => p.name) });
   if (!options.reusePending) {
     for (const changeset of changesets) {

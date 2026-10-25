@@ -223,8 +223,8 @@ MR 运行；`release` 阶段为 manual job（同样经 `version.mjs` + `pnpm -r 
 | `version.mjs` 退出码 2 | `.changeset/*.md` 为空——先 `pnpm changeset`；若 rc 已消费变更说明、要提升为正式版，改用 `pnpm version:latest:reuse` |
 | 想先看版本计划 | `pnpm exec node scripts/version.mjs --dry-run`（不写文件） |
 | 正式版与 rc 的标签 | rc 发 `--tag rc`，正式发 `--tag latest`（`release:rc` / `release` 已内置） |
-| token 放哪 | 项目根 `.npmrc.publish`（已 gitignore），内容是 `//registry.npmjs.org/:_authToken=<token>`；`publish.mjs` 自动挂载 |
-| 发布到镜像站 / `EOTP` 之外的鉴权失败 | 本机 `config get registry` 可能是 npmmirror；`publish.mjs` 已强制 `--registry=https://registry.npmjs.org/` |
+| token 放哪 | 项目根 `.npmrc.publish`（已 gitignore），内容是 `//registry.npmjs.org/:_authToken=<token>`；`publish.mjs` 自动挂载。令牌创建与 `@bibliotype` scope 归属见根 [README](../README.md#版本与发布) |
+| 鉴权失败（401 / 403 / EOTP） | 先看 token 是否缺失或过期；`403` 多为 scope 归属或令牌未勾 Bypass 2FA。另注意本机 registry 可能是 npmmirror，`publish.mjs` 已强制 `--registry=https://registry.npmjs.org/` |
 | 发布中途失败想重跑 | 直接重跑 `pnpm release:rc` / `pnpm release`，registry 上已存在同版本的包自动跳过 |
 | `npm ERR! 403 ... already exists` | 该版本已发过；修改代码后重新 `pnpm version:rc` 生成新版本号 |
 | 发布前自查 | `pnpm release:check`（core 版本对账 + 构建 + publish --dry-run 全量预检） |

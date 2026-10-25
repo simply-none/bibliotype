@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/textconvert",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "繁简 / 异体字转换适配（可插拔表 + OpenCC 适配）- bibliotype 文本转换包",
   "type": "module",
   "license": "MIT",

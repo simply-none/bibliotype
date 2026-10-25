@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/exporter-docx",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "DOCX 导出：IR → WordprocessingML（标题层级 / 命名样式 / 脚注 / 表格 / 图片），供传统出版投稿 - bibliotype 导出包",
   "type": "module",
   "license": "MIT",

@@ -4,6 +4,7 @@
  *
  * 用法：
  *   node scripts/publish.mjs [--tag rc|latest] [--dry-run]
+ *   （未指定 --tag 时跟随 .release/pending.json 的 channel）
  *
  * 行为：
  *   1. 读 .release/pending.json（由 scripts/version.mjs 写入的待发清单）；
@@ -33,7 +34,7 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const options = { tag: 'latest', dryRun: false };
+  const options = { tag: null, dryRun: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--dry-run') {
@@ -47,7 +48,7 @@ function parseArgs(argv) {
       fail(`未知参数：${arg}`);
     }
   }
-  if (options.tag !== 'rc' && options.tag !== 'latest') {
+  if (options.tag !== null && options.tag !== 'rc' && options.tag !== 'latest') {
     fail('--tag 仅支持 rc 或 latest');
   }
   return options;
@@ -96,6 +97,8 @@ async function fetchPublishedVersions(name) {
 async function main(argv) {
   const options = parseArgs(argv);
   const pending = readPending();
+  // 未显式指定 --tag 时跟随版本脚本写入的通道（release:check 的 dry-run 也据此显示）
+  const tag = options.tag ?? (pending.channel === 'rc' ? 'rc' : 'latest');
   const packages = new Map(loadPackages().map((p) => [p.name, p]));
 
   const targets = pending.packages.map((name) => {
@@ -151,7 +154,7 @@ async function main(argv) {
     fail(`依赖版本在 npm 上不存在，拒绝发布（先补发依赖包，或首次发布改用 pnpm version:rc:all）：${problems.join('、')}`);
   }
 
-  console.log(`[publish] 待发布 ${toPublish.length} 个包（tag=${options.tag}${options.dryRun ? '，dry-run' : ''}）：`);
+  console.log(`[publish] 待发布 ${toPublish.length} 个包（tag=${tag}${options.dryRun ? '，dry-run' : ''}）：`);
   for (const pkg of toPublish) console.log(`  - ${pkg.name}@${pkg.version}`);
 
   const args = [
@@ -159,7 +162,7 @@ async function main(argv) {
     ...toPublish.map((pkg) => `--filter=${pkg.name}`),
     'publish',
     '--tag',
-    options.tag,
+    tag,
     '--no-git-checks',
     '--access',
     'public',
@@ -171,8 +174,8 @@ async function main(argv) {
   if (result.status !== 0) fail(`pnpm publish 失败（退出码 ${result.status}）`);
   console.log(
     options.dryRun
-      ? `[publish] dry-run 完成：${toPublish.length} 个包（版本 ${pending.version}，tag=${options.tag}）`
-      : `[publish] 完成：已发布 ${toPublish.length} 个包（版本 ${pending.version}，tag=${options.tag}）`,
+      ? `[publish] dry-run 完成：${toPublish.length} 个包（版本 ${pending.version}，tag=${tag}）`
+      : `[publish] 完成：已发布 ${toPublish.length} 个包（版本 ${pending.version}，tag=${tag}）`,
   );
 }
 

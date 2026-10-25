@@ -1,6 +1,6 @@
 {
   "name": "@bibliotype/editor",
-  "version": "0.1.0",
+  "version": "26.10.25-rc.1",
   "description": "基于 ProseMirror 的书籍编辑器核心：节点规格注册（D8）、IR 双向转换、无视图编辑状态机 - bibliotype 编辑包",
   "type": "module",
   "license": "MIT",

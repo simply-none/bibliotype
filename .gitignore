@@ -22,6 +22,10 @@ dist/
 npm-debug.log*
 pnpm-debug.log*
 
+# 发布（待发清单与本地 npm token 文件，均不入库）
+.release/
+.npmrc.publish
+
 # 编辑器与系统
 .DS_Store
 .idea/

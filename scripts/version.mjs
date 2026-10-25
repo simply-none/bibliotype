@@ -1,18 +1,22 @@
 #!/usr/bin/env node
 /**
- * bibliotype 日期版本脚本（消费 Changesets 变更说明，生成日期版本号）
+ * bibliotype 日期版本脚本（按变更说明增量升版）
  *
  * 用法：
- *   node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
+ *   node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run] [--all] [--reuse-pending]
  *
- * 行为（统一版本列车模型）：
- *   1. 读取 .changeset/*.md 变更说明；没有待发布变更时退出码 2（发布流程应中止）；
+ * 行为（增量发布模型）：
+ *   1. 读取 .changeset/*.md 变更说明；**只有出现在变更说明里的公开包**才升版，未变更包的版本号保持不动；
+ *      私有包（demo / e2e）条目跳过并记录，未知包名仍报错；没有待发布变更时退出码 2；
  *   2. 计算日期版本号：YY.M.D（如 26.10.12）；rc 通道为 YY.M.D-rc.N（同日重复发布自动递增 N）；
- *   3. 将全部公开包（非 private）统一升级到该版本（内部依赖 workspace:* 由 pnpm 在发布时改写）；
- *   4. 将版本号写回 packages/core/src/version.ts 的 VERSION 常量（I6：消除手工同步）；
- *   5. 为变更说明涉及的包写入 CHANGELOG.md，其余包写入"随版本列车同步"占位说明；
- *   6. 删除已消费的变更说明文件；
- *   7. 输出 RELEASE_VERSION=<版本> 行，供 CI 提取。
+ *      碰撞检查与 rc 递增只针对本批目标包；
+ *   3. `--all`：忽略变更集范围，全部公开包升版（**仅首次发布用**，保证依赖闭包完整）；
+ *      `--reuse-pending`：复用 .release/pending.json 的包清单，仅改版本号，
+ *      不读/不删 changeset、不写 CHANGELOG（用于 rc → latest 提升）；
+ *   4. 仅为升版包写 CHANGELOG；仅当 @bibliotype/core 升版时写回 packages/core/src/version.ts；
+ *   5. 写入 .release/pending.json（发布脚本 pull 取待发清单）；
+ *   6. 删除已消费的变更说明文件（--reuse-pending 模式除外）；
+ *   7. 输出 RELEASE_VERSION=<版本> 行，供脚本 / CI 提取。
  *
  * 退出码：0 成功；1 参数或状态错误；2 无待发布变更。
  *
@@ -20,15 +24,16 @@
  *       完整流程见 docs/12-release-and-ci.md。
  *
  * 可导入性（I6）：主流程收在 run() 内，仅直接执行时触发；写函数与解析函数
- * 具名导出，供 scripts/check-version.mjs 与测试复用（幂等验证）。
+ * 具名导出，供 scripts/check-version.mjs、scripts/publish.mjs 与测试复用（幂等验证）。
  */
 
-import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHANGESET_DIR = join(ROOT, '.changeset');
+const CORE_PACKAGE = '@bibliotype/core';
 
 const RELEASE_LEVELS = ['major', 'minor', 'patch'];
 const LEVEL_TITLES = { major: 'Major Changes', minor: 'Minor Changes', patch: 'Patch Changes' };
@@ -52,11 +57,15 @@ function fail(message, code = 1) {
 /* ---------- 参数解析 ---------- */
 
 export function parseArgs(argv) {
-  const options = { channel: 'latest', base: null, dryRun: false };
+  const options = { channel: 'latest', base: null, dryRun: false, all: false, reusePending: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--all') {
+      options.all = true;
+    } else if (arg === '--reuse-pending') {
+      options.reusePending = true;
     } else if (arg === '--channel') {
       options.channel = argv[i + 1];
       i += 1;
@@ -76,6 +85,9 @@ export function parseArgs(argv) {
   }
   if (options.base !== null && !/^\d{2}\.\d{1,2}\.\d{1,2}$/.test(options.base)) {
     fail('--base 格式应为 YY.M.D（如 26.10.12）');
+  }
+  if (options.all && options.reusePending) {
+    fail('--all 与 --reuse-pending 不能同时使用');
   }
   return options;
 }
@@ -114,6 +126,31 @@ export function loadPackages(root = ROOT) {
   });
 }
 
+/* ---------- 待发布清单（.release/pending.json） ---------- */
+
+/** 读取待发布清单；缺失或格式非法时抛错（发布脚本与 --reuse-pending 共用） */
+export function readPending(root = ROOT) {
+  const file = join(root, '.release/pending.json');
+  if (!existsSync(file)) {
+    fail('未找到 .release/pending.json；请先运行 pnpm version:rc / pnpm version:latest');
+  }
+  const data = JSON.parse(readFileSync(file, 'utf8'));
+  if (!Array.isArray(data.packages) || data.packages.length === 0) {
+    fail('.release/pending.json 缺少 packages 清单；请重新运行 pnpm version:rc / pnpm version:latest');
+  }
+  return data;
+}
+
+export function writePending(data, root = ROOT) {
+  const dir = join(root, '.release');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'pending.json'),
+    `${JSON.stringify({ channel: data.channel, version: data.version, packages: data.packages }, null, 2)}\n`,
+    'utf8',
+  );
+}
+
 /* ---------- 变更说明读取与校验 ---------- */
 
 export function loadChangesets(changesetDir = CHANGESET_DIR) {
@@ -133,6 +170,43 @@ export function loadChangesets(changesetDir = CHANGESET_DIR) {
     if (releases.length === 0) fail(`变更说明未列出任何包：.changeset/${file}`);
     return { file, releases, summary: match[2].trim() };
   });
+}
+
+/**
+ * 解析本批目标包：变更说明涉及的公开包（`--all` 时为全部公开包）。
+ * 私有包条目记入 skipped 并跳过，未知包名仍报错；目标为空时以退出码 2 中止。
+ * 纯函数（不读写文件），供 run() 与单测复用。
+ */
+export function resolveTargets({ packages, changesets, all = false }) {
+  const publicPackages = packages.filter((p) => !p.private);
+  const publicNames = new Set(publicPackages.map((p) => p.name));
+  const privateNames = new Set(packages.filter((p) => p.private).map((p) => p.name));
+  const entriesByPackage = new Map(publicPackages.map((p) => [p.name, []]));
+  const skipped = [];
+
+  for (const changeset of changesets) {
+    if (changeset.summary === '') fail(`变更说明缺少描述正文：.changeset/${changeset.file}`);
+    for (const release of changeset.releases) {
+      if (!publicNames.has(release.name)) {
+        // 私有包（demo / e2e）不参与发布，条目只做记录：跳过而不是中止整批发布
+        if (privateNames.has(release.name)) {
+          skipped.push(`${release.name}（.changeset/${changeset.file}）`);
+          continue;
+        }
+        fail(`变更说明 .changeset/${changeset.file} 引用了未知的包：${release.name}`); // 拼写错误仍拦截
+      }
+      entriesByPackage.get(release.name).push({ type: release.type, summary: changeset.summary });
+    }
+  }
+
+  const changed = new Set(
+    [...entriesByPackage].filter(([, entries]) => entries.length > 0).map(([name]) => name),
+  );
+  if (changed.size === 0) {
+    fail('变更说明只涉及私有包，没有可发布的公开包', 2);
+  }
+  const targets = publicPackages.filter((p) => all || changed.has(p.name));
+  return { targets, entriesByPackage, skipped };
 }
 
 /* ---------- 版本号计算 ---------- */
@@ -166,7 +240,7 @@ export function computeVersion({ channel, base, packages }) {
 export function buildChangelogSection(version, entries) {
   const lines = [`## ${version}`, ''];
   if (entries.length === 0) {
-    lines.push('- 随版本列车同步发布（无独立变更，依赖版本同步升级）', '');
+    lines.push('- 随本次发布同步升级（无独立变更）', '');
     return lines.join('\n');
   }
   for (const level of RELEASE_LEVELS) {
@@ -227,32 +301,41 @@ export async function run(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   const packages = loadPackages();
   const publicPackages = packages.filter((p) => !p.private);
-  const privatePackages = packages.filter((p) => p.private);
-  const changesets = loadChangesets();
+  const publicNames = new Set(publicPackages.map((p) => p.name));
 
-  if (changesets.length === 0) {
-    fail('没有待发布的变更说明（.changeset/*.md 为空）；请先运行 pnpm changeset 创建', 2);
-  }
+  let targets;
+  let changesets = [];
+  let entriesByPackage = new Map(publicPackages.map((p) => [p.name, []]));
+  let skipped = [];
 
-  const byName = new Map(publicPackages.map((p) => [p.name, p]));
-  const entriesByPackage = new Map(publicPackages.map((p) => [p.name, []]));
-  for (const changeset of changesets) {
-    if (changeset.summary === '') fail(`变更说明缺少描述正文：.changeset/${changeset.file}`);
-    for (const release of changeset.releases) {
-      if (!byName.has(release.name)) {
-        fail(`变更说明 .changeset/${changeset.file} 引用了未知或私有的包：${release.name}`);
-      }
-      entriesByPackage.get(release.name).push({ type: release.type, summary: changeset.summary });
+  if (options.reusePending) {
+    const pending = readPending();
+    const missing = pending.packages.filter((name) => !publicNames.has(name));
+    if (missing.length > 0) fail(`.release/pending.json 中的包已不在工作区：${missing.join('、')}`);
+    const wanted = new Set(pending.packages);
+    targets = publicPackages.filter((p) => wanted.has(p.name));
+  } else {
+    changesets = loadChangesets();
+    if (changesets.length === 0) {
+      fail('没有待发布的变更说明（.changeset/*.md 为空）；请先运行 pnpm changeset 创建', 2);
     }
+    ({ targets, entriesByPackage, skipped } = resolveTargets({ packages, changesets, all: options.all }));
+    if (skipped.length > 0) console.log(`  跳过 ${skipped.length} 条私有包条目：${skipped.join('、')}`);
   }
 
-  const version = computeVersion({ ...options, packages });
+  const version = computeVersion({ channel: options.channel, base: options.base, packages: targets });
 
-  console.log(`${options.dryRun ? '[version] 日期版本计划（dry-run）' : '[version] 应用日期版本'}：channel=${options.channel}，目标版本 ${version}`);
-  console.log(`  变更说明 ${changesets.length} 个；公开包 ${publicPackages.length} 个${privatePackages.length > 0 ? `；私有包 ${privatePackages.length} 个（跳过）` : ''}`);
-  for (const pkg of publicPackages) {
+  console.log(
+    `${options.dryRun ? '[version] 日期版本计划（dry-run）' : '[version] 应用日期版本'}：channel=${options.channel}，目标版本 ${version}`,
+  );
+  console.log(
+    `  变更说明 ${changesets.length} 个；公开包 ${publicPackages.length} 个；本次发布 ${targets.length} 个${
+      publicPackages.length > targets.length ? `（其余 ${publicPackages.length - targets.length} 个未变更，跳过）` : ''
+    }`,
+  );
+  for (const pkg of targets) {
     const count = entriesByPackage.get(pkg.name).length;
-    const note = count > 0 ? `CHANGELOG +${count} 条` : 'CHANGELOG 占位说明';
+    const note = options.reusePending ? '仅更新版本号' : count > 0 ? `CHANGELOG +${count} 条` : 'CHANGELOG 占位说明';
     console.log(`  - ${pkg.name.padEnd(32)} ${pkg.version} → ${version}（${note}）`);
   }
 
@@ -262,22 +345,29 @@ export async function run(argv = process.argv.slice(2)) {
     return version;
   }
 
-  for (const pkg of publicPackages) {
+  for (const pkg of targets) {
     updateVersionField(pkg, version);
-    prependChangelog(pkg, version, entriesByPackage.get(pkg.name));
+    if (!options.reusePending) prependChangelog(pkg, version, entriesByPackage.get(pkg.name));
   }
-  updateCoreVersionTs();
-  for (const changeset of changesets) {
-    unlinkSync(join(CHANGESET_DIR, changeset.file));
+  if (targets.some((p) => p.name === CORE_PACKAGE)) updateCoreVersionTs();
+  writePending({ channel: options.channel, version, packages: targets.map((p) => p.name) });
+  if (!options.reusePending) {
+    for (const changeset of changesets) {
+      unlinkSync(join(CHANGESET_DIR, changeset.file));
+    }
   }
 
-  console.log(`  已更新 ${publicPackages.length} 个包的版本与 CHANGELOG，写回 core/src/version.ts，删除 ${changesets.length} 个变更说明`);
-  console.log('  下一步：pnpm release:rc / pnpm release（构建并发布），或提交后再发布');
+  console.log(
+    `  已更新 ${targets.length} 个包的版本${options.reusePending ? '' : '与 CHANGELOG'}，待发清单写入 .release/pending.json${
+      options.reusePending ? '' : `，删除 ${changesets.length} 个变更说明`
+    }`,
+  );
+  console.log('  下一步：pnpm release:check → 提交打 tag → pnpm release:rc / pnpm release');
   console.log(`RELEASE_VERSION=${version}`);
   return version;
 }
 
-/* 仅直接执行时运行主流程（被 import 时不执行，供 check-version.mjs 与测试复用） */
+/* 仅直接执行时运行主流程（被 import 时不执行，供 check-version.mjs / publish.mjs / 测试复用） */
 const isMain = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   run().catch((error) => {

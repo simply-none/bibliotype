@@ -8,10 +8,12 @@
 
 ```text
 bibliotype/
- ├── packages/*        21 个公开包（@bibliotype/*，全部发布）
+ ├── packages/*        23 个公开包（@bibliotype/*，全部发布）
  ├── apps/demo         示例应用（private，不发布）
  ├── scripts/version.mjs   日期版本脚本（发版核心）
+ ├── scripts/publish.mjs   批量发布脚本（只发待发清单）
  ├── .changeset/       变更说明（config.json + 待消费的 md）
+ ├── .release/         待发清单（pending.json，本地生成，不入库）
  ├── .github/workflows/    GitHub Actions（ci.yml / release.yml / pages.yml）
  ├── .gitlab-ci.yml        GitLab CI（备用）
  ├── docs/             功能用法参考（本篇所在）
@@ -23,7 +25,7 @@ bibliotype/
 其他常用脚本：`pnpm dev`（全仓 watch 构建）/ `pnpm clean`（清理各包构建产物）/
 `pnpm changeset:status`（查看待发布变更概览）。
 
-## 版本策略：日期版本
+## 版本策略：增量发布日期版本
 
 版本号为 `YY.M.D`（数字段**不带前导零**，符合 semver）：
 
@@ -32,71 +34,101 @@ bibliotype/
 | rc | `26.10.12-rc.1` | 预发布；同日重复发布自动递增 `rc.N` |
 | latest | `26.10.12` | 正式发布；prerelease < release，rc 可被正式版覆盖升级 |
 
-采用**统一版本列车**：所有公开包每次发布统一升到同一日期版本，
-内部依赖 `workspace:*` 由 pnpm 在发布时改写为实际版本，无需逐包处理依赖传播。
+采用**增量发布**：**只有出现在变更说明里的公开包才升版、才发布**；未变更包的版本号与
+npm 上的产物都保持不动，因此各包版本不再同步。包内 `workspace:*` 依赖由 pnpm 在发布时
+改写为被依赖包的当前版本，无需手工处理；未变更的包不会重发。
 
-## 发布流程（三步）
+## 发布流程（四步）
 
 ```bash
 # 1. 变更说明（每个功能 / 修复一条）
 pnpm changeset                 # 选择涉及的包与 major/minor/patch，填写描述
 
-# 2. 计算并应用日期版本（自动更新 package.json + CHANGELOG、消费变更说明）
+# 2. 计算并应用日期版本（只升变更包；写 CHANGELOG / 待发清单、消费变更说明）
 pnpm version:rc                # → 26.10.12-rc.1（预发布）
-pnpm version:latest            # → 26.10.12（正式）
+pnpm version:latest            # → 26.10.12（正式；rc 提升见下文 --reuse-pending）
 
-# 3. 构建并发布到 npm
-pnpm release:check             # 预检：版本一致性断言 + 构建 + publish --dry-run（不真正发布）
+# 3. 提交并打 tag（人工）
+git add -A && git commit -m "chore(release): v<版本>" && git tag v<版本>
+
+# 4. 构建并发布到 npm（只发 .release/pending.json 里的包）
+pnpm release:check             # 预检：core 版本对账 + 构建 + publish --dry-run（不真正发布）
 pnpm release:rc                # 构建 + 发布 rc 标签
 pnpm release                  # 构建 + 发布 latest 标签
 ```
 
 > 本项目**不使用** `changeset version` / `changeset publish`（版本号必须为日期形式），
 > Changesets 仅负责收集变更说明；发版由 `scripts/version.mjs` 完成。
+> `release:check` 读取 `version:*` 写出的 `.release/pending.json`，必须在版本应用**之后**运行。
 
 ### version.mjs 行为
 
 ```text
-node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run]
+node scripts/version.mjs [--channel rc|latest] [--base YY.M.D] [--dry-run] [--all] [--reuse-pending]
 ```
 
 1. 读取 `.changeset/*.md`；无待发布变更时**退出码 2**（发布流程应中止）；
    frontmatter 包名兼容单双引号（`@changesets/cli` 对 scoped 包输出单引号形式）；
-2. 计算版本号：`YY.M.D`；rc 通道为 `YY.M.D-rc.N`（同日自动递增）；
-3. 全部公开包统一升级到该版本（private 包跳过），并把版本号**写回
-   `packages/core/src/version.ts` 的 `VERSION` 常量**（I6：单源自动化，无需手工同步）；
-4. 为变更说明涉及的包写 CHANGELOG（按 Major/Minor/Patch 分组），
-   其余包写「随版本列车同步发布」占位；已存在 CHANGELOG 时前插新节；
-5. 删除已消费的变更说明文件；
-6. 输出 `RELEASE_VERSION=<版本>` 行，供 CI 提取。
+   私有包（`@bibliotype/demo`、`@bibliotype/e2e`）条目跳过并打印，未知包名仍报错（拼写保护）；
+2. 目标包 = 变更说明涉及的公开包；`--all` 改为**全部公开包**（仅首次发布用，保证依赖闭包完整）；
+   `--reuse-pending` 改为复用 `.release/pending.json` 的清单；
+3. 计算版本号：`YY.M.D`；rc 通道为 `YY.M.D-rc.N`（同日自动递增）；碰撞检查与 `rc.N`
+   递增只针对本批目标包；
+4. 只为目标包改 `package.json` 并写 CHANGELOG（按 Major/Minor/Patch 分组）；仅当
+   `@bibliotype/core` 在目标集合内时写回 `packages/core/src/version.ts` 的 `VERSION`（I6）；
+5. 写 `.release/pending.json`（`{ channel, version, packages }`），供 `publish.mjs` 取待发清单；
+6. 删除已消费的变更说明文件（`--reuse-pending` 模式不读也不删）；
+7. 输出 `RELEASE_VERSION=<版本>` 行，供脚本 / CI 提取。
 
 退出码：`0` 成功 / `1` 参数或状态错误 / `2` 无待发布变更。
 `--dry-run` 只打印计划不写文件（含 `RELEASE_VERSION=` 行）；`--base` 可指定
 基准日期（补发 / 对齐用）。
 
+### 首次发布与 rc → latest 提升
+
+- **首次发布**：npm 上还没有任何 `@bibliotype/*`，用 `pnpm version:rc:all` 把全部公开包
+  统一升到当日版本。`@bibliotype/collab` 没有独立变更说明，但被 `provider-websocket`
+  依赖，漏发会让已发布包依赖一个不存在的版本；
+- **rc → latest**：rc 阶段已消费掉全部变更说明，直接跑 `version:latest` 会因无变更说明
+  退出码 2。改用 `pnpm version:latest:reuse`：复用 `.release/pending.json` 的包清单，只把
+  版本号改成正式版，不重复写 CHANGELOG。建议同日完成（跨日会按当日日期生成新版本号）。
+
+### publish.mjs 行为
+
+```text
+node scripts/publish.mjs [--tag rc|latest] [--dry-run]
+```
+
+1. 读 `.release/pending.json`；缺失时提示先跑 `pnpm version:rc` / `version:latest`；
+2. **强制 registry = `https://registry.npmjs.org/`**（本机全局配置可能是镜像站，直接发布
+   会发错站）；根目录存在 `.npmrc.publish` 时把它挂成用户级 npmrc（token 存文件、不入库），
+   否则使用用户级 `~/.npmrc`；
+3. 非 dry-run 先 `npm whoami` 校验 token；再查 registry，**已存在同版本的包自动跳过**
+   （中途失败可直接重跑）；
+4. 校验待发包的 `@bibliotype/*` 依赖版本在 registry 上存在或本次一起发布，否则拒绝发布；
+5. `pnpm -r --filter=<pkg> publish --tag <通道> --no-git-checks --access public`
+   （pnpm 按拓扑序发布，core 在前）。
+
 ### .changeset 配置要点
 
-`fixed` 组包含全部 21 个公开包（与版本列车对齐）；`access: public`；
-`baseBranch: master`；`privatePackages.version/tag: false`（apps/demo 不参与）。
+不再维护 `fixed` 版本列车组（`fixed: []`）；`access: public`；`baseBranch: master`；
+`privatePackages.version/tag: false`（apps/demo 不参与）。
 
 ### 版本一致性校验（check-version.mjs，I6）
 
-`scripts/check-version.mjs` 在 `release:check` 前置执行，校验两条不变式：
+`scripts/check-version.mjs` 在 `release:check` 前置执行，校验一条不变式：
+`packages/core/src/version.ts` 的 `VERSION` 与 `packages/core/package.json` 的 version 一致
+（`version.mjs` 发版时自动写回）。各包版本按增量发布各自推进，**不再要求全包同版本**。
 
-1. **版本列车一致**：全部公开包（非 private）`package.json` 的 version 相同（以
-   `@bibliotype/core` 为锚）；
-2. **`VERSION` 常量对账**：`packages/core/src/version.ts` 的 `VERSION` 与
-   `packages/core/package.json` 的 version 一致（`version.mjs` 发版时自动写回）。
-
-不一致时非 0 退出并指出漂移文件；一致性由 `packages/core/src/__tests__/version-sync.test.ts`
-守护（对账、列车一致、写回幂等、漂移负例）。
+不一致时非 0 退出并指出两侧值；一致性由 `packages/core/src/__tests__/version-sync.test.ts`
+守护（core 对账、增量目标解析、写回幂等、漂移负例）。
 
 ### 发版后检查清单
 
-- **`VERSION` 常量无需手工同步**：`version.mjs` 在写各包 `package.json` 的同时
-  自动写回 `packages/core/src/version.ts`（I6）；
-- 抽查任一包的 `package.json` 与 `CHANGELOG.md`，确认新版本号与变更说明已落盘；
-- 确认已消费的 `.changeset/*.md` 已被删除（`git status` 中仅剩版本与 CHANGELOG 改动）。
+- **`VERSION` 常量无需手工同步**：core 升版时 `version.mjs` 自动写回 `packages/core/src/version.ts`（I6）；
+- 抽查本次升版包的 `package.json` 与 `CHANGELOG.md`，确认新版本号与变更说明已落盘；
+- 确认已消费的 `.changeset/*.md` 已被删除（`git status` 中仅剩版本与 CHANGELOG 改动）；
+- 确认 `.release/pending.json` 与 `.npmrc.publish` 未入库（均已在 `.gitignore`）。
 
 ## CI
 
@@ -112,7 +144,12 @@ I9），并保留 E9 的 EPUB 校验 CLI 护栏步骤。
 `if: always()` 归档；用例分层与基线口径见 [16 测试](16-testing.md#端到端i1--b3) 与
 [e2e/README](../e2e/README.md)。注意 e2e 消费 demo 的 `vite preview` 产物，故必须先 build。
 
-`.github/workflows/release.yml`：`workflow_dispatch` 手动触发，输入 `channel`（rc / latest）：
+`.github/workflows/release.yml`：**当前不启用**。发布走本机手动流程（`pnpm version:*` +
+`pnpm release:*`，见上文「发布流程」），GitHub 发布流水线暂不接入。该文件保留如下设计
+供后续启用，启用前需先把 `pnpm -r publish` 换成 `node scripts/publish.mjs` 并补
+`.release/pending.json` 的产出步骤。
+
+原设计：`workflow_dispatch` 手动触发，输入 `channel`（rc / latest）：
 
 ```text
 安装 → 构建 → 测试
@@ -171,20 +208,27 @@ MR 运行；`release` 阶段为 manual job（同样经 `version.mjs` + `pnpm -r 
 1. 在 `packages/` 新建包（`package.json` 含 `files/exports/sideEffects/license` +
    发布元数据：`author/repository.directory/homepage/bugs/publishConfig.access`）；
 2. `pnpm-workspace.yaml` 的 `packages/*` 自动覆盖，无需改动；
-3. 把包名加入 `.changeset/config.json` 的 `fixed` 组（保持版本列车）；
+3. `.changeset/config.json` 不需要登记包名（`fixed: []`，不存在版本列车组）；
 4. 写 README（参考既有包），需要时在 `docs/` 增补用法篇；
-5. 后续发版自动参与（`version.mjs` 按非 private 扫描）。
+5. 后续发版自动参与：`version.mjs` 按非 private 扫描；无变更说明的包不会升版，
+   首次发布需用 `--all` 全量带上。
 
 ## 常见问题
 
 | 场景 | 处理 |
 | --- | --- |
+| 首次发布（npm 上还没有包） | `pnpm version:rc:all` → `pnpm release:check` → `pnpm release:rc`（`--all` 保证依赖闭包完整） |
+| 只有部分包改了 | 正常 `pnpm changeset` + `pnpm version:rc`，未变更包自动跳过，版本号不动 |
 | 同日需要发第二个正式版 | 用 `--channel rc`（`-rc.N` 自动递增），或 `--base` 指定其它基准 |
-| `version.mjs` 退出码 2 | `.changeset/*.md` 为空——先 `pnpm changeset` 创建变更说明 |
+| `version.mjs` 退出码 2 | `.changeset/*.md` 为空——先 `pnpm changeset`；若 rc 已消费变更说明、要提升为正式版，改用 `pnpm version:latest:reuse` |
 | 想先看版本计划 | `pnpm exec node scripts/version.mjs --dry-run`（不写文件） |
 | 正式版与 rc 的标签 | rc 发 `--tag rc`，正式发 `--tag latest`（`release:rc` / `release` 已内置） |
-| 发布前自查 | `pnpm release:check`（版本一致性断言 + 构建 + publish --dry-run 全量预检） |
-| 发版后 `VERSION` 常量与实际版本不一致 | 正常由 `version.mjs` 自动写回；若被手工改动，运行 `pnpm release:check` 会失败，重新执行 `pnpm version:rc` / `version:latest` 即可对齐 |
+| token 放哪 | 项目根 `.npmrc.publish`（已 gitignore），内容是 `//registry.npmjs.org/:_authToken=<token>`；`publish.mjs` 自动挂载 |
+| 发布到镜像站 / `EOTP` 之外的鉴权失败 | 本机 `config get registry` 可能是 npmmirror；`publish.mjs` 已强制 `--registry=https://registry.npmjs.org/` |
+| 发布中途失败想重跑 | 直接重跑 `pnpm release:rc` / `pnpm release`，registry 上已存在同版本的包自动跳过 |
+| `npm ERR! 403 ... already exists` | 该版本已发过；修改代码后重新 `pnpm version:rc` 生成新版本号 |
+| 发布前自查 | `pnpm release:check`（core 版本对账 + 构建 + publish --dry-run 全量预检） |
+| 发版后 `VERSION` 常量与实际版本不一致 | 正常由 `version.mjs` 自动写回（仅 core 升版时）；若被手工改动，运行 `pnpm release:check` 会失败，重新执行 `pnpm version:rc` / `version:latest` 即可对齐 |
 
 ## 相关
 

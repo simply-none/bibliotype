@@ -21,7 +21,7 @@
 
 1. 改动涉及包行为的，先补 / 改对应包 `src/__tests__/` 下的测试（组织与命令见 [docs/16 测试指南](docs/16-testing.md)）；
 2. 本地至少通过 `pnpm --filter <包名> test` 与 `pnpm typecheck`；跨包影响时跑全量 `pnpm test`（如 core 新增节点类型必须同步 editor 规格表，见 [docs/14 FAQ](docs/14-faq.md) 第 5 条）；
-3. 面向用户的改动需附**变更说明**：`pnpm changeset`（10 个公开包为 `fixed` 组，版本列车整体推进）；
+3. 面向用户的改动需附**变更说明**：`pnpm changeset`（增量发布，只升变更说明涉及的公开包，未变更包版本不动）；
 4. 发版流程与发版后检查清单见 [docs/12 工程化与发布](docs/12-release-and-ci.md)；新增包步骤同篇。
 
 ## 提交信息

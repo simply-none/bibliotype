@@ -2,9 +2,8 @@
 /**
  * 版本一致性校验（release:check 前置断言，I6）
  *
- * 校验两条不变式（版本列车单源）：
- *   1. 全部公开包（非 private）package.json 的 version 一致；
- *   2. packages/core/src/version.ts 的 VERSION 常量与 packages/core/package.json 的 version 一致。
+ * 校验不变式（增量发布模型；各包版本可不同）：
+ *   packages/core/src/version.ts 的 VERSION 常量 == packages/core/package.json 的 version。
  *
  * 用法：
  *   node scripts/check-version.mjs [--root <dir>]
@@ -34,9 +33,9 @@ export function readCoreVersionTs(root) {
 }
 
 /**
- * 校验版本列车与 core VERSION 对账。
- * @returns {{ ok: true, version: string, publicCount: number }} 一致时返回统一版本与公开包数
- * @throws {Error} 存在漂移（消息指出漂移文件）或 fixture 结构非法
+ * 校验 core 的 VERSION 常量与 packages/core/package.json 的 version 对账。
+ * @returns {{ ok: true, version: string, publicCount: number }} 一致时返回 core 版本与公开包数
+ * @throws {Error} 存在漂移（消息指出两侧值）或 fixture 结构非法
  */
 export function checkVersions({ root = SCRIPT_ROOT } = {}) {
   const packages = loadPackages(root);
@@ -46,22 +45,16 @@ export function checkVersions({ root = SCRIPT_ROOT } = {}) {
     throw new Error('工作区中未发现公开包（非 private）；请检查 pnpm-workspace.yaml 与各 package.json');
   }
 
-  // 不变式 1：版本列车一致（以 @bibliotype/core 为锚，避免 readdir 顺序影响判定）
   const core = publicPackages.find((p) => p.name === '@bibliotype/core');
   if (core === undefined) {
     throw new Error('未在工作区中找到 @bibliotype/core 包');
   }
-  const drift = publicPackages.filter((p) => p.version !== core.version);
-  if (drift.length > 0) {
-    const expected = core.version;
-    const detail = drift.map((p) => `${p.name}@${p.version}（期望 ${expected}）`).join('、');
-    throw new Error(`版本列车不一致：${detail}`);
-  }
 
-  // 不变式 2：core/src/version.ts 对账
   const versionTsValue = readCoreVersionTs(root);
   if (versionTsValue !== core.version) {
-    throw new Error(`core/src/version.ts 的 VERSION（${versionTsValue}）与 packages/core/package.json 的 version（${core.version}）不一致；请运行 pnpm version:latest / version:rc 同步`);
+    throw new Error(
+      `core/src/version.ts 的 VERSION（${versionTsValue}）与 packages/core/package.json 的 version（${core.version}）不一致；请运行 pnpm version:rc / version:latest 同步`,
+    );
   }
 
   return { ok: true, version: core.version, publicCount: publicPackages.length };
@@ -83,7 +76,7 @@ function main(argv) {
 
   try {
     const { version, publicCount } = checkVersions({ root });
-    console.log(`[check-version] 版本一致：${publicCount} 个公开包均为 ${version}，core/src/version.ts 已同步`);
+    console.log(`[check-version] 版本一致：core ${version}，core/src/version.ts 已同步；公开包 ${publicCount} 个`);
     process.exit(0);
   } catch (error) {
     console.error(`[check-version] 错误：${error.message}`);

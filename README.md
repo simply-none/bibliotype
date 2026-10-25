@@ -147,13 +147,19 @@ const bytes = exportEpub(document);   // 由调用方保存 / 下载为 .epub
 ## 版本与发布
 
 版本号采用**日期形式**：正式版 `26.10.12`（年.月.日），预发布 `26.10.12-rc.1`。
-发布流程三步（详见 [docs/12-release-and-ci.md](docs/12-release-and-ci.md)）：
+**增量发布**：只有出现在变更说明里的公开包才升版并发布，未变更包版本保持不变。
+发布流程四步（详见 [docs/12-release-and-ci.md](docs/12-release-and-ci.md)）：
 
 ```bash
-pnpm changeset          # 1. 改动完成后记录变更说明
-pnpm version:rc         # 2. 应用版本号与 CHANGELOG（或 pnpm version:latest）
-pnpm release:rc         # 3. 构建并发布到 npm（或 pnpm release 正式发布）
+pnpm changeset           # 1. 改动完成后记录变更说明
+pnpm version:rc          # 2. 只给变更包应用日期版本与 CHANGELOG（或 pnpm version:latest）
+pnpm release:check       # 3. 预检：core 版本对账 + 构建 + publish --dry-run（可选）
+pnpm release:rc          # 4. 构建并批量发布到 npm（或 pnpm release 正式发布）
 ```
+
+首次发布用 `pnpm version:rc:all`（全量 23 个包）；rc 转正式版用 `pnpm version:latest:reuse`。
+npm token 存在项目根 `.npmrc.publish`（已 gitignore），发布脚本自动挂载并强制
+`registry.npmjs.org`。
 
 ## 许可
 

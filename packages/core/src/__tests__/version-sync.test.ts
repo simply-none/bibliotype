@@ -1,11 +1,11 @@
 /**
- * I6 VERSION 自动化：版本单源一致性测试
+ * I6 VERSION 自动化：版本一致性测试（增量发布模型）
  *
- * 覆盖四条不变式：
- *  1. core 源码 VERSION 常量与 packages/core/package.json 的 version 对账；
- *  2. 版本列车一致：遍历 packages/* 全部公开包同版本（日期形式，如 26.10.21 / 26.10.21-rc.1）；
- *  3. scripts/check-version.mjs 在真实仓库退出 0；
- *  4. 写回函数幂等（同值二次写入零 diff）+ 负例（列车漂移 / version.ts 漂移 / 常量缺失）。
+ * 覆盖：
+ *  1. core 源码 VERSION 常量与 packages/core/package.json 的 version 对账（各包版本可不同）；
+ *  2. scripts/check-version.mjs 在真实仓库退出 0；
+ *  3. 增量发布目标解析：只挑变更说明涉及的公开包，私有包条目跳过、未知包名仍报错、`--all` 全量；
+ *  4. 写回函数幂等（同值二次写入零 diff）+ 负例（version.ts 漂移 / 常量缺失）。
  *
  * fixture 一律使用日期版本形式，与 scripts/version.mjs 的产出规则一致。
  */
@@ -18,11 +18,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { VERSION } from '../version';
 // 仓内脚本（纯 Node ESM，类型见 __tests__/externals.d.ts）
 // eslint-disable-next-line import/no-relative-packages
-import { loadPackages, updateCoreVersionTs, updateVersionField } from '../../../../scripts/version.mjs';
+import { resolveTargets, updateCoreVersionTs, updateVersionField } from '../../../../scripts/version.mjs';
 // eslint-disable-next-line import/no-relative-packages
 import { checkVersions } from '../../../../scripts/check-version.mjs';
 
-const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 const CHECK_SCRIPT = fileURLToPath(new URL('../../../../scripts/check-version.mjs', import.meta.url));
 const CORE_MANIFEST = fileURLToPath(new URL('../../package.json', import.meta.url));
 
@@ -84,14 +83,6 @@ describe('I6 版本单源一致性', () => {
     expect(VERSION).toBe(manifest.version);
   });
 
-  it('版本列车一致：packages/* 全部公开包同版本', () => {
-    const all = loadPackages(REPO_ROOT) as Array<{ name: string; version: string; private: boolean }>;
-    const packages = all.filter((p) => !p.private);
-    expect(packages.length).toBeGreaterThan(0);
-    const versions = new Set(packages.map((p) => p.version));
-    expect(versions.size).toBe(1);
-  });
-
   it('check-version.mjs 在真实仓库退出 0', () => {
     const result = spawnSync(process.execPath, [CHECK_SCRIPT], { encoding: 'utf8' });
     expect(result.status).toBe(0);
@@ -99,8 +90,13 @@ describe('I6 版本单源一致性', () => {
   });
 
   describe('fixture 校验（checkVersions）', () => {
-    it('公开包列车一致且 private 包被忽略时通过', () => {
+    it('公开包版本可各不相同（增量发布），private 包被忽略', () => {
       const root = createFixture({});
+      writeFixture(
+        root,
+        'packages/alpha/package.json',
+        `${JSON.stringify({ name: '@bibliotype/alpha', version: '26.10.20' }, null, 2)}\n`,
+      );
       const result = checkVersions({ root });
       expect(result.ok).toBe(true);
       expect(result.version).toBe(DATE_VERSION);
@@ -113,18 +109,6 @@ describe('I6 版本单源一致性', () => {
       expect(result.version).toBe(RC_VERSION);
     });
 
-    it('负例：列车漂移时抛错并指出漂移包与期望版本', () => {
-      const root = createFixture({});
-      const alphaManifest = join(root, 'packages/alpha/package.json');
-      writeFixture(
-        root,
-        'packages/alpha/package.json',
-        `${JSON.stringify({ name: '@bibliotype/alpha', version: '26.10.20' }, null, 2)}\n`,
-      );
-      expect(alphaManifest).toBeTruthy();
-      expect(() => checkVersions({ root })).toThrowError(/版本列车不一致.*26\.10\.20.*26\.10\.21/s);
-    });
-
     it('负例：version.ts 漂移时抛错并指出两侧值', () => {
       const root = createFixture({ coreVersionTs: '25.1.1' });
       expect(() => checkVersions({ root })).toThrowError(
@@ -135,6 +119,57 @@ describe('I6 版本单源一致性', () => {
     it('负例：version.ts 缺失 VERSION 常量时抛错', () => {
       const root = createFixture({ omitVersionConstant: true });
       expect(() => checkVersions({ root })).toThrowError(/定位 VERSION 常量/);
+    });
+  });
+
+  describe('增量发布目标解析（resolveTargets）', () => {
+    const packages = [
+      { name: '@bibliotype/core', private: false },
+      { name: '@bibliotype/vue', private: false },
+      { name: '@bibliotype/demo', private: true },
+    ];
+    const coreChangeset = {
+      file: 'core-change.md',
+      summary: '改 core',
+      releases: [
+        { name: '@bibliotype/core', type: 'patch' },
+        { name: '@bibliotype/demo', type: 'patch' },
+      ],
+    };
+
+    it('只挑变更说明涉及的公开包，私有包条目跳过且不中止', () => {
+      const result = resolveTargets({ packages, changesets: [coreChangeset], all: false });
+      expect(result.targets.map((p: { name: string }) => p.name)).toEqual(['@bibliotype/core']);
+      expect(result.skipped).toHaveLength(1);
+      expect(result.entriesByPackage.get('@bibliotype/vue')).toEqual([]); // 未变更包不写 CHANGELOG
+    });
+
+    it('--all 时全部公开包都升版（首次发布用）', () => {
+      const result = resolveTargets({ packages, changesets: [coreChangeset], all: true });
+      expect(result.targets.map((p: { name: string }) => p.name)).toEqual([
+        '@bibliotype/core',
+        '@bibliotype/vue',
+      ]);
+    });
+
+    it('负例：未知包名仍报错（拼写保护）', () => {
+      const changesets = [
+        { file: 'typo.md', summary: 'x', releases: [{ name: '@bibliotype/nope', type: 'patch' }] },
+      ];
+      expect(() => resolveTargets({ packages, changesets, all: false })).toThrowError(/未知的包/);
+    });
+
+    it('负例：变更说明只涉及私有包时以退出码 2 中止', () => {
+      const changesets = [
+        { file: 'demo.md', summary: 'x', releases: [{ name: '@bibliotype/demo', type: 'patch' }] },
+      ];
+      let caught: unknown;
+      try {
+        resolveTargets({ packages, changesets, all: false });
+      } catch (error) {
+        caught = error;
+      }
+      expect((caught as { exitCode?: number } | undefined)?.exitCode).toBe(2);
     });
   });
 

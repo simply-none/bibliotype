@@ -1,7 +1,7 @@
 /**
  * markdownToBookDocument 测试（复用 editor 转换层，node 环境）
  */
-import { NODE_TYPES, type BookNode } from '@bibliotype/core';
+import { IR_SCHEMA_VERSION, NODE_TYPES, type BookNode } from '@bibliotype/core';
 import { buildEditorSchema } from '@bibliotype/editor';
 import { describe, expect, it } from 'vitest';
 import { markdownToBookDocument } from '../from-markdown.js';
@@ -61,7 +61,7 @@ describe('markdownToBookDocument', () => {
   it('metadata 原样注入（确定性，不读当前时间）', () => {
     const doc = markdownToBookDocument('正文', schema, metadata);
     expect(doc.metadata).toEqual(metadata);
-    expect(doc.schemaVersion).toBe('0.3.0');
+    expect(doc.schemaVersion).toBe(IR_SCHEMA_VERSION);
   });
 
   it('空 Markdown 产出空 book 根', () => {

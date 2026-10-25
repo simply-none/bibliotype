@@ -38,14 +38,9 @@ describe('buildFacsimileGridCss（网格对齐层）', () => {
     expect(css).toContain('h1.bt-heading {\n  line-height: 89.9px;\n}');
     expect(css).not.toContain('h2.bt-heading');
     expect(css).toContain('.bt-reader-page .bt-code-block {\n  line-height: 44.95px;\n}');
-    /* 双行小注「一格双行」：不用 CSS 多栏（Chromium 直排 balancing 拦腰
-       分段、fill: auto 被忽略致列高塌缩，均实测不可依赖），改为子列行高 =
-       列距 / 2 = 22.48 的自然换列——读序（右列读到底再续左列）与子列满高
-       由换行引擎保证；显式重置基础样式的 column-count / gap；min-width
-       兜底短注占满一格；左边距（块轴）去掉 */
-    expect(css).toContain(
-      '.bt-reader-page .bt-double-note {\n  line-height: 22.48px;\n  column-count: initial;\n  column-gap: initial;\n  min-width: 44.95px;\n  margin: 0.35em 0 0.45em;\n}',
-    );
+    /* 双行夹注已行内化（v2 批 1）：网格层不再输出块级夹注规则（列内双行
+       属批 2 列盒渲染器）；行内夹注继承根行高（44.95px 列距）天然落格 */
+    expect(css).not.toContain('.bt-double-note');
   });
 
   it('宋刻浙本：结构页大字按 k 格行高（封面题名 2.8em = 81.2px → 2 格 89.9px）', () => {
@@ -100,7 +95,8 @@ describe('book-css / buildRootStyle 的网格口径（三重闸门）', () => {
     /* body 根规则：line-height 从 var 倍数变为列距 px */
     expect(css).toMatch(/body \{[^}]*line-height: 44\.95px;/s);
     expect(css).toContain('行款网格对齐');
-    expect(css).toContain('.bt-double-note {\n  line-height: 22.48px;');
+    /* 夹注行内化：网格层无块级夹注规则（行内夹注继承根行高落格） */
+    expect(css).not.toContain('column-count: initial');
   });
 
   it('buildBookCss：未开 pageDecoration（EPUB / auto）不输出网格层，根行高保持倍数', () => {

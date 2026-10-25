@@ -470,9 +470,11 @@ ${scoped("[data-role='back-cover-line']")} {
 
 /* ---------- 5. 古籍注文与标注 ---------- */
 /*
- * 序列化器对无元素子节点的古典型容器（double-note / head-note /
- * collation-note / imprint / colophon）以 span 兜底，块级语义在此
- * 经 display: block 修正；行内载体（collation-mark / variant-char）保持行内。
+ * 序列化器对无元素子节点的古典型容器（head-note / collation-note /
+ * imprint / colophon）以 span 兜底，块级语义在此经 display: block 修正。
+ * 双行夹注（double-note）已**行内化**（v2 批 1）：随文落在段落内，
+ * 横排以括注随文呈现（古籍点校整理规范），直排列内双行连排属批 2
+ * （列盒渲染器）；墨钉（ink-nail）为 1em 占位黑块。
  * 编辑保存后容器内直挂文本会规范化为「容器 + 段落」，故另以规则让
  * 容器内段落显式继承（text-indent 为继承属性）：直挂文本形态直接继承
  * 根容器的计算值（如 2em@16px＝32px），而段落形态若走基础 .bt-paragraph
@@ -481,13 +483,23 @@ ${scoped("[data-role='back-cover-line']")} {
  * （reader 分块规则同步：见 @bibliotype/reader 的 TEXT_CONTAINER_TYPES）。
  */
 ${scoped('.bt-double-note')} {
-  display: block;
-  margin: 0.35em 0 0.45em 1.2em;
   font-size: 0.72em;
-  line-height: 1.65;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
-  column-count: 2;
-  column-gap: 1.6em;
+}
+/* 横排括注随文：夹注首尾括号（直排批 2 改列内双行时由列盒层接管） */
+${scoped('.bt-double-note::before')} {
+  content: '（';
+}
+${scoped('.bt-double-note::after')} {
+  content: '）';
+}
+/* 墨钉：未定字的占位黑块（1em 实心方，颜色随墨色） */
+${scoped('.bt-ink-nail')} {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  background: currentColor;
+  vertical-align: -0.15em;
 }
 ${scoped('.bt-head-note')} {
   display: block;
@@ -532,7 +544,6 @@ ${scoped('.bt-colophon')} {
   letter-spacing: 0.05em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
 }
-${scoped('.bt-double-note .bt-paragraph')},
 ${scoped('.bt-head-note .bt-paragraph')},
 ${scoped('.bt-tail-note .bt-paragraph')},
 ${scoped('.bt-collation-note .bt-paragraph')},

@@ -2,6 +2,7 @@
  * K4 索引词标记：常量、0.3.0 迁移、term 校验
  */
 import { describe, expect, it } from 'vitest';
+import { IR_SCHEMA_VERSION } from '../ir/document.js';
 import {
   DOCUMENT_ISSUE_CODES,
   MARK_TYPES,
@@ -34,16 +35,17 @@ describe('index-term 契约', () => {
   it('标记常量与 0.3.0 版本', () => {
     expect(MARK_TYPES.INDEX_TERM).toBe('index-term');
     const doc = createEmptyDocument({ title: '版本' });
-    expect(doc.schemaVersion).toBe('0.3.0');
+    expect(doc.schemaVersion).toBe(IR_SCHEMA_VERSION);
   });
 
   it('0.2.0 → 0.3.0 空迁移', () => {
     const legacy: BookDocument = { ...createEmptyDocument({ title: '旧书' }), schemaVersion: '0.2.0' };
     const result = migrateDocument(legacy);
-    expect(result.applied).toHaveLength(1);
+    /* 0.3.0 → 0.4.0（夹注行内化）并入 */
+    expect(result.applied).toHaveLength(2);
     expect(result.applied[0]?.from).toBe('0.2.0');
-    expect(result.toVersion).toBe('0.3.0');
-    expect(result.document.schemaVersion).toBe('0.3.0');
+    expect(result.toVersion).toBe(IR_SCHEMA_VERSION);
+    expect(result.document.schemaVersion).toBe(IR_SCHEMA_VERSION);
   });
 
   it('term 非空时校验通过', () => {

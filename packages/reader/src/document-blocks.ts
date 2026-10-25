@@ -48,13 +48,14 @@ const TEXT_CONTAINER_TYPES: ReadonlySet<string> = new Set([
   NODE_TYPES.FOOTNOTE,
   NODE_TYPES.ENDNOTE,
   NODE_TYPES.MARGIN_NOTE,
-  /* classical 注疏与版记 */
-  'double-note',
+  /* classical 注疏与版记（double-note 已行内化——随所在段落成块，不再列入；
+   * 未经迁移的旧档若仍有块位夹注，会经 isLeafBlock 的裸文本保护整体成块兜底） */
   'head-note',
   'tail-note',
   'collation-note',
   'imprint',
   'colophon',
+  'general-review',
 ]);
 
 /**

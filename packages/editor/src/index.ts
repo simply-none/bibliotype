@@ -20,6 +20,7 @@ export type {
 export {
   CORE_EDITOR_NODE_SPECS,
   COMMON_NODE_ATTRS,
+  LINE_RULE_ATTRS,
   STRUCTURE_NODE_ATTRS,
   NOTE_NODE_ATTRS,
 } from './core-node-specs.js';

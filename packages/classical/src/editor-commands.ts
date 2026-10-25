@@ -97,14 +97,20 @@ export function toggleTaboo(): Command {
 
 /* ---------- 块插入（注疏 / 眉批 / 校勘记） ---------- */
 
-/** 在当前叶块之后插入双行小注 */
+/**
+ * 将选区（或光标处新容器）包裹为双行夹注
+ *
+ * 夹注为**行内**容器（古籍口径：随文双行连排不换列，n 字占 n/2 字位）：
+ * 选区非空 → 包进夹注；空光标 → 插入空夹注且光标进入内部；跨段落选区
+ * 返回 false。旧名 {@link insertDoubleNote} 为其别名（块插入语义随行内化废止）。
+ */
+export function wrapDoubleNote(): Command {
+  return insertInlineNodeWrapping(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
+}
+
+/** @deprecated 语义已随夹注行内化调整，等价 {@link wrapDoubleNote} */
 export function insertDoubleNote(): Command {
-  return (state, dispatch, view) =>
-    insertBlockAfterSelection(state.schema, CLASSICAL_NODE_TYPES.DOUBLE_NOTE)(
-      state,
-      dispatch,
-      view,
-    );
+  return wrapDoubleNote();
 }
 
 /** 在当前叶块之后插入眉批 */
@@ -275,6 +281,11 @@ export function insertColophon(): Command {
   return insertBlockOfType(CLASSICAL_NODE_TYPES.COLOPHON);
 }
 
+/** 在当前叶块之后插入卷末总评（title 供目录提取） */
+export function insertGeneralReview(title = '总评'): Command {
+  return insertBlockOfType(CLASSICAL_NODE_TYPES.GENERAL_REVIEW, { title });
+}
+
 /** 在当前叶块之后插入版框 */
 export function insertBorderFrame(): Command {
   return insertBlockOfType(CLASSICAL_NODE_TYPES.BORDER_FRAME);
@@ -366,6 +377,11 @@ export function insertFishTail(): Command {
  */
 export function insertSeal(text = '印章'): Command {
   return insertAtomicNode(CLASSICAL_NODE_TYPES.SEAL, { text });
+}
+
+/** 在光标处插入墨钉（未定字的占位黑块，行内原子） */
+export function insertInkNail(): Command {
+  return insertAtomicNode(CLASSICAL_NODE_TYPES.INK_NAIL);
 }
 
 /* ---------- 符号插入 ---------- */

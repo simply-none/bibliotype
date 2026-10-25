@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   NODE_TYPES,
   createEmptyDocument,
+  IR_SCHEMA_VERSION,
   type BookDocument,
   type BookMetadata,
 } from '@bibliotype/core';
@@ -45,7 +46,7 @@ describe('BookEditor', () => {
     expect(doc.root.type).toBe(NODE_TYPES.BOOK);
     // 空内容节点规范化为省略 children 字段
     expect(doc.root.children).toBeUndefined();
-    expect(doc.schemaVersion).toBe('0.3.0');
+    expect(doc.schemaVersion).toBe(IR_SCHEMA_VERSION);
   });
 
   it('loadDocument → getDocument 往返一致', () => {

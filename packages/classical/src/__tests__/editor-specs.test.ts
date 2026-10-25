@@ -42,13 +42,9 @@ function sampleRoot(): BookNode {
               },
               { type: CLASSICAL_NODE_TYPES.COLLATION_MARK, attrs: { symbol: '○' } },
               { type: 'text', text: '时习之。' },
-            ],
-          },
-          {
-            type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
-            children: [
+              /* 双行夹注（行内化）：随文落在段落内 */
               {
-                type: NODE_TYPES.PARAGRAPH,
+                type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
                 children: [
                   {
                     type: 'text',
@@ -59,6 +55,7 @@ function sampleRoot(): BookNode {
               },
             ],
           },
+
         ],
       },
     ],
@@ -73,9 +70,10 @@ describe('古籍规格注册（D8）', () => {
     expect(schema.marks[CLASSICAL_MARK_TYPES.PROPER_NAME]).toBeUndefined();
   });
 
-  it('buildClassicalEditorSchema 注册全部 13 个古籍节点与 7 个标记', () => {
+  it('buildClassicalEditorSchema 注册全部 15 个古籍节点与 7 个标记', () => {
     const schema = buildClassicalEditorSchema();
-    expect(Object.keys(CLASSICAL_NODE_TYPES)).toHaveLength(13);
+    /* 13 + v2 批 1 新增 ink-nail / general-review */
+    expect(Object.keys(CLASSICAL_NODE_TYPES)).toHaveLength(15);
     for (const type of Object.values(CLASSICAL_NODE_TYPES)) {
       expect(schema.nodes[type], `节点 ${type} 未注册`).toBeDefined();
     }
@@ -122,9 +120,10 @@ describe('古籍规格可用性（IR → PM）', () => {
     expect(paragraph.child(3).type.name).toBe(CLASSICAL_NODE_TYPES.COLLATION_MARK);
     expect(paragraph.child(3).attrs.symbol).toBe('○');
 
-    const doubleNote = chapter.child(1);
+    /* 夹注在段内行内位（段落末子节点，前有正文 text），内容直挂 */
+    const doubleNote = paragraph.child(paragraph.childCount - 1);
     expect(doubleNote.type.name).toBe(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
-    expect(doubleNote.child(0).type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect(doubleNote.textContent).toBe('注文');
   });
 
   it('含古籍节点的文档 IR → PM → IR 往返无损', () => {
@@ -164,9 +163,15 @@ describe('BookEditor 集成', () => {
             {
               type: NODE_TYPES.CHAPTER,
               children: [
+                /* 夹注行内化回归：章首放段落，段内挂行内夹注（裸文本直挂） */
                 {
-                  type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
-                  children: [{ type: 'text', text: '注：収、好，皆去声。' }],
+                  type: NODE_TYPES.PARAGRAPH,
+                  children: [
+                    {
+                      type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
+                      children: [{ type: 'text', text: '注：収、好，皆去声。' }],
+                    },
+                  ],
                 },
                 {
                   type: CLASSICAL_NODE_TYPES.COLLATION_NOTE,
@@ -185,10 +190,12 @@ describe('BookEditor 集成', () => {
     const doc = editor.editorState.doc;
     const chapter = doc.child(0);
 
-    /* 双行注：裸文本聚合为段落 */
-    const doubleNote = chapter.child(0);
+    /* 行内夹注：章 child(0) 为段落，夹注为段内行内节点（内容直挂文本） */
+    const wrapPara = chapter.child(0);
+    expect(wrapPara.type.name).toBe(NODE_TYPES.PARAGRAPH);
+    const doubleNote = wrapPara.child(0);
     expect(doubleNote.type.name).toBe(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
-    expect(doubleNote.child(0).type.name).toBe(NODE_TYPES.PARAGRAPH);
+    expect(doubleNote.textContent).toBe('注：収、好，皆去声。');
 
     /* 段落内位置可作为光标落点（inlineContent）——不包段则点击会回退到容器外 */
     let textPos = -1;
@@ -214,10 +221,12 @@ describe('BookEditor 集成', () => {
     expect(collationNote.child(0).type.name).toBe(NODE_TYPES.PARAGRAPH);
     expect(collationNote.child(0).child(1).type.name).toBe(CLASSICAL_NODE_TYPES.COLLATION_MARK);
 
-    /* 导出 IR：已规范化为块容器 + 段落 */
+    /* 导出 IR：行内夹注随段（章 child(0)=段落，段内首子为夹注，内容直挂 text） */
     const round = editor.getDocument().root;
-    const roundDoubleNote = round.children?.[0]?.children?.[0];
+    const roundPara = round.children?.[0]?.children?.[0];
+    expect(roundPara?.type).toBe(NODE_TYPES.PARAGRAPH);
+    const roundDoubleNote = roundPara?.children?.[0];
     expect(roundDoubleNote?.type).toBe(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
-    expect(roundDoubleNote?.children?.[0]?.type).toBe(NODE_TYPES.PARAGRAPH);
+    expect(roundDoubleNote?.children?.[0]?.type).toBe('text');
   });
 });

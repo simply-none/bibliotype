@@ -27,6 +27,8 @@ export const CLASSICAL_NODE_TYPES = {
   VARIANT_CHAR: 'variant-char',
   /** 避讳字（缺笔字行内载体，attrs.taboo 携带避讳缘由） */
   TABOO_CHAR: 'taboo-char',
+  /** 墨钉（未定字的占位黑块，版刻待校补刻的痕迹） */
+  INK_NAIL: 'ink-nail',
 
   /* ---------- 版式元素 ---------- */
 
@@ -34,6 +36,8 @@ export const CLASSICAL_NODE_TYPES = {
   IMPRINT: 'imprint',
   /** 卷末题记 / 跋语 */
   COLOPHON: 'colophon',
+  /** 卷末总评（评点本附于卷末的总评文字） */
+  GENERAL_REVIEW: 'general-review',
   /** 印章（attrs.kind 区分起首章/压角章等） */
   SEAL: 'seal',
   /** 版框装饰（乌丝栏/朱丝栏，attrs.style 携取值） */

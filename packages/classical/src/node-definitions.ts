@@ -14,9 +14,9 @@ export const CLASSICAL_NODE_DEFINITIONS: readonly NodeTypeDefinition[] = [
   {
     type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
     namespace: ns,
-    kind: 'block',
+    kind: 'inline',
     isContainer: true,
-    description: '双行小注（正文一行夹两行小字）',
+    description: '双行夹注（行内注文：小字≈正文之半、随文双行连排，n 字占 n/2 字位）',
   },
   {
     type: CLASSICAL_NODE_TYPES.INLINE_NOTE,
@@ -68,6 +68,13 @@ export const CLASSICAL_NODE_DEFINITIONS: readonly NodeTypeDefinition[] = [
     description: '避讳字载体（缺笔字形）',
   },
   {
+    type: CLASSICAL_NODE_TYPES.INK_NAIL,
+    namespace: ns,
+    kind: 'inline',
+    isContainer: false,
+    description: '墨钉（未定字的占位黑块，版刻待校后补刻的痕迹）',
+  },
+  {
     type: CLASSICAL_NODE_TYPES.IMPRINT,
     namespace: ns,
     kind: 'block',
@@ -80,6 +87,13 @@ export const CLASSICAL_NODE_DEFINITIONS: readonly NodeTypeDefinition[] = [
     kind: 'block',
     isContainer: true,
     description: '卷末题记 / 跋语',
+  },
+  {
+    type: CLASSICAL_NODE_TYPES.GENERAL_REVIEW,
+    namespace: ns,
+    kind: 'block',
+    isContainer: true,
+    description: '卷末总评（评点本附于卷末的总评文字）',
   },
   {
     type: CLASSICAL_NODE_TYPES.SEAL,

@@ -12,6 +12,7 @@ import { NAMESPACES } from '@bibliotype/core';
 import {
   COMMON_MARK_ATTRS,
   COMMON_NODE_ATTRS,
+  STRUCTURE_NODE_ATTRS,
   type EditorMarkSpecEntry,
   type EditorNodeSpecEntry,
 } from '@bibliotype/editor';
@@ -81,7 +82,9 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
   {
     type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
     namespace: ns,
-    spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS },
+    /* 行内夹注（古籍口径：随文双行连排不换列）——与 inline-note 同形态；
+     * 直排列内双行渲染属排版引擎 v2 批 2（列盒渲染器），本规格先立模型 */
+    spec: { group: 'inline', inline: true, content: 'inline*', attrs: COMMON_NODE_ATTRS },
   },
   {
     type: CLASSICAL_NODE_TYPES.INLINE_NOTE,
@@ -145,6 +148,12 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
     namespace: ns,
     spec: { group: 'inline', inline: true, content: 'inline*', attrs: COMMON_NODE_ATTRS },
   },
+  {
+    type: CLASSICAL_NODE_TYPES.INK_NAIL,
+    namespace: ns,
+    /* 墨钉：未定字的占位黑块（行内原子，渲染 1em 实心方） */
+    spec: { group: 'inline', inline: true, content: '', atom: true, attrs: COMMON_NODE_ATTRS },
+  },
 
   /* ---------- 版本形态（牌记 / 题记 / 版框 / 鱼尾） ---------- */
   {
@@ -156,6 +165,12 @@ export const CLASSICAL_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
     type: CLASSICAL_NODE_TYPES.COLOPHON,
     namespace: ns,
     spec: { group: 'block', content: 'block+', attrs: COMMON_NODE_ATTRS },
+  },
+  {
+    type: CLASSICAL_NODE_TYPES.GENERAL_REVIEW,
+    namespace: ns,
+    /* 卷末总评：与跋语并列的结构部件（title 供目录提取，同结构节点语义） */
+    spec: { group: 'block', content: 'block+', attrs: STRUCTURE_NODE_ATTRS },
   },
   {
     type: CLASSICAL_NODE_TYPES.SEAL,

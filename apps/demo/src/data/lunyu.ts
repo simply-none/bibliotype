@@ -77,7 +77,10 @@ function roleParagraph(id: string, role: string, text: string): BookNode {
   return paragraph(id, [t(text)], { role });
 }
 
-/** 双行小注（朱注） */
+/**
+ * 双行夹注（朱注）——行内容器（v2 批 1 行内化）：随文落在段落内，
+ * 由 paragraph 的行内 children 引用；勿再直接挂块位。
+ */
 function doubleNote(id: string, text: string): BookNode {
   return { type: CLASSICAL_NODE_TYPES.DOUBLE_NOTE, id, children: [t(text)] };
 }
@@ -346,16 +349,16 @@ export const lunyuDocument: BookDocument = (() => {
               t('愠', ruby('yùn')),
               t('①', noteRef('fn-xue-1')),
               t('，不亦君子乎？」'),
+              doubleNote(
+              'note-xue-1',
+              '朱子曰：「说，悦同。学之为言效也。人性皆善，而觉有先后，后觉者必效先觉之所为，' +
+              '乃可以明善而复其初也。习，鸟数飞也；学之不已，如鸟数飞也。愠，纡问反，怒也。' +
+              '君子，成德之名。此三者皆学之本也。」',
+              ),
             ]),
             footnote(
               'fn-xue-1',
               '注① 愠，怒也。《集解》引马融曰：「愠，怒也。凡人有所不知，君子不怒。」',
-            ),
-            doubleNote(
-              'note-xue-1',
-              '朱子曰：「说，悦同。学之为言效也。人性皆善，而觉有先后，后觉者必效先觉之所为，' +
-                '乃可以明善而复其初也。习，鸟数飞也；学之不已，如鸟数飞也。愠，纡问反，怒也。' +
-                '君子，成德之名。此三者皆学之本也。」',
             ),
             headNote(
               'hn-xue-1',
@@ -368,11 +371,11 @@ export const lunyuDocument: BookDocument = (() => {
               t(
                 '，而好犯上者，鲜矣；不好犯上，而好作乱者，未之有也。君子务本，本立而道生。孝弟也者，其为仁之本与！」',
               ),
-            ]),
-            doubleNote(
+              doubleNote(
               'note-xue-2',
               '注：「弟、好，皆去声。善事父母为孝，善事兄长为弟。本，犹根也。」',
-            ),
+              ),
+            ]),
             paragraph('p-xue-3', [
               t(
                 '巧言令色',
@@ -401,22 +404,22 @@ export const lunyuDocument: BookDocument = (() => {
               t('，居其所而众星'),
               t('共', classicalMark(CLASSICAL_MARK_TYPES.VARIANT, { original: '拱' })),
               t('之。」'),
-            ]),
-            doubleNote(
+              doubleNote(
               'note-zheng-1',
               '朱子曰：「政之为言正也，所以正人之不正也。德之为言得也，得于心而不失之谓也。' +
-                '北辰，北极，天之枢也。居其所，不动也。共，向也。言众星四面旋绕而归向之也。」',
-            ),
+              '北辰，北极，天之枢也。居其所，不动也。共，向也。言众星四面旋绕而归向之也。」',
+              ),
+            ]),
             paragraph('p-zheng-2', [
               t('子曰：「'),
               t('诗三百', classicalMark(CLASSICAL_MARK_TYPES.BOOK_TITLE)),
               t('，一言以蔽之，曰：『思无邪』。」'),
-            ]),
-            doubleNote(
+              doubleNote(
               'note-zheng-2',
               '朱子曰：「凡《诗》之言，善者可以感发人之善心，恶者可以惩创人之逸志，' +
-                '其用归于使人得其情性之正而已。然其言微婉，且或各因一事而发，求其直指全体，则未有若此之明且尽者。」',
-            ),
+              '其用归于使人得其情性之正而已。然其言微婉，且或各因一事而发，求其直指全体，则未有若此之明且尽者。」',
+              ),
+            ]),
             paragraph('p-zheng-3', [
               t('子曰：「'),
               t('道'),

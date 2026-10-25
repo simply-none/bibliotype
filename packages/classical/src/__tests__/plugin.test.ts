@@ -23,7 +23,8 @@ describe('classical 插件', () => {
     expect(bt.nodeTypes.has(CLASSICAL_NODE_TYPES.SEAL)).toBe(true);
 
     const classicalDefs = bt.nodeTypes.listByNamespace(NAMESPACES.CLASSICAL);
-    expect(classicalDefs.length).toBe(13);
+    /* 13 + v2 批 1 新增 ink-nail / general-review */
+    expect(classicalDefs.length).toBe(15);
   });
 
   it('安装后主题令牌被古籍风格覆盖', () => {

@@ -236,7 +236,15 @@ describe('兜底与扩展', () => {
     );
   });
 
-  it('古籍节点启发式：double-note 容器 → div；collation-mark 叶子 → span', () => {
+  it('古籍节点：double-note 恒行内 span（v2 批 1 行内化，子级原样）；collation-mark 叶子 → span', () => {
+    expect(
+      serializeNode({
+        type: 'double-note',
+        children: [{ type: 'text', text: '注文' }],
+      }),
+    ).toBe('<span class="bt-double-note">注文</span>');
+
+    /* 未迁移的旧形态（容器挂段落）序列化不丢内容：段落原样输出在 span 内 */
     expect(
       serializeNode({
         type: 'double-note',
@@ -244,7 +252,7 @@ describe('兜底与扩展', () => {
           { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '注文' }] },
         ],
       }),
-    ).toBe('<div class="bt-double-note"><p class="bt-paragraph">注文</p></div>');
+    ).toBe('<span class="bt-double-note"><p class="bt-paragraph">注文</p></span>');
 
     expect(serializeNode({ type: 'collation-mark', attrs: { symbol: '○' } })).toBe(
       '<span class="bt-collation-mark" data-symbol="○"></span>',

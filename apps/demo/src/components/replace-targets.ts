@@ -22,13 +22,13 @@ import {
   replaceWithBorderFrame,
   replaceWithCollationNote,
   replaceWithColophon,
-  replaceWithDoubleNote,
   replaceWithHeadNote,
   replaceWithImprint,
   replaceWithTailNote,
   toggleInlineNote,
   toggleTabooChar,
   toggleVariantChar,
+  wrapDoubleNote,
 } from '@bibliotype/classical/editor';
 
 /** 行内容器只支持同段选区（跨段置灰） */
@@ -111,13 +111,6 @@ export const REPLACE_TARGET_GROUPS: readonly ReplaceTargetGroup[] = [
     label: '块级容器',
     items: [
       {
-        key: 'double-note',
-        label: '双行注',
-        command: () => replaceWithDoubleNote(),
-        disabled: crossParentSelection,
-        hint: '选中文字进入双行小注，前后文自动切分（需同一章节内选择）',
-      },
-      {
         key: 'head-note',
         label: '眉批',
         command: () => replaceWithHeadNote(),
@@ -186,6 +179,13 @@ export const REPLACE_TARGET_GROUPS: readonly ReplaceTargetGroup[] = [
     key: 'inline-container',
     label: '行内容器',
     items: [
+      {
+        key: 'double-note',
+        label: '双行夹注',
+        command: () => wrapDoubleNote(),
+        disabled: crossBlockSelection,
+        hint: '选中文字进入双行夹注（行内随文连排，古籍口径），前后文留在同段',
+      },
       {
         key: 'inline-note',
         label: '夹注',

@@ -457,19 +457,21 @@ describe('extractBlocks', () => {
     expect(blocks[0]?.mainSize).toBeGreaterThan(0);
   });
 
-  it('版式文本容器规范化后整体成块（编辑保存形态：容器 + 段落）', () => {
+  it('版式文本容器规范化后整体成块（编辑保存形态：容器 + 段落；夹注已行内化随段落）', () => {
     const doc = createEmptyDocument({ title: '注文规范化' });
     doc.root.children = [
       {
         type: NODE_TYPES.CHAPTER,
         id: 'chap-1',
         children: [
+          /* 夹注行内化（v2 批 1）：段内行内位，随段落成块 */
           {
-            type: 'double-note',
+            type: NODE_TYPES.PARAGRAPH,
             id: 'note-1',
             children: [
+              { type: 'text', text: '正文。' },
               {
-                type: NODE_TYPES.PARAGRAPH,
+                type: 'double-note',
                 children: [{ type: 'text', text: '朱子曰：学之为言效也。' }],
               },
             ],

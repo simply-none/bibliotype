@@ -12,12 +12,11 @@ import { TextSelection, type Command } from 'prosemirror-state';
 import {
   insertCollationNote,
   insertCollationSymbol,
-  insertDoubleNote,
+  wrapDoubleNote,
   insertHeadNote,
   replaceWithBorderFrame,
   replaceWithCollationNote,
   replaceWithColophon,
-  replaceWithDoubleNote,
   replaceWithHeadNote,
   replaceWithImprint,
   replaceWithTailNote,
@@ -147,16 +146,19 @@ describe('古籍行内标记命令', () => {
 });
 
 describe('古籍块插入命令', () => {
-  it('insertDoubleNote：叶块之后插入容器（含空段落）且光标进入新块', () => {
+  it('wrapDoubleNote：光标处插入行内夹注，光标进入夹注内部（行内化语义）', () => {
     const editor = createEditor();
     const { from } = firstTextRange(editor);
     selectText(editor, from, 0);
 
-    expect(run(editor, insertDoubleNote())).toBe(true);
+    expect(run(editor, wrapDoubleNote())).toBe(true);
+    /* 行内夹注：章下块数不变（仍 1 段），夹注落在段落内 */
     const blocks = chapterBlocks(editor);
-    expect(blocks).toHaveLength(2);
-    expect(blocks?.[1]?.type).toBe(CLASSICAL_NODE_TYPES.DOUBLE_NOTE);
-    expect(blocks?.[1]?.children?.[0]?.type).toBe(NODE_TYPES.PARAGRAPH);
+    expect(blocks).toHaveLength(1);
+    const note = blocks?.[0]?.children?.find(
+      (child) => child.type === CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
+    );
+    expect(note).toBeDefined();
 
     // 光标已进入新块（祖先链含 double-note），后续插入会落入容器内
     const doubleNoteType = editor.bookSchema.nodes[CLASSICAL_NODE_TYPES.DOUBLE_NOTE];
@@ -279,24 +281,26 @@ describe('行内容器包裹命令（修复 R1）', () => {
 });
 
 describe('选区替换为块级容器命令', () => {
-  it('replaceWithDoubleNote：段中选区 → 前段 + 双行注 + 后段', () => {
+  it('wrapDoubleNote：同段选区 → 行内夹注（前后文留同段，古籍随文连排）', () => {
     const editor = createEditor();
     const { from } = firstTextRange(editor);
     selectText(editor, from + 2, 2); // "学而"
 
-    expect(run(editor, replaceWithDoubleNote())).toBe(true);
+    expect(run(editor, wrapDoubleNote())).toBe(true);
 
     const blocks = chapterBlocks(editor);
-    expect(blocks?.map((block) => block.type)).toEqual([
-      NODE_TYPES.PARAGRAPH,
+    /* 行内包裹：不切分段落，章下仍是一段 */
+    expect(blocks).toHaveLength(1);
+    const children = blocks?.[0]?.children ?? [];
+    expect(children.map((child) => child.type)).toEqual([
+      'text',
       CLASSICAL_NODE_TYPES.DOUBLE_NOTE,
-      NODE_TYPES.PARAGRAPH,
+      'text',
     ]);
-    expect(blocks?.[0]?.children?.[0]?.text).toBe('子曰');
-    // 容器内是「容器 > 段落 > 文本」
-    expect(blocks?.[1]?.children?.[0]?.children?.[0]?.text).toBe('学而');
-    expect(blocks?.[2]?.children?.[0]?.text).toBe('时习之');
-    // 原段 id 保留给文档序第一个存留片段（前段）
+    expect((children[0] as { text?: string }).text).toBe('子曰');
+    // 容器内直接挂文本（行内容器直挂文本为合法形态）
+    expect((children[1]?.children?.[0] as { text?: string }).text).toBe('学而');
+    expect((children[2] as { text?: string }).text).toBe('时习之');
     expect(blocks?.[0]?.id).toBe('p-1');
   });
 
@@ -335,7 +339,7 @@ describe('未注册古籍规格的 schema', () => {
     expect(run(editor, toggleBookTitle())).toBe(false);
     expect(run(editor, toggleCircleEmphasis())).toBe(false);
     expect(run(editor, toggleVariant())).toBe(false);
-    expect(run(editor, insertDoubleNote())).toBe(false);
+    expect(run(editor, wrapDoubleNote())).toBe(false);
     expect(run(editor, insertHeadNote())).toBe(false);
     expect(run(editor, insertCollationNote())).toBe(false);
     expect(run(editor, insertCollationSymbol())).toBe(false);

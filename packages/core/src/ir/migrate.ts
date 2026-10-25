@@ -4,7 +4,7 @@
  * `BookDocument.schemaVersion` 用于标识结构版本。结构发生不兼容变更时，
  * 旧数据不能直接进入管线，必须先按「逐级迁移」补齐：
  *
- *   '0.0.0' --step--> '0.1.0' --step--> '0.2.0'
+ *   '0.0.0' --step--> '0.1.0' --step--> '0.2.0' --step--> '0.3.0' --step--> '0.4.0'
  *
  * 约定：
  * - 每个 step 只负责相邻两级之间的转换（纯函数，输入输出均为普通对象）；
@@ -63,7 +63,82 @@ export const BUILTIN_MIGRATIONS: readonly MigrationStep[] = [
     // 无需改写：未使用索引词的文档结构不变；新增标记向后兼容。
     migrate: (document) => document,
   },
+  {
+    from: '0.3.0',
+    to: '0.4.0',
+    description:
+      '0.4.0 双行夹注行内化：double-note 由块容器改为行内容器（古籍口径：注文随文双行连排，n 字占 n/2 字位）。容器内段落文本展平为行内内容；处于块位（段落之外）的夹注包一层段落。',
+    migrate: migrateDoubleNoteInline,
+  },
 ];
+
+/**
+ * 双行夹注行内化（0.3.0 → 0.4.0）
+ *
+ * 纯函数：克隆后改写，入参不可变。规则：
+ * - double-note 的子级中 `paragraph`（旧块容器的规范化形态）展平——其行内
+ *   children 提升为夹注直接子级；text 与行内元素原样保留（宽松 IR 的
+ *   「容器直挂文本」形态本就是目标形态）；
+ * - 迁移后夹注处于**块位**（父级不是 paragraph，如 chapter 直接子级）时
+ *   包一层 paragraph，保证行内节点落在合法的段落位；
+ * - 递归处理全部层级，id / attrs 原样保留。
+ */
+function migrateDoubleNoteInline(document: RawBookDocument): RawBookDocument {
+  const clone = structuredClone(document);
+  const root = clone['root'];
+  if (isPlainRecord(root)) {
+    migrateDoubleNoteLevel(root);
+  }
+  return clone;
+}
+
+/** 朴素对象判定（迁移数据是任意历史结构） */
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 单层兄弟序列的夹注迁移（先递归子级，再就地改写本层） */
+function migrateDoubleNoteLevel(node: Record<string, unknown>): void {
+  const children = node['children'];
+  if (!Array.isArray(children)) return;
+
+  for (const child of children) {
+    if (isPlainRecord(child)) {
+      migrateDoubleNoteLevel(child);
+    }
+  }
+
+  const next: unknown[] = [];
+  for (const child of children) {
+    /* 展平夹注子级：paragraph 提升 children，text / 行内元素原样保留 */
+    if (
+      isPlainRecord(child) &&
+      child['type'] === 'double-note' &&
+      Array.isArray(child['children'])
+    ) {
+      const inner: unknown[] = [];
+      for (const grandChild of child['children']) {
+        if (
+          isPlainRecord(grandChild) &&
+          grandChild['type'] === 'paragraph' &&
+          Array.isArray(grandChild['children'])
+        ) {
+          inner.push(...grandChild['children']);
+        } else {
+          inner.push(grandChild);
+        }
+      }
+      child['children'] = inner;
+    }
+    /* 块位夹注包段落：父级不是段落时，行内节点须落在段落位 */
+    if (isPlainRecord(child) && child['type'] === 'double-note' && node['type'] !== 'paragraph') {
+      next.push({ type: 'paragraph', children: [child] });
+    } else {
+      next.push(child);
+    }
+  }
+  node['children'] = next;
+}
 
 /** 迁移选项 */
 export interface MigrateOptions {

@@ -8,8 +8,13 @@ import type { BookNode } from './nodes.js';
 import type { BookMetadata } from './metadata.js';
 import { NODE_TYPES } from './node-types.js';
 
-/** IR Schema 版本号（结构不兼容变更时递增，用于迁移） */
-export const IR_SCHEMA_VERSION = '0.3.0';
+/**
+ * IR Schema 版本号（结构不兼容变更时递增，用于迁移）
+ *
+ * 版本史：0.4.0 双行夹注行内化（double-note 块容器 → 行内容器，见 migrate）；
+ * 0.3.0 索引词标记；0.2.0 分栏 / 页眉页脚 / 条件内容。
+ */
+export const IR_SCHEMA_VERSION = '0.4.0';
 
 /** 书籍文档 */
 export interface BookDocument {

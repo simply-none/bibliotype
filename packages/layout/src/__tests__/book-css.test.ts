@@ -125,8 +125,11 @@ describe('buildBookCss', () => {
     expect(css).toContain("[data-role='cover-title']");
     expect(css).toContain("[data-role='copyright-line']");
     expect(css).toContain("[data-role='volume-title']");
+    /* 双行夹注（v2 批 1 行内化）：横排括注随文（伪元素括号 + 小字） */
     expect(css).toContain('.bt-double-note');
-    expect(css).toContain('column-count: 2;');
+    expect(css).toContain(".bt-double-note::before {");
+    expect(css).toContain("content: '（';");
+    expect(css).toContain('.bt-ink-nail');
     expect(css).toContain('.bt-head-note');
     expect(css).toContain('.bt-collation-note');
     expect(css).toContain('.bt-collation-mark::after');
@@ -135,7 +138,8 @@ describe('buildBookCss', () => {
     expect(css).toContain('.bt-page-number');
     expect(css).toContain('.bt-imprint {');
     expect(css).toContain('.bt-colophon {');
-    expect(css).toMatch(/\.bt-double-note \{[^}]*display: block;/);
+    /* 夹注行内化：不再是块级双栏，字号 0.72em 的小字括注 */
+    expect(css).toMatch(/\.bt-double-note \{[^}]*font-size: 0\.72em;/);
   });
 
   it('版式文本容器内的段落（编辑保存规范形态）继承容器缩进，与直挂文本形态一致', () => {
@@ -144,7 +148,9 @@ describe('buildBookCss', () => {
       options: DEFAULT_LAYOUT_OPTIONS,
       containerSelector: '.bt-reader-page',
     });
-    expect(css).toContain('.bt-reader-page .bt-double-note .bt-paragraph,');
+    /* 夹注已行内化：不再有「容器 > 段落」形态，清单不含 double-note */
+    expect(css).toContain('.bt-reader-page .bt-head-note .bt-paragraph,');
+    expect(css).not.toContain('.bt-double-note .bt-paragraph');
     expect(css).toContain('.bt-reader-page .bt-footnote .bt-paragraph,');
     expect(css).toMatch(/\n\.bt-reader-page \.bt-margin-note \.bt-paragraph \{\n  text-indent: inherit;\n\}/);
   });

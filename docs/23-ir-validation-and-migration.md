@@ -136,7 +136,7 @@ result.issues;       // 迁移后结构校验问题（validate:false 时为空�
 - 每个 step 只负责**相邻两级**，纯函数、不修改入参；
 - 迁移链不通抛 `MigrationPathError`（不返回半成品）；
 - 缺少 `schemaVersion` 的历史数据按 `LEGACY_SCHEMA_VERSION`（`0.0.0`）处理；
-- 内置步骤表 `BUILTIN_MIGRATIONS` 当前为空（`0.1.0` 为基线），历史步骤由调用方注册。
+- 内置步骤表 `BUILTIN_MIGRATIONS`：`0.1.0→0.2.0`（分栏 / 页眉页脚）、`0.2.0→0.3.0`（索引词）、`0.3.0→0.4.0`（双行夹注行内化：容器内段落展平为行内 children、块位夹注包一层段落），更早历史步骤由调用方按需注册。
 
 ## 四、常见错误
 
@@ -152,3 +152,13 @@ result.issues;       // 迁移后结构校验问题（validate:false 时为空�
 - 新节点：`page-header` / `page-footer` / `condition`，编辑器 `CORE_EDITOR_NODE_SPECS` 已同步登记。
 - 新校验：`columns` 必须为 1~3 整数；页眉页脚必须是 book 直接子节点且各至多一个；`condition.when` 必须为合法表达式且内容非空。
 - 迁移：内置 0.1.0 → 0.2.0（无改写，旧文档 `columns` 缺省视为 1）。
+
+## 0.4.0（直排 v2 批 1）
+
+- **双行夹注行内化**：`double-note` 由块容器改为**行内容器**（children 直挂 text 与行内标记）。
+  迁移规则：容器内 `paragraph` 展平（行内 children 提升）；处于块位（父级非段落）的夹注包一层 `paragraph`，
+  保证行内节点落在合法段落位；id / attrs 原样保留。
+- 新增节点：`ink-nail`（墨钉，行内原子占位黑块）、`general-review`（卷末总评，结构块）。
+- 新增行款属性（段落 / 结构 / 注文类通用，缺省不参与序列化）：`indent`（低 N 格）、
+  `lift` / `liftLevel`（抬头六式）、`breakLine`（提行另起）、`band`（两截本归属）——
+  渲染 / 分页侧消费属后续批次。

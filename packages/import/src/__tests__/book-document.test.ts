@@ -1,7 +1,7 @@
 /**
  * nodesToBookDocument 测试（纯函数，node 环境）
  */
-import { NODE_TYPES, type BookNode } from '@bibliotype/core';
+import { IR_SCHEMA_VERSION, NODE_TYPES, type BookNode } from '@bibliotype/core';
 import { buildEditorSchema, markdownToNodes } from '@bibliotype/editor';
 import { describe, expect, it } from 'vitest';
 import { nodesToBookDocument } from '../book-document.js';
@@ -13,7 +13,7 @@ describe('nodesToBookDocument', () => {
   it('块节点合成 book 根，schemaVersion 与 metadata 原样注入', () => {
     const nodes = markdownToNodes('# 标题\n\n正文', schema);
     const doc = nodesToBookDocument(nodes, schema, metadata);
-    expect(doc.schemaVersion).toBe('0.3.0');
+    expect(doc.schemaVersion).toBe(IR_SCHEMA_VERSION);
     expect(doc.metadata).toEqual(metadata);
     expect(doc.root.type).toBe(NODE_TYPES.BOOK);
     expect(doc.root.children?.length).toBeGreaterThan(0);

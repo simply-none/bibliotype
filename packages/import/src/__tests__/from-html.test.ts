@@ -5,7 +5,7 @@
  * 覆盖方案 A 承诺：外部标准 HTML（p / h1-6 / ul / li / blockquote / strong / em / a）
  * 经 core/editor 扩充的 parseDOM 规则映射为合法 BookDocument。
  */
-import { NODE_TYPES, type BookNode } from '@bibliotype/core';
+import { IR_SCHEMA_VERSION, NODE_TYPES, type BookNode } from '@bibliotype/core';
 import { buildEditorSchema } from '@bibliotype/editor';
 import { describe, expect, it } from 'vitest';
 import { htmlToBookDocument } from '../from-html.js';
@@ -85,6 +85,6 @@ describe('htmlToBookDocument', () => {
   it('metadata 原样注入，schemaVersion 固定', () => {
     const doc = htmlToBookDocument('<p>正文</p>', schema, metadata);
     expect(doc.metadata).toEqual(metadata);
-    expect(doc.schemaVersion).toBe('0.3.0');
+    expect(doc.schemaVersion).toBe(IR_SCHEMA_VERSION);
   });
 });

@@ -48,7 +48,7 @@ interface BookNode {
 | 注释 | `footnote`、`endnote`、`margin-note` |
 | 行内 | `text`、`math-inline` |
 
-古籍专有节点（`double-note`、`collation-note` 等 13 种）由 [`@bibliotype/classical`](03-classical-layout.md) 扩展注册。
+古籍专有节点（`double-note`、`collation-note` 等 15 种；含 v2 批 1 新增的墨钉 `ink-nail` 与卷末总评 `general-review`）由 [`@bibliotype/classical`](03-classical-layout.md) 扩展注册。双行夹注 `double-note` 自 IR 0.4.0 起为**行内容器**（随文落在段落内，古籍口径：小字≈正文之半、随文连排不换列；存量块位档经 `migrateDocument` 展平迁移）。
 
 ## BookMark（行内标记）
 

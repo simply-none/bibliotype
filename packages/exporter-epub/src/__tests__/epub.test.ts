@@ -608,14 +608,12 @@ describe('古籍场景', () => {
         children: [
           {
             type: NODE_TYPES.PARAGRAPH,
-            children: [{ type: 'text', text: '子曰：学而时习之。' }],
-          },
-          {
-            type: 'double-note',
-            attrs: { kind: 'jiaozhu' },
             children: [
+              { type: 'text', text: '子曰：学而时习之。' },
+              /* 夹注行内化：随文段内（v2 批 1） */
               {
-                type: NODE_TYPES.PARAGRAPH,
+                type: 'double-note',
+                attrs: { kind: 'jiaozhu' },
                 children: [{ type: 'text', text: '朱注：习，鸟数飞也。' }],
               },
             ],
@@ -650,7 +648,7 @@ describe('古籍场景', () => {
     expect(css).toContain('font-family: ');
 
     expect(files['OEBPS/text/sec-0.xhtml']).toContain(
-      '<div class="bt-double-note" data-kind="jiaozhu"><p class="bt-paragraph">朱注：习，鸟数飞也。</p></div>',
+      '<span class="bt-double-note" data-kind="jiaozhu">朱注：习，鸟数飞也。</span>',
     );
   });
 

@@ -5,7 +5,7 @@
  * 端到端「导出 ↔ 导入往返」：Markdown → BookDocument → exportEpub 字节 → epubToBookDocument，
  * 断言回收为合法 BookDocument（book 根含标题 / 段落、正文文本保留、metadata 确定性）。
  */
-import { NODE_TYPES, type BookNode } from '@bibliotype/core';
+import { IR_SCHEMA_VERSION, NODE_TYPES, type BookNode } from '@bibliotype/core';
 import { buildEditorSchema } from '@bibliotype/editor';
 import { exportEpub } from '@bibliotype/exporter-epub';
 import { markdownToBookDocument } from '@bibliotype/import';
@@ -52,7 +52,7 @@ describe('epubToBookDocument', () => {
   it('metadata 原样注入、schemaVersion 固定（确定性红线）', () => {
     const doc = epubToBookDocument(sampleBytes, schema, { title: '导入' });
     expect(doc.metadata).toEqual({ title: '导入' });
-    expect(doc.schemaVersion).toBe('0.3.0');
+    expect(doc.schemaVersion).toBe(IR_SCHEMA_VERSION);
   });
 
   it('空字节 → 抛出指向明确的 RangeError', () => {

@@ -9,9 +9,35 @@
 import { NODE_TYPES } from '@bibliotype/core';
 import type { EditorNodeSpecEntry } from './schema-registry.js';
 
-/** 公共属性：稳定 id 与未声明属性兜底（供扩展节点规格复用） */
+/**
+ * 行款规则属性（古籍直排 v2 批 1 登记；段落 / 结构 / 注文类节点通用）
+ *
+ * - `indent` 低 N 格：直排 = 列首空 N 字位，横排 = 首行缩进 N 字；
+ * - `lift` 抬头：`'space'` 空抬 / 挪抬（行内空一字），`'newline'` 平抬（提行顶格）；
+ * - `liftLevel` 单 / 双 / 三 / 四抬（提行高出 N 字，仅 `lift: 'newline'` 生效）；
+ * - `breakLine` 提行另起（行级另起一列，区别于另起页的分页符）；
+ * - `band` 两截本内容归属（上 / 下栏）。
+ *
+ * 缺省 null：attr-mapper 将 null 规范化为缺省，不参与 IR 序列化输出，
+ * 未使用行款的文档逐字节不变；渲染 / 分页侧消费属后续批次（批 2 / 批 4）。
+ */
+export const LINE_RULE_ATTRS = {
+  /** 低 N 格（1~4） */
+  indent: { default: null },
+  /** 抬头形式（space 空抬·挪抬 / newline 平抬） */
+  lift: { default: null },
+  /** 抬头层级（1~4：单 / 双 / 三 / 四抬） */
+  liftLevel: { default: null },
+  /** 提行另起一列 */
+  breakLine: { default: null },
+  /** 两截本内容归属（upper / lower） */
+  band: { default: null },
+} as const;
+
+/** 公共属性：稳定 id、行款规则与未声明属性兜底（供扩展节点规格复用） */
 export const COMMON_NODE_ATTRS = {
   id: { default: null },
+  ...LINE_RULE_ATTRS,
   rawAttrs: { default: null },
 } as const;
 

@@ -13,11 +13,8 @@
  * - 显式行高的类（标题 / 代码块 / 注区）归一到列距；字号大于列距的
  *   （标题分级、封面 / 书名页大字）在构建期按「字号 ÷ 列距」向上取整 k，
  *   落到 k × 列距；
- * - 双行小注改为「一格双行」（古籍原貌）：**不用 CSS 多栏**（Chromium
- *   直排多栏 balancing 拦腰分段、溢出栏落位错乱，fill: auto 被忽略致列高
- *   塌缩——均实测不可依赖），改为子列行高 = 列距一半的**自然换列**：读序
- *   （右列从上读到底、余文续左列）与子列满高由换行引擎天然保证，
- *   `min-width` 兜底短注占满一格；
+ * - 双行夹注已行内化（v2 批 1）：随文落在段落内、行盒继承根行高（px 列距）
+ *   天然落格；列内双行（小字半号、n 字占 n/2 字位）由批 2 列盒渲染器承担；
  * - 块轴装饰归零（引文 / 眉批 / 牌记 / 题跋 / 注区的左右 margin /
  *   padding / border），行内轴（上下）的间距与配色保留。
  *
@@ -119,17 +116,12 @@ export function buildFacsimileGridCss(input: BuildFacsimileGridCssOptions): stri
 
   rules.push(`${scoped('.bt-code-block')} {\n  line-height: ${pitch}px;\n}`);
 
-  /* 双行小注「一格双行」：**不用 CSS 多栏**（Chromium 直排多栏不可依赖：
-   * balancing 把子列拦腰分段且溢出栏落位错乱、column-fill: auto 又被忽略
-   * 导致列高塌缩半高），改为「子列行高 = 列距 / 2」的**自然换列**——换行
-   * 引擎本身保证读序（右列从上读到底，余文续左列）与子列满高（版心高），
-   * 块宽 = 子列数 × 半列距，显式重置基础样式的 column-count / gap；
-   * min-width 兜底单子列短注占满一格；去掉左边距（块轴），上下（行内轴）
-   * 间距保留 */
-  const noteLine = round2(pitch / 2);
-  rules.push(
-    `${scoped('.bt-double-note')} {\n  line-height: ${noteLine}px;\n  column-count: initial;\n  column-gap: initial;\n  min-width: ${pitch}px;\n  margin: 0.35em 0 0.45em;\n}`,
-  );
+  /*
+   * 双行夹注已行内化（v2 批 1：随文落在段落内，横排括注随文）——列内
+   * 双行（小字 0.5em、n 字占 n/2 字位、右列满高续左列）由批 2 的列盒
+   * 渲染器（buildPageColumns + splitDoubleNoteLines）承担，本层不再
+   * 输出块级夹注规则；行内夹注的行盒厚度继承根行高（px 列距），天然落格。
+   */
 
   /* 页底注区：行盒归列距；块轴（右缘）的分隔线与占位归零 */
   rules.push(

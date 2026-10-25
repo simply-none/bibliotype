@@ -222,6 +222,16 @@ function plainText(node: BookNode): string {
   return (node.children ?? []).map(plainText).join('');
 }
 
+/**
+ * 恒用行内标签（span）的类型表
+ *
+ * 容器启发式（有元素子级 → div）对**行内容器**不安全：行内节点落在段落内，
+ * 输出块级标签会破坏行内流（如夹注带标记子级时被启发式判成 div）。
+ * 本批登记行内化节点（double-note）与新原子（ink-nail）；其余行内类型
+ * 待各自批次处理。
+ */
+const INLINE_TAG_TYPES: ReadonlySet<string> = new Set(['double-note', 'ink-nail']);
+
 /** 解析节点标签（覆盖 > 动态规则 > 内置表 > 容器启发式） */
 function resolveTag(node: BookNode, options: SerializeNodeOptions): string {
   const override = options.tagOverrides?.[node.type];
@@ -240,6 +250,7 @@ function resolveTag(node: BookNode, options: SerializeNodeOptions): string {
 
   const mapped = CORE_TAG_MAP[node.type];
   if (mapped !== undefined) return mapped;
+  if (INLINE_TAG_TYPES.has(node.type)) return 'span';
   return elementChildren(node).length > 0 ? 'div' : 'span';
 }
 

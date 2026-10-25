@@ -8,7 +8,7 @@
  * - 边界：docxToHtml 产出标准 HTML；空字节 / 非 zip 垃圾字节走中文 RangeError 错误路径。
  * mammoth 自身 docx→HTML 属上游能力（其仓库有完备测试），本包不重复验证其二进制解析细节。
  */
-import { NODE_TYPES, type BookNode } from '@bibliotype/core';
+import { IR_SCHEMA_VERSION, NODE_TYPES, type BookNode } from '@bibliotype/core';
 import { buildEditorSchema } from '@bibliotype/editor';
 import { describe, expect, it } from 'vitest';
 import { docxToHtml } from '../docx-html.js';
@@ -76,7 +76,7 @@ describe('docxToBookDocument', () => {
   it('metadata 原样注入、schemaVersion 固定（确定性红线）', async () => {
     const doc = await docxToBookDocument(sampleDocx, schema, metadata);
     expect(doc.metadata).toEqual(metadata);
-    expect(doc.schemaVersion).toBe('0.3.0');
+    expect(doc.schemaVersion).toBe(IR_SCHEMA_VERSION);
   });
 
   it('空字节经组合入口同样抛错', async () => {

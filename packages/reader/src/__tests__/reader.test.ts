@@ -257,7 +257,7 @@ describe('Reader 页节点解析', () => {
     expect(fullFromNodes).toBe(full);
   });
 
-  it('规范形态的版式文本容器整体渲染并可定位（编辑保存后注文样式回归）', () => {
+  it('行内夹注随段落渲染并可定位（夹注行内化后的注文回归）', () => {
     const doc = createEmptyDocument({ title: '注文' });
     doc.root.children = [
       {
@@ -265,11 +265,12 @@ describe('Reader 页节点解析', () => {
         id: 'chap-1',
         children: [
           {
-            type: 'double-note',
+            type: NODE_TYPES.PARAGRAPH,
             id: 'note-1',
             children: [
+              { type: 'text', text: '经文' },
               {
-                type: NODE_TYPES.PARAGRAPH,
+                type: 'double-note',
                 children: [{ type: 'text', text: '朱子曰' }],
               },
             ],
@@ -280,7 +281,7 @@ describe('Reader 页节点解析', () => {
     const reader = new Reader();
     reader.loadDocument(doc);
 
-    /* 页节点为容器本身（渲染端连 bt-double-note class 一并序列化） */
+    /* 页节点为所在段落（夹注为段内行内子节点，序列化随段落输出） */
     expect(reader.getPageNodes(0).map((node) => node.id)).toEqual(['note-1']);
     /* 搜索命中容器 id；goToNode 可按 id 定位 */
     expect(reader.search('朱子曰')[0]?.nodeId).toBe('note-1');

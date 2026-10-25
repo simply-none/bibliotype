@@ -418,7 +418,9 @@ props：`mode`（`columns` / `facing`）、`gap`、`leftLabel` / `rightLabel`；
 
 - 仅传 `left`：退化为单文档 `spread='facing'` 对页阅读；
 - 传 `right`：左右并排各一份 `BtBookView`（`mode='columns'`），可独立翻页；`syncPages` 开启时**双向页码同步**（重入守卫 + 越界钳制）；
-- 两侧位置经 `update:position` 汇总（`side: 'left' \| 'right'`），宿主持久化可分别保存。
+- 两侧位置经 `update:position` 汇总（`side: 'left' \| 'right'`），宿主持久化可分别保存；
+- `tokens` / `fontToken` / `fontSize` / `features` / `namedStyles` 透传给内部 `BtBookView`，对页与单页共用同一套主题 / 字体 / 样式来源（古籍仿真纸色一致）；
+- Demo 集成：对照**就地替换主区**（隐藏目录栏、不叠加原正文），宿主舞台高度有界、`fit='contain'` 且容器不内滚，滚轮专用于翻页；顶栏「逐页」之后提供「退出对照」，进入编辑态自动退出。
 
 ### 翻页动效降级规则
 

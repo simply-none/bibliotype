@@ -69,6 +69,10 @@ defineProps<{
   pdfExporting: boolean;
   /** 应用内直出逐页进度（null = 非光栅路径；展示「导出中 N/M」） */
   pdfProgress?: { done: number; total: number } | null;
+  /** 双页对照是否开启（开启时在「逐页」后展示「退出对照」） */
+  compareOpen: boolean;
+  /** 退出双页对照 */
+  exitCompare: () => void;
   /** 切换主题 */
   switchTheme: (key: ThemeKey) => void;
   /** 编辑 ↔ 保存并预览切换 */
@@ -188,6 +192,15 @@ defineProps<{
           @click="pdfPagedMode = !pdfPagedMode"
         >
           {{ pdfPagedMode ? '逐页' : '连续' }}
+        </button>
+        <button
+          v-if="compareOpen"
+          type="button"
+          class="toolbar__button toolbar__button--active"
+          title="退出双页对照，回到单页阅读"
+          @click="exitCompare"
+        >
+          退出对照
         </button>
       </div>
     </div>

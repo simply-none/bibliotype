@@ -357,6 +357,16 @@ const {
     pdfRasterScale,
   });
 
+/** 退出双页对照：回到单页阅读（顶栏「退出对照」入口） */
+function exitCompare(): void {
+  compareOpen.value = false;
+}
+
+/* 对照只属于阅读态：进入编辑（顶栏 / 状态栏 / H5 sheet 同一入口）时自动退出 */
+watch(mode, (next) => {
+  if (next === 'edit') compareOpen.value = false;
+});
+
 /* 左栏 tab / 弹窗开合 / 属性栏折叠（inspectorCollapsed 源状态在 App 持有） */
 const {
   activeTab,
@@ -531,11 +541,13 @@ let perfProbe: PerfProbe | null = null;
       :active-tab="activeTab"
       :pdf-exporting="pdfExporting"
       :pdf-progress="pdfProgress"
+      :compare-open="compareOpen"
       :switch-theme="switchTheme"
       :toggle-edit-mode="toggleEditMode"
       :toggle-tab="toggleTab"
       :on-export-epub="onExportEpub"
       :on-export-pdf="onExportPdf"
+      :exit-compare="exitCompare"
     />
 
     <!--
@@ -557,7 +569,7 @@ let perfProbe: PerfProbe | null = null;
 
     <div class="app__body" :style="{ '--bt-aside-width': `${tocWidth}px` }">
       <!-- 桌面：左栏常驻；H5 同一份内容收进左抽屉（A1 / A4） -->
-      <aside v-if="!mobileShell" v-show="asideVisible" class="app__aside">
+      <aside v-if="!mobileShell" v-show="asideVisible && !compareOpen" class="app__aside">
         <AsidePanels
           :tab="activeTab"
           :reader="readerRef"
@@ -581,7 +593,7 @@ let perfProbe: PerfProbe | null = null;
       </aside>
       <BtSidebarResizer
         v-if="!mobileShell"
-        v-show="asideVisible"
+        v-show="asideVisible && !compareOpen"
         v-model="tocWidth"
         class="app__aside-resizer"
         side="start"
@@ -591,13 +603,32 @@ let perfProbe: PerfProbe | null = null;
 
       <main class="app__main">
         <!-- 流式阅读不被当前版式支持时的回落说明条（可关闭，不使用弹窗） -->
-        <div v-if="booted && mode === 'read' && effectiveViewMode !== viewMode" class="app__mode-hint">
+        <div
+          v-if="booted && mode === 'read' && !compareOpen && effectiveViewMode !== viewMode"
+          class="app__mode-hint"
+        >
           <span>{{ modeFallbackHint || '当前版式暂不支持流式阅读，已切换为分页阅读。' }}</span>
           <button type="button" class="app__mode-hint-close" @click="modeFallbackHint = ''">知道了</button>
         </div>
         <div ref="stageEl" class="app__stage" :class="{ 'app__stage--read': mode === 'read' }">
+          <!--
+            D5 双页对照：就地替换阅读区（只展示当前页对），不叠加原正文。
+            舞台高度有界 + fit=contain，内部不滚动，滚轮专用于翻页。
+          -->
+          <div v-if="booted && mode === 'read' && compareOpen" class="app__compare">
+            <BtCompareView
+              :left="readerRef"
+              :tokens="tokens"
+              :font-token="activeFontToken"
+              :font-size="fontSizeNum"
+              :features="features"
+              :named-styles="namedStyles"
+              mode="page"
+              :page-transition="pageTransition"
+            />
+          </div>
           <BtBookView
-            v-if="booted && mode === 'read'"
+            v-else-if="booted && mode === 'read'"
             :key="`${themeKey}-${readerEpoch}`"
             :reader="readerRef"
             :tokens="tokens"
@@ -855,21 +886,6 @@ let perfProbe: PerfProbe | null = null;
     />
 
     <AppToast :items="toasts" @dismiss="dismissToast" />
-
-    <!-- D5 双页对照：当前文档左右对页（同书对照）。接入第二份文稿可比对底本 / 校本 -->
-    <div v-if="compareOpen" class="app__compare-overlay">
-      <div class="app__compare-bar">
-        <span class="app__compare-title">双页对照（当前文档左右对页）</span>
-        <button type="button" class="app__compare-close" @click="compareOpen = false">关闭</button>
-      </div>
-      <div class="app__compare-body">
-        <BtCompareView
-          :left="readerRef"
-          mode="page"
-          :page-transition="pageTransition"
-        />
-      </div>
-    </div>
   </div>
 </template>
 

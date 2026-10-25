@@ -10,6 +10,7 @@
  * 可分别保存两份位置。
  */
 import { computed, nextTick, ref } from 'vue';
+import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
 import type { Reader, ReadingPosition } from '@bibliotype/reader';
 import BtBookView from './BtBookView.vue';
 import BtSpreadLayout from './BtSpreadLayout.vue';
@@ -23,6 +24,16 @@ interface Props {
   left: Reader;
   /** 右侧阅读器（校本）；缺省则单文档对页 */
   right?: Reader;
+  /** 主题令牌值表（透传；缺省由 BtBookView 用 DEFAULT_THEME） */
+  tokens?: Readonly<Record<string, string | undefined>>;
+  /** 正文字体族令牌键（透传，古籍可传 FONT_TOKENS.CLASSICAL_BODY） */
+  fontToken?: string;
+  /** 正文字号 px（透传；覆盖主题令牌 font-size-body） */
+  fontSize?: number;
+  /** 功能样式表（透传，与编辑画布 / 导出同源） */
+  features?: FeatureStyleSheet;
+  /** 命名样式集合（透传，`[data-style-id]` 规则） */
+  namedStyles?: NamedStyleSet;
   /** 栏目标签，缺省「底本 / 校本」 */
   labels?: { left?: string; right?: string };
   /** 双文档模式：左右页码双向同步 */
@@ -58,8 +69,18 @@ const emit = defineEmits<{
 
 const isSingle = computed(() => props.right === undefined);
 
-/** 透传给两侧 `BtBookView` 的公共属性 */
+/**
+ * 透传给两侧 `BtBookView` 的公共属性
+ *
+ * 主题令牌 / 字体 / 功能样式与单页阅读共用同一来源，避免对页（尤其古籍仿真）
+ * 回落 DEFAULT_THEME 导致纸色、正文字体不一致。
+ */
 const sharedProps = computed(() => ({
+  tokens: props.tokens,
+  fontToken: props.fontToken,
+  fontSize: props.fontSize,
+  features: props.features,
+  namedStyles: props.namedStyles,
   mode: props.mode,
   fit: props.fit,
   pageTransition: props.pageTransition,

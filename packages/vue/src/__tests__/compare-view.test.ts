@@ -5,6 +5,7 @@ import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/
 import { Reader, type BlockSizeEstimator } from '@bibliotype/reader';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
+import BtBookView from '../components/BtBookView.vue';
 import BtCompareView from '../components/BtCompareView.vue';
 
 const COLLATION = 'collation-mark';
@@ -43,6 +44,29 @@ describe('BtCompareView', () => {
     // 单文档形态渲染一个 BtBookView（带 facing 版式）
     expect(wrapper.find('.bt-book-view').exists()).toBe(true);
     expect(wrapper.find('.bt-spread').exists()).toBe(false);
+  });
+
+  it('单文档对页透传主题令牌 / 字体 / 功能样式', () => {
+    const left = makeReader('底本', 1);
+    const tokens = { 'color-background': '#123456' };
+    const features = { 'block.paragraph': { color: '#f00' } };
+    const namedStyles = { version: 1 as const, styles: [] };
+    const wrapper = mount(BtCompareView, {
+      props: {
+        left,
+        tokens,
+        fontToken: 'classical-body',
+        fontSize: 20,
+        features,
+        namedStyles,
+      },
+    });
+    const view = wrapper.findComponent(BtBookView);
+    expect(view.props('tokens')).toEqual(tokens);
+    expect(view.props('fontToken')).toBe('classical-body');
+    expect(view.props('fontSize')).toBe(20);
+    expect(view.props('features')).toEqual(features);
+    expect(view.props('namedStyles')).toEqual(namedStyles);
   });
 
   it('双文档并排渲染左侧 / 右侧各一个阅读视图', () => {

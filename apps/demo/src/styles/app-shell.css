@@ -74,6 +74,21 @@
   padding: var(--ui-space-6);
 }
 
+/*
+ * 双页对照：就地占满阅读舞台（只展示当前页对）。
+ * 高度确定后 BtBookView 的 contain 缩放才能按舞台宽高落位；
+ * 关闭容器内滚动，保证滚轮只用于翻页、不出现页面内滚动条。
+ */
+.app__compare {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app__compare :deep(.bt-book-view) {
+  overflow: hidden;
+}
+
 .app__editor {
   height: 100%;
 }

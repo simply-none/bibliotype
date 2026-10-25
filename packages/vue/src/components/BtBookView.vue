@@ -279,8 +279,8 @@ function flowStyleOf(columns: number): Record<string, string> | undefined {
 
 /* ---------- 对页（facing spread） ---------- */
 
-/** 对页中缝宽度（px）：0 = 两页紧贴，呈真实书册跨页 */
-const SPREAD_GAP = 0;
+/** 对页中缝宽度（px）：留出画布色空隙，两页各自成张、不再粘连 */
+const SPREAD_GAP = 24;
 
 /** 断点：窄屏（< md）对页并排放不下，自动降级单页（C4；宽视口自动还原） */
 const breakpoint = useBreakpoint();
@@ -353,14 +353,14 @@ const spreadStageStyle = computed(() => ({
  * 对页中单页的位置
  *
  * `transform: scale()` 不改变布局盒，flex 并排会让右页停在未缩放位置；
- * 故两页均绝对定位，按缩放后的页宽偏移（左页偶数 = 0，右页奇数 = 1）。
+ * 故两页均绝对定位，按「缩放后的页宽 + 中缝」偏移（左页偶数 = 0，右页奇数 = 1）。
  */
 function spreadPageStyle(page: SpreadPage) {
   return {
     ...scaledPageStyle.value,
     position: 'absolute' as const,
     top: '0',
-    left: `${(page.index % 2) * pageSize.value.width * scale.value}px`,
+    left: `${(page.index % 2) * (pageSize.value.width + SPREAD_GAP) * scale.value}px`,
   };
 }
 
@@ -1854,6 +1854,10 @@ defineExpose({
 .bt-book-view__spread {
   position: relative;
   flex: none;
+}
+
+/* 对页：两页各自一层投影，配合中缝画布色空隙，读感是「两张纸」而非一整块 */
+.bt-book-view__spread > .bt-reader-page {
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.18);
 }
 

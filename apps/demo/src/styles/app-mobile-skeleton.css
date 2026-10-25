@@ -83,11 +83,3 @@
   padding-inline: var(--ui-space-3);
 }
 
-
-/* 窄屏兜底：对照覆盖层贴边，标题栏可换行 */
-@media (max-width: 767px) {
-  .app__compare-bar {
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-}

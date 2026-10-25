@@ -20,6 +20,8 @@ export type { SerializePageNotesOptions } from './page-notes.js';
 export { buildFacsimileDecorationCss } from './facsimile-frame-css.js';
 export type { BuildFacsimileDecorationCssOptions } from './facsimile-frame-css.js';
 export { buildFacsimileGridCss } from './facsimile-grid-css.js';
+export { serializeVerticalFlow } from './vertical-flow.js';
+export type { SerializeVerticalFlowOptions } from './vertical-flow.js';
 export type { BuildFacsimileGridCssOptions } from './facsimile-grid-css.js';
 export {
   resolveFeatureSelector,

@@ -22,8 +22,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, FONT_SIZE_TOKENS, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
-import { buildPageStyle, buildRootStyle, isVerticalMode } from '@bibliotype/layout';
-import { buildBookCss, serializeNode, serializePageGutter, serializePageNotes } from '@bibliotype/layout/html';
+import { buildPageStyle, buildRootStyle, isVerticalMode, resolvePageCrossSize } from '@bibliotype/layout';
+import { buildBookCss, serializeNode, serializePageGutter, serializePageNotes, serializeVerticalFlow } from '@bibliotype/layout/html';
 import {
   formatPageNumber,
   parseReadingPosition,
@@ -356,13 +356,34 @@ function spreadPageStyle(page: SpreadPage) {
   };
 }
 
-/** 当前页 HTML 片段（文本叶子不输出） */
-const pageHtml = computed(() =>
-  pageNodes.value
-    .filter((node) => !isTextNode(node))
-    .map((node) => serializeNode(node))
-    .join('\n'),
-);
+  /**
+   * 直排每行大字数（行内流的夹注子列容量基准）
+   *
+   * 版心高（交叉轴，扣页眉页脚）÷ 正文字号；与量尺 `charsPerLine` 同源
+   * 口径（0.95 字宽系数不取——行内流按 1em 字位对齐界行）。
+   */
+  const readerColumnCapacity = computed(() => {
+    const cross = resolvePageCrossSize(layout.value, tokens.value);
+    const size = Number.parseFloat(tokens.value['font-size-body'] ?? '16');
+    return Math.max(4, Math.round(cross / (Number.isFinite(size) ? size : 16)));
+  });
+
+  /**
+   * 当前页 HTML 片段（文本叶子不输出）
+   *
+   * 直排（古籍直排 / 仿真）走**行内流连排**（v2 批 2）：段落行内化、
+   * 双行夹注双列小字盒、低格 / 抬头 / 提行随文标记，容器 `.bt-vflow`
+   * 自然换列——与 CSS 块流「段段换列」的半空版面相对；横排维持块级序列化。
+   */
+  const pageHtml = computed(() => {
+    const nodes = pageNodes.value.filter((node) => !isTextNode(node));
+    if (verticalWriting.value) {
+      return serializeVerticalFlow(nodes, {
+        charsPerColumn: readerColumnCapacity.value,
+      });
+    }
+    return nodes.map((node) => serializeNode(node)).join('\n');
+  });
 
 /**
  * 封面子树节点集合（判定页脚页码是否隐藏；元素子节点与叶块同属集合）
@@ -1489,7 +1510,7 @@ defineExpose({
         <div v-if="p.header" class="bt-page-header">{{ p.header }}</div>
         <div
           class="bt-reader-page__flow"
-          :class="{ 'is-multicolumn': p.columns > 1 }"
+          :class="{ 'is-multicolumn': p.columns > 1, 'bt-vflow': verticalWriting }"
           :style="flowStyleOf(p.columns)"
           v-html="p.html"
         ></div>
@@ -1504,7 +1525,7 @@ defineExpose({
         <div v-if="currentChrome?.header" class="bt-page-header">{{ currentChrome.header }}</div>
         <div
           class="bt-reader-page__flow"
-          :class="{ 'is-multicolumn': currentPageColumns > 1 }"
+          :class="{ 'is-multicolumn': currentPageColumns > 1, 'bt-vflow': verticalWriting }"
           :style="flowStyleOf(currentPageColumns)"
           v-html="pageHtml"
         ></div>
@@ -1553,7 +1574,7 @@ defineExpose({
           <div v-if="page.header" class="bt-page-header">{{ page.header }}</div>
           <div
             class="bt-reader-page__flow"
-            :class="{ 'is-multicolumn': page.columns > 1 }"
+            :class="{ 'is-multicolumn': page.columns > 1, 'bt-vflow': verticalWriting }"
             :style="flowStyleOf(page.columns)"
             v-html="page.html"
           ></div>

@@ -66,6 +66,14 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 直排构建期旋转），仅在文档含字图节点时命中，样式表全文变化，基线重锁。
  *
  *
+ *
+ * 2026-10-25 十六次更新（直排 v2 批 2）：新增 §9.6 直排行内流规则（`.bt-vflow` /
+ * `.bt-vpara` / `.bt-vnote` 双列小字盒 / `.bt-vbreak` 断列 / `.bt-vpad` 抬升空位——
+ * 仅直排输出，横排产物逐字符不变），样式表全文变化，基线重锁。
+ *
+ * 2026-10-25 十七次更新（批 2 终态）：夹注盒改固定双列 block 子列（竖排逻辑轴
+ * 修正：inline=列高 / block=列宽），盒宽与字步进经间接变量 --bt-vnote-pitch
+ * 接入列距（非仿真直排不出现仿真变量名，隔离矩阵保持），基线重锁。
  * 2026-10-25 十五次更新（直排 v2 批 1）：双行夹注行内化——`.bt-double-note` 由
  * 块级双栏（display: block + column-count）改为行内括注随文（伪元素括号 +
  * 小字），容器段落继承清单不再含 double-note；新增 `.bt-ink-nail` 墨钉规则，
@@ -74,7 +82,7 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 正立文字的图片，直排汉字直立、字图同理恒不旋转（验收口径），样式表全文
  * 变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '4b09d0cc';
+export const CLASSICAL_CSS_FNV = 'a00acc33';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

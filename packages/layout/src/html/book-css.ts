@@ -847,6 +847,59 @@ ${scoped('.bt-note-continued--prev')} {
   }
 
   /*
+   * ---------- 9.6 直排行内流（连排 / 低格 / 抬头 / 双行夹注） ----------
+   *
+   * 直排（古籍直排 + 仿真）下页内容以行内流连排（serializeVerticalFlow
+   * 产物）：段落行内化（.bt-vpara）、夹注为「1 大字位宽的双列小字盒」
+   * （.bt-vnote）、提行 / 平抬断列（br.bt-vbreak）、抬升列首空位
+   * （.bt-vpad）。容器 .bt-vflow 的行盒厚度由根行高（= 列距）决定，
+   * 列与界行网格天然咬合。横排不输出（产物逐字符不变）。
+   */
+  if (vertical) {
+    rules.push(
+      `/* ---------- 直排行内流（连排 / 低格 / 抬头 / 双行夹注） ---------- */
+${scoped('.bt-vflow')} {
+  /* 连排容器：行内流自然换列；白空间折叠避免片段衔接出缝 */
+  white-space: normal;
+}
+${scoped('.bt-vpara')} {
+  display: inline;
+}
+${scoped('.bt-vnote')} {
+  /* 双行夹注盒：恒 1 大字位宽 × 整列高的**固定双列**小字（「从上排到底」
+   * 的古籍形制）。竖排逻辑轴：inline 轴 = 纵向（列高）、block 轴 = 横向
+   * （列宽方向）——故 inline-size: 100% 是整列高、block-size 是 1 字位宽；
+   * 内部两个 block 子列沿块轴自右向左并列（DOM 序即阅读序）。字步进
+   * 补至半字位（列距/2），n 字占 ceil(n/2) 字位高 */
+  display: inline-block;
+  vertical-align: top;
+  inline-size: 100%;
+  block-size: var(--bt-vnote-pitch, 2em);
+  writing-mode: vertical-rl;
+  overflow: hidden;
+}
+${scoped('.bt-vnote-col')} {
+  display: block;
+  block-size: 50%;
+  font-size: 0.5em;
+  letter-spacing: calc(var(--bt-vnote-pitch, 2em) / 2 - 0.5em);
+  overflow: hidden;
+}
+${scoped('.bt-vpad')} {
+  /* 空位盒：N 字位高（宽 1em 贴列）——低格 / 挪抬的列首空位与抬升列首；
+   * 1lh = 根行高（仿真下即列距 px） */
+  display: inline-block;
+  inline-size: 1em;
+  block-size: calc(1lh * var(--bt-vpad-n, 1));
+}
+${scoped(`.bt-vpad[data-n='1']`)} { --bt-vpad-n: 1; }
+${scoped(`.bt-vpad[data-n='2']`)} { --bt-vpad-n: 2; }
+${scoped(`.bt-vpad[data-n='3']`)} { --bt-vpad-n: 3; }
+${scoped(`.bt-vpad[data-n='4']`)} { --bt-vpad-n: 4; }`,
+    );
+  }
+
+  /*
    * ---------- 10. 用户覆盖：功能样式 + 命名样式 ----------
    *
    * 追加在最后：同优先级靠层叠顺序胜出（不用 !important——老引擎对

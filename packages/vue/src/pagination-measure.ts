@@ -32,7 +32,7 @@ import {
   type StyleDeclaration,
   type WritingMode,
 } from '@bibliotype/layout';
-import { buildBookCss, serializeNode } from '@bibliotype/layout/html';
+import { buildBookCss, serializeNode, serializeVerticalFlow } from '@bibliotype/layout/html';
 import {
   extractBlocksIndexed,
   type BlockMeasureContext,
@@ -454,11 +454,23 @@ function renderMeasureSheet(
     if (i > 0) start = i;
   }
   const blocks = allBlocks.slice(start, end);
+  /* 直排行内流同形态量尺（v2 批 2）：块 HTML 与预览同构（段落行内化、
+   * 夹注双列小字盒），行边界与夹注原子性随真实布局自洽。
+   * 每行大字数 = 量尺内容高（直排交叉轴）÷ 正文字号（与预览口径一致，
+   * 不取 0.95 系数——行内流按 1em 字位对齐界行）。 */
+  const bodyPx = Number.parseFloat(tokens[FONT_SIZE_TOKENS.BODY] ?? '16');
+  const flowChars = Math.max(
+    4,
+    Math.round(contentMain / (Number.isFinite(bodyPx) ? bodyPx : 16)),
+  );
+  /* 每行大字数（直排：内容高 ÷ 字号，与预览 readerColumnCapacity 同口径） */
   sheet.innerHTML = blocks
     .map((block) => {
       const node = indexed.nodeById.get(block.id);
       if (node === undefined) return '';
-      const html = serializeNode(node);
+      const html = axis.vertical
+        ? serializeVerticalFlow([node], { charsPerColumn: flowChars })
+        : serializeNode(node);
       if (html.trim() === '') return '';
       return `<div class="${BLOCK_CLASS}" data-measure-id="${escapeAttr(block.id)}">${html}</div>`;
     })

@@ -439,3 +439,33 @@ summarizeGlyphImageReport(report); // '已将 3 张缺字图归入文字流；1 
 - 分页与阅读状态机：[04 阅读器与分页](04-reader-and-pagination.md)
 - 令牌体系：[11 主题与令牌](11-theme-tokens.md)
 - 修订标记与接受 / 拒绝：[02 编辑器与插件](02-editor-and-plugins.md#修订模式c5)
+
+## 直排行内流（连排 / 低格 / 抬头 / 双行夹注，v2 批 2）
+
+古籍正文各段**同列连排**（段界靠格位标记，非段段换列）。CSS 直排块流中每个
+块级段落独占整列，直排 multicol 已实测不可依赖——故直排（古籍直排 + 仿真）的
+页内容经 `serializeVerticalFlow`（`@bibliotype/layout/html`）改写为**行内流**：
+
+```ts
+import { serializeVerticalFlow } from '@bibliotype/layout/html';
+
+// 页片段（reader.getPageFragments 产物）→ 行内流 HTML
+const html = serializeVerticalFlow(nodes, { charsPerColumn: 20 });
+```
+
+- **段落行内化**（`.bt-vpara`）：连排容器 `.bt-vflow` 在 `vertical-rl` 下自然
+  换列，列宽由根行高（= 列距）决定，与界行网格咬合；
+- **双行夹注**（`.bt-vnote`）：恒 1 大字位宽 × 整列高的**固定双列**小字盒
+  （「从上排到底」的古籍形制）——`splitDoubleNoteLines` 按每子列容量
+  （= 每行大字数 × 2）拆右 / 左子列，竖排 block 流自右向左、DOM 序即阅读序；
+  字步进补至半字位（n 字占 ⌈n/2⌉ 字位高）；超过两子列容量的注文截断
+  （古籍超长注占多字位，列为后续扩展）；
+- **行款标记**（批 1 属性的渲染消费）：低格 / 挪抬 → 段首空位盒
+  （`.bt-vpad`，N 字位高）；提行 / 平抬 → `<br class="bt-vbreak">` 断列 +
+  抬升列首空位（`liftLevel` 1~4）；
+- 标题 / 版式块不参与连排（原样整块输出，保持既有样式与基线）；
+- **量尺同形态**：`pagination-measure` 在直排时对块输出同构 HTML 实测——
+  行边界与夹注原子性随真实布局自洽；预览 `BtBookView`（page / scroll /
+  对页三处）直排分支消费同一序列化器；
+- 估算口径：`lineRuleOverhead`（低格 / 挪抬占首行字位、提行另起）与
+  `doubleNotePlaceholderChars`（n 字 → ⌈n/2⌉ 字位）供无 DOM 导出路径折算。

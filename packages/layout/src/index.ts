@@ -100,6 +100,20 @@ export {
   resolveRuleInsets,
   resolveFacsimileCssVariables,
 } from './facsimile-geometry.js';
+export {
+  resolveLineRule,
+  lineRuleOverhead,
+  NO_LINE_RULE,
+  type LineRule,
+  type LiftType,
+} from './line-rules.js';
+export {
+  splitDoubleNoteLines,
+  doubleNotePlaceholderChars,
+  collectNodeTextOf,
+  type NotePair,
+  type SplitDoubleNoteOptions,
+} from './double-note-split.js';
 export type { FacsimileFrameThickness, FacsimileGrid } from './facsimile-geometry.js';
 
 /* ---------- 古籍仿真版式模板 ---------- */

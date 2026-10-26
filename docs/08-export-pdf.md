@@ -228,8 +228,9 @@ Node 无头浏览器（puppeteer）同理：`page.setContent(html)` → `page.pd
 
 demo 的导出路由在 `window.electronPdf` 桥之后还有一个**桌面宿主分支**：检测到
 `window.ipcRenderer.handlePromise`（桌面壳 preload 的 contextBridge 通用暴露）时，
-「导出 PDF」打开**分段导出弹窗**——设置每卷页数、预览分段区域，确认后弹窗内
-**逐段矢量打印并独立落盘为 `书名_00x.pdf`**（不合并单文件，`PdfSegmentDialog`）。
+「导出 PDF」打开**分段导出弹窗**——设置每卷页数、预览分段区域并**勾选需要导出的分卷**
+（支持全选/单选），确认后弹窗内**逐段矢量打印并独立落盘为 `书名_00x_YYYYMMDD_HHMMSS.pdf`**
+（文件名带日期时间后缀、不合并单文件，`PdfSegmentDialog`）。
 为什么要会话化：书档里同一缺字图以完整 data URI **逐处重复**（import-epub 内联
 策略），整本书档可达数百 MB，任何「整本一次过 IPC」（书档直传 / 大 HTML 直传）
 都会在 contextBridge 深拷贝 + structured clone 处撞「Array buffer allocation

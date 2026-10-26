@@ -95,9 +95,9 @@ describe('PdfSegmentDialog 分段导出', () => {
 
     const container = mountDialog(runner);
 
-    /* 设置态：分段区域预览（4 页 / 每卷 2 页 → 2 段），展示目标文件名 */
+    /* 设置态：分段区域预览（4 页 / 每卷 2 页 → 2 段），展示目标文件名（含日期时间后缀） */
     expect(queryAll('.seg-dialog__plan-row')).toHaveLength(2);
-    expect(container.textContent).toContain('测试书_001.pdf');
+    expect(container.textContent).toMatch(/测试书_001_\d{8}_\d{6}\.pdf/);
 
     query<HTMLButtonElement>('.seg-dialog__confirm').click();
     await flush();
@@ -112,7 +112,10 @@ describe('PdfSegmentDialog 分段导出', () => {
       'bibliotype:export-segment',
     ]);
     expect(assetTokens).toEqual(['__bibliotype_asset_0__']);
-    expect(segmentPayloads.map((p) => p.filename)).toEqual(['测试书_001.pdf', '测试书_002.pdf']);
+    expect(segmentPayloads.map((p) => p.filename)).toEqual([
+      expect.stringMatching(/^测试书_001_\d{8}_\d{6}\.pdf$/),
+      expect.stringMatching(/^测试书_002_\d{8}_\d{6}\.pdf$/),
+    ]);
     expect(segmentPayloads[0]?.from).toBe(0);
     expect(segmentPayloads[0]?.to).toBe(99);
     expect(segmentPayloads[1]?.from).toBe(100);
@@ -183,5 +186,46 @@ describe('PdfSegmentDialog 分段导出', () => {
 
     const statuses = queryAll('.seg-dialog__segment').map((el) => el.getAttribute('data-status'));
     expect(statuses).toEqual(['done', 'done', 'skipped']);
+  });
+
+  it('勾选分卷：取消某卷后仅导出勾选的分卷', async () => {
+    const segmentPayloads: Array<{ from?: number; to?: number; filename?: string }> = [];
+    const handlePromise = async (channel: string, args?: unknown) => {
+      if (channel === 'bibliotype:export-begin') return { exportId: 'exp-1' };
+      if (channel === 'bibliotype:export-prepare') return { pageCount: 200 };
+      if (channel === 'bibliotype:export-segment') {
+        segmentPayloads.push(args as { from?: number; to?: number; filename?: string });
+        return { success: true, path: `C:/cache/${(args as { filename?: string }).filename}` };
+      }
+      return { success: true };
+    };
+    const runner = createSegmentedPdfRunner({
+      channel: handlePromise,
+      book: makeBook(),
+      options: { mode: 'paged' },
+      title: '测试书',
+    });
+
+    const container = mountDialog(runner);
+    /* 2 个分卷默认全选 */
+    const checks = queryAll<HTMLInputElement>('.seg-dialog__plan-check');
+    expect(checks).toHaveLength(2);
+    expect(container.textContent).toContain('已选 2 / 2 卷');
+
+    /* 取消第 2 卷 */
+    checks[1]!.checked = false;
+    checks[1]!.dispatchEvent(new Event('change'));
+    await nextTick();
+    expect(container.textContent).toContain('已选 1 / 2 卷');
+
+    query<HTMLButtonElement>('.seg-dialog__confirm').click();
+    await flush();
+    await nextTick();
+
+    /* 仅第 1 卷被导出，第 2 卷（取消）不出现 */
+    expect(segmentPayloads).toHaveLength(1);
+    expect(segmentPayloads[0]?.filename).toMatch(/^测试书_001_\d{8}_\d{6}\.pdf$/);
+    expect(queryAll('.seg-dialog__segment')).toHaveLength(1);
+    expect(container.textContent).toContain('全部分段导出完成');
   });
 });

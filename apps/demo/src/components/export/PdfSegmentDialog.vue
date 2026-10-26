@@ -35,20 +35,38 @@
           />
         </label>
         <p class="seg-dialog__hint">
-          共 {{ totalPages }} 页，将分为 {{ plan.length }} 个 PDF 文件逐卷导出（每卷独立落盘，互不影响）。
+          共 {{ totalPages }} 页，将分为 {{ plan.length }} 个 PDF 文件逐卷导出（每卷独立落盘，互不影响）。勾选需要导出的分卷。
         </p>
         <div class="seg-dialog__plan">
-          <div v-for="item in plan" :key="item.index" class="seg-dialog__plan-row">
+          <label class="seg-dialog__plan-all">
+            <input
+              type="checkbox"
+              :checked="selectedCount === plan.length"
+              @change="toggleAll"
+            />
+            <span>全选（已选 {{ selectedCount }} / {{ plan.length }} 卷）</span>
+          </label>
+          <label
+            v-for="item in plan"
+            :key="item.index"
+            class="seg-dialog__plan-row"
+          >
+            <input
+              class="seg-dialog__plan-check"
+              type="checkbox"
+              :checked="!deselected.has(item.index)"
+              @change="toggleVolume(item.index, ($event.target as HTMLInputElement).checked)"
+            />
             <span class="seg-dialog__plan-name">第 {{ String(item.index).padStart(3, '0') }} 卷</span>
             <span class="seg-dialog__plan-pages">页 {{ item.from + 1 }}–{{ item.to + 1 }}</span>
             <span class="seg-dialog__plan-file">→ {{ filenameOf(item.index) }}</span>
-          </div>
+          </label>
         </div>
         <p v-if="lastError !== ''" class="seg-dialog__error">{{ lastError }}</p>
         <button
           type="button"
           class="seg-dialog__confirm"
-          :disabled="runner === null"
+          :disabled="runner === null || selectedCount === 0"
           @click="startExport"
         >
           确认并开始导出
@@ -161,11 +179,19 @@ const upload = ref<{ done: number; total: number } | null>(null);
 const segments = ref<SegmentState[]>([]);
 const cancelled = ref(false);
 const lastError = ref('');
+/** 未勾选（已取消）的分卷序号集合；默认全选（集合为空 = 全部导出） */
+const deselected = ref<Set<number>>(new Set());
+/** 本次导出时间戳后缀（打开弹窗时生成，预览与实导出共用，保证文件名一致） */
+const exportTimestamp = ref('');
 
 /** 设置态的分段区域预览 */
 const plan = computed(() => buildSegmentPlan(props.totalPages, segmentPagesInput.value));
 const failedCount = computed(() => segments.value.filter((s) => s.status === 'failed').length);
 const doneCount = computed(() => segments.value.filter((s) => s.status === 'done').length);
+/** 已勾选分卷数（基于预览方案；取消选择的分卷不计入） */
+const selectedCount = computed(
+  () => plan.value.filter((p) => !deselected.value.has(p.index)).length,
+);
 
 /**
  * 完成后的一句话结论
@@ -201,12 +227,41 @@ function statusLabel(status: SegmentStatus): string {
   }
 }
 
-/** 分段文件名（书名_00x.pdf） */
-function filenameOf(index: number): string {
-  return `${props.title}_${String(index).padStart(3, '0')}.pdf`;
+/**
+ * 导出文件名时间戳后缀（YYYYMMDD_HHMMSS）
+ *
+ * 打开弹窗时生成一次，预览与实导出共用，保证预览展示的文件名与实际落盘一致。
+ */
+function makeTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+    `_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  );
 }
 
-/** 重置状态（打开弹窗时） */
+/** 分段文件名（书名_00x_YYYYMMDD_HHMMSS.pdf；无时间戳时回落原名） */
+function filenameOf(index: number): string {
+  const suffix = exportTimestamp.value ? `_${exportTimestamp.value}` : '';
+  return `${props.title}_${String(index).padStart(3, '0')}${suffix}.pdf`;
+}
+
+/** 全选 / 全不选 */
+function toggleAll(event: Event): void {
+  const checked = (event.target as HTMLInputElement).checked;
+  deselected.value = checked ? new Set() : new Set(plan.value.map((p) => p.index));
+}
+
+/** 勾选 / 取消单个分卷 */
+function toggleVolume(index: number, checked: boolean): void {
+  const next = new Set(deselected.value);
+  if (checked) next.delete(index);
+  else next.add(index);
+  deselected.value = next;
+}
+
+/** 重置状态（打开弹窗时；immediate 让「挂载即打开」时也初始化时间戳与勾选） */
 watch(
   () => props.open,
   (open) => {
@@ -217,8 +272,11 @@ watch(
       upload.value = null;
       cancelled.value = false;
       lastError.value = '';
+      deselected.value = new Set();
+      exportTimestamp.value = makeTimestamp();
     }
   },
+  { immediate: true },
 );
 
 function close(): void {
@@ -253,13 +311,19 @@ async function startExport(): Promise<void> {
       throw new Error('[桌面导出·预分页] 宿主返回 0 页，未生成任何分段文件');
     }
     const pageCount = started.pageCount > 0 ? started.pageCount : props.totalPages;
-    segments.value = buildSegmentPlan(pageCount, size).map((item, idx) => ({
-      index: item.index,
-      from: item.from,
-      to: item.to,
-      filename: `${props.title}_${String(idx + 1).padStart(3, '0')}.pdf`,
-      status: 'pending' as const,
-    }));
+    /* 仅导出勾选的分卷：取消选择的分卷从分段表剔除（预览与实导出口径一致） */
+    const timestamp = exportTimestamp.value;
+    segments.value = buildSegmentPlan(pageCount, size)
+      .filter((item) => !deselected.value.has(item.index))
+      .map((item) => ({
+        index: item.index,
+        from: item.from,
+        to: item.to,
+        filename:
+          `${props.title}_${String(item.index).padStart(3, '0')}` +
+          `${timestamp ? `_${timestamp}` : ''}.pdf`,
+        status: 'pending' as const,
+      }));
     for (const segment of segments.value) {
       if (cancelled.value) {
         segment.status = 'skipped';
@@ -379,7 +443,6 @@ async function startExport(): Promise<void> {
   border-radius: 8px;
 }
 
-.seg-dialog__plan-row,
 .seg-dialog__segment {
   display: flex;
   align-items: center;
@@ -388,20 +451,80 @@ async function startExport(): Promise<void> {
   line-height: 1.8;
 }
 
-.seg-dialog__plan-name,
-.seg-dialog__segment-name {
+.seg-dialog__plan-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px dashed rgb(0 0 0 / 12%);
+  font-size: 12px;
   font-weight: 600;
+  cursor: pointer;
+}
+
+.seg-dialog__plan-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.8;
+  cursor: pointer;
+}
+
+.seg-dialog__plan-check {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* 左侧（卷名）固定不收缩 */
+.seg-dialog__plan-name {
+  flex-shrink: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 中间内容（书名 / 文件名）撑满剩余空间并可省略号截断 */
+.seg-dialog__segment-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .seg-dialog__plan-pages,
 .seg-dialog__segment-pages {
+  flex-shrink: 0;
   color: rgb(0 0 0 / 60%);
   white-space: nowrap;
 }
 
-.seg-dialog__plan-file,
+/* 右侧状态固定不收缩 */
+.seg-dialog__segment-status {
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* 落盘路径等右侧详情：可收缩并以省略号截断（min-width:0 才能生效） */
 .seg-dialog__segment-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(0 0 0 / 45%);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 中间内容（文件名）撑满剩余空间并可省略号截断 */
+.seg-dialog__plan-file {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: rgb(0 0 0 / 45%);
   text-overflow: ellipsis;
@@ -418,11 +541,6 @@ async function startExport(): Promise<void> {
 
 .seg-dialog__segment[data-status='failed'] .seg-dialog__segment-status {
   color: #c62828;
-}
-
-.seg-dialog__segment-status {
-  margin-left: auto;
-  white-space: nowrap;
 }
 
 .seg-dialog__error {

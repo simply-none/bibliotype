@@ -33,13 +33,37 @@ function collectText(node: BookNode): string {
   return (node.children ?? []).map(collectText).join('');
 }
 
+/** 递归判定子树是否包含某类型 */
+function hasType(node: BookNode, type: string): boolean {
+  if (node.type === type) return true;
+  return (node.children ?? []).some((c) => hasType(c, type));
+}
+
+/** 递归查找首个含指定文本的标题节点 */
+function findHeading(node: BookNode, text: string): BookNode | undefined {
+  if (node.type === NODE_TYPES.HEADING && collectText(node).includes(text)) return node;
+  for (const c of node.children ?? []) {
+    const found = findHeading(c, text);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
+
 describe('epubToBookDocument', () => {
-  it('端到端产出合法 BookDocument：book 根含标题与段落', () => {
+  it('端到端产出合法 BookDocument：标题与段落完整回收（含卷/章结构）', () => {
     const doc = epubToBookDocument(sampleBytes, schema, { title: '导入' });
-    const children = doc.root.children ?? [];
     expect(doc.root.type).toBe(NODE_TYPES.BOOK);
-    expect(children.some((c) => c.type === NODE_TYPES.HEADING)).toBe(true);
-    expect(children.some((c) => c.type === NODE_TYPES.PARAGRAPH)).toBe(true);
+    /* 含 NCX 的 epub 会被结构化为 卷/章，标题与段落位于结构节点内部，需整树查找 */
+    expect(hasType(doc.root, NODE_TYPES.HEADING)).toBe(true);
+    expect(hasType(doc.root, NODE_TYPES.PARAGRAPH)).toBe(true);
+    expect(hasType(doc.root, NODE_TYPES.VOLUME) || hasType(doc.root, NODE_TYPES.CHAPTER)).toBe(true);
+  });
+
+  it('章节标题正确回收（标题文本保留，并归入卷/章结构）', () => {
+    const doc = epubToBookDocument(sampleBytes, schema, { title: '导入' });
+    const heading = findHeading(doc.root, '为政');
+    expect(heading).toBeDefined();
+    expect(collectText(heading as BookNode)).toBe('为政');
   });
 
   it('正文文本完整回收', () => {

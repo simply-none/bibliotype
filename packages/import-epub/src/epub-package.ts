@@ -173,7 +173,35 @@ export function readContentPaths(files: EpubFiles, opfPath: string): string[] {
   return paths;
 }
 
-/** 逐个内容文档取 `<body>` 内层，序列化为 HTML 片段并按 spine 顺序拼接 */
+/**
+ * 序列化单个内容文档的 `<body>` 内层为 HTML 片段
+ *
+ * 与 `extractBodiesHtml` 共用：取出 `<body>` 下全部子节点序列化拼接，
+ * 可选内联图片；文档缺失 / 无 body / 空 body 返回空串（由调用方决定是否跳过）。
+ */
+function serializeOneBody(
+  files: EpubFiles,
+  path: string,
+  inline: boolean,
+  mediaTypes: ReadonlyMap<string, string>,
+): string {
+  const bytes = files[path];
+  if (bytes === undefined) return '';
+  const doc = parseXml(decode(bytes), `内容文档 ${path}`);
+  const body = doc.getElementsByTagName('body').item(0);
+  if (body === null) return '';
+  if (inline) inlineBodyImages(doc, path, files, mediaTypes);
+  const serializer = new XMLSerializer();
+  let html = '';
+  for (let i = 0; i < body.childNodes.length; i += 1) {
+    const node = body.childNodes.item(i);
+    if (node === null) continue;
+    html += serializer.serializeToString(node);
+  }
+  return html;
+}
+
+/** 逐个内容文档取 `<body>` 内层，序列化为 HTML 片段并按 spine 顺序拼接（扁平，无结构包裹） */
 export function extractBodiesHtml(
   files: EpubFiles,
   contentPaths: readonly string[],
@@ -181,21 +209,9 @@ export function extractBodiesHtml(
 ): string {
   const inline = options.inlineImages ?? false;
   const mediaTypes = options.mediaTypes ?? new Map<string, string>();
-  const serializer = new XMLSerializer();
   const parts: string[] = [];
   for (const path of contentPaths) {
-    const bytes = files[path];
-    if (bytes === undefined) continue; // 容忍缺失引用：跳过而非中断
-    const doc = parseXml(decode(bytes), `内容文档 ${path}`);
-    const body = doc.getElementsByTagName('body').item(0);
-    if (body === null) continue;
-    if (inline) inlineBodyImages(doc, path, files, mediaTypes);
-    let html = '';
-    for (let i = 0; i < body.childNodes.length; i += 1) {
-      const node = body.childNodes.item(i);
-      if (node === null) continue;
-      html += serializer.serializeToString(node);
-    }
+    const html = serializeOneBody(files, path, inline, mediaTypes);
     if (html.trim() !== '') {
       parts.push(html);
     }
@@ -282,9 +298,212 @@ export function readMediaTypes(files: EpubFiles, opfPath: string): Map<string, s
 }
 
 /**
+ * 单个 NCX 目录项（navPoint）
+ *
+ * depth 为嵌套层级（0 = 卷 / 书，1 = 章 / 序，2 = 部分，3 = 节…）；parentIndex 指向父项在
+ * `points` 数组中的下标（根项 -1）；docPath / anchor 由 `content src` 相对 OPF 目录解析得到。
+ */
+interface NcxPoint {
+  /** 目录显示文本（章节标题） */
+  title: string;
+  /** 指向的内容文档 zip 路径（去锚点） */
+  docPath: string;
+  /** 指向的页内锚点（无则为 ''） */
+  anchor: string;
+  /** 嵌套层级（根 = 0） */
+  depth: number;
+  /** 父项下标（-1 为根） */
+  parentIndex: number;
+}
+
+/**
+ * NCX 目录计划：把原始 navMap 规整为「内容文档路径 → 卷 / 章标题」的查询表
+ *
+ * 解析 `toc.ncx` 的嵌套 navPoint 后，对外提供 `matchForDoc(path)`：取指向该文档、层级**最深**
+ * 的目录项作为章标题（同一文档被多个目录项指向时，最深者最具体），并沿父链上溯到首个
+ * `depth=0` 项作为所属「卷 / 书」标题。无匹配（封面 / 自动目录页等辅助文档）返回 undefined。
+ */
+class NcxPlan {
+  constructor(private readonly points: NcxPoint[]) {}
+
+  matchForDoc(docPath: string): { volumeTitle?: string; chapterTitle?: string } | undefined {
+    let best: NcxPoint | undefined;
+    for (const p of this.points) {
+      if (p.docPath !== docPath) continue;
+      if (best === undefined || p.depth > best.depth) best = p;
+    }
+    if (best === undefined) return undefined;
+    /* 文档直接挂在卷 / 书根（depth 0）：自身即卷标题，章标题回退到文档内首个标题 */
+    if (best.depth === 0) {
+      return { volumeTitle: best.title || undefined, chapterTitle: undefined };
+    }
+    let volumeTitle: string | undefined;
+    let cursor = best;
+    while (cursor.parentIndex >= 0) {
+      cursor = this.points[cursor.parentIndex]!;
+      if (cursor.depth === 0) {
+        volumeTitle = cursor.title || undefined;
+        break;
+      }
+    }
+    return { volumeTitle, chapterTitle: best.title || undefined };
+  }
+}
+
+/** 定位 toc.ncx：优先 OPF manifest 的 `application/x-dtbncx+xml`，否则回退任意 .ncx */
+function findNcxName(files: EpubFiles, opfPath: string): string | undefined {
+  const opf = files[opfPath];
+  if (opf !== undefined) {
+    const doc = parseXml(decode(opf), 'content.opf');
+    const items = doc.getElementsByTagName('item');
+    for (let i = 0; i < items.length; i += 1) {
+      if (attrAt(items, i, 'media-type') === 'application/x-dtbncx+xml') {
+        const href = attrAt(items, i, 'href');
+        if (href !== '') {
+          return resolvePath(dirOf(opfPath), href);
+        }
+      }
+    }
+  }
+  return Object.keys(files).find((n) => n.toLowerCase().endsWith('.ncx'));
+}
+
+/** 解析 toc.ncx 为目录计划（无 ncx 返回 null） */
+export function readNcx(files: EpubFiles, opfPath: string): NcxPlan | null {
+  const ncxName = findNcxName(files, opfPath);
+  if (ncxName === undefined) return null;
+  const data = files[ncxName];
+  if (data === undefined) return null;
+  const doc = parseXml(decode(data), 'toc.ncx');
+  const navMap = doc.getElementsByTagName('navMap').item(0);
+  if (navMap === null) return null;
+  const opfDir = dirOf(opfPath);
+  const points: NcxPoint[] = [];
+  const walk = (parent: Element, depth: number, parentIndex: number): void => {
+    const children = parent.childNodes;
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children.item(i);
+      if (child === null || child.nodeType !== 1) continue;
+      if (child.nodeName.toLowerCase() !== 'navpoint') continue;
+      const el = child as Element;
+      const text = el.getElementsByTagName('text').item(0)?.textContent ?? '';
+      const src = el.getElementsByTagName('content').item(0)?.getAttribute('src') ?? '';
+      const hashIdx = src.indexOf('#');
+      const docRaw = hashIdx >= 0 ? src.slice(0, hashIdx) : src;
+      const anchor = hashIdx >= 0 ? src.slice(hashIdx + 1) : '';
+      const docPath = resolvePath(opfDir, docRaw);
+      const idx = points.length;
+      points.push({ title: text.trim(), docPath, anchor, depth, parentIndex });
+      walk(el, depth + 1, idx);
+    }
+  };
+  walk(navMap as Element, 0, -1);
+  return new NcxPlan(points);
+}
+
+/** HTML 属性值转义（标题写入 data-title 前） */
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** 从序列化 body 中截取首个标题文本（无则 undefined） */
+function firstHeadingText(html: string): string | undefined {
+  const match = /<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/i.exec(html);
+  if (match === null) return undefined;
+  const text = match[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  return text.length > 0 ? text : undefined;
+}
+
+/** 是否接近纯图（封面）：含 svg/image 且几乎无文本 */
+function looksLikeCover(html: string): boolean {
+  if (!html.includes('<svg') && !html.includes('<image')) return false;
+  const text = html.replace(/<[^>]+>/g, '').replace(/\s+/g, '').length;
+  return text < 20;
+}
+
+/** 是否为自动生成的内联目录页（Kindle 等转换产物；内容与 NCX 重复，导入时丢弃） */
+function isAutoTocBody(html: string): boolean {
+  return html.includes('kindle-cn-toc-title') || /class="[^"]*\bbt-toc\b/.test(html);
+}
+
+/** 卷 / 书 包裹：把若干章节点序列收进 `div.bt-volume` 并写入标题 */
+function volumeOpen(title: string, chapters: readonly string[]): string {
+  return `<div class="bt-volume" data-title="${escapeAttr(title)}">\n${chapters.join('\n')}\n</div>`;
+}
+
+/**
+ * 结构化抽取：把每个 spine 内容文档包成 `div.bt-chapter`（标题取自 NCX 或文档首标题），
+ * 再按 NCX 的卷 / 书归属收进 `div.bt-volume`。
+ *
+ * 与 `extractBodiesHtml` 的差异：产出**带层级的正文 HTML**，使 `htmlToBookDocument` 经
+ * schema 的 `div.bt-volume` / `div.bt-chapter` parseDOM 规则回收为「卷 → 章」结构节点，
+ * 而非把所有文档摊平到 book 根下（后者会使目录面板退化为数百条平铺标题、且跨文件重复的
+ * `calibre_pb_*` id 在分页 / 锚点定位时碰撞）。自动生成的内联目录页（如 Kindle 的
+ * `kindle-cn-toc-title`）内容与 NCX 重复，直接丢弃避免目录冗余。
+ *
+ * 卷归属采用「沿 spine 顺序继承」：某文档在 NCX 无卷归属（NCX 未收录的散页）时归入
+ * 上一文档所在的卷，避免同一卷被中途未收录文档截断成多个重复卷节点。
+ */
+export function extractStructuredBodiesHtml(
+  files: EpubFiles,
+  contentPaths: readonly string[],
+  ncx: NcxPlan,
+  opfPath: string,
+  options: ExtractBodiesOptions = {},
+): string {
+  const inline = options.inlineImages ?? false;
+  const mediaTypes = options.mediaTypes ?? new Map<string, string>();
+
+  const parts: string[] = [];
+  let current: { title: string; chapters: string[] } | null = null;
+  let currentVolumeTitle: string | undefined;
+  let autoCounter = 0;
+  for (const path of contentPaths) {
+    const html = serializeOneBody(files, path, inline, mediaTypes);
+    if (html.trim() === '') continue;
+    /* 自动内联目录页：与 NCX 重复，丢弃（不触发卷继承切换） */
+    if (isAutoTocBody(html)) continue;
+    const match = ncx.matchForDoc(path);
+    let chapterTitle = match?.chapterTitle;
+    if (chapterTitle === undefined) {
+      /* NCX 未覆盖的辅助文档（封面 / 散页）：用文档内首标题，纯图视为封面 */
+      chapterTitle = firstHeadingText(html) ?? (looksLikeCover(html) ? '封面' : `第${++autoCounter}节`);
+    }
+    const chapterHtml = `<div class="bt-chapter" data-title="${escapeAttr(chapterTitle)}">${html}</div>`;
+    /* 卷归属：NCX 给出则用（可能是新卷或既有卷），否则继承上一文档的卷 */
+    const volumeTitle = match?.volumeTitle ?? currentVolumeTitle;
+    if (volumeTitle !== undefined) {
+      if (current === null || current.title !== volumeTitle) {
+        if (current !== null) parts.push(volumeOpen(current.title, current.chapters));
+        current = { title: volumeTitle, chapters: [] };
+      }
+      current.chapters.push(chapterHtml);
+    } else {
+      if (current !== null) {
+        parts.push(volumeOpen(current.title, current.chapters));
+        current = null;
+      }
+      parts.push(chapterHtml);
+    }
+    currentVolumeTitle = volumeTitle;
+  }
+  if (current !== null) parts.push(volumeOpen(current.title, current.chapters));
+  if (parts.length === 0) {
+    throw new RangeError('epub 未解析出任何正文内容：文件可能为空或结构不受支持。');
+  }
+  return parts.join('\n');
+}
+
+/**
  * 端到端（DOM 无关部分）：`.epub` 字节 → 合并后的正文 HTML 片段
  *
  * 纯同步、浏览器与 Node 同构，不触碰浏览器 DOM；产物可交给 `htmlToBookDocument` 或自行处理。
+ * 含 NCX（绝大多数正规 epub）时走**结构化抽取**（卷 → 章层级）；无 NCX 时回退扁平抽取，
+ * 行为与旧版一致，保证「导出 → 导入往返」等无 NCX 夹具不回归。
  */
 export interface EpubToHtmlOptions {
   /**
@@ -302,6 +521,13 @@ export function epubToHtml(input: EpubInput, options: EpubToHtmlOptions = {}): s
   const opfPath = findOpfPath(files);
   const contentPaths = readContentPaths(files, opfPath);
   const mediaTypes = inlineImages ? readMediaTypes(files, opfPath) : new Map<string, string>();
+  const ncx = readNcx(files, opfPath);
+  if (ncx !== null) {
+    return extractStructuredBodiesHtml(files, contentPaths, ncx, opfPath, {
+      inlineImages,
+      mediaTypes,
+    });
+  }
   return extractBodiesHtml(files, contentPaths, {
     inlineImages,
     mediaTypes,

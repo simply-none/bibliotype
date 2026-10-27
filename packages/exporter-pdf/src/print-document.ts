@@ -51,6 +51,7 @@ import {
   type BlockSizeEstimator,
 } from '@bibliotype/reader';
 import { buildPrintCss, type PrintFacingOptions, type PrintMode } from './print-styles.js';
+import { buildPdfOutline, type PdfOutlineEntry } from './pdf-outline.js';
 
 /** 打印文档生成选项 */
 export interface PrintDocumentOptions {
@@ -187,6 +188,14 @@ export interface PrintPager {
   renderPageRange(from: number, to: number): string;
   /** 渲染完整 HTML 文档（与 renderPrintHtml 产物逐字节一致） */
   renderDocument(): string;
+  /**
+   * 目录书签（页号与 `renderPage` 同源）
+   *
+   * 由 Reader 的目录树派生（结构节点优先，无结构时按标题），每条带目标页、
+   * 按层级嵌套，供 PDF 导出写 `/Outlines`（见 `writePdfOutline`）。
+   * auto 模式由打印引擎重排、无固定页界，恒为空数组。
+   */
+  readonly outline: readonly PdfOutlineEntry[];
 }
 
 /**
@@ -268,6 +277,8 @@ ${body}
         throw new Error('auto 模式为流式单文档，无固定页区间可渲染；分段导出请用 mode: "paged"。');
       },
       renderDocument: () => wrapDocument(renderFlowBody(book, options)),
+      /* auto 模式无可定位页界：宁可无书签，也不写错页 */
+      outline: [],
     };
   }
 
@@ -426,6 +437,8 @@ ${body}
     pageCount: Math.max(1, pages.length),
     documentCss,
     renderPage,
+    /* 书签页号取自 Reader 的 pageByBlockId（容器取其首叶所在页，与目录跳转同口径） */
+    outline: buildPdfOutline(reader.outline, (key) => reader.getPageOfNode(key)),
     /* 页区间子集文档：外壳与 renderDocument 一致，正文仅含区间内页面（分段打印用） */
     renderPageRange: (from: number, to: number): string => {
       const first = Math.max(0, Math.min(from, to));

@@ -393,7 +393,8 @@ export function useExport(deps: ExportDeps) {
       pushToast(`导出 EPUB 失败：${error instanceof Error ? error.message : String(error)}`, 'error');
       return;
     }
-    const result = download('论语.epub', bytes);
+    /* 文件名取书名：此前写死「论语.epub」，导入的书导出后全叫《论语》 */
+    const result = download(`${book.metadata.title || '书籍'}.epub`, bytes);
     if (!result.ok) {
       pushToast(`导出 EPUB 失败：${result.error ?? '未知原因'}`, 'error');
       return;

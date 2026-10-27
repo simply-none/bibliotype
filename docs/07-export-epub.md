@@ -135,6 +135,26 @@ epubcheck 规则子集（外部阅读器视角），产物经 `onValidation` 透
 - 节标题优先取首节点标题（`resolveNodeTitle`），退化为 `metadata.title`；
 - 无 id 的节点由规划器生成锚点（`anchorIds`），使 nav 目录可跳转。
 
+## 目录口径（nav.xhtml / toc.ncx）
+
+导出的目录与阅读器目录面板**逐条一致**（同源 `extractOutline` + `outlineKeyOf`），
+第三方阅读器的侧栏因此能完整呈现全书层级：
+
+| 书的形态 | 目录来源 | 嵌套口径 |
+| --- | --- | --- |
+| 有结构节点（卷 / 章 / 节） | 结构节点 | 按结构树深度，不设上限 |
+| 只有标题（Markdown / DOCX / 无目录 EPUB） | `heading` 节点 h1~h6 | 按标题级别栈式嵌套（h2 挂最近的 h1，跳级挂最近更高级） |
+
+- **标题深度与文件切分解耦**：`MAX_NAV_HEADING_LEVEL = 6`（目录深度上限），
+  `MAX_SPLIT_HEADING_LEVEL = 2`（切分优先断点仍只认 h1/h2）——目录更深不会
+  把「一篇一文件」拆成碎文件；
+- 结构节点内部的标题**不入目录**（避免与卷 / 章标题重复，与阅读器面板同口径）；
+- 无文本标题的标题节点既不进目录、也不分配 `bt-a-N` 锚点（侧栏空白行会误导读者）；
+- `toc.ncx` 的 `dtb:depth` 按实际目录树深度输出（不再硬编码 2）——老引擎
+  （RMSDK 系）据此决定目录可展开层数，写小了会截断深层；
+- `nav.xhtml` 同时输出 `landmarks`（`toc` → `nav.xhtml`、`bodymatter` → 首个内容文档），
+  供阅读器做「跳转到正文 / 目录」入口；EPUB 2 的 `<guide>` 逻辑不变。
+
 ## 尾注聚合（`endnoteGrouping`）
 
 尾注在 IR 里与脚注一样是就地块，导出时可重排：
@@ -195,11 +215,11 @@ EPUB 2（`version: '2.0'`）另输出 `<guide>`：`toc` 指向 `nav.xhtml`、`te
 | --- | --- |
 | `planDocument(root)` | 结构分组 + 锚点表 |
 | `splitSections(plan, { serialize, maxSectionBytes })` | 体积兜底拆分（含 `oversized` 告警列表） |
-| `buildNavItems(sections, anchors)` | 导航项（标题 + 跳转锚点 + 所属文件） |
-| `SECTION_TYPES` / `MAX_NAV_HEADING_LEVEL` / `DEFAULT_MAX_SECTION_BYTES` | 切分常量 |
+| `buildNavItems(sections, anchors)` | 导航项（标题 + 跳转锚点 + 所属文件；标题按级别栈式嵌套） |
+| `SECTION_TYPES` / `MAX_NAV_HEADING_LEVEL` / `MAX_SPLIT_HEADING_LEVEL` / `DEFAULT_MAX_SECTION_BYTES` | 切分与目录深度常量（目录 ≤ 6 级；切分优先断点 ≤ 2 级） |
 | `MediaCollector` / `parseDataImageUri` / `sniffImageMediaType` | 媒体收集 |
 | `validateEpub(entries, { version, maxSectionBytes })` / `checkWellFormedXml` | 导出前校验 |
-| `buildNavXhtml` / `buildOpf` / `buildNcx` / `renderXhtmlDocument` | 各文档生成 |
+| `buildNavXhtml` / `buildOpf` / `buildNcx` / `renderXhtmlDocument` | 各文档生成（`buildNavXhtml` 可传 `landmarks`；`NavLandmark` 为其条目类型） |
 | `collectEpubGlyphProblems(document, options)` | 导出前缺字报告（K6，`warning` 级，含码位与 IR 路径） |
 | `contributorRoleCode` / `normalizeIdentifier` / `isIsbn` | 元数据工具 |
 | `groupEndnotes(root, { scope, title?, id? })` | 尾注聚合（章末 / 书末，返回新根，不改原文档） |

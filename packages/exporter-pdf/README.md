@@ -63,7 +63,7 @@ downloadPdf(bytes, '论语.pdf');
 ```
 
 逐页消费预分页结果可直接用 `createPrintPager`（`pageCount` / `renderPage(index)` /
-`documentCss` / `renderDocument()`，与 `renderPrintHtml` 产物逐字节一致）。
+`documentCss` / `renderDocument()` / `outline`，与 `renderPrintHtml` 产物逐字节一致）。
 
 ### 适配器直出 PDF 文件（Electron / 无头浏览器）
 
@@ -83,6 +83,25 @@ downloadPdf(bytes, '论语.pdf');
 适配器收到的 HTML 必须自包含：离屏 / 跨进程窗口不共享 `blob:` URL，故 adapter 路径
 **不传 `rewriteSrc`**（图片保持 inline data URI）。浏览器降级路径才用
 `createImageBlobRewriter` 做 data URI → blob URL 去重。详见 [docs/08-export-pdf.md](../../docs/08-export-pdf.md)。
+
+### 目录书签（PDF `/Outlines`）
+
+```ts
+import { exportPdfBytes, buildPdfOutline, writePdfOutline } from '@bibliotype/exporter-pdf';
+
+const bytes = await exportPdfBytes(document, {
+  adapter,
+  mode: 'paged',
+  outline: true,                              // 缺省 true
+  onOutline: ({ written, skipped }) => report(written, skipped),
+});
+```
+
+- 书签源与阅读器目录面板同源（`reader.outline` + `reader.getPageOfNode`），层级与页码一致；
+- `exportRasterPdf` 恒写（分段导出按 `from` 重定基）；`exportPdfBytes` 只在引擎页数与
+  预分页一致时写（否则原样返回并经 `onOutline` 报原因）；`mode: 'auto'` 无固定页界，不写；
+- 自建管线：`writePdfOutline(pdf, entries, { pageOffset })`；目录树 → 书签树用
+  `buildPdfOutline(outline, pageOfKey)`；`PrintPager.outline` 已直接给出书签树。
 
 ### 分步使用
 
@@ -193,7 +212,8 @@ const advice = collectPrintColorAdvice(document, { hasIccProfile: false });
 | `toPdf(html, options?)` | 宿主实现：把自包含 HTML 渲染为 PDF 字节（`Uint8Array`）。`options` 透传打印引擎参数（`pageSize` / `margins` / `printBackground` / `preferCssPageSize`） |
 | `name?` | 可选标识（调试 / 降级判断） |
 
-`exportPdfBytes(book, { adapter, ...printOptions })`：`renderPrintHtml` + `adapter.toPdf` 一步到位。
+`exportPdfBytes(book, { adapter, outline?, onOutline?, ...printOptions })`：`createPrintPager` +
+`adapter.toPdf` 一步到位（缺省补写目录书签，页数不一致则回原字节）。
 缺 `adapter` 抛错（无适配器应走 `printBook` 降级）。
 `downloadPdf(bytes, filename)`：浏览器 Blob 下载（`application/pdf`）。
 

@@ -77,6 +77,16 @@ BookDocument
 `buildDefaultIdentifier` / `fnv1a` / `resolveIdentifier` / `normalizeIdentifier` / `isIsbn` /
 `contributorRoleCode`（标识符与元数据）。
 
+## 目录（nav.xhtml / toc.ncx）
+
+导出的目录与阅读器目录面板逐条一致（同源 `extractOutline`）：
+
+- 结构节点（卷 / 章 / 节）优先，按结构树无限深嵌套；
+- 只有标题的书按 h1~h6 级别栈式嵌套（`MAX_NAV_HEADING_LEVEL = 6`）；
+  文件切分优先断点仍只认 h1/h2（`MAX_SPLIT_HEADING_LEVEL = 2`），两者解耦；
+- `toc.ncx` 的 `dtb:depth` 按真实目录深度输出（老引擎据此决定可展开层数）；
+- `nav.xhtml` 同时输出 `landmarks`（`toc` / `bodymatter`），`buildNavXhtml` 可选传 `landmarks`。
+
 ## 古籍元数据与缺字报告（K6 / K7）
 
 OPF 的 `dc:*` 区按元数据补全，缺字段不输出、不编造：

@@ -747,7 +747,7 @@ describe('导入型扁平文档：目录由顶层标题重建', () => {
       { type: NODE_TYPES.HEADING, attrs: { level: 2 }, children: [{ type: 'text', text: '第一节' }] },
       { type: NODE_TYPES.PARAGRAPH, children: [{ type: 'text', text: '正文二' }] },
       { type: NODE_TYPES.HEADING, attrs: { level: 1 }, children: [{ type: 'text', text: '第二篇' }] },
-      { type: NODE_TYPES.HEADING, attrs: { level: 3 }, children: [{ type: 'text', text: '太深不入目录' }] },
+      { type: NODE_TYPES.HEADING, attrs: { level: 3 }, children: [{ type: 'text', text: '小节三级' }] },
     ];
     return doc;
   }
@@ -773,20 +773,60 @@ describe('导入型扁平文档：目录由顶层标题重建', () => {
     const sec1 = files['OEBPS/text/sec-1.xhtml'] ?? '';
     const sec2 = files['OEBPS/text/sec-2.xhtml'] ?? '';
 
-    /* 无 id 的顶层标题按文档序分配锚点；h3 不入目录故不分配 */
+    /* 无 id 的顶层标题按文档序分配锚点；h3 也进目录，因此同样分配 */
     expect(sec0).toContain('<h1 id="bt-a-1" class="bt-heading" data-level="1">第一篇</h1>');
     expect(sec1).toContain('<h2 id="bt-a-2" class="bt-heading" data-level="2">第一节</h2>');
     expect(sec2).toContain('<h1 id="bt-a-3" class="bt-heading" data-level="1">第二篇</h1>');
-    /* 层级超出 MAX_NAV_HEADING_LEVEL 的标题不进目录，也不分配锚点 */
-    expect(sec2).toContain('<h3 class="bt-heading" data-level="3">太深不入目录</h3>');
-    expect(sec2).not.toContain('bt-a-4');
+    /* h3 与阅读器目录面板同口径进目录，故也分配锥点；它不触发断节，仍留 sec-2 */
+    expect(sec2).toContain('<h3 id="bt-a-4" class="bt-heading" data-level="3">小节三级</h3>');
+    expect(files['OEBPS/text/sec-3.xhtml']).toBeUndefined();
 
     const ncx = files['OEBPS/toc.ncx'] ?? '';
     expect(ncx).toContain('<content src="text/sec-0.xhtml#bt-a-1"/>');
     expect(ncx).toContain('<content src="text/sec-1.xhtml#bt-a-2"/>');
     expect(ncx).toContain('<content src="text/sec-2.xhtml#bt-a-3"/>');
-    /* 层级超出 MAX_NAV_HEADING_LEVEL 的标题不进目录 */
-    expect(ncx).not.toContain('太深不入目录');
+    expect(ncx).toContain('<content src="text/sec-2.xhtml#bt-a-4"/>');
+  });
+
+  it('三层目录：h3 嵌在 h2 之下，NCX dtb:depth 为真实深度', () => {
+    const doc = createEmptyDocument({ title: '深层书' });
+    doc.root.children = [
+      { type: NODE_TYPES.HEADING, attrs: { level: 1 }, children: [{ type: 'text', text: '卷甲' }] },
+      { type: NODE_TYPES.HEADING, attrs: { level: 2 }, children: [{ type: 'text', text: '章甲' }] },
+      { type: NODE_TYPES.HEADING, attrs: { level: 3 }, children: [{ type: 'text', text: '节甲' }] },
+      {
+        type: NODE_TYPES.HEADING,
+        attrs: { level: 3 },
+        children: [{ type: 'text', text: '节乙' }],
+      },
+      { type: NODE_TYPES.HEADING, attrs: { level: 2 }, children: [{ type: 'text', text: '章乙' }] },
+    ];
+    const files = readEntries(exportEpub(doc, { modified: FIXED_MODIFIED }));
+    const nav = files['OEBPS/nav.xhtml'] ?? '';
+    const ncx = files['OEBPS/toc.ncx'] ?? '';
+
+    /* 卷甲 > 章甲 > 节甲；节乙与节甲同级、章乙上提到卷甲下（空白归一后逐字比对） */
+    expect(nav.replace(/\s+/g, ' ')).toContain(
+      '<li><a href="text/sec-0.xhtml#bt-a-1">卷甲</a> <ol>' +
+        ' <li><a href="text/sec-1.xhtml#bt-a-2">章甲</a> <ol>' +
+        ' <li><a href="text/sec-1.xhtml#bt-a-3">节甲</a></li>' +
+        ' <li><a href="text/sec-1.xhtml#bt-a-4">节乙</a></li>' +
+        ' </ol></li>' +
+        ' <li><a href="text/sec-2.xhtml#bt-a-5">章乙</a></li>' +
+        ' </ol></li>',
+    );
+
+    /* dtb:depth 与实际层级一致（旧引擎据此截断目录树） */
+    expect(ncx).toContain('<meta content="3" name="dtb:depth"/>');
+  });
+
+  it('nav.xhtml 带 landmarks：目录与正文起点可被第三方阅读器定位', () => {
+    const files = readEntries(exportEpub(flatDoc(), { modified: FIXED_MODIFIED }));
+    const nav = files['OEBPS/nav.xhtml'] ?? '';
+
+    expect(nav).toContain('<nav epub:type="landmarks" id="bt-landmarks" hidden="hidden">');
+    expect(nav).toContain('<a epub:type="toc" href="nav.xhtml">目录</a>');
+    expect(nav).toContain('<a epub:type="bodymatter" href="text/sec-0.xhtml">正文</a>');
   });
 
   it('结构节点内部的标题不重复入目录（demo 书籍口径不变）', () => {

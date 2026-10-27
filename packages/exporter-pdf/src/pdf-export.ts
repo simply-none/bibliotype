@@ -19,7 +19,9 @@
  *    归一为按 URL 缓存解码的 blob 引用，HTML 体积与打印引擎解码负担同步大降。
  */
 import type { BookDocument } from '@bibliotype/core';
-import { renderPrintHtml, type PrintDocumentOptions } from './print-document.js';
+import { PDFDocument } from 'pdf-lib';
+import { createPrintPager, type PrintDocumentOptions } from './print-document.js';
+import { writePdfOutline } from './pdf-outline.js';
 
 /** 适配器选项（透传宿主打印引擎的纸张 / 边距 / 背景设置） */
 export interface PdfAdapterOptions {
@@ -45,28 +47,112 @@ export interface ExportPdfOptions extends PrintDocumentOptions {
   adapter: PdfExportAdapter;
   /** 透传适配器的选项 */
   adapterOptions?: PdfAdapterOptions;
+  /**
+   * 是否写入目录书签（缺省 true）
+   *
+   * 仅 `mode: 'paged'` 且打印引擎页数与预分页页数一致时生效——页映射不成立时
+   * 写书签会把目录指到错页，不如不写。浏览器光栅直出路径不受本选项影响
+   * （那里直接由 pdf-lib 生成，书签恒写入）。
+   */
+  outline?: boolean;
+  /** 书签写入结果回调（诊断 / 埋点用，不中断导出） */
+  onOutline?: (result: PdfOutlineResult) => void;
+}
+
+/** 书签写入结果 */
+export interface PdfOutlineResult {
+  /** 实际写入的条目数（0 = 未写） */
+  written: number;
+  /** 未写原因（written 为 0 时有值） */
+  skipped?: string;
 }
 
 /**
  * 渲染并导出 PDF 字节（adapter 路径）
  *
- * 链路：BookDocument → `renderPrintHtml`（inline 图片的自包含文档）→
- * `adapter.toPdf` → PDF 字节。浏览器与 Node 同构：本函数不碰 DOM，
- * 打印引擎调用完全由宿主适配器负责。
+ * 链路：BookDocument → `createPrintPager`（一次预分页）→ `renderDocument`
+ * → `adapter.toPdf` → 载入产物补目录书签 → PDF 字节。
+ *
+ * 目录书签（`/Outlines`）：宿主打印引擎（Chromium `printToPDF` / 无头浏览器）
+ * 不会从 HTML 生成书签，所以拿到字节后用 pdf-lib 重新载入、按预分页页序
+ * 写入书签再输出。**页数必须与预分页一致**才写（引擎多出空白页 / 缩放导致
+ * 页数变化时直接回原字节，宁无目录也不错页）。
  */
 export async function exportPdfBytes(
   book: BookDocument,
   options: ExportPdfOptions,
 ): Promise<Uint8Array> {
-  const { adapter, adapterOptions, ...printOptions } = options;
+  const {
+    adapter,
+    adapterOptions,
+    outline: withOutline,
+    onOutline,
+    ...printOptions
+  } = options;
   if (adapter === undefined) {
     throw new Error(
       'exportPdfBytes 需要 PdfExportAdapter（Electron / 无头浏览器宿主注入）；浏览器内请用 printBook 降级。',
     );
   }
   /* adapter 路径不传 rewriteSrc：离屏窗口 / 跨进程拿不到 blob: URL，必须 inline */
-  const html = renderPrintHtml(book, printOptions);
-  return adapter.toPdf(html, adapterOptions);
+  const pager = createPrintPager(book, printOptions);
+  const bytes = await adapter.toPdf(pager.renderDocument(), adapterOptions);
+  return withOutline === false
+    ? skipOutline(onOutline, '调用方关闭了目录书签', bytes)
+    : appendOutline(pager, bytes, onOutline);
+}
+
+/** 书签未写：回原字节并经回调报原因 */
+function skipOutline(
+  onOutline: ExportPdfOptions['onOutline'],
+  skipped: string,
+  bytes: Uint8Array,
+): Uint8Array {
+  onOutline?.({ written: 0, skipped });
+  return bytes;
+}
+
+/**
+ * 载入引擎产物并补写目录书签
+ *
+ * 只在页数校验通过时改字节：否则书签会指向错页，对读者比没有目录更糟。
+ */
+async function appendOutline(
+  pager: ReturnType<typeof createPrintPager>,
+  bytes: Uint8Array,
+  onOutline: ExportPdfOptions['onOutline'],
+): Promise<Uint8Array> {
+  if (pager.mode !== 'paged') {
+    return skipOutline(onOutline, 'auto 模式由打印引擎重排，无固定页界', bytes);
+  }
+  if (pager.outline.length === 0) {
+    return skipOutline(onOutline, '文档没有可定位的目录条目', bytes);
+  }
+  let pdf: PDFDocument;
+  try {
+    /* updateMetadata: false：保留引擎写入的 Producer / CreationDate（Chromium 已按 <title> 写好书名） */
+    pdf = await PDFDocument.load(bytes, { updateMetadata: false });
+  } catch (error) {
+    return skipOutline(
+      onOutline,
+      `PDF 重新载入失败：${error instanceof Error ? error.message : String(error)}`,
+      bytes,
+    );
+  }
+  const enginePages = pdf.getPageCount();
+  if (enginePages !== pager.pageCount) {
+    return skipOutline(
+      onOutline,
+      `打印引擎页数 ${enginePages} 与预分页页数 ${pager.pageCount} 不一致`,
+      bytes,
+    );
+  }
+  const written = writePdfOutline(pdf, pager.outline);
+  if (written === 0) {
+    return skipOutline(onOutline, '目录条目全部超出页范围', bytes);
+  }
+  onOutline?.({ written });
+  return pdf.save();
 }
 
 /** 下载 PDF 字节为文件（浏览器 Blob 下载；调用方负责文件名） */

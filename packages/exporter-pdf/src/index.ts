@@ -8,6 +8,11 @@ export { renderPrintHtml, createPrintPager } from './print-document.js';
 export type { PrintDocumentOptions, PrintPager } from './print-document.js';
 export { exportRasterPdf } from './raster-pdf.js';
 export type { RasterPdfOptions } from './raster-pdf.js';
+export { buildPdfOutline, countPdfOutlineEntries, writePdfOutline } from './pdf-outline.js';
+export type {
+  PdfOutlineEntry,
+  PdfOutlineWriteOptions,
+} from './pdf-outline.js';
 export {
   dedupeInlineImages,
   rehydrateInlineImages,
@@ -30,6 +35,7 @@ export type {
   ImageBlobRewriter,
   PdfAdapterOptions,
   PdfExportAdapter,
+  PdfOutlineResult,
 } from './pdf-export.js';
 export { collectPdfGlyphProblems, summarizePdfGlyphProblems } from './glyph-report.js';
 export type { PdfGlyphCheckOptions } from './glyph-report.js';

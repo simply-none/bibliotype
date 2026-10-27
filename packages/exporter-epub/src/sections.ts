@@ -19,6 +19,10 @@
  *   不产生任何结构节点）若只认结构节点，导出目录会是**空的**——
  *   补充「顶层且层级 ≤ MAX_NAV_HEADING_LEVEL 的标题」作为第二目录来源，保证导入的书目录不丢。
  * 结构节点内部的标题不另行入目录，以免与所属章 / 节的条目重复。
+ *
+ * 目录深度与阅读器目录面板同口径：结构节点不限深度，标题回退分支收 h1~h6 并按
+ * 级别嵌套；**目录深度与文件切分深度解耦**——后者只认 h1/h2 断节（MAX_SPLIT_HEADING_LEVEL），
+ * 以免小节数量让 XHTML 文件数翻倍。
  */
 import { NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import { resolveNodeTitle } from '@bibliotype/reader';
@@ -72,12 +76,23 @@ const FALLBACK_LABELS: Readonly<Record<string, string>> = {
 };
 
 /**
- * 参与目录的标题最大层级（h1 / h2）
+ * 参与目录的标题最大层级（h1~h6，与 `headingLevel` 的夹持范围一致）
  *
- * 更深层级（h3 及以下）不入目录：一是避免目录条目数量随小节数爆炸，
- * 二是它与 EPUB 2 兼容目录 toc.ncx 的 `dtb:depth=2` 声明口径一致。
+ * 与阅读器目录面板同口径：面板的标题回退分支收录 h1~h6 并按级别嵌套。
+ * 导出若只收 h1/h2，导入型文档（Markdown / DOCX / 无目录 EPUB）的目录会比
+ * 面板明显「浅」，第三方阅读器看到的层级也就与作者看到的对不上。
+ * 目录条目变多不增加 XHTML 文件数（见 MAX_SPLIT_HEADING_LEVEL）。
  */
-export const MAX_NAV_HEADING_LEVEL = 2;
+export const MAX_NAV_HEADING_LEVEL = 6;
+
+/**
+ * 优先断点的最大标题层级（h1 / h2）
+ *
+ * 只影响「体积兜底拆分」的断节位置：顶层标题在此断节，使每份文档以标题开头
+ * （与中华书局面 EPUB「一篇一文件」同构）；h3 及更深标题仍进目录，但不额外
+ * 开一份 XHTML。与目录深度解耦，故单列常量。
+ */
+export const MAX_SPLIT_HEADING_LEVEL = 2;
 
 /** 章节文件计划 */
 export interface SectionPlan {
@@ -243,7 +258,7 @@ function isPreferredBreak(node: BookNode): boolean {
   if (node.type !== NODE_TYPES.HEADING) return false;
   const raw = node.attrs?.level;
   const level = typeof raw === 'number' ? Math.round(raw) : 1;
-  return level <= MAX_NAV_HEADING_LEVEL;
+  return level <= MAX_SPLIT_HEADING_LEVEL;
 }
 
 /** 浅克隆节点并替换子节点（keepId=false 时剥掉 id，避免跨文档重复） */
@@ -324,12 +339,14 @@ function headingLevel(node: BookNode): number {
   return Math.min(6, Math.max(1, level));
 }
 
-/** 是否为「需自动分配锚点的顶层标题」：无 id 且层级在目录范围内 */
+/** 是否为「需自动分配锚点的顶层标题」：无 id、标题非空且层级在目录范围内 */
 function isNavHeadingCandidate(node: BookNode): boolean {
   return (
     node.type === NODE_TYPES.HEADING &&
     (node.id === undefined || node.id === '') &&
-    headingLevel(node) <= MAX_NAV_HEADING_LEVEL
+    headingLevel(node) <= MAX_NAV_HEADING_LEVEL &&
+    /* 空标题不产生目录条目，不必为它注入锚点 */
+    resolveNodeTitle(node) !== ''
   );
 }
 
@@ -343,9 +360,10 @@ export interface NavItem {
 /**
  * 构建导航条目
  *
- * 两类来源：
- * - 结构层级（卷 / 章 / 节）→ 嵌套 NavItem；
- * - 顶层标题（h1 / h2）→ 按层级嵌套的 NavItem；这是导入型文档唯一的目录来源。
+ * 两类来源（与阅读器目录面板同口径）：
+ * - 结构层级（卷 / 章 / 节）→ 嵌套 NavItem，深度不限；
+ * - 顶层标题（h1~h6）→ **按标题级别栈式嵌套**；这是导入型文档唯一的目录来源。
+ *   二级先于一级出现（书以 h2 开头）时落顶层，宁平勿丢。
  *
  * href 为「文件相对路径 + 锚点」（相对 OEBPS，nav.xhtml 与 toc.ncx 同在此目录）。
  *
@@ -357,15 +375,18 @@ export function buildNavItems(
   anchors: ReadonlyMap<BookNode, string>,
 ): NavItem[] {
   const items: NavItem[] = [];
-  /* 最近的一个一级标题条目：二级标题挂在其下；遇结构节点后复位，避免跨结构串挂 */
-  let parentLevel1: NavItem | null = null;
+  /*
+   * 标题层级栈：栈顶是当前最深的祖先标题条目。遇结构节点清空——结构节点
+   * 自带子树，标题不能再挂到上一个结构节点里去（避免跨结构串挂）。
+   */
+  const stack: { level: number; item: NavItem }[] = [];
 
   for (const section of sections) {
     for (const node of section.nodes) {
       if (SECTION_TYPES.has(node.type)) {
         const item = structureItem(node, section.file, anchors);
         if (item !== null) items.push(item);
-        parentLevel1 = null;
+        stack.length = 0;
         continue;
       }
       if (node.type !== NODE_TYPES.HEADING) continue;
@@ -380,15 +401,12 @@ export function buildNavItems(
       const href = id !== undefined && id !== '' ? `${section.file}#${id}` : section.file;
       const item: NavItem = { label, href, children: [] };
 
-      if (level === 1) {
-        items.push(item);
-        parentLevel1 = item;
-      } else if (parentLevel1 !== null) {
-        parentLevel1.children.push(item);
-      } else {
-        /* 二级标题出现在一级标题之前（如书籍以二级开头）：降级为顶层条目，宁平勿丢 */
-        items.push(item);
-      }
+      /* 出栈至「更高级的祖先」：同级或更深者都是兄弟，不能当父节点 */
+      while (stack.length > 0 && (stack[stack.length - 1]?.level ?? 0) >= level) stack.pop();
+      const parent = stack[stack.length - 1];
+      if (parent === undefined) items.push(item);
+      else parent.item.children.push(item);
+      stack.push({ level, item });
     }
   }
   return items;

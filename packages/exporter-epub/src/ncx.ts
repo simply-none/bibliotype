@@ -24,11 +24,14 @@ export interface NcxInput {
 /** 生成 toc.ncx（EPUB 2 NCX 2005-1） */
 export function buildNcx(input: NcxInput): string {
   const { title, language, uid, items } = input;
+  /* dtb:depth 必须与实际层级一致：旧引擎（RMSDK / Calibre）据此截断目录树，
+     写成固定 2 会让卷→书→章这类三级目录在第三方阅读器里只剩两层。 */
+  const depth = Math.max(1, outlineDepth(items));
   return `<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="${escapeXml(language)}">
 <head>
   <meta content="${escapeXml(uid)}" name="dtb:uid"/>
-  <meta content="2" name="dtb:depth"/>
+  <meta content="${depth}" name="dtb:depth"/>
   <meta content="bibliotype" name="dtb:generator"/>
   <meta content="0" name="dtb:totalPageCount"/>
   <meta content="0" name="dtb:maxPageNumber"/>
@@ -41,6 +44,15 @@ ${renderNavMap(items)}
 </navMap>
 </ncx>
 `;
+}
+
+/** 目录树深度（层级数；空树为 0） */
+function outlineDepth(items: readonly NavItem[]): number {
+  let depth = 0;
+  for (const item of items) {
+    depth = Math.max(depth, 1 + outlineDepth(item.children));
+  }
+  return depth;
 }
 
 /**

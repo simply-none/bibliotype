@@ -337,6 +337,13 @@ export function exportEpub(
     language,
     items: navItems,
     flavor: epubVersion === '2.0' ? 'xhtml11' : 'xhtml5',
+    /* 地标：第三方阅读器的「跳到正文 / 回目录」入口（EPUB 2 由 <guide> 承担） */
+    landmarks: [
+      { type: 'toc', href: 'nav.xhtml', title: '目录' },
+      ...(split.sections[0] === undefined
+        ? []
+        : [{ type: 'bodymatter', href: split.sections[0].file, title: '正文' }]),
+    ],
   });
   /* toc.ncx 两路均输出：EPUB 3 向后兼容推荐做法，EPUB 2（RMSDK）则是必需目录来源 */
   const ncx = buildNcx({

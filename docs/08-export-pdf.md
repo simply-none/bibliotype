@@ -145,7 +145,8 @@ downloadPdf(bytes, '论语.pdf');
   节点规则挂在 `body` 选择器，包成普通 div 会全部失配（字体 / 颜色 /
   writing-mode 全丢，直排变横排——见 [docs/14](14-faq.md) 对应条目）；
 - `rasterize` 选项可注入单页 HTML→位图实现（Node 测试 mock 用，注入后不启用
-  Worker 池，并发窗口仍生效）。
+  Worker 池，并发窗口仍生效）；
+- 产物同时写入**目录书签与文档属性**（见下节「目录书签」）。
 
 demo 的「其他 → PDF 导出方式」（`pdfExportMode: 'in-app' | 'browser-dialog'`，应用级偏好、
 随界面偏好快照持久化，缺省 `in-app`）即在本路径与打印对话框路径之间路由；同分区
@@ -275,6 +276,60 @@ ipcRenderer.handlePromise('bibliotype:export-segment', {
 两端同款实现）。另有单发合并形态 `bibliotype:export-run`（`{ html }` /
 `{ document, options, segmentPages }` → 合并单文件）与单发
 `bibliotype:export-pdf` 保留兼容，大书勿用。
+
+## 目录书签（/Outlines）
+
+PDF 没有 HTML 那样的导航文档，第三方阅读器（Acrobat / SumatraPDF / Apple Books /
+京东读书）的侧栏目录只能来自 PDF 自身的 `/Outlines` 书签树。两条导出路径都会写入：
+
+| 路径 | 写入时机 | 备注 |
+| --- | --- | --- |
+| 应用内直出（`exportRasterPdf`） | 拼页时直接写（pdf-lib 同一份上下文） | 恒写入；分段导出按 `from` 重定基 |
+| 适配器（`exportPdfBytes`） | 拿到引擎字节后二次载入补写 | 页数一致才写，否则回原字节 |
+
+书签源与阅读器目录面板**逐条一致**（`reader.outline` + `reader.getPageOfNode`，
+键口径 `outlineKeyOf`），因此侧栏层次与页码与预览相同。
+
+```ts
+import { exportPdfBytes, buildPdfOutline, writePdfOutline } from '@bibliotype/exporter-pdf';
+
+/* 适配器路径：outline 缺省 true；onOutline 拿到写入结果（不中断导出） */
+const bytes = await exportPdfBytes(document, {
+  adapter,
+  mode: 'paged',
+  onOutline: ({ written, skipped }) => report(written, skipped),
+});
+```
+
+口径与边界：
+
+- **只认 `paged`**：`auto`（连续）模式由打印引擎重排，没有固定页界，写书签会把目录
+  指到错页——宁可无目录也不写错页，`auto` 恒不写；
+- **页数校验**：适配器路径的页数必须与预分页一致（引擎多出空白页 / 缩放导致页数
+  变化），不一致就原样返回引擎字节并经 `onOutline` 报原因；
+- **分段重定基**：每卷 PDF 的页码从 1 起，书签目标页减去 `from`；越界条目丢弃，
+  父项越界时其子项上提一级（只在元素级裁剪，不让整枝消失）；
+- **中文标题**：`/Title` 写 `PDFHexString`（UTF-16BE），`/Dest [页 ref /Fit]`
+  （阅读器整页适配；比 `/XYZ` 少一组需按页高换算的坐标，直排 / 对页不会算错）；
+- **全展开**：`/Count` 为正（可见后代数），读者点开侧栏即见完整结构；
+  catalog 同时置 `/PageMode /UseOutlines`，部分阅读器据此默认打开书签面板；
+- **文档属性**：直出路径同时写 `Title` / `Subject` / `Author` / `Language` /
+  `Creator` / `Producer`，文件管理器 / 图书馆系统优先读这些字段展示书名与作者。
+
+API：
+
+| 导出 | 说明 |
+| --- | --- |
+| `buildPdfOutline(outline, pageOfKey)` | 目录树 + 页号查询 → 书签树（无页子项裁剪、孙项上提） |
+| `writePdfOutline(pdf, entries, { pageOffset })` | 写入 `/Outlines` + `/PageMode`，返回条目数（0 = 未写） |
+| `countPdfOutlineEntries(entries)` | 条目总数（含各级子项） |
+| `PrintPager.outline` | 预分页器直接给出书签树（宿主自建管线用） |
+| `ExportPdfOptions.outline` / `onOutline` | 开关（缺省 true）/ 写入结果回调 |
+
+⚠️ 桌面宿主分段（`bibliotype:export-segment`）落盘时**需宿主自己消费
+`PrintPager.outline`** 写书签：`renderPageRange` 产出的 HTML 交给 `printToPDF`
+只会得到无书签 PDF，宿主拿到字节后调用 `writePdfOutline(pdf, pager.outline,
+{ pageOffset: from })` 即可（与 `exportRasterPdf` 同一行代码）。
 
 ## 浏览器打印降级（printHtml / printBook）
 

@@ -23,6 +23,7 @@ import { PDFDocument } from 'pdf-lib';
 import type { BookDocument } from '@bibliotype/core';
 import { DEFAULT_LAYOUT_OPTIONS } from '@bibliotype/layout';
 import { createPrintPager, type PrintDocumentOptions } from './print-document.js';
+import { writePdfOutline } from './pdf-outline.js';
 import { resolveBleedPx } from './print-styles.js';
 import { createWorkerRasterPool, supportsWorkerRaster, type WorkerRasterPool } from './raster-worker.js';
 
@@ -244,6 +245,14 @@ export async function exportRasterPdf(
     });
 
   const pdf = await PDFDocument.create();
+  /* 文档属性：其他应用（阅读器 / 文件管理器 / 图书馆系统）优先读这些元数据展示书名与作者 */
+  pdf.setTitle(book.metadata.title);
+  pdf.setSubject(book.metadata.subtitle ?? book.metadata.title);
+  const author = book.metadata.contributors?.[0]?.name;
+  if (author !== undefined && author !== '') pdf.setAuthor(author);
+  pdf.setLanguage(book.metadata.language ?? 'zh-Hans');
+  pdf.setCreator('bibliotype');
+  pdf.setProducer('bibliotype');
   /* 滑动窗口：窗口内并发光栅，按页序等待嵌入（PDF 页序不受并发影响）。
    * 中止语义：停止填入新页、排空在途页（已完成工作不弃）后再抛 AbortError */
   let nextToRaster = 0;
@@ -275,5 +284,10 @@ export async function exportRasterPdf(
   } finally {
     pool?.dispose();
   }
+  /*
+   * 目录书签：与阅读器目录面板同源，按本段页序重定基（`from` 为段首页在全书的页号）。
+   * 分段导出时越界条目自动丢弃——每卷 PDF 的侧栏只列本卷可见章节，页码从 1 起。
+   */
+  writePdfOutline(pdf, pager.outline, { pageOffset: from });
   return pdf.save();
 }

@@ -12,6 +12,7 @@ export {
   DEFAULT_MAX_SECTION_BYTES,
   FRONT_MATTER_TYPES,
   MAX_NAV_HEADING_LEVEL,
+  MAX_SPLIT_HEADING_LEVEL,
   SECTION_TYPES,
   buildNavItems,
   frontMatterEpubType,
@@ -27,7 +28,7 @@ export type {
   SplitSectionsOptions,
 } from './sections.js';
 export { buildNavXhtml } from './nav.js';
-export type { NavXhtmlInput } from './nav.js';
+export type { NavLandmark, NavXhtmlInput } from './nav.js';
 export { buildOpf, contributorRoleCode, normalizeModified } from './opf.js';
 export type { OpfGuideReference, OpfInput, OpfManifestItem } from './opf.js';
 export { buildNcx } from './ncx.js';

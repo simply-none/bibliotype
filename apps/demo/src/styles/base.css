@@ -122,6 +122,18 @@ html {
   text-size-adjust: 100%;
 }
 
+/**
+ * 双击缩放：一次性关掉（菜单 / 设置 / 抽屉里的双击不再把页面放大）。
+ *
+ * `manipulation` = `pan-x pan-y pinch-zoom`：滚动与双指捏合保持可用，只是去掉
+ * 双击缩放分支；双指缩放本身按命中区域分流（预览区内放行），见
+ * `composables/use-mobile-zoom-guard.ts`。挂在 body 上是为了连带覆盖
+ * Teleport 到 body 的抽屉 / 弹层（`touch-action` 沿祖先链取交集）。
+ */
+body {
+  touch-action: manipulation;
+}
+
 /* D2：粗指针下全局兜底触控目标（只补点击区，不放大图标本身） */
 @media (pointer: coarse) {
   button,

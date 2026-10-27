@@ -277,6 +277,7 @@ node bin/bt-validate-epub.mjs <file.epub> [--json]
 | 安全区 | `viewport-fit=cover` + `env(safe-area-inset-*)`；抽屉 / 全屏模态 / 底栏在对应边留 `--bt-safe-*` |
 | 视口单位 | 用 `100dvh` 而非 `100vh`（移动浏览器地址栏收放会改变 `vh`） |
 | 软键盘 | `interactive-widget=resizes-content` + `visualViewport` 补偿（`useKeyboardInset`） |
+| 缩放 | viewport 不锁；预览区（`.app__stage`）外由 `use-mobile-zoom-guard` 拦双指与 Safari `gesturestart`，双击缩放由 `body { touch-action: manipulation }` 关掉 |
 | 横滚条 | 工具条 / 顶栏窄屏改为单行横滚，隐滚动条，首尾按钮不随滚动滑出（`position: sticky`） |
 
 ### viewport meta（demo）
@@ -284,6 +285,11 @@ node bin/bt-validate-epub.mjs <file.epub> [--json]
 ```html
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
 ```
+
+viewport 保持不锁 `user-scalable` / `maximum-scale`：阅读区的无障碍缩放仍在。菜单 / 设置 /
+抽屉这类浮层里的双指放大，改由 `apps/demo/src/composables/use-mobile-zoom-guard.ts` 按命中
+区域分流（预览区内放行，交给阅读器自己的双指调字号手势；区外一律 `preventDefault`，含
+Safari 私有 `gesturestart`），双击缩放则由 `body { touch-action: manipulation }` 一次性关掉。
 
 ### 构建顺序注意
 

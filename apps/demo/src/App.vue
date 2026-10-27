@@ -72,6 +72,7 @@ import { useAppThemes } from './composables/use-app-themes.js';
 import { useAppSkin } from './composables/use-app-skin.js';
 import { useMobileShell } from './composables/use-mobile-shell.js';
 import { useStageSize } from './composables/use-stage-size.js';
+import { useMobileZoomGuard } from './composables/use-mobile-zoom-guard.js';
 import { useLayoutTokens } from './composables/use-layout-tokens.js';
 import {
   DEFAULT_PDF_EXPORT_MODE,
@@ -136,6 +137,16 @@ function persistSnapshotLate(): void {
 
 /* 舞台实测可用尺寸（开本自适应与编辑画布「适应」的共同量源） */
 const { stageEl, stageSize } = useStageSize();
+
+/*
+ * 触屏缩放守卫：预览区（舞台）以外禁止双指放大。守卫本身只判命中区域，
+ * 监听注册在挂载钩子里（`preventDefault` 需要非 passive）。
+ */
+const { onTouchStart: onZoomTouchStart, onTouchMove: onZoomTouchMove, onGestureStart: onZoomGestureStart } =
+  useMobileZoomGuard({
+    enabled: computed(() => mobileShell.value || breakpoint.coarsePointer.value),
+    stage: stageEl,
+  });
 
 /* 版式补丁与令牌层（样式作用域 / effectiveLayout / tokens / 面板视图） */
 const layout = useLayoutTokens({
@@ -480,6 +491,10 @@ onMounted(async () => {
   window.addEventListener('pageshow', onPageShow);
   window.addEventListener('blur', onWindowBlur);
   document.addEventListener('visibilitychange', onVisibilityChange);
+  // 缩放守卫：非 passive 才允许 preventDefault（面板 / 浮层里的双指放大一律拦下）
+  document.addEventListener('touchstart', onZoomTouchStart, { passive: false });
+  document.addEventListener('touchmove', onZoomTouchMove, { passive: false });
+  document.addEventListener('gesturestart', onZoomGestureStart, { passive: false });
   // 开发期性能探针：控制台用 __btPerf.report() 看「重排 vs 落盘」耗时分布
   if (import.meta.env.DEV) perfProbe = installPerfProbe();
   // 恢复上次会话内容，据此确定本书 id（草稿若是导入的书，沿用其设置作用域，避免混用）
@@ -505,6 +520,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('pageshow', onPageShow);
   window.removeEventListener('blur', onWindowBlur);
   document.removeEventListener('visibilitychange', onVisibilityChange);
+  document.removeEventListener('touchstart', onZoomTouchStart);
+  document.removeEventListener('touchmove', onZoomTouchMove);
+  document.removeEventListener('gesturestart', onZoomGestureStart);
   clearRemeasureTimer();
   perfProbe?.stop();
   perfProbe = null;

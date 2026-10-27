@@ -18,11 +18,30 @@ import {
   type BookDocument,
 } from '@bibliotype/core';
 import { detectImportFormat, importFromText, titleFromFilename } from '@bibliotype/import';
+import type { EpubImportReport } from '@bibliotype/import-epub';
 
 const emit = defineEmits<{ close: []; imported: [doc: BookDocument] }>();
 
 /** 与编辑器同款 schema（导入产出的 IR 可直接被 BookEditor / Reader 消费） */
 const schema = buildClassicalEditorSchema();
+
+/**
+ * epub 导入报告 → 一行读数
+ *
+ * 报告说明「目录被识别成什么样」（来源 + 条目数）以及「有多少没能对上正文」：
+ * 缺失文件 / 未定位锚点 > 0 时，目录项可能点不到内容，值得人工看一眼，
+ * 而不是把降级静默吞掉。
+ */
+function summarizeEpubReport(report: EpubImportReport): string {
+  const source = report.tocSource === 'none' ? '无（按标题建目）' : report.tocSource;
+  const problems: string[] = [];
+  if (report.missingFiles.length > 0) problems.push(`缺失文件 ${report.missingFiles.length}`);
+  if (report.unlocatedAnchors.length > 0) {
+    problems.push(`未定位锚点 ${report.unlocatedAnchors.length}`);
+  }
+  const tail = problems.length > 0 ? `，${problems.join('，')}` : '';
+  return `epub 目录来源 ${source}，条目 ${report.tocEntries}${tail}。`;
+}
 
 /** 面板状态读数（成功 / 错误 / 不支持提示） */
 const status = ref('');
@@ -51,6 +70,8 @@ async function onFileChange(event: Event): Promise<void> {
     const title = titleFromName(file.name);
     const metadata = { title };
     let doc: BookDocument;
+    /* epub 分支填充；其它格式保持空串，状态行不出现无意义的报告 */
+    let epubNote = '';
     if (format === 'markdown' || format === 'html' || format === 'text') {
       const text = await file.text();
       doc = importFromText(text, format, schema, metadata);
@@ -61,13 +82,19 @@ async function onFileChange(event: Event): Promise<void> {
     } else {
       // 动态加载：fflate + @xmldom/xmldom 仅在导入 epub 时进入分包
       const { epubToBookDocument } = await import('@bibliotype/import-epub');
-      doc = epubToBookDocument(await file.arrayBuffer(), schema, metadata);
+      let epubReport: EpubImportReport | undefined;
+      doc = epubToBookDocument(await file.arrayBuffer(), schema, metadata, {
+        onReport: (value) => {
+          epubReport = value;
+        },
+      });
+      if (epubReport !== undefined) epubNote = summarizeEpubReport(epubReport);
     }
     /* 字图归一化（K6）：缺字替代图从块级插图归入文字流（识别不确定的保守保留）；
      * 五种格式统一在收口处过一遍，报告随状态行展示 */
     const { document: normalized, report } = normalizeGlyphImages(doc);
     emit('imported', normalized);
-    status.value = `已导入《${title}》。${summarizeGlyphImageReport(report)}`;
+    status.value = `已导入《${title}》。${epubNote}${summarizeGlyphImageReport(report)}`;
   } catch (error) {
     status.value = `导入失败：${error instanceof Error ? error.message : String(error)}`;
   } finally {

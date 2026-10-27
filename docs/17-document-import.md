@@ -116,7 +116,7 @@ const doc = epubToBookDocument(await file.arrayBuffer(), schema, { title: '来�
 ```
 
 - 输入 `EpubInput = ArrayBuffer | Uint8Array`。
-- 读入侧比导出更宽松：容忍缺 `nav`、缺图片引用等；章节按 `<spine>` 顺序回收。
+- 读入侧比导出更宽松：容忍缺 `nav` / `ncx`、缺图片引用等；正文顺序由目录校正（无目录时按 `<spine>`）。
 - 段落内 `<img>` 经 HTML 通路（含 html / docx 导入，行为同源）解析为块级 `image`、
   段落被切开，原生 `width` / `height` 属性保留进 IR attrs——缺字替代图（小尺寸字形图）
   配合 `normalizeGlyphImages`（见 [05 字图内联](05-layout-and-html.md)）自动识别并归并
@@ -125,6 +125,23 @@ const doc = epubToBookDocument(await file.arrayBuffer(), schema, { title: '来�
   `<a href="#…">` 的跳转目标块（段落 / 列表项 / 标题等）由此可定位，阅读视图的
   「点击注码跳注文」依赖它（见 [06 Vue 集成](06-vue-integration.md) 注释交互）。
 - 与 [07 EPUB 导出](07-export-epub.md) 构成 **导出 ↔ 导入往返**（导出产物可直接作为导入夹具）。
+
+### 目录重建（nav.xhtml / toc.ncx → 卷 / 章 / 节）
+
+正文结构**以 epub 自带目录为准**。早期实现只读 `toc.ncx`，EPUB 3 仅有 `nav.xhtml` 的书会退化为「全文标题平铺」，且一个文件多个章节时点不到正确位置：
+
+| 目录源 | 定位方式 | 层级来源 |
+| --- | --- | --- |
+| EPUB 3 `nav.xhtml`（优先） | OPF manifest 中 `properties` 含 `nav` 的 item；否则 `*nav.xhtml` 兜底 | `<nav epub:type="toc">` 的嵌套 `ol > li > a`，任意深度 |
+| EPUB 2 `toc.ncx`（次之） | manifest 中 `application/x-dtbncx+xml`；否则 `*.ncx` 兜底 | `navPoint` 自身嵌套 |
+| 无目录 | — | 回退扁平抽取，由 heading 建目（层级规则见 [04 阅读与分页](04-reader-and-pagination.md)） |
+
+- **href 基准**：**目录文件自身所在目录**（`nav.xhtml` / `toc.ncx` 都可能放在子目录，按 OPF 目录解析会全量失配）；锚点做一次 URL 解码后与正文 `id` 对齐。
+- **zip 条目查找**：精确 → 解码 → 忽略大小写三路回退，返回实际条目名；找不到的记入报告，不再静默跳过整篇。
+- **正文顺序**：目录先序遍历的首次出现顺序即阅读顺序（spine 只回答「哪些文件算正文」）；目录未收录的文档（封面 / 版权页 / 后记）插到「spine 中它之前且已在主序中」的文档之后，不丢内容，也不引入 spine 之外的文档。
+- **一文件多章**：同一 XHTML 被多条目录项指向时，按锚点把 `<body>` 顶层子节点切成多个片段，各归其条目——这是「目录点得到、正文对得上」的关键。
+- **层级 → 结构节点**：目录深度 0 / 1 / ≥2 分别输出 `div.bt-volume` / `div.bt-chapter` / `div.bt-section` 嵌套容器（写 `data-title`），经 schema 的 `parseDOM` 回收为卷 / 章 / 节；**根层无子条目**的条目按章输出，避免扁平书每章都显示成「卷」。深度 >3 继续用嵌套 `section` 表达，不做扁平化钳制。
+- **诊断**：`EpubToHtmlOptions.onReport`（`epubToBookDocument` 透传）回报 `tocSource` / `tocEntries` / `missingFiles` / `unlocatedAnchors`；Demo 的 `ImportPanel.vue` 把这一行展示在状态栏，目录对不上时不再静默降级。公开目录解析 `readToc(files, opfPath): TocPlan` 亦对外导出，便于自定义流水线复用同一套目录规则。
 
 ## 环境要求
 

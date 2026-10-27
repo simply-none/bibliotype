@@ -176,6 +176,20 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 - **主轴标注 `axis`**：`extractBlocks(doc, { axis: 'column' })` 给可拆块标 `axis: 'column'`（直排），横排缺省 `'row'`；`lineSize` 在直排下即列宽。分页算术只认沿主轴的尺寸，故方向不影响装箱结果；
 - 标题块标记 `keepWithNext`（与下段同页）。
 
+### 目录提取（extractOutline）
+
+目录树只取结构节点（卷 / 章 / 节），与正文的层级一一对应：
+
+| 文档形态 | 目录来源 | 层级规则 |
+| --- | --- | --- |
+| 含结构节点（卷 / 章 / 节） | 结构节点（默认） | 按容器嵌套逐层下降，`level` = 树深度 |
+| 仅标题 + 段落（Markdown / DOCX / 无目录 EPUB） | 回退用 `heading` 建目 | 按 `attrs.level`（h1~h6）串父子：h2 挂到最近的 h1 下，**跳级挂到最近更高级**，同级标题并列 |
+| 显式 `includeHeadings: true` | 结构节点 + 标题 | 标题按树位置入目（不与结构标题去重，调用方自控） |
+
+- 回退只在「**整本一个条目都没有**」时触发，有结构节点时不会混入标题（避免与卷 / 章 / 节标题重复）；
+- 标题缺 `attrs.level` 时按 h1（`level = 1`）处理，早期一律平铺为 `level: 0` 的行为因此保持兼容；
+- 目录项 `nodeId` 缺 id 时回退为树路径 id，与 `extractBlocks` / `indexNodeAnchors` 口径一致，导入型文档同样可点击跳页。
+
 ## 分页规则（layout.paginate）
 
 | 场景 | 规则 |

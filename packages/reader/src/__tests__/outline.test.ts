@@ -163,4 +163,43 @@ describe('extractOutline', () => {
   it('countOutlineItems 统计全部层级', () => {
     expect(countOutlineItems(extractOutline(sampleRoot()))).toBe(4); // 卷1 + 章2 + 节1
   });
+
+  it('无结构容器时按 heading 级别建父子（h2 挂到最近的 h1 之下）', () => {
+    const root: BookNode = {
+      type: NODE_TYPES.BOOK,
+      children: [
+        { type: NODE_TYPES.HEADING, id: 'h-1', attrs: { level: 1, title: '卷一' } },
+        { type: NODE_TYPES.PARAGRAPH, id: 'p-1', children: [{ type: 'text', text: '正文' }] },
+        { type: NODE_TYPES.HEADING, id: 'h-2', attrs: { level: 2, title: '第一章' } },
+        { type: NODE_TYPES.HEADING, id: 'h-3', attrs: { level: 3, title: '第一节' } },
+        { type: NODE_TYPES.HEADING, id: 'h-4', attrs: { level: 2, title: '第二章' } },
+      ],
+    };
+
+    const outline = extractOutline(root);
+    expect(outline.map((item) => item.nodeId)).toEqual(['h-1']);
+    expect(outline[0]?.level).toBe(0);
+    expect(outline[0]?.children.map((item) => item.nodeId)).toEqual(['h-2', 'h-4']);
+    expect(outline[0]?.children[0]?.level).toBe(1);
+    expect(outline[0]?.children[0]?.children.map((item) => item.nodeId)).toEqual(['h-3']);
+    expect(outline[0]?.children[0]?.children[0]?.level).toBe(2);
+  });
+
+  it('跳级标题挂到最近更高级，同级标题并列', () => {
+    const root: BookNode = {
+      type: NODE_TYPES.BOOK,
+      children: [
+        { type: NODE_TYPES.HEADING, id: 'h-1', attrs: { level: 1, title: '第一章' } },
+        /* h1 后直接出现 h3：挂到最近更高级的 h1 之下，而不是漏掉 */
+        { type: NODE_TYPES.HEADING, id: 'h-3a', attrs: { level: 3, title: '一节' } },
+        { type: NODE_TYPES.HEADING, id: 'h-3b', attrs: { level: 3, title: '二节' } },
+        { type: NODE_TYPES.HEADING, id: 'h-2', attrs: { level: 1, title: '第二章' } },
+      ],
+    };
+
+    const outline = extractOutline(root);
+    expect(outline.map((item) => item.nodeId)).toEqual(['h-1', 'h-2']);
+    expect(outline[0]?.children.map((item) => item.nodeId)).toEqual(['h-3a', 'h-3b']);
+    expect(outline[1]?.children).toEqual([]);
+  });
 });

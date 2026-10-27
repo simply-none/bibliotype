@@ -62,6 +62,14 @@ function isEmptyContainer(node: BookNode): boolean {
   return (node.children ?? []).length === 0;
 }
 
+/** heading 的标题级别（h1~h6 → 1~6；缺省为 1，与 schema 默认值一致） */
+function headingLevel(node: BookNode): number {
+  const raw = node.attrs?.level;
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(Math.trunc(value), 1), 6);
+}
+
 /** 目录提取选项 */
 export interface ExtractOutlineOptions {
   /** 纳入无标题的空结构节点（默认 false） */
@@ -118,8 +126,52 @@ export function extractOutline(
    * 自著书）根下往往只有 heading + paragraph，按默认口径提取会**整本无目录**，
    * 目录面板因此整块空白。结构节点存在时不混入标题（避免与卷 / 章 / 节标题重复）。
    */
-  if (items.length === 0 && !includeHeadings) return walk(root, 0, true, '');
+  if (items.length === 0 && !includeHeadings) return walkHeadings(root, includeEmpty);
   return items;
+}
+
+/**
+ * 用标题级别重建目录树（回退分支）
+ *
+ * 只把标题按 h1~h6 串成父子关系：h2 挂到最近的 h1 之下，跳级挂到最近更高级的标题之下，
+ * 同级出现则先出栈再并列。早期实现一律平铺为 `level: 0`，导致「只靠标题分节」的书
+ * （Markdown / DOCX / 无目录 EPUB）目录完全看不出章节隶属关系。
+ *
+ * @param root 文档根节点
+ * @param includeEmpty 是否纳入无标题的标题节点
+ */
+function walkHeadings(root: BookNode, includeEmpty: boolean): OutlineItem[] {
+  const roots: OutlineItem[] = [];
+  const stack: { item: OutlineItem; level: number }[] = [];
+
+  const collect = (node: BookNode, path: string): void => {
+    const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
+    for (const [index, child] of elementChildren.entries()) {
+      const childPath = `${path}/${index}`;
+      if (child.type === OUTLINE_HEADING_TYPE) {
+        const title = resolveNodeTitle(child);
+        if (title.length > 0 || includeEmpty) {
+          const level = headingLevel(child);
+          while (stack.length > 0 && (stack[stack.length - 1]?.level ?? 0) >= level) stack.pop();
+          const parent = stack[stack.length - 1];
+          const item: OutlineItem = {
+            nodeId: child.id ?? childPath,
+            type: child.type,
+            title,
+            level: parent === undefined ? 0 : parent.item.level + 1,
+            children: [],
+          };
+          if (parent === undefined) roots.push(item);
+          else parent.item.children.push(item);
+          stack.push({ item, level });
+        }
+      }
+      collect(child, childPath);
+    }
+  };
+
+  collect(root, '');
+  return roots;
 }
 
 /**

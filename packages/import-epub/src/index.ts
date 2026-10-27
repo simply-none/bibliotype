@@ -20,6 +20,10 @@ export type {
   ExtractBodiesOptions,
 } from './epub-package.js';
 
+/* ---------- 目录源（nav.xhtml / toc.ncx → 层级目录树） ---------- */
+export { readToc } from './toc-read.js';
+export type { EpubImportReport, TocEntry, TocPlan } from './toc-types.js';
+
 /* ---------- epub → BookDocument（组合层） ---------- */
 export { epubToBookDocument } from './from-epub.js';
 export type { EpubInput } from './epub-package.js';

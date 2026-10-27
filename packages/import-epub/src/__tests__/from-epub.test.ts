@@ -11,6 +11,7 @@ import { exportEpub } from '@bibliotype/exporter-epub';
 import { markdownToBookDocument } from '@bibliotype/import';
 import { describe, expect, it } from 'vitest';
 import { epubToBookDocument } from '../from-epub.js';
+import { buildEpub } from './fixtures.js';
 
 const schema = buildEditorSchema();
 
@@ -81,5 +82,52 @@ describe('epubToBookDocument', () => {
 
   it('空字节 → 抛出指向明确的 RangeError', () => {
     expect(() => epubToBookDocument(new Uint8Array([]), schema, { title: 'x' })).toThrow(/epub 数据为空/);
+  });
+});
+
+/** 递归统计某类型节点数 */
+function countType(node: BookNode, type: string): number {
+  const self = node.type === type ? 1 : 0;
+  return (node.children ?? []).reduce((sum, child) => sum + countType(child, type), self);
+}
+
+/* 三级目录夹具：卷 > 章 > 节均落在同一个 XHTML 的不同锚点上 */
+const layeredBytes = buildEpub({
+  docs: {
+    'text/v1.xhtml':
+      '<h2 id="v1">第一卷</h2>' +
+      '<h3 id="ch1">第一章</h3><p>第一章正文</p>' +
+      '<h4 id="s1">第一节</h4><p>第一节正文</p>',
+  },
+  navItems:
+    '<li><a href="text/v1.xhtml#v1">第一卷</a><ol>' +
+    '<li><a href="text/v1.xhtml#ch1">第一章</a><ol>' +
+    '<li><a href="text/v1.xhtml#s1">第一节</a></li>' +
+    '</ol></li></ol></li>',
+});
+
+describe('epubToBookDocument 目录层级回收', () => {
+  it('nav 三级目录 → volume > chapter > section 逐层嵌套（不再压成两层）', () => {
+    const doc = epubToBookDocument(layeredBytes, schema, { title: '层级' });
+    const volume = (doc.root.children ?? []).find((node) => node.type === NODE_TYPES.VOLUME);
+    expect(volume).toBeDefined();
+
+    const chapter = (volume?.children ?? []).find((node) => node.type === NODE_TYPES.CHAPTER);
+    expect(chapter).toBeDefined();
+
+    const section = (chapter?.children ?? []).find((node) => node.type === NODE_TYPES.SECTION);
+    expect(section).toBeDefined();
+
+    /* data-title → attrs.title（目录面板靠它显示标题） */
+    expect(volume?.attrs?.title).toBe('第一卷');
+    expect(chapter?.attrs?.title).toBe('第一章');
+    expect(section?.attrs?.title).toBe('第一节');
+  });
+
+  it('卷 / 章 / 节各 1 个（目录条目不得凭空增减）', () => {
+    const doc = epubToBookDocument(layeredBytes, schema, { title: '计数' });
+    expect(countType(doc.root, NODE_TYPES.VOLUME)).toBe(1);
+    expect(countType(doc.root, NODE_TYPES.CHAPTER)).toBe(1);
+    expect(countType(doc.root, NODE_TYPES.SECTION)).toBe(1);
   });
 });

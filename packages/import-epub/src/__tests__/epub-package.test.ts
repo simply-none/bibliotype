@@ -10,7 +10,9 @@ import { exportEpub } from '@bibliotype/exporter-epub';
 import { markdownToBookDocument } from '@bibliotype/import';
 import { describe, expect, it } from 'vitest';
 import { epubToHtml } from '../epub-package.js';
+import type { EpubImportReport } from '../toc-types.js';
 import { strToU8, zipSync } from 'fflate';
+import { buildEpub, countClass } from './fixtures.js';
 
 const schema = buildEditorSchema();
 
@@ -124,5 +126,139 @@ describe('epubToHtml 图片内联（default true）', () => {
     /* body 子元素由 XHTML 文档抽出，序列化时保留命名空间，属既有行为 */
     expect(html).toContain('<h1 xmlns="http://www.w3.org/1999/xhtml">第一章</h1>');
     expect(html).toContain('<p xmlns="http://www.w3.org/1999/xhtml">正文。</p>');
+  });
+});
+
+/** 收集导入报告（不传回调时不影响既有行为） */
+function reportOf(bytes: Uint8Array): EpubImportReport {
+  let report: EpubImportReport | undefined;
+  epubToHtml(bytes, { inlineImages: false, onReport: (value) => { report = value; } });
+  if (report === undefined) throw new Error('onReport 未被调用');
+  return report;
+}
+
+describe('epubToHtml 目录层级重建（nav.xhtml）', () => {
+  it('仅 nav.xhtml 的三级目录 → bt-volume > bt-chapter > bt-section 嵌套', () => {
+    const bytes = buildEpub({
+      docs: {
+        'text/v1.xhtml':
+          '<h2 id="v1">第一卷</h2>' +
+          '<h3 id="ch1">第一章</h3><p>第一章正文</p>' +
+          '<h4 id="s1">第一节</h4><p>第一节正文</p>',
+      },
+      navItems:
+        '<li><a href="text/v1.xhtml#v1">第一卷</a><ol>' +
+        '<li><a href="text/v1.xhtml#ch1">第一章</a><ol>' +
+        '<li><a href="text/v1.xhtml#s1">第一节</a></li>' +
+        '</ol></li></ol></li>',
+    });
+
+    const html = epubToHtml(bytes, { inlineImages: false });
+    expect(countClass(html, 'bt-volume')).toBe(1);
+    expect(countClass(html, 'bt-chapter')).toBe(1);
+    expect(countClass(html, 'bt-section')).toBe(1);
+    /* 真嵌套：卷在外、章在中、节在内 */
+    expect(html).toMatch(/class="bt-volume"[\s\S]*class="bt-chapter"[\s\S]*class="bt-section"/);
+
+    /* 目录标题逐条落到容器上（data-title 供 IR 回收标题） */
+    expect(html).toContain('data-title="第一卷"');
+    expect(html).toContain('data-title="第一章"');
+    expect(html).toContain('data-title="第一节"');
+
+    /* 正文归属顺序：章标题 → 章正文 → 节标题 → 节正文 */
+    const order = ['data-title="第一章"', '第一章正文', 'data-title="第一节"', '第一节正文'].map(
+      (token) => html.indexOf(token),
+    );
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('单个 XHTML 含三章（#c1/#c2/#c3）→ 三个 chapter，各段归属正确且不丢文', () => {
+    const bytes = buildEpub({
+      docs: {
+        'text/all.xhtml':
+          '<h2 id="c1">第一章</h2><p>甲段</p>' +
+          '<h2 id="c2">第二章</h2><p>乙段</p>' +
+          '<h2 id="c3">第三章</h2><p>丙段</p>',
+      },
+      navItems:
+        '<li><a href="text/all.xhtml#c1">第一章</a></li>' +
+        '<li><a href="text/all.xhtml#c2">第二章</a></li>' +
+        '<li><a href="text/all.xhtml#c3">第三章</a></li>',
+    });
+
+    const html = epubToHtml(bytes, { inlineImages: false });
+    expect(countClass(html, 'bt-chapter')).toBe(3);
+    const order = [
+      'data-title="第一章"',
+      '甲段',
+      'data-title="第二章"',
+      '乙段',
+      'data-title="第三章"',
+      '丙段',
+    ].map((token) => html.indexOf(token));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it('toc.ncx 位于子目录时按 ncx 自身目录解析 src（标题不退化为「第N节」）', () => {
+    const bytes = buildEpub({
+      docs: { 'nav/ch1.xhtml': '<h2 id="c1">第一章</h2><p>正文甲</p>' },
+      ncxPath: 'nav/toc.ncx',
+      ncxPoints:
+        '<navPoint id="n1" playOrder="1"><navLabel><text>第一章</text></navLabel>' +
+        '<content src="ch1.xhtml#c1"/></navPoint>',
+    });
+
+    const html = epubToHtml(bytes, { inlineImages: false });
+    expect(html).toContain('data-title="第一章"');
+    expect(html).toContain('正文甲');
+    expect(reportOf(bytes).tocSource).toBe('ncx');
+  });
+
+  it('spine 顺序与目录相反 → 正文按目录顺序输出', () => {
+    const bytes = buildEpub({
+      docs: {
+        'text/a.xhtml': '<h2 id="a">甲章</h2><p>甲段</p>',
+        'text/b.xhtml': '<h2 id="b">乙章</h2><p>乙段</p>',
+      },
+      /* spine 写成反序（旧实现照抄 spine 顺序，导致正文与目录乱序） */
+      spine: ['text/b.xhtml', 'text/a.xhtml'],
+      navItems: '<li><a href="text/a.xhtml#a">甲章</a></li><li><a href="text/b.xhtml#b">乙章</a></li>',
+    });
+
+    const html = epubToHtml(bytes, { inlineImages: false });
+    expect(html.indexOf('data-title="甲章"')).toBeLessThan(html.indexOf('data-title="乙章"'));
+    expect(html.indexOf('甲段')).toBeLessThan(html.indexOf('乙段'));
+  });
+
+  it('OPF href 大小写与 zip 条目不一致 → 正文不丢，报告无缺失文件', () => {
+    const bytes = buildEpub({
+      docs: { 'text/ch1.xhtml': '<h2 id="c1">第一章</h2><p>正文甲</p>' },
+      hrefCase: 'upper',
+      navItems: '<li><a href="TEXT/CH1.XHTML#c1">第一章</a></li>',
+    });
+
+    const html = epubToHtml(bytes, { inlineImages: false });
+    expect(html).toContain('正文甲');
+    expect(html).toContain('data-title="第一章"');
+
+    const report = reportOf(bytes);
+    expect(report.missingFiles).toEqual([]);
+    expect(report.tocEntries).toBe(1);
+    expect(report.unlocatedAnchors).toEqual([]);
+  });
+
+  it('无目录时走扁平路径（不产出结构容器），并回报 tocSource: none', () => {
+    const bytes = buildEpub({
+      docs: { 'text/ch1.xhtml': '<h1>第一章</h1><p>正文甲</p>' },
+    });
+
+    const html = epubToHtml(bytes, { inlineImages: false });
+    expect(html).toContain('<h1');
+    expect(html).toContain('正文甲');
+    expect(countClass(html, 'bt-chapter')).toBe(0);
+    expect(countClass(html, 'bt-volume')).toBe(0);
+    expect(reportOf(bytes).tocSource).toBe('none');
   });
 });

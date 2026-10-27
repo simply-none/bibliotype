@@ -19,5 +19,7 @@ describe('node 环境导入冒烟（import-epub）', () => {
   it('关键导出存在', async () => {
     const ns = await import('../index');
     expect(typeof ns.epubToBookDocument).toBe('function');
+    /* 目录解析亦对外公开（供自定义流水线复用同一套目录规则） */
+    expect(typeof ns.readToc).toBe('function');
   });
 });

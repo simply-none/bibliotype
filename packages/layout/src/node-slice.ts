@@ -52,11 +52,18 @@ export function sliceNodeByCharRange(node: BookNode, from: number, to: number): 
       const childStart = off;
       const childEnd = off + len;
       off = childEnd;
-      // 行内元素载体：文本长度为 0 时按其位置归属；有文本时与区间相交则整体保留
-      const intersects = len === 0
-        ? childStart >= start && childStart < end
-        : childStart < end && childEnd > start;
-      if (intersects) out.push(child);
+      // 行内元素载体：文本长度为 0 时按其位置归属；有文本时与区间相交则切片其内容
+      if (len === 0) {
+        // 零长度载体（如缺字图）：按起始位置判定
+        if (childStart >= start && childStart < end) {
+          out.push(child);
+        }
+      } else if (childStart < end && childEnd > start) {
+        // 有文本的载体：相交时递归切片其内容，避免重复
+        const sliceFrom = Math.max(0, start - childStart);
+        const sliceTo = Math.min(len, end - childStart);
+        out.push(sliceNodeByCharRange(child, sliceFrom, sliceTo));
+      }
     }
   }
   return { ...node, children: out };

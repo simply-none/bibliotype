@@ -186,12 +186,18 @@ function applySheetStyle(
   rootStyle: StyleDeclaration,
   axis: MeasureAxis,
   contentMain: number,
+  columns = 1,
 ): void {
   const skip = new Set(['column-count', 'column-gap', 'background-color', 'background', 'border']);
   sheet.style.cssText = '';
   for (const [prop, value] of Object.entries(rootStyle)) {
     if (skip.has(prop)) continue;
     sheet.style.setProperty(prop, value);
+  }
+  // 多栏时应用 CSS multi-column 布局，确保测量与渲染同源
+  if (columns > 1) {
+    sheet.style.columnCount = String(columns);
+    sheet.style.columnGap = rootStyle['column-gap'] ?? '0px';
   }
   // 定交叉轴尺、主轴随内容，离屏不可见但保留布局盒（visibility:hidden 仍产生度量）
   //
@@ -438,6 +444,7 @@ function renderMeasureSheet(
     buildRootStyle({ tokens, options, fontToken: input.fontToken }),
     axis,
     contentMain,
+    columns,
   );
 
   // 块抽取：调用方已抽过（同源）则直接复用，避免同一文档重复全树遍历

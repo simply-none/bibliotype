@@ -288,8 +288,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     charsPerLine: context.charsPerLine,
   };
 
-  // 分页编辑画布仍限单栏（P1-A 的多栏先落地在阅读侧）；多栏 / 无 DOM → 回退 overlay
-  if ((options.columns ?? 1) > 1) return empty;
+  // 多栏支持：量尺与分页器已支持多栏，编辑画布与阅读侧同源
   if (typeof document === 'undefined') return empty;
   if (pageMainSize <= 0) return empty;
 

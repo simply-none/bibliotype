@@ -725,18 +725,42 @@ function paginateInner(
 
   const pages: PaginatedPage[] = [];
   for (const group of groups) {
-    const stripped = group.blocks.map((block) => ({ ...block, columns: 1 }));
-    const result = paginateSingle(
-      stripped,
-      {
-        ...options,
-        pageMainSize: options.pageMainSize * group.columns,
-        resume: undefined,
-      },
-      group.columns,
-    );
-    for (const page of result.pages) {
-      pages.push({ ...page, index: pages.length });
+    if (group.columns === 1) {
+      // 单栏：直接分页
+      const result = paginateSingle(group.blocks, options, 1);
+      for (const page of result.pages) {
+        pages.push({ ...page, index: pages.length });
+      }
+    } else {
+      // 多栏：每栏独立分页，栏间按序拼接
+      // 将块均分到各栏（简单均分；后续可按块属性优化）
+      const blocksPerColumn = Math.ceil(group.blocks.length / group.columns);
+      const columnPages: PaginatedPage[][] = [];
+      for (let col = 0; col < group.columns; col += 1) {
+        const columnBlocks = group.blocks.slice(col * blocksPerColumn, (col + 1) * blocksPerColumn);
+        if (columnBlocks.length === 0) {
+          columnPages.push([]);
+          continue;
+        }
+        const result = paginateSingle(columnBlocks, { ...options, resume: undefined }, 1);
+        columnPages.push(result.pages);
+      }
+      // 合并各栏的页：第 i 页包含各栏的第 i 页
+      const totalPages = Math.max(...columnPages.map((pages) => pages.length), 1);
+      for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
+        const items = columnPages.flatMap((colPages) => colPages[pageIndex]?.items ?? []);
+        if (items.length === 0) continue;
+        pages.push({
+          index: pages.length,
+          items,
+          blocks: items.map((item) => item.block),
+          usedMainSize: columnPages.reduce(
+            (sum, colPages) => sum + (colPages[pageIndex]?.usedMainSize ?? 0),
+            0,
+          ),
+          columns: group.columns,
+        });
+      }
     }
   }
 

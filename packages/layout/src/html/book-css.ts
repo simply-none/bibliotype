@@ -945,21 +945,22 @@ ${scoped('.bt-vpara')} {
   display: inline;
 }
 ${scoped('.bt-vnote')} {
-  /* 双行夹注盒：恒 1 大字位宽 × 整列高的**固定双列**小字（「从上排到底」
+  /* 双行夹注盒：恒 1 大字位宽 × 动态高度的多对双列小字（「从上排到底」
    * 的古籍形制）。竖排逻辑轴：inline 轴 = 纵向（列高）、block 轴 = 横向
    * （列宽方向）——故 inline-size: 100% 是整列高、block-size 是 1 字位宽；
-   * 内部两个 block 子列沿块轴自右向左并列（DOM 序即阅读序）。字步进
-   * 补至半字位（列距/2），n 字占 ceil(n/2) 字位高 */
+   * 内部多个 block 子列对沿块轴自右向左并列（DOM 序即阅读序）。字步进
+   * 补至半字位（列距/2），n 字占 ceil(n/2) 字位高。
+   * 每对包含右列和左列，多对时高度自动累加。 */
   display: inline-block;
   vertical-align: top;
   inline-size: 100%;
-  block-size: var(--bt-vnote-pitch, 2em);
+  /* 高度由内容决定（多对时自动累加），不再固定为整列高 */
   writing-mode: vertical-rl;
-  overflow: hidden;
 }
 ${scoped('.bt-vnote-col')} {
   display: block;
-  block-size: 50%;
+  /* 每对中的单列高度：如果只有一对则占满，多对时按对数均分 */
+  block-size: auto;
   font-size: 0.5em;
   letter-spacing: calc(var(--bt-vnote-pitch, 2em) / 2 - 0.5em);
   overflow: hidden;

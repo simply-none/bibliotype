@@ -75,11 +75,11 @@ function liftPrefix(rule: LineRule): string {
 }
 
 /**
- * 双行夹注 → 1 字位宽 × 整列高的固定双列小字盒
+ * 双行夹注 → 1 字位宽 × 动态高度的多对双列小字盒
  *
  * 按「每子列容量 = 每行大字数 × 2」拆右 / 左子列（右列满读到底续左列，
  * 「从上排到底」的古籍形制）；竖排 block 流自右向左，DOM 序即阅读序。
- * 超过两子列容量的注文截断（古籍超长注占多字位，列为后续扩展）。
+ * 超过一对容量的注文继续输出后续对（古籍超长注占多字位，每对 1 大字位宽）。
  */
 function serializeDoubleNote(
   node: BookNode,
@@ -87,25 +87,32 @@ function serializeDoubleNote(
   nodeOptions: SerializeNodeOptions | undefined,
 ): string {
   const text = collectNodeTextOf(node);
-  const [[right, left]] = splitDoubleNoteLines(text, charsPerColumn * 2);
+  const pairs = splitDoubleNoteLines(text, charsPerColumn * 2);
   const extras = Object.entries(node.attrs ?? {})
     .filter(([key]) => key !== 'char')
     .map(([key, value]) => ` data-${key}="${escapeHtml(String(value))}"`)
     .join('');
   /* 子列内容按字符区间切片：夹注内的行内标记（专名号 / 着重等）随所在
-   * 子列保留（右列 [0, cap)、左列 [cap, 末)，与 splitDoubleNoteLines 同口径）；
+   * 子列保留（右列 [0, cap)、左列 [cap, 2*cap)，与 splitDoubleNoteLines 同口径）；
    * 切片函数返回同类型节点，此处只取其子内容序列化（不嵌套容器标签） */
-  const cap = Math.min(text.length, charsPerColumn * 2);
+  const cap = charsPerColumn * 2;
   const serializeChildrenOf = (sliced: BookNode): string =>
     (sliced.children ?? []).map((child) => serializeNode(child, nodeOptions)).join('');
-  const rightHtml = serializeChildrenOf(sliceNodeByCharRange(node, 0, cap));
-  const leftHtml = serializeChildrenOf(sliceNodeByCharRange(node, cap, Number.MAX_SAFE_INTEGER));
-  return (
-    `<span class="bt-vnote"${extras}>` +
-    `<span class="bt-vnote-col">${rightHtml}</span>` +
-    `<span class="bt-vnote-col">${leftHtml}</span>` +
-    `</span>`
-  );
+
+  // 输出所有对（每对包含右列和左列）
+  const pairsHtml = pairs
+    .map((_, pairIndex) => {
+      const from = pairIndex * cap;
+      const to = from + cap;
+      const rightHtml = serializeChildrenOf(sliceNodeByCharRange(node, from, to));
+      const leftFrom = to;
+      const leftTo = leftFrom + cap;
+      const leftHtml = serializeChildrenOf(sliceNodeByCharRange(node, leftFrom, leftTo));
+      return `<span class="bt-vnote-col">${rightHtml}</span><span class="bt-vnote-col">${leftHtml}</span>`;
+    })
+    .join('');
+
+  return `<span class="bt-vnote"${extras}>${pairsHtml}</span>`;
 }
 
 /** 段落子节点 → 行内流 HTML（夹注替换为 vnote 盒，其余原样序列化） */

@@ -75,6 +75,12 @@ export interface BuildPagedInput {
   tokens?: Readonly<Record<string, string | undefined>>;
   /** 正文字体族令牌键 */
   fontToken?: string;
+  /**
+   * 功能样式表（按功能粒度覆盖节点 / 标记 / 角色样式，与渲染侧同源）
+   *
+   * 传入时量尺 CSS 应用功能样式，确保测量与渲染同尺。
+   */
+  features?: import('@bibliotype/core').FeatureStyleSheet;
   /** 估算上下文覆盖（charsPerLine 用于缺省行→字符回退） */
   measure?: Partial<BlockMeasureContext>;
   /** 每页可用主轴尺寸（px）；缺省按 pageSize 与 page-margin 推导 */
@@ -329,6 +335,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     options,
     tokens,
     fontToken: input.fontToken,
+    features: input.features,
     measure: input.measure,
     fromBlockId: incremental ? input.fromBlockId : undefined,
     targetBlockId,

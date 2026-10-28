@@ -51,6 +51,12 @@ export interface MeasureBlockSizesInput {
   tokens?: Readonly<Record<string, string | undefined>>;
   /** 正文字体族令牌键 */
   fontToken?: string;
+  /**
+   * 功能样式表（按功能粒度覆盖节点 / 标记 / 角色样式，与渲染侧同源）
+   *
+   * 传入时量尺 CSS 应用功能样式，确保测量与渲染同尺（如改行高、段间距等）。
+   */
+  features?: import('@bibliotype/core').FeatureStyleSheet;
   /** 估算上下文（仅用于 extractBlocks 结构与回退，不影响实测值） */
   measure?: Partial<BlockMeasureContext>;
   /**
@@ -148,6 +154,7 @@ function syncMeasureCss(
   tokens: Readonly<Record<string, string | undefined>>,
   options: LayoutOptions,
   fontToken?: string,
+  features?: import('@bibliotype/core').FeatureStyleSheet,
 ): void {
   let element = document.getElementById(CSS_ID) as HTMLStyleElement | null;
   if (element === null) {
@@ -155,7 +162,13 @@ function syncMeasureCss(
     element.id = CSS_ID;
     document.head.appendChild(element);
   }
-  const css = buildBookCss({ tokens, options, fontToken, containerSelector: CONTAINER_SELECTOR });
+  const css = buildBookCss({
+    tokens,
+    options,
+    fontToken,
+    containerSelector: CONTAINER_SELECTOR,
+    features,
+  });
   if (element.textContent !== css) element.textContent = css;
 }
 
@@ -428,6 +441,10 @@ function renderMeasureSheet(
   const box = resolveContentBox(options.pageSize, resolveMargins(tokens));
   // 书页盒 border-box：版框边框侵占内容区，量尺交叉轴尺寸需同步扣除保持同尺
   const rawCross = (axis.vertical ? box.height : box.width) - resolvePageBorderWidth(tokens) * 2;
+  // 页眉页脚占位：从主轴尺寸中扣除，确保量尺与渲染同源
+  const pageChrome = options.pageChrome;
+  const chromeSize = pageChrome ? pageChrome.headerSize + pageChrome.footerSize : 0;
+  const availableMain = Math.max(0, rawCross - chromeSize);
   /*
    * 多栏：正文在「栏宽」内换行，故按栏宽量尺；容量侧由分页器乘栏数。
    * 栏间距从主题令牌解析（2.5em 之类换算为 px），保证测量与渲染同尺。
@@ -435,9 +452,9 @@ function renderMeasureSheet(
   const columns = Math.min(3, Math.max(1, Math.round(options.columns ?? 1)));
   const gap = resolveColumnGapPx(tokens, columns);
   const contentMain =
-    columns > 1 ? (rawCross - gap * (columns - 1)) / columns : rawCross;
+    columns > 1 ? (availableMain - gap * (columns - 1)) / columns : availableMain;
 
-  syncMeasureCss(tokens, options, input.fontToken);
+  syncMeasureCss(tokens, options, input.fontToken, input.features);
   const sheet = ensureSheet();
   applySheetStyle(
     sheet,

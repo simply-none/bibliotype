@@ -174,10 +174,13 @@ export function serializeVerticalFlow(
  * 'lower'，缺省最下截）。本函数探测页内是否存在分截内容并按截位分组；
  * 非分截页返回 undefined（调用方走普通行内流）。
  *
+ * @param nodes 页内节点序列
+ * @param bandsCount 可选的截数声明（来自结构节点 bands）；未提供时按显式 max 推断
  * @returns 截位数组（索引 = 截位序号；元素为该截片段节点），或 undefined
  */
 export function groupNodesByBand(
   nodes: readonly BookNode[],
+  bandsCount?: number,
 ): readonly (readonly BookNode[])[] | undefined {
   const isBanded = (node: BookNode): boolean =>
     node.attrs?.['band'] === 'upper' ||
@@ -191,9 +194,8 @@ export function groupNodesByBand(
   if (banded.length === 0) return undefined;
   const hasDefault = nodes.some((node) => !isTextNode(node) && !isBanded(node));
   const explicitMax = Math.max(...banded.map(bandOf));
-  /* 缺省（无 band 属性）节点归最下截：两截本 upper 显式 + 正文缺省 → 2 截；
-   * 三截本 upper / middle 显式 + lower 缺省 → 3 截。全显式时 = 显式数。 */
-  const count = explicitMax + (hasDefault ? 2 : 1);
+  /* 截数优先取 bandsCount 声明（来自结构节点）；未声明时按显式 max + 是否有缺省推断 */
+  const count = bandsCount ?? (explicitMax + (hasDefault ? 2 : 1));
   const groups: BookNode[][] = Array.from({ length: count }, () => []);
   for (const node of nodes) {
     if (isTextNode(node)) continue;

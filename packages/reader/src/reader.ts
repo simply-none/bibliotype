@@ -559,6 +559,15 @@ export class Reader {
   }
 
   /**
+   * 某页的分截声明（两截本 / 三截本）
+   *
+   * 供渲染侧输出分层容器与截高比例 CSS；缺省 undefined 表示不分截。
+   */
+  getPageBands(pageIndex: number): { count: number; ratios: readonly number[] } | undefined {
+    return this.pages[pageIndex]?.bands;
+  }
+
+  /**
    * 某页注区是否承接上一页溢出的注释（跨页续注）
    *
    * 供渲染侧决定是否在注区顶部输出「续前页」。未开启浮注、首页或无续注时为 false。

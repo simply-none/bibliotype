@@ -172,6 +172,8 @@ export interface PaginatedPage {
   notesCarried?: boolean;
   /** 本页分栏数（>1 时附带；缺省 1 表示单栏，产物结构与旧版一致） */
   columns?: number;
+  /** 本页分截声明（两截本 / 三截本；缺省不分截） */
+  bands?: { count: number; ratios: readonly number[] };
 }
 
 /** 孤寡行控制 */
@@ -697,6 +699,7 @@ function paginateInner(
         items,
         blocks: items.map((item) => item.block),
         usedMainSize: bandPages.reduce((sum, pages) => sum + (pages[index]?.usedMainSize ?? 0), 0),
+        bands: options.bands,
       });
     }
     if (pages.length === 0) {

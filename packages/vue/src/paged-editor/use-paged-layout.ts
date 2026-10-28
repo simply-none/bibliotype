@@ -371,6 +371,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     axis,
   });
   const blocks = indexed.blocks;
+  const bands = indexed.bands;
   if (blocks.length === 0) return empty;
 
   // 按最终块序列裁剪三表：剔除已删块（回删并段）的陈旧项，防缓存无限累积
@@ -412,7 +413,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     targetBlockId !== undefined && prev !== undefined
       ? resolvePaginateResume(prev, blocks, targetBlockId)
       : undefined;
-  const result = paginate(blocks, { pageMainSize, bottomSlack, resume });
+  const result = paginate(blocks, { pageMainSize, bottomSlack, resume, bands });
   const pages: PagedPage[] = result.pages.map((page) => {
     const fragments: PagedFragment[] = [];
     for (const item of page.items) {

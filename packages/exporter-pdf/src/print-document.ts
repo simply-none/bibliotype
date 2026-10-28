@@ -321,17 +321,18 @@ ${body}
         nodeOptions,
       });
     /* 两截本 / 三截本（v2 批 5）：页内含分截内容时按截位包分层容器（与预览同构；
-     * 截高由 CSS flex-grow 缺省比例 2:3 / 5:7:8 承担） */
-    const bands = vertical ? groupNodesByBand(nodes) : undefined;
+     * 截高由 CSS flex-grow 比例承担） */
+    const pageBands = reader.getPageBands(page.index);
+    const bands = vertical && pageBands ? groupNodesByBand(nodes, pageBands.count) : undefined;
     const content = bands
       ? `<div class="bt-bands">` +
         bands
-          .map(
-            (bandNodes, band) =>
-              `<div class="bt-band" data-band="${band}">${bandNodes
-                .map((node) => serializeFlowOne(node, nodes.indexOf(node)))
-                .join('')}</div>`,
-          )
+          .map((bandNodes, band) => {
+            const ratio = pageBands!.ratios[band] ?? 1 / pageBands!.count;
+            return `<div class="bt-band" data-band="${band}" style="flex-grow: ${ratio}">${bandNodes
+              .map((node) => serializeFlowOne(node, nodes.indexOf(node)))
+              .join('')}</div>`;
+          })
           .join('<div class="bt-band-rule" aria-hidden="true"></div>') +
         `</div>`
       : nodes

@@ -456,6 +456,8 @@ export function extractBlocksIndexed(
         ...(!breakBefore && !isPageBreak && blockAxisColumnOf(node) ? { breakColumn: true } : {}),
         ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
         ...(columns !== undefined && columns > 1 ? { columns } : {}),
+        /* 两截本 / 三截本截位序号（v2 批 5）：块级 band 属性透传给分页器 */
+        ...(band !== undefined ? { band } : {}),
       });
       return;
     }

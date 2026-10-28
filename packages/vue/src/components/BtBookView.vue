@@ -261,6 +261,12 @@ const currentPageColumns = computed(() => {
   return props.reader.getPageColumns(currentPage.value);
 });
 
+/** 当前页分截信息（两截本 / 三截本） */
+const currentPageBands = computed(() => {
+  void pagination.value;
+  return props.reader.getPageBands(currentPage.value);
+});
+
 /**
  * 页面正文流的分栏样式
  *
@@ -300,6 +306,7 @@ interface SpreadPage {
   index: number;
   html: string;
   columns: number;
+  bands?: { count: number; ratios: readonly number[] };
   header: string;
   footer: string;
   notesHtml: string;
@@ -325,10 +332,32 @@ const spreadPages = computed<SpreadPage[]>(() => {
     const chrome = props.reader.getPageChromeTexts(index);
     const gutter = props.reader.getPageGutterTexts(index);
     const parts = pageFlowParts(props.reader.getPageFragments(index));
+    const bands = props.reader.getPageBands(index);
+
+    // 分截渲染：按 band 分组
+    let html: string;
+    if (bands !== undefined) {
+      const grouped = groupNodesByBand(nodes, bands.count);
+      if (grouped !== undefined) {
+        html = grouped
+          .map((bandNodes, bandIndex) => {
+            const ratio = bands.ratios[bandIndex] ?? 1 / bands.count;
+            const content = bandNodes.map((node) => serializeNode(node)).join('\n');
+            return `<div class="bt-band" data-band-index="${bandIndex}" style="flex-grow: ${ratio}">${content}</div>`;
+          })
+          .join('\n');
+      } else {
+        html = nodes.map((node) => serializeNode(node)).join('\n');
+      }
+    } else {
+      html = nodes.map((node) => serializeNode(node)).join('\n');
+    }
+
     return {
       index,
-      html: nodes.map((node) => serializeNode(node)).join('\n'),
+      html,
       columns: props.reader.getPageColumns(index),
+      bands,
       header: chrome?.header ?? '',
       footer: chrome?.footer ?? '',
       notesHtml: pageNotesHtmlOf(index),
@@ -419,17 +448,36 @@ function spreadPageStyle(page: SpreadPage) {
    * 直排（古籍直排 / 仿真）走**行内流连排**（v2 批 2）：段落行内化、
    * 双行夹注双列小字盒、低格 / 抬头 / 提行随文标记，容器 `.bt-vflow`
    * 自然换列——与 CSS 块流「段段换列」的半空版面相对；横排维持块级序列化。
+   *
+   * 分截（两截本 / 三截本）：按 bands 分组，每截独立容器，比例由 CSS flex-grow 控制。
    */
   const pageHtml = computed(() => {
+    const bands = currentPageBands.value;
+    const nodes = pageNodes.value.filter((node) => !isTextNode(node));
+
+    // 分截渲染：按 band 分组，每截独立容器
+    if (bands !== undefined) {
+      const grouped = groupNodesByBand(nodes, bands.count);
+      if (grouped !== undefined) {
+        return grouped
+          .map((bandNodes, index) => {
+            const ratio = bands.ratios[index] ?? 1 / bands.count;
+            const content = verticalWriting.value
+              ? serializeVerticalFlow(bandNodes, { charsPerColumn: readerColumnCapacity.value })
+              : bandNodes.map((node) => serializeNode(node)).join('\n');
+            return `<div class="bt-band" data-band-index="${index}" style="flex-grow: ${ratio}">${content}</div>`;
+          })
+          .join('\n');
+      }
+    }
+
+    // 非分截：原有逻辑
     if (verticalWriting.value) {
       return serializeVerticalFlow(pageParts.value.flow, {
         charsPerColumn: readerColumnCapacity.value,
       });
     }
-    return pageNodes.value
-      .filter((node) => !isTextNode(node))
-      .map((node) => serializeNode(node))
-      .join('\n');
+    return nodes.map((node) => serializeNode(node)).join('\n');
   });
 
   /** 眉批天头容器 / 旁批界行外容器 / 书耳 / 眉栏线（当前页） */
@@ -1045,6 +1093,8 @@ interface RenderedPage {
   footer: string;
   /** 本页分栏数（1~3） */
   columns: number;
+  /** 本页分截信息（两截本 / 三截本） */
+  bands?: { count: number; ratios: readonly number[] };
 }
 
 /**
@@ -1065,10 +1115,31 @@ const renderedPages = computed<RenderedPage[]>(() => {
     const chrome = props.reader.getPageChromeTexts(i);
     const gutter = props.reader.getPageGutterTexts(i);
     const parts = pageFlowParts(props.reader.getPageFragments(i));
+    const bands = props.reader.getPageBands(i);
+
+    // 分截渲染：按 band 分组
+    let html: string;
+    if (bands !== undefined) {
+      const grouped = groupNodesByBand(blockNodes, bands.count);
+      if (grouped !== undefined) {
+        html = grouped
+          .map((bandNodes, bandIndex) => {
+            const ratio = bands.ratios[bandIndex] ?? 1 / bands.count;
+            const content = bandNodes.map((node) => serializeNode(node)).join('\n');
+            return `<div class="bt-band" data-band-index="${bandIndex}" style="flex-grow: ${ratio}">${content}</div>`;
+          })
+          .join('\n');
+      } else {
+        html = blockNodes.map((node) => serializeNode(node)).join('\n');
+      }
+    } else {
+      html = blockNodes.map((node) => serializeNode(node)).join('\n');
+    }
+
     list.push({
       index: i,
       mainPos: SCROLL_PADDING + i * step,
-      html: blockNodes.map((node) => serializeNode(node)).join('\n'),
+      html,
       gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
       notesHtml: pageNotesHtmlOf(i),
       earHtml: serializePageEar(props.reader.getPageEarText(i), layout.value.facsimile),
@@ -1081,6 +1152,7 @@ const renderedPages = computed<RenderedPage[]>(() => {
       header: chrome?.header ?? '',
       footer: chrome?.footer ?? '',
       columns: props.reader.getPageColumns(i),
+      bands,
     });
   }
   return list;
@@ -1606,6 +1678,14 @@ defineExpose({
         <div v-if="p.eyebrowHtml" class="bt-page-eyebrow-host" v-html="p.eyebrowHtml"></div>
         <div v-if="p.sideHtml" class="bt-page-side-host" v-html="p.sideHtml"></div>
         <div
+          v-if="p.bands"
+          class="bt-bands"
+          :class="{ 'bt-vflow': verticalWriting }"
+          :style="flowStyleOf(p.columns)"
+          v-html="p.html"
+        ></div>
+        <div
+          v-else
           class="bt-reader-page__flow"
           :class="{ 'is-multicolumn': p.columns > 1, 'bt-vflow': verticalWriting }"
           :style="flowStyleOf(p.columns)"
@@ -1625,6 +1705,14 @@ defineExpose({
         <div v-if="pageEyebrowHtml" class="bt-page-eyebrow-host" v-html="pageEyebrowHtml"></div>
         <div v-if="pageSideHtml" class="bt-page-side-host" v-html="pageSideHtml"></div>
         <div
+          v-if="currentPageBands"
+          class="bt-bands"
+          :class="{ 'bt-vflow': verticalWriting }"
+          :style="flowStyleOf(currentPageColumns)"
+          v-html="pageHtml"
+        ></div>
+        <div
+          v-else
           class="bt-reader-page__flow"
           :class="{ 'is-multicolumn': currentPageColumns > 1, 'bt-vflow': verticalWriting }"
           :style="flowStyleOf(currentPageColumns)"
@@ -1678,6 +1766,14 @@ defineExpose({
         <div v-if="page.eyebrowHtml" class="bt-page-eyebrow-host" v-html="page.eyebrowHtml"></div>
         <div v-if="page.sideHtml" class="bt-page-side-host" v-html="page.sideHtml"></div>
           <div
+            v-if="page.bands"
+            class="bt-bands"
+            :class="{ 'bt-vflow': verticalWriting }"
+            :style="flowStyleOf(page.columns)"
+            v-html="page.html"
+          ></div>
+          <div
+            v-else
             class="bt-reader-page__flow"
             :class="{ 'is-multicolumn': page.columns > 1, 'bt-vflow': verticalWriting }"
             :style="flowStyleOf(page.columns)"
@@ -1825,6 +1921,26 @@ defineExpose({
 
 .bt-reader-page__flow.is-multicolumn > * {
   break-inside: avoid;
+}
+
+/*
+ * 分截容器（两截本 / 三截本）：flex 纵向堆叠，各截按 flex-grow 比例分配版心高度。
+ * 直排下容器自身 writing-mode: vertical-rl，flex 方向自动翻转为横向（自右向左）。
+ */
+.bt-bands {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+
+.bt-bands.bt-vflow {
+  writing-mode: vertical-rl;
+}
+
+.bt-band {
+  flex: 1 1 0;
+  overflow: hidden;
 }
 
 /* 键盘可聚焦：焦点环只在键盘导航时出现，避免鼠标点击后留框 */

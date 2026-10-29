@@ -1,5 +1,6 @@
 packages:
   - packages/*
   - apps/*
+  - vscode-ebook-reader
   # e2e 是独立测试工作区（Playwright），不参与包发布
   - e2e

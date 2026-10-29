@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { Window } from 'happy-dom';
+
+// 初始化 DOM 环境（happy-dom 提供 document/window 全局变量）
+const window = new Window();
+(globalThis as any).document = window.document;
+(globalThis as any).window = window;
+(globalThis as any).DOMParser = window.DOMParser;
+(globalThis as any).XMLSerializer = window.XMLSerializer;
 
 export interface Book {
   id: string;
@@ -8,22 +16,36 @@ export interface Book {
   author?: string;
   filePath: string;
   format: 'epub' | 'txt' | 'html' | 'md';
-  coverUrl?: string;
   addedAt: number;
 }
 
 export interface ReadingProgress {
   bookId: string;
-  location: string;
+  pageIndex: number;
   percent: number;
   updatedAt: number;
+}
+
+/** 目录项（从 Reader.outline 扁平化，供 TocProvider 与 webview 共用） */
+export interface TocEntry {
+  title: string;
+  nodeId: string;
+  pageIndex: number;
+  level: number;
+  children: TocEntry[];
 }
 
 export class BookManager {
   private books: Book[] = [];
   private progress: Map<string, ReadingProgress> = new Map();
-  private currentBook: Book | null = null;
   private storagePath: string;
+  private schema: any = null;
+
+  /** 当前打开书籍的 Reader 实例（供 TocProvider 查询目录与跳转） */
+  private currentReader: any = null;
+  private currentBookId: string | null = null;
+  /** 当前 webview panel（供 TOC 跳转时发送消息） */
+  private currentPanel: vscode.WebviewPanel | null = null;
 
   constructor(private context: vscode.ExtensionContext) {
     this.storagePath = path.join(context.globalStorageUri.fsPath, 'books');
@@ -31,6 +53,14 @@ export class BookManager {
       fs.mkdirSync(this.storagePath, { recursive: true });
     }
     this.loadLibrary();
+  }
+
+  private async getSchema() {
+    if (!this.schema) {
+      const { buildClassicalEditorSchema } = await import('@bibliotype/classical/editor');
+      this.schema = buildClassicalEditorSchema();
+    }
+    return this.schema;
   }
 
   private getLibraryPath(): string {
@@ -109,11 +139,46 @@ export class BookManager {
       this.books = this.books.filter(b => b.id !== id);
       this.progress.delete(id);
       this.saveLibrary();
+      if (this.currentBookId === id) {
+        this.currentReader = null;
+        this.currentBookId = null;
+      }
     }
   }
 
-  openBook(book: Book) {
-    this.currentBook = book;
+  /** 获取当前 Reader 的目录数据（供 TocProvider 调用） */
+  getTocEntries(): TocEntry[] {
+    if (!this.currentReader) return [];
+    return this.flattenOutline(this.currentReader.outline || []);
+  }
+
+  /** TOC 跳转：由 TocProvider 调用，向 webview 发送 goToPage 消息 */
+  goToPage(pageIndex: number) {
+    if (this.currentReader && this.currentPanel) {
+      this.currentReader.goToPage(pageIndex);
+      this.currentPanel.webview.postMessage({ type: 'goToPage', pageIndex });
+    }
+  }
+
+  private flattenOutline(items: readonly any[], level = 0): TocEntry[] {
+    const entries: TocEntry[] = [];
+    for (const item of items) {
+      const pageIndex = item.nodeId
+        ? this.currentReader.getPageOfNode(item.nodeId) ?? 0
+        : 0;
+      const entry: TocEntry = {
+        title: item.title || '(无标题)',
+        nodeId: item.nodeId || '',
+        pageIndex,
+        level,
+        children: this.flattenOutline(item.children || [], level + 1),
+      };
+      entries.push(entry);
+    }
+    return entries;
+  }
+
+  async openBook(book: Book) {
     const panel = vscode.window.createWebviewPanel(
       'ebookReader',
       `阅读: ${book.title}`,
@@ -124,23 +189,107 @@ export class BookManager {
       }
     );
 
+    this.currentPanel = panel;
     panel.webview.html = this.getWebviewContent(book);
 
     panel.webview.onDidReceiveMessage(
-      message => {
-        if (message.type === 'saveProgress') {
-          this.updateProgress(book.id, message.location, message.percent);
+      async message => {
+        if (message.type === 'ready') {
+          // webview 就绪，带上尺寸信息 → 加载文档并分页
+          await this.paginateAndSend(book, message.width, message.height);
+        } else if (message.type === 'resize') {
+          // 窗口尺寸变化 → 重新分页
+          await this.paginateAndSend(book, message.width, message.height);
+        } else if (message.type === 'saveProgress') {
+          this.updateProgress(book.id, message.pageIndex, message.percent);
         }
       },
       undefined,
       this.context.subscriptions
     );
+
+    panel.onDidDispose(() => {
+      if (this.currentPanel === panel) {
+        this.currentPanel = null;
+        this.currentReader = null;
+        this.currentBookId = null;
+      }
+    });
   }
 
-  private updateProgress(bookId: string, location: string, percent: number) {
+  /** 加载文档、创建 Reader 分页、渲染所有页面并发送到 webview */
+  private async paginateAndSend(book: Book, viewWidth: number, viewHeight: number) {
+    const doc = await this.loadDocument(book);
+    if (!doc) {
+      this.currentPanel?.webview.postMessage({
+        type: 'error',
+        message: '无法加载文档'
+      });
+      return;
+    }
+
+    const config = vscode.workspace.getConfiguration('ebook-reader');
+    const fontSize = config.get<number>('fontSize', 16);
+    const lineHeight = config.get<number>('lineHeight', 1.8);
+
+    // 计算排版参数（与 demo use-reader-session 同口径）
+    const padding = 48; // webview CSS padding
+    const contentWidth = Math.max(100, viewWidth - padding * 2);
+    const contentHeight = Math.max(100, viewHeight - padding * 2);
+    const charsPerLine = Math.max(1, Math.round((contentWidth / fontSize) * 0.95));
+    const lineSize = Math.round(fontSize * lineHeight);
+    const pageMainSize = contentHeight;
+
+    try {
+      const { Reader, DEFAULT_MEASURE_CONTEXT } = await import('@bibliotype/reader');
+
+      const reader = new Reader({
+        layout: {
+          pageSize: { name: 'webview', width: viewWidth, height: viewHeight },
+        },
+        pageMainSize,
+        measure: { charsPerLine, lineSize },
+      });
+
+      reader.loadDocument(doc);
+      this.currentReader = reader;
+      this.currentBookId = book.id;
+
+      // 渲染所有页面
+      const totalPages = reader.totalPages;
+      const pages: string[] = [];
+      for (let i = 0; i < totalPages; i++) {
+        const fragments = reader.getPageFragments(i);
+        const { serializeNode } = await import('@bibliotype/layout/html');
+        const html = fragments.map((f: any) => serializeNode(f)).join('');
+        pages.push(html);
+      }
+
+      // 构建目录树
+      const outline = this.flattenOutline(reader.outline || []);
+
+      const savedPage = this.getProgress(book.id)?.pageIndex || 0;
+
+      this.currentPanel?.webview.postMessage({
+        type: 'bookData',
+        pages,
+        outline,
+        currentPage: Math.min(savedPage, totalPages - 1),
+        totalPages
+      });
+    } catch (e) {
+      console.error('Pagination failed:', e);
+      this.currentPanel?.webview.postMessage({
+        type: 'error',
+        message: `分页失败：${e}`
+      });
+    }
+  }
+
+  private updateProgress(bookId: string, pageIndex: number, percent: number) {
     this.progress.set(bookId, {
       bookId,
-      location,
+      pageIndex,
       percent,
       updatedAt: Date.now()
     });
@@ -151,31 +300,37 @@ export class BookManager {
     return this.progress.get(bookId);
   }
 
+  private async loadDocument(book: Book) {
+    const schema = await this.getSchema();
+    try {
+      const metadata = { title: book.title };
+      let doc;
+
+      if (book.format === 'epub') {
+        const { epubToBookDocument } = await import('@bibliotype/import-epub');
+        const buffer = fs.readFileSync(book.filePath);
+        doc = await epubToBookDocument(buffer, schema, metadata);
+      } else {
+        const { importFromText } = await import('@bibliotype/import');
+        const text = fs.readFileSync(book.filePath, 'utf-8');
+        const format = book.format === 'md' ? 'markdown' : book.format === 'html' ? 'html' : 'text';
+        doc = importFromText(text, format, schema, metadata);
+      }
+
+      const { normalizeGlyphImages } = await import('@bibliotype/core');
+      const { document: normalized } = normalizeGlyphImages(doc);
+      return normalized;
+    } catch (e) {
+      console.error('Failed to load document:', e);
+      return null;
+    }
+  }
+
   private getWebviewContent(book: Book): string {
     const config = vscode.workspace.getConfiguration('ebook-reader');
     const fontSize = config.get<number>('fontSize', 16);
     const lineHeight = config.get<number>('lineHeight', 1.8);
     const theme = config.get<string>('theme', 'dark');
-
-    const progress = this.getProgress(book.id);
-    const savedLocation = progress?.location || '';
-
-    let content = '';
-    try {
-      const fileContent = fs.readFileSync(book.filePath, 'utf-8');
-      if (book.format === 'txt') {
-        content = `<pre>${this.escapeHtml(fileContent)}</pre>`;
-      } else if (book.format === 'md') {
-        content = this.renderMarkdown(fileContent);
-      } else if (book.format === 'html') {
-        content = fileContent;
-      } else {
-        content = `<p>EPUB 格式需要 epub.js 库支持，当前版本暂不支持</p>`;
-      }
-    } catch (e) {
-      content = `<p>读取文件失败: ${e}</p>`;
-    }
-
     const themeStyles = this.getThemeStyles(theme);
 
     return `<!DOCTYPE html>
@@ -186,31 +341,79 @@ export class BookManager {
   <title>${book.title}</title>
   <style>
     ${themeStyles}
-    body {
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: ${fontSize}px;
       line-height: ${lineHeight};
-      padding: 2em;
-      max-width: 800px;
-      margin: 0 auto;
     }
-    pre {
-      white-space: pre-wrap;
-      word-wrap: break-word;
-    }
+    body { padding: 48px; }
+    /* 进度条 */
     .progress-bar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 3px;
-      background: rgba(128, 128, 128, 0.2);
-      z-index: 1000;
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 3px; background: rgba(128,128,128,0.2); z-index: 1000;
     }
-    .progress-fill {
-      height: 100%;
-      background: #007acc;
-      transition: width 0.3s;
+    .progress-fill { height: 100%; background: #007acc; transition: width 0.3s; }
+    /* 页面容器：单页显示，无滚动 */
+    #content {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+    .page {
+      display: none;
+      width: 100%; height: 100%;
+      overflow: hidden;
+    }
+    .page.active { display: block; }
+    /* 点击区域（左右半屏翻页） */
+    .click-zone {
+      position: fixed; top: 0; bottom: 0;
+      width: 35%; z-index: 100; cursor: pointer;
+    }
+    .click-zone.prev { left: 0; }
+    .click-zone.next { right: 0; }
+    .click-zone:hover { background: rgba(128,128,128,0.04); }
+    /* 页码指示 */
+    .page-indicator {
+      position: fixed; bottom: 12px; right: 20px;
+      font-size: 12px; color: rgba(128,128,128,0.6);
+      z-index: 1000; user-select: none;
+    }
+    /* 加载 / 错误 */
+    .loading, .error {
+      text-align: center; padding: 4em 2em;
+      color: #888;
+    }
+    .error { color: #f44; }
+    /* 内容样式（匹配 serializeNode 输出的 bt-* 类名） */
+    .bt-book, .bt-volume, .bt-chapter, .bt-section { }
+    .bt-paragraph { margin: 0.5em 0; text-indent: 2em; }
+    .bt-heading { margin: 1em 0 0.5em; }
+    h1.bt-heading { font-size: 1.6em; text-align: center; margin: 1.5em 0 1em; }
+    h2.bt-heading { font-size: 1.3em; }
+    h3.bt-heading { font-size: 1.15em; }
+    h4.bt-heading, h5.bt-heading, h6.bt-heading { font-size: 1em; }
+    .bt-quote { margin: 1em 2em; color: inherit; opacity: 0.85; }
+    .bt-list-item { margin: 0.2em 0; }
+    .bt-code-block {
+      background: rgba(128,128,128,0.1); padding: 0.8em;
+      border-radius: 4px; font-family: monospace; font-size: 0.9em;
+      white-space: pre-wrap; margin: 0.5em 0;
+    }
+    .bt-table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
+    .bt-table-row { }
+    .bt-table-cell { border: 1px solid rgba(128,128,128,0.3); padding: 4px 8px; }
+    a { color: #007acc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    /* 行内标记 */
+    .bt-strong, strong { font-weight: bold; }
+    .bt-em, em { font-style: italic; }
+    .bt-code, code {
+      font-family: monospace; background: rgba(128,128,128,0.1);
+      padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em;
     }
   </style>
 </head>
@@ -219,42 +422,108 @@ export class BookManager {
     <div class="progress-fill" id="progressFill"></div>
   </div>
   <div id="content">
-    ${content}
+    <div class="loading">正在加载电子书...</div>
   </div>
+  <div class="click-zone prev" id="clickPrev" title="上一页 (←↑)"></div>
+  <div class="click-zone next" id="clickNext" title="下一页 (→↓)"></div>
+  <div class="page-indicator" id="pageIndicator"></div>
   <script>
     const vscode = acquireVsCodeApi();
-    const savedLocation = ${JSON.stringify(savedLocation)};
-    
-    if (savedLocation) {
-      const element = document.querySelector(savedLocation);
-      if (element) {
-        element.scrollIntoView();
-      }
+    let pages = [];
+    let currentPage = 0;
+    let totalPages = 0;
+
+    // 报告窗口尺寸
+    function reportSize() {
+      vscode.postMessage({
+        type: 'ready',
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
     }
 
-    let saveTimeout;
-    window.addEventListener('scroll', () => {
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => {
-        const scrollTop = window.scrollY;
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const percent = docHeight > 0 ? scrollTop / docHeight : 0;
-        
-        document.getElementById('progressFill').style.width = (percent * 100) + '%';
-        
+    // 初始报告
+    reportSize();
+
+    // 窗口尺寸变化
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
         vscode.postMessage({
-          type: 'saveProgress',
-          location: '#scroll-' + Math.round(scrollTop),
-          percent: percent
+          type: 'resize',
+          width: window.innerWidth,
+          height: window.innerHeight
         });
-      }, 500);
+      }, 300);
     });
 
-    window.addEventListener('load', () => {
-      const scrollTop = window.scrollY;
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      const percent = docHeight > 0 ? scrollTop / docHeight : 0;
+    // 接收消息
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'bookData') {
+        pages = msg.pages;
+        totalPages = msg.totalPages;
+        currentPage = msg.currentPage || 0;
+        renderAllPages();
+        showPage(currentPage);
+      } else if (msg.type === 'goToPage') {
+        showPage(msg.pageIndex);
+      } else if (msg.type === 'error') {
+        document.getElementById('content').innerHTML =
+          '<div class="error">' + msg.message + '</div>';
+      }
+    });
+
+    function renderAllPages() {
+      const content = document.getElementById('content');
+      content.innerHTML = pages.map((html, i) =>
+        '<div class="page" data-page="' + i + '">' + html + '</div>'
+      ).join('');
+    }
+
+    function showPage(index) {
+      if (index < 0 || index >= totalPages) return;
+      currentPage = index;
+      // 切换显示
+      const allPages = document.querySelectorAll('.page');
+      allPages.forEach((p, i) => {
+        p.classList.toggle('active', i === index);
+      });
+      // 更新进度
+      const percent = totalPages > 0 ? (index + 1) / totalPages : 0;
       document.getElementById('progressFill').style.width = (percent * 100) + '%';
+      document.getElementById('pageIndicator').textContent =
+        (index + 1) + ' / ' + totalPages;
+      // 保存进度
+      vscode.postMessage({
+        type: 'saveProgress',
+        pageIndex: index,
+        percent: percent
+      });
+    }
+
+    function nextPage() { showPage(currentPage + 1); }
+    function prevPage() { showPage(currentPage - 1); }
+
+    // 点击翻页
+    document.getElementById('clickPrev').addEventListener('click', prevPage);
+    document.getElementById('clickNext').addEventListener('click', nextPage);
+
+    // 键盘翻页
+    document.addEventListener('keydown', e => {
+      switch (e.key) {
+        case 'ArrowUp':
+        case 'ArrowLeft':
+          e.preventDefault();
+          prevPage();
+          break;
+        case 'ArrowDown':
+        case 'ArrowRight':
+          e.preventDefault();
+          nextPage();
+          break;
+      }
     });
   </script>
 </body>
@@ -280,34 +549,5 @@ export class BookManager {
           a { color: #569cd6; }
         `;
     }
-  }
-
-  private escapeHtml(text: string): string {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-
-  private renderMarkdown(md: string): string {
-    let html = md;
-    
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-    
-    html = html.replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/gim, '<em>$1</em>');
-    
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/gim, '<a href="$2">$1</a>');
-    
-    html = html.replace(/^---$/gim, '<hr>');
-    
-    html = html.replace(/\n\n/g, '</p><p>');
-    html = '<p>' + html + '</p>';
-    
-    return html;
   }
 }

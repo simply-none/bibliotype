@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BookManager, Book } from './BookManager';
+import { BookManager, Book } from './BookManager.js';
 
 export class LibraryProvider implements vscode.TreeDataProvider<LibraryItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<LibraryItem | undefined | void> = new vscode.EventEmitter<LibraryItem | undefined | void>();

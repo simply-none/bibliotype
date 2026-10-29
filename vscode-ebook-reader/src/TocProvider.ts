@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BookManager } from './BookManager';
+import { BookManager, type TocEntry } from './BookManager.js';
 
 export class TocProvider implements vscode.TreeDataProvider<TocItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<TocItem | undefined | void> = new vscode.EventEmitter<TocItem | undefined | void>();
@@ -16,25 +16,62 @@ export class TocProvider implements vscode.TreeDataProvider<TocItem> {
   }
 
   getChildren(element?: TocItem): Thenable<TocItem[]> {
-    if (element) {
-      return Promise.resolve([]);
+    const entries = this.bookManager.getTocEntries();
+    if (entries.length === 0) {
+      return Promise.resolve([
+        new TocItem('暂无目录信息', '', 0, vscode.TreeItemCollapsibleState.None)
+      ]);
     }
 
-    const items = [
-      new TocItem('暂无目录信息', vscode.TreeItemCollapsibleState.None)
-    ];
+    if (element) {
+      return Promise.resolve(
+        element.children.map(entry => toTocItem(entry))
+      );
+    }
 
-    return Promise.resolve(items);
+    return Promise.resolve(
+      entries.map(entry => toTocItem(entry))
+    );
   }
 }
 
-class TocItem extends vscode.TreeItem {
+function toTocItem(entry: TocEntry): TocItem {
+  const hasChildren = entry.children.length > 0;
+  const collapsible = hasChildren
+    ? vscode.TreeItemCollapsibleState.Collapsed
+    : vscode.TreeItemCollapsibleState.None;
+
+  const item = new TocItem(
+    entry.title,
+    entry.nodeId,
+    entry.pageIndex,
+    collapsible,
+    entry.children
+  );
+
+  // 点击跳转到对应页面
+  item.command = {
+    command: 'ebook-reader.goToTocPage',
+    title: '跳转到目录页',
+    arguments: [entry.pageIndex]
+  };
+
+  item.description = `p.${entry.pageIndex + 1}`;
+  item.tooltip = `${entry.title} (第 ${entry.pageIndex + 1} 页)`;
+
+  return item;
+}
+
+export class TocItem extends vscode.TreeItem {
   constructor(
     public readonly label: string,
-    public readonly collapsibleState: vscode.TreeItemCollapsibleState
+    public readonly nodeId: string,
+    public readonly pageIndex: number,
+    public readonly collapsibleState: vscode.TreeItemCollapsibleState,
+    public readonly children: TocEntry[] = []
   ) {
     super(label, collapsibleState);
   }
 
-  iconPath = new vscode.ThemeIcon('list-tree');
+  iconPath = new vscode.ThemeIcon('bookmark');
 }

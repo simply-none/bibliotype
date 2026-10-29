@@ -34,7 +34,10 @@
     "e2e:smoke": "pnpm --filter @bibliotype/e2e e2e:smoke",
     "e2e:pixel": "pnpm --filter @bibliotype/e2e e2e:pixel",
     "e2e:update": "pnpm --filter @bibliotype/e2e e2e:update",
-    "e2e:install": "pnpm --filter @bibliotype/e2e e2e:install"
+    "e2e:install": "pnpm --filter @bibliotype/e2e e2e:install",
+    "vscode:dev": "cd vscode-ebook-reader && npm run watch",
+    "vscode:build": "cd vscode-ebook-reader && npm run compile",
+    "vscode:package": "cd vscode-ebook-reader && npm run package"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",

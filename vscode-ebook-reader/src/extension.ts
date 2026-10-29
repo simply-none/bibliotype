@@ -1,20 +1,28 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { LibraryProvider } from './LibraryProvider';
-import { TocProvider } from './TocProvider';
-import { BookManager, Book } from './BookManager';
+import { LibraryProvider } from './LibraryProvider.js';
+import { TocProvider } from './TocProvider.js';
+import { BookManager, Book } from './BookManager.js';
 
 let bookManager: BookManager;
+let libraryProvider: LibraryProvider;
+let tocProvider: TocProvider;
 
 export function activate(context: vscode.ExtensionContext) {
-  bookManager = new BookManager(context);
+  try {
+    bookManager = new BookManager(context);
 
-  const libraryProvider = new LibraryProvider(bookManager);
-  const tocProvider = new TocProvider(bookManager);
+    libraryProvider = new LibraryProvider(bookManager);
+    tocProvider = new TocProvider(bookManager);
 
-  vscode.window.registerTreeDataProvider('ebook-library', libraryProvider);
-  vscode.window.registerTreeDataProvider('ebook-toc', tocProvider);
+    vscode.window.registerTreeDataProvider('ebook-library', libraryProvider);
+    vscode.window.registerTreeDataProvider('ebook-toc', tocProvider);
+    console.log('电子书阅读器插件已激活');
+  } catch (error) {
+    console.error('插件激活失败:', error);
+    vscode.window.showErrorMessage(`电子书阅读器激活失败：${error}`);
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand('ebook-reader.importBook', async () => {
@@ -34,7 +42,7 @@ export function activate(context: vscode.ExtensionContext) {
           libraryProvider.refresh();
           vscode.window.showInformationMessage('电子书导入成功');
         } catch (error) {
-          vscode.window.showErrorMessage(`导入失败: ${error}`);
+          vscode.window.showErrorMessage(`导入失败：${error}`);
         }
       }
     })
@@ -44,7 +52,28 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('ebook-reader.openBook', (book: Book) => {
       if (book) {
         bookManager.openBook(book);
+        // 延迟刷新目录（等 Reader 加载完成）
+        setTimeout(() => tocProvider.refresh(), 2000);
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ebook-reader.deleteBook', async (item: any) => {
+      const book: Book | undefined = item?.book || item;
+      if (!book || !book.id) return;
+      
+      const confirm = await vscode.window.showWarningMessage(
+        `确定要删除《${book.title}》吗？此操作不可恢复。`,
+        { modal: true },
+        '删除'
+      );
+      
+      if (confirm === '删除') {
+        bookManager.removeBook(book.id);
+        libraryProvider.refresh();
         tocProvider.refresh();
+        vscode.window.showInformationMessage(`已删除《${book.title}》`);
       }
     })
   );
@@ -64,6 +93,15 @@ export function activate(context: vscode.ExtensionContext) {
             `${book.title}: 阅读进度 ${Math.round(progress.percent * 100)}%`
           );
         }
+      }
+    })
+  );
+
+  // TOC 跳转命令：由 TocItem 的 command 触发
+  context.subscriptions.push(
+    vscode.commands.registerCommand('ebook-reader.goToTocPage', (pageIndex: number) => {
+      if (typeof pageIndex === 'number') {
+        bookManager.goToPage(pageIndex);
       }
     })
   );

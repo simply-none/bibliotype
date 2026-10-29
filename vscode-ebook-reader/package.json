@@ -1,0 +1,107 @@
+{
+  "name": "ebook-reader",
+  "displayName": "电子书阅读器",
+  "description": "在 VSCode 中阅读 epub/txt/html/md 电子书",
+  "version": "0.0.1",
+  "publisher": "your-name",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ebook-reader.importBook",
+        "title": "导入电子书",
+        "category": "电子书"
+      },
+      {
+        "command": "ebook-reader.openBook",
+        "title": "打开电子书",
+        "category": "电子书"
+      },
+      {
+        "command": "ebook-reader.refreshLibrary",
+        "title": "刷新书库",
+        "category": "电子书",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ebook-reader",
+          "title": "电子书",
+          "icon": "$(book)"
+        }
+      ]
+    },
+    "views": {
+      "ebook-reader": [
+        {
+          "id": "ebook-library",
+          "name": "书库",
+          "icon": "$(library)"
+        },
+        {
+          "id": "ebook-toc",
+          "name": "目录",
+          "icon": "$(list-tree)"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ebook-reader.importBook",
+          "when": "view == ebook-library",
+          "group": "navigation"
+        },
+        {
+          "command": "ebook-reader.refreshLibrary",
+          "when": "view == ebook-library",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "电子书阅读器",
+      "properties": {
+        "ebook-reader.fontSize": {
+          "type": "number",
+          "default": 16,
+          "description": "阅读字体大小"
+        },
+        "ebook-reader.lineHeight": {
+          "type": "number",
+          "default": 1.8,
+          "description": "阅读行高"
+        },
+        "ebook-reader.theme": {
+          "type": "string",
+          "enum": ["light", "dark", "sepia"],
+          "default": "dark",
+          "description": "阅读主题"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "epubjs": "^0.3.93"
+  }
+}

@@ -1,6 +1,6 @@
 {
-  "name": "ebook-reader",
-  "displayName": "电子书阅读器",
+  "name": "bioReader",
+  "displayName": "bioReader",
   "description": "在 VSCode 中阅读 epub/txt/html/md 电子书",
   "version": "0.0.1",
   "type": "module",
@@ -16,51 +16,51 @@
   "contributes": {
     "commands": [
       {
-        "command": "ebook-reader.importBook",
+        "command": "bioReader.importBook",
         "title": "导入电子书",
-        "category": "电子书"
+        "category": "bioReader"
       },
       {
-        "command": "ebook-reader.openBook",
+        "command": "bioReader.openBook",
         "title": "打开电子书",
-        "category": "电子书"
+        "category": "bioReader"
       },
       {
-        "command": "ebook-reader.deleteBook",
+        "command": "bioReader.deleteBook",
         "title": "删除电子书",
-        "category": "电子书",
+        "category": "bioReader",
         "icon": "$(trash)"
       },
       {
-        "command": "ebook-reader.refreshLibrary",
+        "command": "bioReader.refreshLibrary",
         "title": "刷新书库",
-        "category": "电子书",
+        "category": "bioReader",
         "icon": "$(refresh)"
       },
       {
-        "command": "ebook-reader.goToTocPage",
+        "command": "bioReader.goToTocPage",
         "title": "跳转到目录页",
-        "category": "电子书"
+        "category": "bioReader"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "ebook-reader",
-          "title": "电子书",
+          "id": "bioReader",
+          "title": "bioReader",
           "icon": "$(book)"
         }
       ]
     },
     "views": {
-      "ebook-reader": [
+      "bioReader": [
         {
-          "id": "ebook-library",
+          "id": "bioReader-library",
           "name": "书库",
           "icon": "$(library)"
         },
         {
-          "id": "ebook-toc",
+          "id": "bioReader-toc",
           "name": "目录",
           "icon": "$(list-tree)"
         }
@@ -69,38 +69,38 @@
     "menus": {
       "view/title": [
         {
-          "command": "ebook-reader.importBook",
-          "when": "view == ebook-library",
+          "command": "bioReader.importBook",
+          "when": "view == bioReader-library",
           "group": "navigation"
         },
         {
-          "command": "ebook-reader.refreshLibrary",
-          "when": "view == ebook-library",
+          "command": "bioReader.refreshLibrary",
+          "when": "view == bioReader-library",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
-          "command": "ebook-reader.deleteBook",
-          "when": "view == ebook-library && viewItem == book",
+          "command": "bioReader.deleteBook",
+          "when": "view == bioReader-library && viewItem == book",
           "group": "inline"
         }
       ]
     },
     "configuration": {
-      "title": "电子书阅读器",
+      "title": "bioReader",
       "properties": {
-        "ebook-reader.fontSize": {
+        "bioReader.fontSize": {
           "type": "number",
           "default": 16,
-          "description": "阅读字体大小"
+          "description": "阅读字体大小（px）"
         },
-        "ebook-reader.lineHeight": {
+        "bioReader.lineHeight": {
           "type": "number",
           "default": 1.8,
-          "description": "阅读行高"
+          "description": "阅读行高（倍数）"
         },
-        "ebook-reader.theme": {
+        "bioReader.theme": {
           "type": "string",
           "enum": [
             "light",
@@ -109,6 +109,36 @@
           ],
           "default": "dark",
           "description": "阅读主题"
+        },
+        "bioReader.padding": {
+          "type": "number",
+          "default": 48,
+          "description": "阅读区内容边距（px）"
+        },
+        "bioReader.textIndent": {
+          "type": "number",
+          "default": 2,
+          "description": "段落首行缩进（em）"
+        },
+        "bioReader.backgroundColor": {
+          "type": "string",
+          "default": "",
+          "description": "自定义背景色（留空使用主题色，如 #f5f5dc）"
+        },
+        "bioReader.textColor": {
+          "type": "string",
+          "default": "",
+          "description": "自定义文字颜色（留空使用主题色，如 #333333）"
+        },
+        "bioReader.linkColor": {
+          "type": "string",
+          "default": "",
+          "description": "自定义链接颜色（留空使用主题色，如 #0066cc）"
+        },
+        "bioReader.panelTitle": {
+          "type": "string",
+          "default": "",
+          "description": "自定义页签标题（留空显示书名，如填「工作文档」则页签显示为「工作文档」）"
         }
       }
     }

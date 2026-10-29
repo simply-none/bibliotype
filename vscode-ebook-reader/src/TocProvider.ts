@@ -51,7 +51,7 @@ function toTocItem(entry: TocEntry): TocItem {
 
   // 点击跳转到对应页面
   item.command = {
-    command: 'ebook-reader.goToTocPage',
+    command: 'bioReader.goToTocPage',
     title: '跳转到目录页',
     arguments: [entry.pageIndex]
   };

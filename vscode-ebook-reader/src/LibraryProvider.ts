@@ -28,7 +28,7 @@ export class LibraryProvider implements vscode.TreeDataProvider<LibraryItem> {
         vscode.TreeItemCollapsibleState.None
       );
       item.command = {
-        command: 'ebook-reader.openBook',
+        command: 'bioReader.openBook',
         title: '打开电子书',
         arguments: [book]
       };

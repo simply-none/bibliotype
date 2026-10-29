@@ -46,6 +46,13 @@ export class BookManager {
   private currentBookId: string | null = null;
   /** 当前 webview panel（供 TOC 跳转时发送消息） */
   private currentPanel: vscode.WebviewPanel | null = null;
+  /** Reader 就绪回调（供 TocProvider 刷新目录） */
+  private onReaderReadyCallback: (() => void) | null = null;
+
+  /** 注册 Reader 就绪回调 */
+  setOnReaderReady(callback: () => void): void {
+    this.onReaderReadyCallback = callback;
+  }
 
   constructor(private context: vscode.ExtensionContext) {
     this.storagePath = path.join(context.globalStorageUri.fsPath, 'books');
@@ -179,9 +186,13 @@ export class BookManager {
   }
 
   async openBook(book: Book) {
+    const config = vscode.workspace.getConfiguration('bioReader');
+    const customTitle = config.get<string>('panelTitle', '');
+    const panelTitle = customTitle || `阅读: ${book.title}`;
+
     const panel = vscode.window.createWebviewPanel(
       'ebookReader',
-      `阅读: ${book.title}`,
+      panelTitle,
       vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -228,12 +239,12 @@ export class BookManager {
       return;
     }
 
-    const config = vscode.workspace.getConfiguration('ebook-reader');
+    const config = vscode.workspace.getConfiguration('bioReader');
     const fontSize = config.get<number>('fontSize', 16);
     const lineHeight = config.get<number>('lineHeight', 1.8);
+    const padding = config.get<number>('padding', 48);
 
     // 计算排版参数（与 demo use-reader-session 同口径）
-    const padding = 48; // webview CSS padding
     const contentWidth = Math.max(100, viewWidth - padding * 2);
     const contentHeight = Math.max(100, viewHeight - padding * 2);
     const charsPerLine = Math.max(1, Math.round((contentWidth / fontSize) * 0.95));
@@ -277,6 +288,9 @@ export class BookManager {
         currentPage: Math.min(savedPage, totalPages - 1),
         totalPages
       });
+
+      // 通知 TocProvider 刷新目录
+      this.onReaderReadyCallback?.();
     } catch (e) {
       console.error('Pagination failed:', e);
       this.currentPanel?.webview.postMessage({
@@ -327,18 +341,25 @@ export class BookManager {
   }
 
   private getWebviewContent(book: Book): string {
-    const config = vscode.workspace.getConfiguration('ebook-reader');
+    const config = vscode.workspace.getConfiguration('bioReader');
     const fontSize = config.get<number>('fontSize', 16);
     const lineHeight = config.get<number>('lineHeight', 1.8);
     const theme = config.get<string>('theme', 'dark');
-    const themeStyles = this.getThemeStyles(theme);
+    const padding = config.get<number>('padding', 48);
+    const textIndent = config.get<number>('textIndent', 2);
+    const bgColor = config.get<string>('backgroundColor', '');
+    const textColor = config.get<string>('textColor', '');
+    const linkColor = config.get<string>('linkColor', '');
+    const customTitle = config.get<string>('panelTitle', '');
+    const displayTitle = customTitle || book.title;
+    const themeStyles = this.getThemeStyles(theme, bgColor, textColor, linkColor);
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${book.title}</title>
+  <title>${displayTitle}</title>
   <style>
     ${themeStyles}
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -349,7 +370,7 @@ export class BookManager {
       font-size: ${fontSize}px;
       line-height: ${lineHeight};
     }
-    body { padding: 48px; }
+    body { padding: ${padding}px; }
     /* 进度条 */
     .progress-bar {
       position: fixed; top: 0; left: 0; right: 0;
@@ -375,7 +396,6 @@ export class BookManager {
     }
     .click-zone.prev { left: 0; }
     .click-zone.next { right: 0; }
-    .click-zone:hover { background: rgba(128,128,128,0.04); }
     /* 页码指示 */
     .page-indicator {
       position: fixed; bottom: 12px; right: 20px;
@@ -390,7 +410,7 @@ export class BookManager {
     .error { color: #f44; }
     /* 内容样式（匹配 serializeNode 输出的 bt-* 类名） */
     .bt-book, .bt-volume, .bt-chapter, .bt-section { }
-    .bt-paragraph { margin: 0.5em 0; text-indent: 2em; }
+    .bt-paragraph { margin: 0.5em 0; text-indent: ${textIndent}em; }
     .bt-heading { margin: 1em 0 0.5em; }
     h1.bt-heading { font-size: 1.6em; text-align: center; margin: 1.5em 0 1em; }
     h2.bt-heading { font-size: 1.3em; }
@@ -530,24 +550,41 @@ export class BookManager {
 </html>`;
   }
 
-  private getThemeStyles(theme: string): string {
+  private getThemeStyles(theme: string, bgColor?: string, textColor?: string, linkColor?: string): string {
+    const bg = bgColor || this.getDefaultBg(theme);
+    const color = textColor || this.getDefaultColor(theme);
+    const link = linkColor || this.getDefaultLink(theme);
+
+    return `
+      body { background: ${bg}; color: ${color}; }
+      a { color: ${link}; }
+    `;
+  }
+
+  private getDefaultBg(theme: string): string {
     switch (theme) {
-      case 'light':
-        return `
-          body { background: #ffffff; color: #333333; }
-          a { color: #0066cc; }
-        `;
-      case 'sepia':
-        return `
-          body { background: #f4ecd8; color: #5b4636; }
-          a { color: #8b4513; }
-        `;
+      case 'light': return '#ffffff';
+      case 'sepia': return '#f4ecd8';
       case 'dark':
-      default:
-        return `
-          body { background: #1e1e1e; color: #d4d4d4; }
-          a { color: #569cd6; }
-        `;
+      default: return '#1e1e1e';
+    }
+  }
+
+  private getDefaultColor(theme: string): string {
+    switch (theme) {
+      case 'light': return '#333333';
+      case 'sepia': return '#5b4636';
+      case 'dark':
+      default: return '#d4d4d4';
+    }
+  }
+
+  private getDefaultLink(theme: string): string {
+    switch (theme) {
+      case 'light': return '#0066cc';
+      case 'sepia': return '#8b4513';
+      case 'dark':
+      default: return '#569cd6';
     }
   }
 }

@@ -242,13 +242,14 @@ export class BookManager {
     const config = vscode.workspace.getConfiguration('bioReader');
     const fontSize = config.get<number>('fontSize', 16);
     const lineHeight = config.get<number>('lineHeight', 1.8);
-    const padding = config.get<number>('padding', 48);
+    const padding = config.get<number>('padding', 0);
 
     // 计算排版参数（与 demo use-reader-session 同口径）
-    const contentWidth = Math.max(100, viewWidth - padding * 2);
-    const contentHeight = Math.max(100, viewHeight - padding * 2);
-    const charsPerLine = Math.max(1, Math.round((contentWidth / fontSize) * 0.95));
     const lineSize = Math.round(fontSize * lineHeight);
+    const contentWidth = Math.max(100, viewWidth - padding * 2);
+    // 高度下限为一行：允许阅读窗缩到单行条带，不因 100px 钳制多打包而裁行
+    const contentHeight = Math.max(lineSize, viewHeight - padding * 2);
+    const charsPerLine = Math.max(1, Math.round((contentWidth / fontSize) * 0.95));
     const pageMainSize = contentHeight;
 
     try {
@@ -260,6 +261,10 @@ export class BookManager {
         },
         pageMainSize,
         measure: { charsPerLine, lineSize },
+        // 页底剩一行也继续取一行，避免不足两行整段换页导致内容看不到
+        widowControl: { minFirst: 1, minLast: 1 },
+        // 关闭默认半行页底溢出：webview 无下边距，溢出行会被视口裁掉
+        bottomSlack: 0,
       });
 
       reader.loadDocument(doc);
@@ -345,7 +350,7 @@ export class BookManager {
     const fontSize = config.get<number>('fontSize', 16);
     const lineHeight = config.get<number>('lineHeight', 1.8);
     const theme = config.get<string>('theme', 'dark');
-    const padding = config.get<number>('padding', 48);
+    const padding = config.get<number>('padding', 0);
     const textIndent = config.get<number>('textIndent', 2);
     const bgColor = config.get<string>('backgroundColor', '');
     const textColor = config.get<string>('textColor', '');
@@ -396,11 +401,11 @@ export class BookManager {
     }
     .click-zone.prev { left: 0; }
     .click-zone.next { right: 0; }
-    /* 页码指示 */
+    /* 页码指示：固定右下角悬浮，小字号低调显示 */
     .page-indicator {
       position: fixed; bottom: 12px; right: 20px;
-      font-size: 12px; color: rgba(128,128,128,0.6);
-      z-index: 1000; user-select: none;
+      font-size: 6px; line-height: 1; color: rgba(128,128,128,0.6);
+      z-index: 1000; user-select: none; pointer-events: none;
     }
     /* 加载 / 错误 */
     .loading, .error {

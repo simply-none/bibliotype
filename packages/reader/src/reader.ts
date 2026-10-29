@@ -29,6 +29,7 @@ import {
   type PageGutterTexts,
   type PageItem,
   type PaginatedPage,
+  type WidowControl,
 } from '@bibliotype/layout';
 import {
   DEFAULT_MEASURE_CONTEXT,
@@ -112,6 +113,8 @@ export interface RepaginateOptions {
   bodySizes?: ReadonlyMap<string, number> | null;
   /** 排文主轴；传 null 清空回退横排（undefined 保持当前值） */
   axis?: BlockAxis | null;
+  /** 孤寡行控制；传 null 清空回退缺省 2/2（undefined 保持当前值） */
+  widowControl?: WidowControl | null;
 }
 
 /** Reader 配置 */
@@ -177,6 +180,13 @@ export interface ReaderOptions {
   footnoteFloat?: boolean;
   /** 页底注区最多占页面主轴的多少（0~1，缺省 0.4；仅 `footnoteFloat` 生效） */
   noteMaxRatio?: number;
+  /**
+   * 孤寡行控制（缺省 2/2）
+   *
+   * 跨页拆分的首/末片段最少行数；传 `{ minFirst: 1, minLast: 1 }` 可允许
+   * 页底仅剩一行时继续取一行，消除「不足两行整段换页」的页底空白。
+   */
+  widowControl?: WidowControl;
 }
 
 /** 默认每页主轴尺寸（横排取内容区高，竖排取内容区宽；含页边距与版框边框扣除） */
@@ -222,6 +232,8 @@ export class Reader {
   private readonly footnoteFloat: boolean;
   /** 页底注区上限（占页面容量比例，已夹到 0.05~1） */
   private readonly noteMaxRatio: number;
+  /** 孤寡行控制（缺省 2/2；显式传入后按调用方口径取行） */
+  private widowControl: WidowControl | undefined;
 
   private blocks: MeasurableBlock[] = [];
   private pages: PaginatedPage[] = [];
@@ -265,6 +277,7 @@ export class Reader {
     this.footnoteFloat = options.footnoteFloat === true;
     // 与 paginate 的夹取口径一致：注区至少 5%（保证有空间），至多占满一页
     this.noteMaxRatio = Math.min(1, Math.max(0.05, options.noteMaxRatio ?? 0.4));
+    this.widowControl = options.widowControl;
     this.events = options.events ?? createEventBus();
   }
 
@@ -334,6 +347,9 @@ export class Reader {
     if (overrides.axis !== undefined) {
       this.axis = overrides.axis ?? undefined;
     }
+    if (overrides.widowControl !== undefined) {
+      this.widowControl = overrides.widowControl ?? undefined;
+    }
 
     const extracted = extractBlocksIndexed(this.doc, {
       estimator: this.estimator,
@@ -370,6 +386,7 @@ export class Reader {
       /* 两截本 / 三截本（v2 批 5）：结构节点 `bands` 声明驱动分截分页 */
       ...(extracted.bands !== undefined ? { bands: extracted.bands } : {}),
       ...(this.footnoteFloat ? { noteArea: { maxRatio: this.noteMaxRatio } } : {}),
+      ...(this.widowControl !== undefined ? { widowControl: this.widowControl } : {}),
     });
     this.pages = result.pages;
 

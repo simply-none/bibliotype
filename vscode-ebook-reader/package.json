@@ -111,8 +111,8 @@
         },
         "bioReader.padding": {
           "type": "number",
-          "default": 48,
-          "description": "阅读区内容边距（px）"
+          "default": 0,
+          "description": "阅读区内容边距（px），默认 0 撑满窗口"
         },
         "bioReader.textIndent": {
           "type": "number",

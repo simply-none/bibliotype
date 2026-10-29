@@ -1,0 +1,10 @@
+.vscode/**
+src/**
+out/**
+node_modules/**
+esbuild.mjs
+tsconfig.json
+TEST.md
+pnpm-lock.yaml
+package-lock.json
+**/*.map

@@ -3,7 +3,6 @@
   "displayName": "bioReader",
   "description": "在 VSCode 中阅读 epub/txt/html/md 电子书",
   "version": "0.0.1",
-  "type": "module",
   "publisher": "your-name",
   "engines": {
     "vscode": "^1.85.0"
@@ -12,7 +11,7 @@
     "Other"
   ],
   "activationEvents": [],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
@@ -145,14 +144,16 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "compile": "tsc --noEmit && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
     "pretest": "npm run compile",
-    "package": "vsce package"
+    "package": "vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.6.0"
   },
   "dependencies": {

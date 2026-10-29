@@ -351,12 +351,14 @@ export class BookManager {
     const lineHeight = config.get<number>('lineHeight', 1.8);
     const theme = config.get<string>('theme', 'dark');
     const padding = config.get<number>('padding', 0);
-    const textIndent = config.get<number>('textIndent', 2);
+    const textIndent = config.get<number>('textIndent', 0);
     const bgColor = config.get<string>('backgroundColor', '');
     const textColor = config.get<string>('textColor', '');
     const linkColor = config.get<string>('linkColor', '');
     const customTitle = config.get<string>('panelTitle', '');
     const displayTitle = customTitle || book.title;
+    // 自动翻页间隔（秒）：0 / 负值 / 非法值均视为不自动翻页
+    const autoPageInterval = Math.max(0, Number(config.get<number>('autoPageInterval', 0)) || 0);
     const themeStyles = this.getThemeStyles(theme, bgColor, textColor, linkColor);
 
     return `<!DOCTYPE html>
@@ -374,6 +376,8 @@ export class BookManager {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: ${fontSize}px;
       line-height: ${lineHeight};
+      /* 长词 / 长串强制断行，避免窄窗格下溢出右缘被裁 */
+      overflow-wrap: break-word; word-break: break-word;
     }
     body { padding: ${padding}px; }
     /* 进度条 */
@@ -458,6 +462,25 @@ export class BookManager {
     let currentPage = 0;
     let totalPages = 0;
 
+    /* ---------------- 自动翻页 ----------------
+     * 间隔 > 0 时周期性翻到下一页；任何点击 / 按键 / 目录跳转都经 showPage
+     * 重新计时（从当下重算 N 秒）；末页不再起定时器，自动停止。
+     * 定时器句柄始终复用同一变量，先 clear 再设，不会累积泄漏。 */
+    const AUTO_PAGE_MS = ${autoPageInterval} * 1000;
+    let autoPageTimer = null;
+    function resetAutoPageTimer() {
+      if (autoPageTimer !== null) {
+        clearTimeout(autoPageTimer);
+        autoPageTimer = null;
+      }
+      if (AUTO_PAGE_MS > 0 && currentPage < totalPages - 1) {
+        autoPageTimer = setTimeout(() => {
+          autoPageTimer = null;
+          showPage(currentPage + 1);
+        }, AUTO_PAGE_MS);
+      }
+    }
+
     // 报告窗口尺寸
     function reportSize() {
       vscode.postMessage({
@@ -526,6 +549,8 @@ export class BookManager {
         pageIndex: index,
         percent: percent
       });
+      // 重新计时自动翻页（点击 / 按键 / 跳转 / 自动翻页统一从当下重算）
+      resetAutoPageTimer();
     }
 
     function nextPage() { showPage(currentPage + 1); }

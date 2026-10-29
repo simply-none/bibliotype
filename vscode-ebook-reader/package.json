@@ -116,8 +116,13 @@
         },
         "bioReader.textIndent": {
           "type": "number",
-          "default": 2,
-          "description": "段落首行缩进（em）"
+          "default": 0,
+          "description": "段落首行缩进（em），默认 0 不缩进"
+        },
+        "bioReader.autoPageInterval": {
+          "type": "number",
+          "default": 0,
+          "description": "自动翻页间隔（秒）。留空或 0 不自动翻页；设置后每隔该秒数自动翻到下一页，点击或按键后从当前时刻重新计时，到末页自动停止"
         },
         "bioReader.backgroundColor": {
           "type": "string",

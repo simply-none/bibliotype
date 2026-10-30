@@ -42,6 +42,12 @@
         "category": "bioReader"
       },
       {
+        "command": "bioReader.refreshToc",
+        "title": "刷新目录",
+        "category": "bioReader",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "bioReader.toggleAutoPage",
         "title": "开/停自动翻页",
         "category": "bioReader",
@@ -81,6 +87,11 @@
         {
           "command": "bioReader.refreshLibrary",
           "when": "view == bioReader-library",
+          "group": "navigation"
+        },
+        {
+          "command": "bioReader.refreshToc",
+          "when": "view == bioReader-toc",
           "group": "navigation"
         }
       ],

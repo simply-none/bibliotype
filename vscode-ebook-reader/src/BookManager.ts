@@ -46,6 +46,8 @@ export class BookManager {
   private currentBookId: string | null = null;
   /** 当前 webview panel（供 TOC 跳转时发送消息） */
   private currentPanel: vscode.WebviewPanel | null = null;
+  /** 每个面板独立的 Reader 状态（多本书并行打开时目录/跳转各归其位） */
+  private panelStates = new Map<vscode.WebviewPanel, { reader: any; bookId: string }>();
   /** Reader 就绪回调（供 TocProvider 刷新目录） */
   private onReaderReadyCallback: (() => void) | null = null;
 
@@ -56,6 +58,14 @@ export class BookManager {
   /** 注册 Reader 就绪回调 */
   setOnReaderReady(callback: () => void): void {
     this.onReaderReadyCallback = callback;
+  }
+
+  /** 切换当前面板（取出该面板自己的 Reader，供目录与跳转使用） */
+  private adoptPanel(panel: vscode.WebviewPanel | null): void {
+    this.currentPanel = panel;
+    const state = panel ? this.panelStates.get(panel) : undefined;
+    this.currentReader = state?.reader ?? null;
+    this.currentBookId = state?.bookId ?? null;
   }
 
   constructor(private context: vscode.ExtensionContext) {
@@ -238,17 +248,18 @@ export class BookManager {
       }
     );
 
-    this.currentPanel = panel;
+    this.panelStates.set(panel, { reader: null, bookId: book.id });
+    this.adoptPanel(panel);
     panel.webview.html = this.getWebviewContent(book);
 
     panel.webview.onDidReceiveMessage(
       async message => {
         if (message.type === 'ready') {
           // webview 就绪，带上尺寸信息 → 加载文档并分页
-          await this.paginateAndSend(book, message.width, message.height);
+          await this.paginateAndSend(panel, book, message.width, message.height);
         } else if (message.type === 'resize') {
           // 窗口尺寸变化 → 重新分页
-          await this.paginateAndSend(book, message.width, message.height);
+          await this.paginateAndSend(panel, book, message.width, message.height);
         } else if (message.type === 'saveProgress') {
           this.updateProgress(book.id, message.pageIndex, message.percent);
         }
@@ -257,20 +268,35 @@ export class BookManager {
       this.context.subscriptions
     );
 
+    // 面板激活（切回本书标签）时接管目录：目录始终跟随当前聚焦的阅读面板
+    panel.onDidChangeViewState(e => {
+      if (e.webviewPanel.active) {
+        this.adoptPanel(panel);
+        this.onReaderReadyCallback?.();
+      }
+    });
+
     panel.onDidDispose(() => {
+      this.panelStates.delete(panel);
       if (this.currentPanel === panel) {
-        this.currentPanel = null;
-        this.currentReader = null;
-        this.currentBookId = null;
+        // 回落到仍打开的面板（最近创建者），没有则清空
+        const remaining = [...this.panelStates.keys()];
+        this.adoptPanel(remaining.length > 0 ? remaining[remaining.length - 1] : null);
+        this.onReaderReadyCallback?.();
       }
     });
   }
 
   /** 加载文档、创建 Reader 分页、渲染所有页面并发送到 webview */
-  private async paginateAndSend(book: Book, viewWidth: number, viewHeight: number) {
+  private async paginateAndSend(
+    panel: vscode.WebviewPanel,
+    book: Book,
+    viewWidth: number,
+    viewHeight: number
+  ) {
     const doc = await this.loadDocument(book);
     if (!doc) {
-      this.currentPanel?.webview.postMessage({
+      panel.webview.postMessage({
         type: 'error',
         message: '无法加载文档'
       });
@@ -306,8 +332,15 @@ export class BookManager {
       });
 
       reader.loadDocument(doc);
-      this.currentReader = reader;
-      this.currentBookId = book.id;
+      // 面板级 Reader 登记：目录/跳转随面板切换各归其位
+      const state = this.panelStates.get(panel);
+      if (state) state.reader = reader;
+      if (this.currentPanel === panel) {
+        this.currentReader = reader;
+        this.currentBookId = book.id;
+      }
+      // 目录就绪即通知 TocProvider（不等页面序列化，避免目录长时间空白）
+      this.onReaderReadyCallback?.();
 
       // 渲染所有页面
       const totalPages = reader.totalPages;
@@ -324,7 +357,7 @@ export class BookManager {
 
       const savedPage = this.getProgress(book.id)?.pageIndex || 0;
 
-      this.currentPanel?.webview.postMessage({
+      panel.webview.postMessage({
         type: 'bookData',
         pages,
         outline,
@@ -332,12 +365,9 @@ export class BookManager {
         totalPages,
         autoPageOn: this.autoPageOn
       });
-
-      // 通知 TocProvider 刷新目录
-      this.onReaderReadyCallback?.();
     } catch (e) {
       console.error('Pagination failed:', e);
-      this.currentPanel?.webview.postMessage({
+      panel.webview.postMessage({
         type: 'error',
         message: `分页失败：${e}`
       });

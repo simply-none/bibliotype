@@ -107,6 +107,13 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // 目录视图标题栏刷新按钮：重新查询当前阅读面板的目录
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bioReader.refreshToc', () => {
+      tocProvider.refresh();
+    })
+  );
+
   // 状态栏：自动翻页开/停
   context.subscriptions.push(
     vscode.commands.registerCommand('bioReader.toggleAutoPage', () => {

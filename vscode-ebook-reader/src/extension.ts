@@ -106,6 +106,13 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+
+  // 状态栏：自动翻页开/停
+  context.subscriptions.push(
+    vscode.commands.registerCommand('bioReader.toggleAutoPage', () => {
+      bookManager.toggleAutoPage();
+    })
+  );
 }
 
 export function deactivate() {}

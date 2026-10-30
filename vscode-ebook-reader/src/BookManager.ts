@@ -49,6 +49,10 @@ export class BookManager {
   /** Reader 就绪回调（供 TocProvider 刷新目录） */
   private onReaderReadyCallback: (() => void) | null = null;
 
+  /** 自动翻页开关（状态栏控制，仅当 autoPageInterval > 0 时真正生效） */
+  private autoPageOn = true;
+  private autoPageStatusBar: vscode.StatusBarItem;
+
   /** 注册 Reader 就绪回调 */
   setOnReaderReady(callback: () => void): void {
     this.onReaderReadyCallback = callback;
@@ -60,6 +64,39 @@ export class BookManager {
       fs.mkdirSync(this.storagePath, { recursive: true });
     }
     this.loadLibrary();
+
+    // 状态栏：自动翻页开关（底部右侧）
+    const interval = vscode.workspace.getConfiguration('bioReader').get<number>('autoPageInterval', 0) || 0;
+    this.autoPageOn = interval > 0;
+    this.autoPageStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    this.autoPageStatusBar.command = 'bioReader.toggleAutoPage';
+    this.updateAutoPageStatusBar();
+    this.autoPageStatusBar.show();
+    context.subscriptions.push(this.autoPageStatusBar);
+  }
+
+  private updateAutoPageStatusBar(): void {
+    const config = vscode.workspace.getConfiguration('bioReader');
+    const interval = config.get<number>('autoPageInterval', 0) || 0;
+    if (interval <= 0) {
+      this.autoPageStatusBar.text = '$(clock) 自动翻页';
+      this.autoPageStatusBar.tooltip = '自动翻页未启用：请先在设置中配置 bioReader.autoPageInterval（秒）';
+      return;
+    }
+    if (this.autoPageOn) {
+      this.autoPageStatusBar.text = '$(debug-pause) 自动翻页';
+      this.autoPageStatusBar.tooltip = '自动翻页中，点击暂停';
+    } else {
+      this.autoPageStatusBar.text = '$(play) 自动翻页';
+      this.autoPageStatusBar.tooltip = '自动翻页已暂停，点击开始';
+    }
+  }
+
+  /** 状态栏点击：切换自动翻页开/停，并通知当前 webview */
+  toggleAutoPage(): void {
+    this.autoPageOn = !this.autoPageOn;
+    this.updateAutoPageStatusBar();
+    this.currentPanel?.webview.postMessage({ type: 'autoPageControl', on: this.autoPageOn });
   }
 
   private async getSchema() {
@@ -190,10 +227,11 @@ export class BookManager {
     const customTitle = config.get<string>('panelTitle', '');
     const panelTitle = customTitle || `阅读: ${book.title}`;
 
+    // 在光标当前激活的编辑器组打开（跟随窗口分栏焦点），无活动组时回落第一列
     const panel = vscode.window.createWebviewPanel(
       'ebookReader',
       panelTitle,
-      vscode.ViewColumn.One,
+      vscode.ViewColumn.Active,
       {
         enableScripts: true,
         retainContextWhenHidden: true
@@ -291,7 +329,8 @@ export class BookManager {
         pages,
         outline,
         currentPage: Math.min(savedPage, totalPages - 1),
-        totalPages
+        totalPages,
+        autoPageOn: this.autoPageOn
       });
 
       // 通知 TocProvider 刷新目录
@@ -468,12 +507,16 @@ export class BookManager {
      * 定时器句柄始终复用同一变量，先 clear 再设，不会累积泄漏。 */
     const AUTO_PAGE_MS = ${autoPageInterval} * 1000;
     let autoPageTimer = null;
-    function resetAutoPageTimer() {
+    let autoPageOn = true;
+    function stopAutoPageTimer() {
       if (autoPageTimer !== null) {
         clearTimeout(autoPageTimer);
         autoPageTimer = null;
       }
-      if (AUTO_PAGE_MS > 0 && currentPage < totalPages - 1) {
+    }
+    function resetAutoPageTimer() {
+      stopAutoPageTimer();
+      if (AUTO_PAGE_MS > 0 && autoPageOn && currentPage < totalPages - 1) {
         autoPageTimer = setTimeout(() => {
           autoPageTimer = null;
           showPage(currentPage + 1);
@@ -513,10 +556,18 @@ export class BookManager {
         pages = msg.pages;
         totalPages = msg.totalPages;
         currentPage = msg.currentPage || 0;
+        autoPageOn = msg.autoPageOn !== false;
         renderAllPages();
         showPage(currentPage);
       } else if (msg.type === 'goToPage') {
         showPage(msg.pageIndex);
+      } else if (msg.type === 'autoPageControl') {
+        autoPageOn = !!msg.on;
+        if (autoPageOn) {
+          resetAutoPageTimer();
+        } else {
+          stopAutoPageTimer();
+        }
       } else if (msg.type === 'error') {
         document.getElementById('content').innerHTML =
           '<div class="error">' + msg.message + '</div>';

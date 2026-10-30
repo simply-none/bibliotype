@@ -40,6 +40,12 @@
         "command": "bioReader.goToTocPage",
         "title": "跳转到目录页",
         "category": "bioReader"
+      },
+      {
+        "command": "bioReader.toggleAutoPage",
+        "title": "开/停自动翻页",
+        "category": "bioReader",
+        "icon": "$(play)"
       }
     ],
     "viewsContainers": {

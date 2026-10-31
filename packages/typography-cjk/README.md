@@ -38,10 +38,20 @@ buildCjkTypographyCss({ mixedSpacing: true });
 
 ## 约定
 
-- 坐标轴是 JS 字符串下标（UTF-16 码元），只拦「代理对中间」这一种非法切分；
+- 字符分类按完整 Unicode 码位（`codePointAt`）判定：扩展 B~F 区汉字不因代理对误判；
+  部首区 / IDS / 笔画 / 半角片假名 / 叠字符号 `々〆` 归文字类，General Punctuation 的
+  破折号 / 省略号 / 弯引号 / 间隔号归标点；
+- 坐标轴是 JS 字符串下标（UTF-16 码元），只拦几类非法切分：代理对中间、
+  ZWJ（U+200D）两侧、变体选择符（U+FE0E/FE0F）与其基字之间；
+- 中文（zh-Hans）禁则集：行首补半角收束标点 `｡｣､・`，行尾补竖排开启括号
+  `︵︷︹︻︽︿﹁﹃` 等；日文长音「ー」只属 `ja` 配置；
+- 缺省挤压字符集不含省略号「…」（GB/T 15834：「……」占两字位，压缩会变形）；
 - 拉丁字母与数字默认整体不断（`breakLatinWords: false`）；
 - `resolveLineBreak` 找不到合法断点时退回容量上限，绝不返回 0；
-- 混排间距只给「分段描述」，不在文本里插真实空格（避免污染搜索 / 复制 / 协同）。
+- 混排间距只给「分段描述」，不在文本里插真实空格（避免污染搜索 / 复制 / 协同）；
+- CSS 声明层已由 `@bibliotype/layout` 的 `buildBookCss` 接线：禁则兜底三声明
+  （`line-break: strict` / `word-break: normal` / `overflow-wrap: break-word`）恒输出，
+  可选能力（挤压 / 混排 / 悬挂）经 `cjkTypography` 开关、缺省全关。
 
 ## 相关
 

@@ -316,6 +316,8 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     lineSizes: incremental ? prev.lineSizes : undefined,
     bodySizes: incremental ? prev.bodySizes : undefined,
     axis,
+    /* 分栏单通道：布局设置的 columns 作为全树缺省（结构节点 attrs 覆盖） */
+    columns: options.columns,
   });
 
   // 定点判定探针：新块序列全部命中旧尺寸缓存 = 无结构性变化（纯文本编辑）
@@ -375,6 +377,8 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     lineMainSizes,
     bodySizes,
     axis,
+    /* 分栏单通道：与第一遍抽取同参 */
+    columns: options.columns,
   });
   const blocks = indexed.blocks;
   const bands = indexed.bands;
@@ -637,7 +641,21 @@ export function usePagedLayout(opts: UsePagedLayoutOptions): UsePagedLayoutRetur
     }
     const started = Date.now();
     const perfStart = perfNow();
-    const fromBlockId = hints.length > 0 ? hints[0] : undefined;
+    /* 增量实测起点取「块序最小」的提示：hints 按编辑顺序累计（去抖窗口内
+     * 可含多块），先编辑靠后块、再编辑靠前块时取首个会漏测靠前块的尺寸
+     * 变更，其页归属沿用旧缓存直到下一次任意编辑才被全量纠正 */
+    const blockIndexOf = (id: string): number => {
+      const blocks = lastResult.value?.blocks;
+      if (blocks === undefined) return Number.MAX_SAFE_INTEGER;
+      const index = blocks.findIndex((block) => block.id === id);
+      return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+    };
+    const fromBlockId =
+      hints.length > 0
+        ? hints.reduce((earliest, hint) =>
+            blockIndexOf(hint) < blockIndexOf(earliest) ? hint : earliest,
+          )
+        : undefined;
     const result = buildPagedLayout({
       doc: opts.editor.getSharedDocument(),
       options: opts.options.value,

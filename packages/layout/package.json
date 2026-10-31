@@ -45,7 +45,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@bibliotype/core": "workspace:*"
+    "@bibliotype/core": "workspace:*",
+    "@bibliotype/typography-cjk": "workspace:*"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.0",

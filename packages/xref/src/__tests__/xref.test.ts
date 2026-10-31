@@ -3,6 +3,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  NODE_TYPES,
+  createEmptyDocument,
+  isTextNode,
+  nodePlainText,
+  type BookDocument,
+  type BookNode,
+} from '@bibliotype/core';
+import {
   CrossReferenceRegistry,
   buildPageIndex,
   deserializePageIndex,
@@ -13,9 +21,10 @@ import {
   replaceLabelReferences,
   replacePageReferences,
   resolveReferences,
+  resolveReferencesConverged,
   serializePageIndex,
 } from '../index.js';
-import type { PageSource } from '../index.js';
+import type { PageIndex, PageReferenceOptions, PageSource } from '../index.js';
 
 const pages: PageSource[] = [
   {
@@ -176,5 +185,106 @@ describe('占位替换', () => {
     expect(hasReferences('{{ref:a}}')).toBe(true);
     expect(hasReferences('普通文本')).toBe(false);
     expect(hasReferences('{{page:p1}}')).toBe(true);
+  });
+});
+
+describe('resolveReferencesConverged', () => {
+  /**
+   * 极简分页模拟：段落页码 = ⌊文本长度 ÷ 10⌋ + 1
+   *
+   * 替换会改变文本长度 → 页码可能漂移，足以驱动收敛循环（无需真实分页器，
+   * xref 的 reindex 本就由调用方注入）。
+   */
+  const reindex = (document: BookDocument): PageIndex => {
+    const entries: Record<string, number> = {};
+    const walk = (node: BookNode): void => {
+      const text = nodePlainText(node);
+      if (node.type === NODE_TYPES.PARAGRAPH && typeof node.id === 'string' && text.length > 0) {
+        entries[node.id] = Math.floor(text.length / 10) + 1;
+      }
+      for (const child of node.children ?? []) walk(child);
+    };
+    walk(document.root);
+    return { entries, totalPages: Object.keys(entries).length };
+  };
+
+  /** 替换回调工厂：逐文本节点把占位换成页码（经 xref 的 resolveReferences） */
+  const makeReplace =
+    (options?: PageReferenceOptions) =>
+    (document: BookDocument, index: PageIndex): BookDocument => {
+      const swap = (node: BookNode): BookNode => {
+        if (isTextNode(node)) {
+          return {
+            ...node,
+            text: resolveReferences(node.text ?? '', index, undefined, options),
+          };
+        }
+        return {
+          ...node,
+          ...(node.children === undefined
+            ? {}
+            : { children: node.children.map((child) => swap(child)) }),
+        };
+      };
+      return { ...document, root: swap(document.root) };
+    };
+  const replace = makeReplace();
+
+  /** 两轮收敛样本：占位符本身很长，替换成短页码后自身页码漂移一轮 */
+  function driftDocument(): BookDocument {
+    const doc = createEmptyDocument({ title: '引用' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p1', children: [{ type: 'text', text: '{{page:p1}}' }] },
+      { type: NODE_TYPES.PARAGRAPH, id: 'p2', children: [{ type: 'text', text: '{{page:p1}} 后记' }] },
+    ];
+    return doc;
+  }
+
+  it('两轮收敛：替换引起页码漂移后再排一轮即稳定', () => {
+    const result = resolveReferencesConverged({
+      document: driftDocument(),
+      reindex,
+      replace,
+    });
+    expect(result.converged).toBe(true);
+    expect(result.rounds).toBe(2);
+    /* 终稿文本：占位换成漂移后的真实页码（p1 → '1'、p2 → '1 后记'） */
+    expect(nodePlainText(result.document.root)).toBe('11 后记');
+    /* 返回索引与返回文档同轮（p1 文本长 1 → 第 1 页） */
+    expect(result.index.entries.p1).toBe(1);
+    expect(result.index.entries.p2).toBe(1);
+  });
+
+  it('一轮收敛：替换后页码不再变化时提前退出', () => {
+    /* 格式化补齐到 10 字符：替换前后段落长度同档 → 页码稳定 */
+    const doc = createEmptyDocument({ title: '稳定' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'q1', children: [{ type: 'text', text: 'x{{page:q1}}' }] },
+    ];
+    const result = resolveReferencesConverged({
+      document: doc,
+      reindex,
+      replace: makeReplace({ format: (page) => String(page).padEnd(10, '0') }),
+    });
+    expect(result.converged).toBe(true);
+    expect(result.rounds).toBe(1);
+    expect(nodePlainText(result.document.root)).toBe('x2000000000');
+  });
+
+  it('不收敛：返回最后一次结果并附 converged: false', () => {
+    /* 振荡样本：页码 1 格式化为 11 字符、页码 2 为 1 字符——
+       长度反馈使页码在 1 ↔ 2 间来回，永不稳定 */
+    const doc = createEmptyDocument({ title: '振荡' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'o1', children: [{ type: 'text', text: '{{page:o1}}' }] },
+    ];
+    const result = resolveReferencesConverged({
+      document: doc,
+      reindex,
+      replace: makeReplace({ format: (page) => (page === 1 ? 'x'.repeat(11) : 'x') }),
+      maxRounds: 3,
+    });
+    expect(result.converged).toBe(false);
+    expect(result.rounds).toBe(3);
   });
 });

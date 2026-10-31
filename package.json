@@ -14,6 +14,7 @@
     "dev:demo": "pnpm --filter @bibliotype/demo dev",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
+    "verify": "pnpm build && pnpm test && pnpm typecheck",
     "clean": "turbo run clean",
     "stats": "node scripts/code-stats.mjs",
     "stats:json": "node scripts/code-stats.mjs --json",

@@ -154,8 +154,15 @@ export function charOffsetInFrag(
     let acc = 0;
     for (const e of list) {
       if (container.contains(e.node)) {
-        // 后代文本：仅当已越过定点（childAt 为空 = 容器末尾）才计入；含 childAt 自身子树
+        /* 容器内后代文本：仅计「位于定点之前」的——childAt 为空（caret 在容器
+         * 末尾）时全部计入；否则计入先于 childAt 的（compareDocumentPosition
+         * 的 PRECEDING 位 = 参数节点在当前节点之前）。曾一律跳过容器后代，
+         * caret 落在元素中段 childIndex（如「前文<img>后文」的 img 后）时
+         * 前序子树文本漏计，落模偏移整体前移、打字落错位置。 */
         if (childAt === null) acc = e.start + e.len;
+        else if (childAt.compareDocumentPosition(e.node) & Node.DOCUMENT_POSITION_PRECEDING) {
+          acc = e.start + e.len;
+        }
         continue;
       }
       if (container.compareDocumentPosition(e.node) & Node.DOCUMENT_POSITION_PRECEDING) {

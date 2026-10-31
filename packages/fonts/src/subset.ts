@@ -40,6 +40,7 @@ export async function prepareFontBundle(
 ): Promise<FontBundle> {
   const usage = collectDocumentChars(document, {
     ...(options.extraChars === undefined ? {} : { extraChars: options.extraChars }),
+    ...(options.extraSources === undefined ? {} : { extraSources: options.extraSources }),
   });
   const fontDirectory = normalizeFontDirectory(options.fontDirectory);
   const embeddedFamilies = new Set(fonts.map((font) => font.family));

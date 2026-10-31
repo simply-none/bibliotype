@@ -93,8 +93,27 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 2026-10-24 十四次更新：移除直排字图 `transform: rotate(90deg)`——缺字字形图是
  * 正立文字的图片，直排汉字直立、字图同理恒不旋转（验收口径），样式表全文
  * 变化，基线重锁。
+ * 2026-10-28 二十一次更新：89bf55b 双行夹注多对输出——`.bt-vnote` 固定整列高
+ * （block-size: 2em + overflow: hidden）改为动态高度、`.bt-vnote-col` 的
+ * block-size: 50% 改 auto，超长注文不再截断；样式表全文变化，基线重锁
+ * （该提交漏改基线致红，本条补记）。
+ * 2026-10-31 二十二次更新（排版工业级批次 1）：直排夹注几何重写——
+ * `.bt-vnote` inline-size:100% 改 auto、补 block-size:1em（1 大字位宽）；
+ * `.bt-vnote-col` block-size 归格 1em（半大字位）、letter-spacing 归零
+ * （移除恒走回退的 --bt-vnote-pitch 引用）、去 overflow:hidden（漂移可见
+ * 优于静默裁字）；`.bt-vpad` inline/block 两轴转正（N 字位 × 1 字位厚，
+ * 去 1lh 量纲错用）；删除非法 text-emphasis-position: right center 声明。
+ * 样式表全文变化，基线重锁。
+ *
+ * 2026-10-31 二十三次更新（中文精排接线）：根容器规则接入
+ * `@bibliotype/typography-cjk` 的禁则兜底三声明——line-break: strict（避头尾
+ * 浏览器侧兜底，横排 / 直排恒输出）、word-break: normal（防宿主 break-all
+ * 污染）、overflow-wrap: break-word（自 .bt-code-block 收编到根容器一处，靠
+ * 继承覆盖、行为不变）；text-spacing-trim / text-autospace / hanging-punctuation
+ * 三项可选能力经 cjkTypography 开关输出、缺省全关（不进入本基线）。
+ * 样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '5e4b1a32';
+export const CLASSICAL_CSS_FNV = '2393587c';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

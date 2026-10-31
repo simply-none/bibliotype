@@ -31,6 +31,8 @@ export type { NotePageAnchor, NoteIndexPage } from './note-index.js';
 export {
   DEFAULT_MEASURE_CONTEXT,
   defaultEstimator,
+  estimateLineCount,
+  estimateLineCharOffsets,
   collectNodeText,
   extractBlocks,
   extractBlocksIndexed,

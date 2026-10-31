@@ -81,3 +81,39 @@ describe('paginate 页底注区', () => {
     expect(tiny.pages).toHaveLength(2);
   });
 });
+
+describe('页底注区记账（累计口径回归）', () => {
+  it('正文占满后首条注整条续页（曾无条件落页致重叠）', () => {
+    const result = paginate([body('p1', 500), note('n1', 200)], {
+      pageMainSize: 600,
+      noteArea: { maxRatio: 0.4 },
+    });
+    /* n1(200) 放不进剩余 100px：整条续到下一页，第 0 页只有正文 */
+    expect(ids(result.pages[0]!.notes ?? [])).toEqual([]);
+    expect(ids(result.pages[1]!.notes ?? [])).toEqual(['n1']);
+  });
+
+  it('正文 + 累计注区不得超页容量（只按单条判曾叠出 620/600）', () => {
+    const result = paginate([body('p1', 500), note('n1', 60), note('n2', 60)], {
+      pageMainSize: 600,
+      noteArea: { maxRatio: 0.4 },
+    });
+    const first = result.pages[0]!;
+    const total = first.usedMainSize + (first.noteMainSize ?? 0);
+    expect(total).toBeLessThanOrEqual(600.5);
+    /* 第二条注因累计超容量续页 */
+    expect(ids(first.notes ?? [])).toEqual(['n1']);
+    expect(ids(result.pages[1]!.notes ?? [])).toEqual(['n2']);
+  });
+
+  it('注区收缩正文容量：注后正文按「容量 − 注区」判页', () => {
+    const result = paginate([note('n1', 60), body('p1', 560), body('p2', 100)], {
+      pageMainSize: 600,
+      noteArea: { maxRatio: 0.4 },
+    });
+    /* 注区 60 → 正文容量 540：p1(560) 放不下整页续排？p1 不可拆 → 整块挪页 */
+    expect(ids(result.pages[0]!.items)).toEqual([]);
+    expect(ids(result.pages[0]!.notes ?? [])).toEqual(['n1']);
+    expect(ids(result.pages[1]!.items)).toEqual(['p1']);
+  });
+});

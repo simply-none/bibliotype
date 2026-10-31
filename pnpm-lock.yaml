@@ -558,6 +558,9 @@ importers:
       '@bibliotype/core':
         specifier: workspace:*
         version: link:../core
+      '@bibliotype/typography-cjk':
+        specifier: workspace:*
+        version: link:../typography-cjk
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^2.1.0
@@ -4535,6 +4538,22 @@ snapshots:
       chai: 5.3.3
       tinyrainbow: 1.2.0
 
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@20.19.43))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 5.4.21(@types/node@20.19.43)
+
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@22.20.5))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 5.4.21(@types/node@22.20.5)
+
   '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@26.6.5))':
     dependencies:
       '@vitest/spy': 2.1.9
@@ -6116,7 +6135,7 @@ snapshots:
   vitest@2.1.9(@types/node@20.19.43)(happy-dom@15.11.7):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@26.6.5))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@20.19.43))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9
@@ -6152,7 +6171,7 @@ snapshots:
   vitest@2.1.9(@types/node@22.20.5)(happy-dom@15.11.7):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@26.6.5))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.20.5))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

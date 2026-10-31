@@ -6,6 +6,8 @@ import { NODE_TYPES, createEmptyDocument, type BookDocument , type BookNode } fr
 import {
   DEFAULT_MEASURE_CONTEXT,
   defaultEstimator,
+  estimateLineCharOffsets,
+  estimateLineCount,
   extractBlocks,
   extractBlocksIndexed,
 } from '../document-blocks.js';
@@ -634,5 +636,31 @@ describe('defaultEstimator 行款折算（v2 批 4）', () => {
 
   it('挪抬并入首行扣减（space = 1 字位）', () => {
     expect(defaultEstimator(para('字'.repeat(40), { lift: 'space' }), context)).toBe(90);
+  });
+
+  it('缩进只扣首行（曾按全行扣减致长段行数虚高）：58 字低两格为 3 行而非 4 行', () => {
+    /* 旧口径 ceil(58/18)=4；正确构成 1 + ceil(38/20)=3（首行 18 字、后两行各 20 字） */
+    expect(defaultEstimator(para('字'.repeat(58), { indent: 2 }), context)).toBe(90);
+    expect(defaultEstimator(para('字'.repeat(58)), context)).toBe(90);
+  });
+});
+
+describe('estimateLineCharOffsets（估算行构成，切片回退同源）', () => {
+  it('与 estimateLineCount 行数一致，且末段恰好覆盖全文', () => {
+    const length = 58;
+    const offsets = estimateLineCharOffsets(length, 20, 2);
+    expect(offsets).toEqual([0, 18, 38]);
+    /* 按偏移切出的各行长度和 = 全文长度（切片不丢字不重字） */
+    const spans = offsets.map((start, i) =>
+      (offsets[i + 1] ?? length) - start,
+    );
+    expect(spans.reduce((sum, n) => sum + n, 0)).toBe(length);
+    expect(estimateLineCount(length, 20, 2)).toBe(offsets.length);
+  });
+
+  it('无缩进退化为均匀分布；空文本单行占位', () => {
+    expect(estimateLineCharOffsets(45, 20, 0)).toEqual([0, 20, 40]);
+    expect(estimateLineCharOffsets(0, 20, 2)).toEqual([]);
+    expect(estimateLineCount(0, 20, 2)).toBe(1);
   });
 });

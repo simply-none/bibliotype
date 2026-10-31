@@ -24,8 +24,7 @@ import {
   WRITING_MODES,
   isVerticalMode,
   mergeLayoutOptions,
-  resolveContentBox,
-  resolvePageBorderWidth,
+  resolvePageCrossSize,
   resolvePageMarginBox,
   type BlockAxis,
   type LayoutOptions,
@@ -191,26 +190,21 @@ function ensureSheet(): HTMLElement {
 /**
  * 套用与书页一致的排版（去掉栏 / 背景 / 边框，按单栏无框量尺）
  *
- * 交叉轴恒定尺（横排定宽 = 版心宽、直排定高 = 版心高，页边距 / 版框已扣），
- * 主轴随内容增长（直排下工作表向左变宽，行款与真实页一致）。
+ * 交叉轴恒定尺（横排定宽 = 版心宽、直排定高 = 版心高，页边距 / 版框已扣，
+ * 多栏时为单栏宽），主轴随内容增长（直排下工作表向左变宽，行款与真实页
+ * 一致）。不叠加 column-count：定尺已是单栏宽，再开多栏会二次除以栏数。
  */
 function applySheetStyle(
   sheet: HTMLElement,
   rootStyle: StyleDeclaration,
   axis: MeasureAxis,
   contentMain: number,
-  columns = 1,
 ): void {
   const skip = new Set(['column-count', 'column-gap', 'background-color', 'background', 'border']);
   sheet.style.cssText = '';
   for (const [prop, value] of Object.entries(rootStyle)) {
     if (skip.has(prop)) continue;
     sheet.style.setProperty(prop, value);
-  }
-  // 多栏时应用 CSS multi-column 布局，确保测量与渲染同源
-  if (columns > 1) {
-    sheet.style.columnCount = String(columns);
-    sheet.style.columnGap = rootStyle['column-gap'] ?? '0px';
   }
   // 定交叉轴尺、主轴随内容，离屏不可见但保留布局盒（visibility:hidden 仍产生度量）
   //
@@ -438,21 +432,26 @@ function renderMeasureSheet(
 
   const axis = mainAxisOf(options.writingMode);
   const tokens = input.tokens ?? DEFAULT_THEME;
-  const box = resolveContentBox(options.pageSize, resolveMargins(tokens));
-  // 书页盒 border-box：版框边框侵占内容区，量尺交叉轴尺寸需同步扣除保持同尺
-  const rawCross = (axis.vertical ? box.height : box.width) - resolvePageBorderWidth(tokens) * 2;
-  // 页眉页脚占位：从主轴尺寸中扣除，确保量尺与渲染同源
-  const pageChrome = options.pageChrome;
-  const chromeSize = pageChrome ? pageChrome.headerSize + pageChrome.footerSize : 0;
-  const availableMain = Math.max(0, rawCross - chromeSize);
   /*
-   * 多栏：正文在「栏宽」内换行，故按栏宽量尺；容量侧由分页器乘栏数。
-   * 栏间距从主题令牌解析（2.5em 之类换算为 px），保证测量与渲染同尺。
+   * 版心交叉轴与渲染同源：直接采用 resolvePageCrossSize（渲染侧权威口径）。
+   * 该函数的方向性语义：页眉页脚只在**直排**侵占交叉轴（天头地脚横条吃掉
+   * 列的行长）故扣减；**横排**下它们侵占主轴（由 resolvePageMainSize 扣减），
+   * 交叉轴不重复扣——曾在此按方向无关地手扣 chromeSize，横排行宽被系统性
+   * 压窄 headerSize+footerSize，量尺与渲染整体错尺。边框仅非仿真扣除，
+   * chrome 的 header/footer === 'none' 单侧跳过也由其处理。
+   */
+  const cross = resolvePageCrossSize(options, tokens);
+  /*
+   * 多栏：正文在「栏宽」内换行，故按**单栏宽**量尺（分页器容量侧乘栏数）。
+   * 工作表不再叠加 column-count：定尺即单栏宽，再开多栏会把栏宽二次除以
+   * N（2 栏时实测换行宽度 ≈ 版心宽/4），且 CSS balancing 会把块摊进多栏、
+   * offsetTop 推进量错乱。直排多栏未定义（直排的结构分截走 bands），
+   * 栏数 > 1 时按横排口径折算。
    */
   const columns = Math.min(3, Math.max(1, Math.round(options.columns ?? 1)));
   const gap = resolveColumnGapPx(tokens, columns);
   const contentMain =
-    columns > 1 ? (availableMain - gap * (columns - 1)) / columns : availableMain;
+    columns > 1 ? (cross - gap * (columns - 1)) / columns : cross;
 
   syncMeasureCss(tokens, options, input.fontToken, input.features);
   const sheet = ensureSheet();
@@ -461,7 +460,6 @@ function renderMeasureSheet(
     buildRootStyle({ tokens, options, fontToken: input.fontToken }),
     axis,
     contentMain,
-    columns,
   );
 
   // 块抽取：调用方已抽过（同源）则直接复用，避免同一文档重复全树遍历

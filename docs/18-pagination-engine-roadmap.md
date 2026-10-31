@@ -118,10 +118,10 @@ CSS 文本哈希只能锁样式字符串。用例在 `e2e/tests/vertical-pixel.s
 
 多栏直排为何不在本批：分栏数取自 IR 结构节点（`chapter` / `section`）的
 `attrs.columns`（`document-blocks` 的 `structureColumnsOf`），导入链路不写该属性、
-预览侧也无写入 UI；更关键的是分页容量按 `pageMainSize × columns` 计算，隐含
-「栏沿交叉轴并列、每栏主轴容量不变」的横排语义——直排下栏把页宽均分，主轴
-（页高）容量不翻倍，该式会低估页数。容量模型按书写方向区分前，用例不设
-依赖块级分栏的伪场景；多栏落地后另立 `c4` 用例并补 `flowStyleOf` 的直排分支覆盖。
+预览侧也无写入 UI；更关键的是分页容量按「栏沿交叉轴并列、每栏主轴容量不变」
+的横排语义定义——直排下栏把页宽均分，主轴（页高）容量不翻倍，容量模型按
+书写方向区分前，用例不设依赖块级分栏的伪场景；多栏落地后另立 `c4` 用例并补
+`flowStyleOf` 的直排分支覆盖。
 
 运行与基线更新：`pnpm build && pnpm e2e:pixel`；改动分页 / 量尺 / 版式后若确认
 差异符合预期，用 `pnpm e2e:update` 重写基线并在 changeset 中说明。
@@ -155,8 +155,17 @@ exportEpub(document, { profiler });
 console.log(profiler.reportText()); // 阶段 × 步骤耗时表；reportJson() 可 dump 成文件
 ```
 
-## 分栏与对页（P1-A 已落地）
+## 分栏与对页（P1-A 已落地；批次 2 重构）
 
-- 分页容量按 `pageMainSize × columns` 计算，`columns` 来自章节 / 节的 `attrs.columns`（1~3），栏数变化开新页。
-- 多栏量尺按栏宽实测（页宽扣栏间距后均分），不再回退字符估算。
+- 分栏容量模型为「**单序列 × 栏数容量**」：页容量 = 栏容量（`pageMainSize`）×
+  栏数，块沿主轴顺序装箱，不可拆块放不进当前列剩余空间时对齐到下一列首
+  （弃用列尾空白）——与渲染侧 CSS 多栏的顺序填充一致（曾按块数均分栏、每栏
+  独立分页再合并，阅读顺序跨页错乱且丢页底注，2026-10-31 修复）。
+- `columns` 单一通道：结构节点 `attrs.columns` 覆盖布局设置的 `columns`
+  （`extractBlocksIndexed` 的 `columns` 选项作全树缺省），分页 / 量尺 / 渲染
+  三方同源。
+- 多栏量尺按**单栏宽**实测（版心宽扣栏间距后均分），工作表不再叠加
+  `column-count`（曾二次除以栏数且 balancing 使推进量错乱）。
+- 分页器的分栏模型按横排语义定义；直排 + 多栏的组合未定义（直排的结构分截
+  走 bands），调用方应避免同时声明。
 - 对页（facing）在 `BtBookView` 渲染层实现；PDF 镜像打印与分栏符的列填充重算仍待后续批次。

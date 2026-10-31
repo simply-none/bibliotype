@@ -8,8 +8,13 @@
  * 纯函数：不读写 DOM，输出可缓存、可测试、可跨端（预览 / 导出 / PDF）复用。
  */
 
-/** 参与挤压判定的标点（全角收束性标点） */
-export const DEFAULT_SQUEEZE_CHARS = '。，、；：？！）〕］｝〉》」』】〗〙〛”’…‥·';
+/**
+ * 参与挤压判定的标点（全角收束性标点）
+ *
+ * 不含省略号「…」（U+2026）：GB/T 15834 规定省略号「……」占两字位（两个
+ * U+2026 连用），挤压第二个会把六点省略号压变形。
+ */
+export const DEFAULT_SQUEEZE_CHARS = '。，、；：？！）〕］｝〉》」』】〗〙〛”’‥·';
 
 /** 挤压选项 */
 export interface CompressionOptions {

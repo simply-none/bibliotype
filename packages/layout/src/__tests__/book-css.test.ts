@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_THEME, FONT_TOKENS } from '@bibliotype/core';
-import { buildBookCss, declarationToCss } from '../html/book-css.js';
+import { buildBookCss, declarationToCss, flattenCssVariables } from '../html/book-css.js';
 import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS } from '../layout-options.js';
 
 describe('buildBookCss', () => {
@@ -275,6 +275,61 @@ describe('buildBookCss', () => {
   });
 });
 
+describe('CJK 排印接线（@bibliotype/typography-cjk）', () => {
+  it('根容器恒输出禁则兜底三声明（横排 / 直排一致）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toMatch(/body \{[^}]*line-break: strict;/);
+    expect(css).toMatch(/body \{[^}]*word-break: normal;/);
+    expect(css).toMatch(/body \{[^}]*overflow-wrap: break-word;/);
+
+    const vertical = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: CLASSICAL_LAYOUT_OPTIONS,
+      containerSelector: '.bt-reader-page',
+    });
+    expect(vertical).toMatch(/\.bt-reader-page \{[^}]*line-break: strict;/);
+  });
+
+  it('可选能力缺省全关：不输出任何新声明（基线逐字符稳定）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).not.toContain('text-spacing-trim');
+    expect(css).not.toContain('text-autospace');
+    expect(css).not.toContain('hanging-punctuation');
+  });
+
+  it('cjkTypography 开关逐一输出可选声明', () => {
+    const all = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      cjkTypography: {
+        punctuationCompression: true,
+        mixedSpacing: true,
+        hangingPunctuation: true,
+      },
+    });
+    expect(all).toContain('text-spacing-trim: space-first;');
+    expect(all).toContain('text-autospace: normal;');
+    expect(all).toContain('hanging-punctuation: first last;');
+
+    const partial = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: DEFAULT_LAYOUT_OPTIONS,
+      cjkTypography: { mixedSpacing: true },
+    });
+    expect(partial).toContain('text-autospace: normal;');
+    expect(partial).not.toContain('text-spacing-trim');
+    expect(partial).not.toContain('hanging-punctuation');
+  });
+
+  it('overflow-wrap 收编到根容器一处（.bt-code-block 靠继承覆盖，不再重复声明）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect((css.match(/overflow-wrap: break-word;/g) ?? []).length).toBe(1);
+    const codeBlock = /\.bt-code-block \{[^}]*\}/.exec(css)?.[0] ?? '';
+    expect(codeBlock).toContain('white-space: pre-wrap;');
+    expect(codeBlock).not.toContain('overflow-wrap');
+  });
+});
+
 describe('declarationToCss', () => {
   it('序列化声明对象为 CSS 文本（每条一行、缩进两格）', () => {
     expect(declarationToCss({ width: '559px', color: 'red' })).toBe(
@@ -295,7 +350,7 @@ describe('行款属性降级（横排 / EPUB，v2 批 4）', () => {
     /* 无行款属性的段落不受影响（令牌缩进规则保持） */
     expect(css).toMatch(/\.bt-paragraph \{[^}]*text-indent: var\(--bt-text-indent-body\);/s);
   });
-});
+});
 
 describe('套印墨色与圈点双位（v2 批 6）', () => {
   it('data-ink 色层：朱 / 蓝 / 黄属性选择器取 --bt-ink-* 变量；monoInk 跳过', () => {
@@ -314,15 +369,45 @@ describe('套印墨色与圈点双位（v2 批 6）', () => {
     expect(mono).toContain('.bt-paragraph {');
   });
 
-  it('圈点双位：文法符号（data-position=grammar）居字右，句读缺省右下', () => {
+  it('圈点双位：句读缺省右下；grammar 变体不输出非法声明（基础规则已居字右）', () => {
     const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
     expect(css).toContain('.bt-mark-circle-emphasis {');
     expect(css).toContain('text-emphasis-position: under right;');
-    expect(css).toContain(".bt-mark-circle-emphasis[data-position='grammar'] {\n  text-emphasis-position: right center;\n}");
+    /* right center 是非法值（center 不是本属性关键字），所有浏览器整条丢弃——
+     * 2026-10-31 起删除该声明：直排下 under right 的 right 已满足「文法居字右」 */
+    expect(css).not.toContain('right center');
+    expect(css).not.toContain("[data-position='grammar'] {");
   });
 
   it('卷末总评：结构块样式（分隔线起首、注文色）', () => {
     const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
     expect(css).toMatch(/\.bt-general-review \{[^}]*border-block-start: 1px solid/s);
+  });
+});
+
+describe('flattenCssVariables（老引擎扁平化）', () => {
+  const build = (): string =>
+    buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS, flatten: true });
+
+  it('嵌套 var 回退（含括号函数）不再残留 var(', () => {
+    const css = build();
+    /* 曾用 [^()]* 量化的正则：回退含 calc(...) 时整条 var( 原样残留 */
+    expect(css).not.toContain('var(');
+  });
+
+  it(':root 块被移除、声明值落位（line-break 等根声明就地展开）', () => {
+    const css = build();
+    expect(css).not.toContain(':root');
+    expect(css).toContain('line-break: strict');
+  });
+
+  it('纯函数直测：互引 / 嵌套回退 / 带括号回退 / 未定义变量', () => {
+    const css = ':root {\n  --a: 1px;\n  --b: var(--a);\n}\n.x { m: var(--b); n: var(--c, var(--a)); o: var(--d, calc(2em + var(--a))); p: var(--e); }';
+    const flat = flattenCssVariables(css);
+    expect(flat).not.toContain(':root');
+    expect(flat).toContain('m: 1px');
+    expect(flat).toContain('n: 1px');
+    expect(flat).toContain('o: calc(2em + 1px)');
+    expect(flat).toContain('p: ;');
   });
 });

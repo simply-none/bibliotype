@@ -2,7 +2,13 @@
  * 尾注聚合：章末 / 书末重排、原文档不可变、脚注不受影响、导出接线。
  */
 import { describe, expect, it } from 'vitest';
-import { NODE_TYPES, createEmptyDocument, type BookDocument, type BookNode } from '@bibliotype/core';
+import {
+  MARK_TYPES,
+  NODE_TYPES,
+  createEmptyDocument,
+  type BookDocument,
+  type BookNode,
+} from '@bibliotype/core';
 import { strFromU8, unzipSync } from 'fflate';
 import { groupEndnotes } from '../endnotes.js';
 import { exportEpub } from '../epub.js';
@@ -144,6 +150,59 @@ describe('groupEndnotes：书末聚合', () => {
       children: [chapter('chap-1', '章一', [paragraph('正文')])],
     };
     expect(groupEndnotes(root, { scope: 'book' })).toEqual(root);
+  });
+});
+
+describe('exportEpub 尾注跨文件链接', () => {
+  it('书末聚合：正文注码与注文回链指向正确文件（同目录相对地址）', () => {
+    const doc = sampleDocument({
+      type: NODE_TYPES.BOOK,
+      children: [
+        {
+          type: NODE_TYPES.CHAPTER,
+          id: 'chap-1',
+          attrs: { title: '学而第一' },
+          children: [
+            {
+              type: NODE_TYPES.PARAGRAPH,
+              id: 'p-ref',
+              children: [
+                { type: NODE_TYPES.TEXT, text: '甲' },
+                {
+                  type: NODE_TYPES.TEXT,
+                  text: '1',
+                  marks: [
+                    {
+                      type: MARK_TYPES.NOTE_REF,
+                      attrs: { targetId: 'en-1', refId: 'ref-1' },
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              type: NODE_TYPES.ENDNOTE,
+              id: 'en-1',
+              attrs: { marker: '1', refId: 'ref-1' },
+              children: [paragraph('尾注一')],
+            },
+          ],
+        },
+        chapter('chap-2', '为政第二', [paragraph('丙')]),
+      ],
+    });
+    const files = readEntries(
+      exportEpub(doc, { modified: FIXED_MODIFIED, endnoteGrouping: 'book' }),
+    );
+    /* 章各成文件：sec-0 正文、sec-1 第二章、sec-2 书末注文 */
+    const sec0 = files['OEBPS/text/sec-0.xhtml'] ?? '';
+    const notes = files['OEBPS/text/sec-2.xhtml'] ?? '';
+    /* 注码（sec-0）指向书末注文（sec-2）：同目录相对地址 */
+    expect(sec0).toContain('href="sec-2.xhtml#en-1"');
+    expect(sec0).not.toContain('href="#en-1"');
+    /* 回链（sec-2 注文）指回正文注码（sec-0） */
+    expect(notes).toContain('href="sec-0.xhtml#ref-1"');
+    expect(notes).not.toContain('href="text/sec-0.xhtml#ref-1"');
   });
 });
 

@@ -32,6 +32,26 @@ describe('禁则判定', () => {
     expect(KINSOKU_PROFILES.ja.name).toBe('ja');
   });
 
+  it('日文长音 ー 只属日文禁则（中文配置移除残留）', () => {
+    expect(isForbiddenAtLineStart('ー', 'zh-Hans')).toBe(false);
+    expect(isForbiddenAtLineStart('ー', 'ja')).toBe(true);
+  });
+
+  it('半角收束标点与中点不可居行首（｡｣､・）', () => {
+    expect(isForbiddenAtLineStart('｡')).toBe(true);
+    expect(isForbiddenAtLineStart('｣')).toBe(true);
+    expect(isForbiddenAtLineStart('､')).toBe(true);
+    expect(isForbiddenAtLineStart('・')).toBe(true);
+  });
+
+  it('竖排开启括号不可居行尾（U+FE35~FE47 的开启形式）', () => {
+    for (const char of ['︵', '︷', '︹', '︻', '︽', '︿', '﹁', '﹃', '\uFE47']) {
+      expect(isForbiddenAtLineEnd(char)).toBe(true);
+    }
+    /* 收束性竖排括号（如 ︶）可在行尾，不属行尾禁则 */
+    expect(isForbiddenAtLineEnd('︶')).toBe(false);
+  });
+
   it('未知配置名回退缺省配置', () => {
     const profile = resolveKinsokuProfile('unknown' as 'zh-Hans');
     expect(profile.name).toBe('zh-Hans');
@@ -60,6 +80,18 @@ describe('findBreakOpportunities', () => {
 
   it('不切断代理对', () => {
     expect(findBreakOpportunities('😀好')).toEqual([2]);
+  });
+
+  it('ZWJ 组合序列不从中间断开（其前与其后均不可断）', () => {
+    /* 国 + ZWJ + 家：两处断点全部拦截 */
+    expect(findBreakOpportunities('国\u200d家')).toEqual([]);
+    /* emoji ZWJ 序列（👨‍👨）整体不可断 */
+    expect(findBreakOpportunities('\u{1F468}\u200d\u{1F468}')).toEqual([]);
+  });
+
+  it('变体选择符依附基字：其前不可断、其后可断', () => {
+    expect(findBreakOpportunities('字\uFE0F学')).toEqual([2]);
+    expect(findBreakOpportunities('字\uFE0E学')).toEqual([2]);
   });
 
   it('perCharacter 关闭后只在空白后断行', () => {

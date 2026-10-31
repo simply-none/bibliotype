@@ -10,6 +10,8 @@ import {
   cjkTypographyDeclarations,
   countMixedGaps,
   findPunctuationRuns,
+  isCjkLetter,
+  isCjkPunctuation,
   needsCjkLatinGap,
   totalSqueezeEm,
 } from '../index.js';
@@ -38,6 +40,43 @@ describe('标点挤压', () => {
     expect(buildCompressionAdjustments('ab', { squeezeChars: 'ab' })).toEqual([
       { offset: 1, char: 'b', squeezeEm: 0.5 },
     ]);
+  });
+
+  it('省略号 …… 不参与挤压（GB/T 15834：省略号占两字位，压缩会变形）', () => {
+    expect(findPunctuationRuns('……')).toEqual([]);
+    expect(buildCompressionAdjustments('……')).toEqual([]);
+    /* 其他收束性标点不受影响 */
+    expect(buildCompressionAdjustments('」。')).toEqual([
+      { offset: 1, char: '。', squeezeEm: 0.5 },
+    ]);
+  });
+});
+
+describe('字符分类', () => {
+  it('扩展 B~F 区汉字按完整码位判定（charCodeAt 高代理永不命中的回归）', () => {
+    expect(isCjkLetter('\u{20000}')).toBe(true);
+    expect(isCjkLetter('\u{2B740}')).toBe(true);
+    expect(isCjkPunctuation('\u{20000}')).toBe(false);
+    expect(classifyChar('\u{20000}')).toBe('cjk');
+    expect(needsCjkLatinGap('\u{20000}', 'a')).toBe(true);
+  });
+
+  it('General Punctuation 的中文标点：破折号 / 省略号 / 两点线 / 弯引号 / 间隔号', () => {
+    for (const char of ['—', '‥', '…', '‘', '’', '“', '”', '·']) {
+      expect(isCjkPunctuation(char)).toBe(true);
+    }
+  });
+
+  it('叠字符号 々〆 归字母；部首 / IDS / 笔画 / 半角片假名归字母', () => {
+    expect(isCjkLetter('々')).toBe(true);
+    expect(isCjkLetter('〆')).toBe(true);
+    expect(isCjkPunctuation('々')).toBe(false);
+    expect(isCjkLetter('\u{2E80}')).toBe(true); // 部首补充
+    expect(isCjkLetter('\u{2F00}')).toBe(true); // 康熙部首
+    expect(isCjkLetter('\u{2FF0}')).toBe(true); // 表意文字描述符
+    expect(isCjkLetter('\u{31C0}')).toBe(true); // 笔画
+    expect(isCjkLetter('ｱ')).toBe(true); // 半角片假名
+    expect(classifyChar('々')).toBe('cjk');
   });
 });
 

@@ -3,6 +3,7 @@
  *
  * 规则（简单、可预期、不猜意图）：
  * - 结构节点（卷/章/节/附录/序/跋/目录/封面等）中，**有非结构子节点**的节点各成一页；
+ * - 每个节点只归属一个输出页：父页只收「直属」内容，下级结构节点归各自子页（不重复）；
  * - 只有结构子节点、自身无内容的容器（常见于「卷」）不单独成页，直接向下递归；
  * - 直接挂在根下的零散内容块合并为一页「正文」，避免丢内容；
  * - 页路径按出现顺序编号（`section-1.html`），输出因此完全确定。
@@ -30,8 +31,15 @@ export const SITE_STRUCTURE_TYPES: ReadonlySet<string> = new Set([
 export interface PlannedSection {
   /** 目录项 */
   section: SiteSection;
-  /** 源节点（用于序列化正文） */
+  /** 源节点（用于标题解析与类型标识） */
   node: BookNode;
+  /**
+   * 本页直属内容（不含下级结构节点）
+   *
+   * 嵌套章节各自成页：父页只收直属内容，子节内容归子页，
+   * 保证每个节点只归属一个输出页（与 nav 层级一致）。
+   */
+  content: readonly BookNode[];
 }
 
 /** 分节规划结果 */
@@ -90,7 +98,7 @@ export function planSections(document: BookDocument): SectionPlan {
     return candidate;
   };
 
-  const emit = (node: BookNode, level: number, fallbackTitle: string): void => {
+  const emit = (node: BookNode, content: readonly BookNode[], level: number, fallbackTitle: string): void => {
     counter += 1;
     const id = makeId(node);
     sections.push({
@@ -102,6 +110,7 @@ export function planSections(document: BookDocument): SectionPlan {
         type: node.type,
       },
       node,
+      content,
     });
   };
 
@@ -116,14 +125,14 @@ export function planSections(document: BookDocument): SectionPlan {
       const content = children.filter((child) => !isStructureNode(child));
       const nested = children.filter((child) => isStructureNode(child));
       if (content.length > 0) {
-        emit(node, level, `第 ${counter + 1} 节`);
+        emit(node, content, level, `第 ${counter + 1} 节`);
       }
       if (nested.length > 0) {
         walk(nested, content.length > 0 ? level + 1 : level);
       }
       if (content.length === 0 && nested.length === 0) {
         // 空结构节点（占位章）：仍成页，便于作者后续补写
-        emit(node, level, '（空）');
+        emit(node, [], level, '（空）');
       }
     });
     return loose;
@@ -131,7 +140,7 @@ export function planSections(document: BookDocument): SectionPlan {
 
   const looseRoot = walk(document.root.children ?? [], 0);
   if (looseRoot.length > 0) {
-    emit({ type: NODE_TYPES.BOOK, children: looseRoot }, 0, '正文');
+    emit({ type: NODE_TYPES.BOOK, children: looseRoot }, looseRoot, 0, '正文');
   }
 
   if (sections.length === 0) {

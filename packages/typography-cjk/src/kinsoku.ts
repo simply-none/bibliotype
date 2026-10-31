@@ -20,17 +20,31 @@ export interface KinsokuProfile {
   forbiddenAtLineEnd: string;
 }
 
-/** 中文（简体）行头禁则：收束性标点 */
+/**
+ * 中文（简体）行头禁则：收束性标点
+ *
+ * 补充：半角句点 / 顿号 / 右角括（U+FF61/FF63/FF64）与中点「・」（U+30FB）；
+ * 日文长音「ー」（U+30FC）是日文专属符号，移出中文禁则、由 ja 配置补回。
+ */
 const ZH_HANS_FORBIDDEN_START =
-  '。，、；：？！）〕］｝〉》」』】〗〙〛”’…‥·ー々〻%‰℃°′″';
+  '。，、；：？！）〕］｝〉》」』】〗〙〛”’…‥·々〻%‰℃°′″' +
+  '\uFF61\uFF63\uFF64\u30FB';
 
-/** 中文（简体）行尾禁则：开启性标点 */
-const ZH_HANS_FORBIDDEN_END = '（〔［｛〈《「『【〖〘〚“‘';
+/**
+ * 中文（简体）行尾禁则：开启性标点
+ *
+ * 补充：竖排开启括号（U+FE35/FE37/FE39/FE3B/FE3D/FE3F/FE41/FE43/FE47——
+ * 括注 / 夹注在直排下的竖排形式，开启性与其横排对应字符一致）。
+ * U+FE48（竖排右方括）是收束形式，属行首禁则范畴，不在此列。
+ */
+const ZH_HANS_FORBIDDEN_END =
+  '（〔［｛〈《「『【〖〘〚“‘' +
+  '\uFE35\uFE37\uFE39\uFE3B\uFE3D\uFE3F\uFE41\uFE43\uFE47';
 
 /** 繁体补充：顿号变体、间隔号等 */
 const ZH_HANT_EXTRA_START = '﹑‧・';
 
-/** 日文补充：长音符、叠字符、小假名不可居行首 */
+/** 日文补充：长音符（中文禁则已移除的 U+30FC 归位于此）、叠字符、小假名不可居行首 */
 const JA_EXTRA_START = 'ー々〻ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ';
 
 /** 内置禁则配置 */
@@ -135,6 +149,17 @@ function canBreakAt(text: string, index: number, rules: BreakRules): boolean {
   const prev = text[index - 1] ?? '';
   const next = text[index] ?? '';
   if (isHighSurrogate(prev) && isLowSurrogate(next)) {
+    return false;
+  }
+  /*
+   * 零宽连字（ZWJ）两侧都不可断：它只存在于组合序列（emoji 家族等）中间，
+   * 断开任一侧都会把组合字形撕成两半、留下不可见的孤立码位。
+   */
+  if (next === '\u200d' || prev === '\u200d') {
+    return false;
+  }
+  /* 变体选择符（文本 / emoji 表现形式）依附前字，不可被推到行首 */
+  if (next === '\ufe0e' || next === '\ufe0f') {
     return false;
   }
   if (rules.start.has(next) || rules.end.has(prev)) {

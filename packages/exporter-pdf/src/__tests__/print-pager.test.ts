@@ -12,7 +12,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { DEFAULT_THEME, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
-import { CLASSICAL_LAYOUT_OPTIONS } from '@bibliotype/layout';
+import { CLASSICAL_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
 import { Reader } from '@bibliotype/reader';
 import { createPrintPager, renderPrintHtml } from '../print-document.js';
 import {
@@ -183,6 +183,87 @@ describe('createPrintPager 与 renderPrintHtml 产物一致性', () => {
     });
     expect(pager.pageCount).toBe(1);
     expect(pager.renderPage(0)).toContain('<section class="bt-page" data-page="1">');
+  });
+});
+
+describe('createPrintPager 直排仿真装饰位（paged）', () => {
+  /** 仿真直排版式（竖排 + 仿真版框；不启用书口 / 书耳 / 眉栏装饰） */
+  const FACSIMILE_LAYOUT: LayoutOptions = {
+    ...CLASSICAL_LAYOUT_OPTIONS,
+    facsimile: { preset: 'custom', frame: 'single', rule: 'ink' },
+  };
+
+  /** 含眉批（head-note）与旁注（margin-note）的直排文档 */
+  function decoratedDoc(): BookDocument {
+    const doc = createEmptyDocument({ title: '眉批', language: 'zh-Hant' });
+    doc.root.children = [
+      { type: NODE_TYPES.PARAGRAPH, id: 'p-0', children: [{ type: 'text', text: '正文' }] },
+      { type: 'head-note', id: 'hn-0', children: [{ type: 'text', text: '眉批一句' }] },
+      { type: NODE_TYPES.MARGIN_NOTE, id: 'mn-0', children: [{ type: 'text', text: '旁注一句' }] },
+    ];
+    return doc;
+  }
+
+  it('眉批 / 旁注只渲染一次（装饰位与正文流不重复）', () => {
+    const pager = createPrintPager(decoratedDoc(), {
+      mode: 'paged',
+      layout: FACSIMILE_LAYOUT,
+      ...PAGES_OPTS,
+    });
+    const html = pager.renderDocument();
+    /* 装饰位容器存在（天头 / 旁批宿主生效） */
+    expect(html).toContain('bt-page-eyebrow-host');
+    expect(html).toContain('bt-page-side-host');
+    /* 注文内容在整份文档中只出现一次 */
+    expect(html.split('眉批一句').length - 1).toBe(1);
+    expect(html.split('旁注一句').length - 1).toBe(1);
+  });
+});
+
+describe('createPrintPager 与修订视图（paged）', () => {
+  /** 修订样本：80 个带删除标记的段落（每块一页口径）+ 若干保留段落 */
+  function revisionsDoc(deletedCount: number, keptCount: number): BookDocument {
+    const doc = createEmptyDocument({ title: '修订' });
+    doc.root.children = [
+      ...Array.from({ length: deletedCount }, (_, index) => ({
+        type: NODE_TYPES.PARAGRAPH,
+        id: `del-${index}`,
+        children: [{ type: 'text', text: `删${index}`, marks: [{ type: 'deletion' }] }],
+      })),
+      ...Array.from({ length: keptCount }, (_, index) => ({
+        type: NODE_TYPES.PARAGRAPH,
+        id: `keep-${index}`,
+        children: [{ type: 'text', text: `留${index}` }],
+      })),
+    ];
+    return doc;
+  }
+
+  it('final 视图分页页数少于 marked 视图（被删内容不消耗分页容量）', () => {
+    const book = revisionsDoc(80, 10);
+    const marked = createPrintPager(book, { mode: 'paged', ...PAGES_OPTS, revisionView: 'marked' });
+    const finalView = createPrintPager(book, { mode: 'paged', ...PAGES_OPTS, revisionView: 'final' });
+    expect(marked.pageCount).toBe(90);
+    expect(finalView.pageCount).toBeLessThan(marked.pageCount);
+    expect(finalView.pageCount).toBe(10);
+  });
+
+  it('final 视图页面正文不含被删文字；marked 保留（删除线）', () => {
+    const book = revisionsDoc(80, 10);
+    const marked = createPrintPager(book, { mode: 'paged', ...PAGES_OPTS, revisionView: 'marked' });
+    const finalView = createPrintPager(book, { mode: 'paged', ...PAGES_OPTS, revisionView: 'final' });
+    const markedHtml = marked.renderDocument();
+    const finalHtml = finalView.renderDocument();
+    expect(markedHtml).toContain('删0');
+    expect(finalHtml).not.toContain('删0');
+    expect(finalHtml).toContain('留0');
+  });
+
+  it('缺省视图为 final（与 auto 模式口径一致）', () => {
+    const book = revisionsDoc(80, 10);
+    const pager = createPrintPager(book, { mode: 'paged', ...PAGES_OPTS });
+    expect(pager.pageCount).toBe(10);
+    expect(pager.renderDocument()).not.toContain('删0');
   });
 });
 

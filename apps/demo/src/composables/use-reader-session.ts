@@ -175,6 +175,10 @@ export function useReaderSession(deps: ReaderSessionDeps) {
       options: effectiveLayout.value,
       tokens: tokens.value,
       fontToken: activeFontToken.value,
+      /* 功能样式与渲染同源：度量签名含 features（会触发本函数），量尺也必须
+       * 应用同一份 features——07ad411 只接了编辑态，阅读态漏传导致改行高 /
+       * 段距类功能样式时分页归属与渲染错尺 */
+      features: deps.features.value,
       measure: typographyMeasure(),
     });
     blockSizes.value = sizes;

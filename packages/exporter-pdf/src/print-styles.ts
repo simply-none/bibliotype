@@ -169,8 +169,10 @@ export function buildPrintCss(input: PrintCssOptions): string {
 }`);
     if (facingGutter !== undefined && box !== undefined) {
       /*
-       * 对页镜像：`:right` = 右页（recto，奇数页），装订边在左；
-       * `:left` = 左页（verso，偶数页），装订边在右。两页其余三边等值。
+       * 对页镜像：`:right` = 右页（recto，奇数页），装订边在左 → gutter 加左；
+       * `:left` = 左页（verso，偶数页），装订边在右 → gutter 加右。
+       * verso 是 recto 的物理镜像：基础边距左右互换（不对称页边距时
+       * 外侧宽边、内侧窄边随页镜像，与装订书惯例一致）。
        */
       const top = box.top + bleedPx;
       const right = box.right + bleedPx;
@@ -180,7 +182,7 @@ export function buildPrintCss(input: PrintCssOptions): string {
   margin: ${top}px ${right}px ${bottom}px ${left + facingGutter}px;
 }
 @page :left {
-  margin: ${top}px ${right + facingGutter}px ${bottom}px ${left}px;
+  margin: ${top}px ${left}px ${bottom}px ${right + facingGutter}px;
 }`);
     }
     rules.push(`.bt-book > :first-child,
@@ -328,8 +330,9 @@ ${chromeVars}  break-after: page;
       /*
        * 对页镜像（paged）：`.bt-page-recto / .bt-page-verso` 由打印文档
        * 按页码奇偶打标（第 1 页为右页）。§ 版心带宽（直排书口）先并入
-       * 对应物理边，再叠加中缝补偿；四边全量重写，避免与 .bt-page 的
-       * padding 简写打架（同特异性，靠顺序决胜）。
+       * 对应物理边，再叠加中缝补偿；verso 为 recto 的物理镜像——基础
+       * 边距左右互换后 gutter 叠在 verso 右侧（装订边），四边全量重写，
+       * 避免与 .bt-page 的 padding 简写打架（同特异性，靠顺序决胜）。
        */
       const facLeft = gutterSide === 'left' ? gutterSize : 0;
       const facRight = gutterSide === 'right' ? gutterSize : 0;
@@ -341,7 +344,7 @@ ${chromeVars}  break-after: page;
   padding: ${top}px ${right}px ${bottom}px ${left + facingGutter}px;
 }
 .bt-page-verso {
-  padding: ${top}px ${right + facingGutter}px ${bottom}px ${left}px;
+  padding: ${top}px ${left}px ${bottom}px ${right + facingGutter}px;
 }`);
     }
     if (input.cropMarks === true && bleedPx > 0) {

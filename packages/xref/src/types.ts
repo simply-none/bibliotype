@@ -8,7 +8,7 @@
  * 本包只做索引与替换（纯函数），不依赖具体分页器：只要分页结果能给出每页出现过
  * 哪些块 id，就能建索引（`PageSource` 与 layout 的 `PaginatedPage` 结构兼容）。
  */
-import type { NodeId } from '@bibliotype/core';
+import type { BookDocument, NodeId } from '@bibliotype/core';
 
 /** 分页结果中单页的最小投影（与 layout.PaginatedPage 结构兼容） */
 export interface PageSource {
@@ -76,4 +76,39 @@ export interface LabelReferenceMatch {
   start: number;
   /** 结束偏移（不含） */
   end: number;
+}
+
+/** 收敛解析输入（两遍以上的循环排版） */
+export interface ResolveConvergedInput {
+  /** 含引用占位的文档 */
+  document: BookDocument;
+  /**
+   * 页码索引构建回调（调用方注入：结构投影 → 分页 → 索引）
+   *
+   * xref 只依赖 core，不做真实分页；每轮以替换后的文档重建索引，
+   * 「替换如何影响分页」完全由回调方决定。
+   */
+  reindex: (document: BookDocument) => PageIndex;
+  /**
+   * 引用替换回调（应为纯函数）
+   *
+   * 每轮都以**输入文档** + 当前索引调用（`replace(original, index_i)`）：
+   * 替换消耗占位符，在上一轮产物上继续替换会改不动已印出的页码，
+   * 无法收敛到「产物页码 = 产物分页」。
+   */
+  replace: (document: BookDocument, index: PageIndex) => BookDocument;
+  /** 最大轮数（缺省 3，下限 1） */
+  maxRounds?: number;
+}
+
+/** 收敛解析结果 */
+export interface ResolveConvergedResult {
+  /** 最后一轮替换后的文档（与 `index` 同轮） */
+  document: BookDocument;
+  /** 最终页码索引（描述 `document` 的分页） */
+  index: PageIndex;
+  /** 是否收敛：最后一轮替换后索引与替换前一致 */
+  converged: boolean;
+  /** 实际执行的替换轮数 */
+  rounds: number;
 }

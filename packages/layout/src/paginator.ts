@@ -115,8 +115,11 @@ export interface MeasurableBlock {
   /**
    * 本块所在结构节点的分栏数（1~3，缺省 1）
    *
-   * 分栏数变化时会开启新页（同一物理页内不混排不同栏数）；分页容量按
-   * `pageMainSize × columns` 计算，渲染侧用 CSS 多栏把整页内容分配到各栏。
+   * 分栏数变化时会开启新页（同一物理页内不混排不同栏数）；页容量按
+   * `pageMainSize × columns` 装箱，不可拆块放不进当前列剩余空间时对齐到
+   * 下一列首，渲染侧用 CSS 多栏把整页内容按序分配到各栏。多栏按横排
+   * 语义定义（每栏占满 pageMainSize 主轴）；直排 + 多栏的组合未定义
+   * （直排的结构分截走 bands），调用方应避免同时声明。
    */
   columns?: number;
 }
@@ -360,11 +363,13 @@ function paginateSingle(
     throw new RangeError(`pageMainSize 必须为正数：${pageMainSize}`);
   }
   /*
-   * 装箱容量 = 版心高 + 页底溢出：只影响「装得下」的判断，不改任何块的入账
-   * 尺寸（usedMainSize 仍是真实推进量之和，供上层量页底残留）。
+   * 装箱容量 = 页主轴容量 × 栏数 + 页底溢出：只影响「装得下」的判断，不改
+   * 任何块的入账尺寸（usedMainSize 仍是真实推进量之和，供上层量页底残留）。
+   * 多栏（columns > 1）按「单序列 × 栏数容量」装箱：块沿主轴顺序推进，
+   * 列边界在 k × pageMainSize；渲染侧 CSS 多栏把页内容按序分配到各栏。
    */
   const slack = options.bottomSlack ?? 0;
-  const capacity = pageMainSize + (slack > 0 ? slack : 0);
+  const capacity = pageMainSize * columns + (slack > 0 ? slack : 0);
   for (const block of blocks) {
     if (block.mainSize < 0) {
       throw new RangeError(`块 "${block.id}" 的 mainSize 不能为负：${block.mainSize}`);
@@ -436,14 +441,19 @@ function paginateSingle(
   /**
    * 放置一条页底注
    *
-   * 注区满（超过页面上限）或本页正文已排到无法共存时，注文整条续到下一页页底；
-   * 单条注自身超过上限时仍独占一页（避免死循环），交由渲染侧截断 / 拆条。
+   * 注区满（超过页面上限）或「正文 + 累计注文」放不下时，注文整条续到
+   * 下一页页底；单条注自身超过上限时仍独占一页（避免死循环），交由渲染侧
+   * 截断 / 拆条。记账口径：注区与正文共享页面容量，判断必须按
+   * 「正文已入账 + 全部注区（含本条）」累计——只按单条注判会叠出页底
+   * （正文 500 + 注 60 + 注 60 = 620 排进 600px 页的实证缺陷）。
    */
   function placeNote(block: MeasurableBlock): void {
     const size = costOf(block);
+    /* 空页（无正文也无注文）不判溢出：单条超限注独占一页由这里放行 */
+    const hasContent = cur.usedMainSize > 0 || cur.noteSize > 0;
     const overflow =
-      cur.noteSize > 0 &&
-      (cur.noteSize + size > noteLimit || cur.usedMainSize + size > capacity);
+      hasContent &&
+      (cur.noteSize + size > noteLimit || cur.usedMainSize + cur.noteSize + size > capacity);
     if (overflow) {
       cur = startPage();
       cur.notesCarried = true;
@@ -478,6 +488,29 @@ function paginateSingle(
     return Math.min(costOf(next), lineRangeMainSize(next, 0, minFirst));
   }
 
+  /**
+   * 多栏列边界对齐：原子块（含 keepWithNext 预留）放不进当前列剩余空间时，
+   * 弃用列尾空白、把推进量对齐到下一列首（块从新列顶格起写，仍在同页）。
+   *
+   * 容量模型：页容量 = 栏容量（pageMainSize）× 栏数，块沿主轴顺序推进；
+   * CSS 多栏按序填充各栏，不认分页器的栏归属——分页器只需保证两点：
+   * ① 页总量 ≤ 栏容量 × 栏数；② 不可拆块不跨列（跨列会被 break-inside
+   * 整体挪栏，产生分页器不知情的额外空白）。可拆块（段落）可跨列断行，
+   * 与 CSS 行为一致，无需对齐。
+   */
+  function padToNextColumn(required: number): void {
+    if (columns <= 1) return;
+    const pos = cur.usedMainSize % pageMainSize;
+    if (pos > 0 && pos + required > pageMainSize + SUBPIXEL_TOL) {
+      cur.usedMainSize += pageMainSize - pos;
+    }
+  }
+
+  /** 页面对正文是否为「真空页」（无正文也无注文——注文占页时正文须另起） */
+  function pageEmptyForBody(): boolean {
+    return cur.items.length === 0 && cur.noteSize === 0;
+  }
+
   /** 不可拆块：整块贪心放置（保持块原子版行为） */
   function placeAtomic(block: MeasurableBlock, next: MeasurableBlock | undefined): void {
     const keep = block.keepWithNext === true && next !== undefined && next.breakBefore !== true;
@@ -486,10 +519,13 @@ function paginateSingle(
     const required = keep
       ? block.mainSize + headSizeOf(block, next as MeasurableBlock)
       : costOf(block);
-    if (!fits(cur.usedMainSize, required, bodyCapacity()) && cur.items.length > 0) {
+    padToNextColumn(required);
+    // 「空页也必须放置」（超大块独占一页，避免死循环）只对真空页放行：
+    // 注文已占页时正文放不下须另起，否则注文与正文在页底重叠
+    if (!fits(cur.usedMainSize, required, bodyCapacity()) && !pageEmptyForBody()) {
       cur = startPage();
     }
-    // 空页也必须放置（超大块独占一页，避免死循环）；入账仍用推进量（含块尾间距）
+    // 入账仍用推进量（含块尾间距）
     pushFragment(block, 0, 0, block.mainSize);
   }
 
@@ -505,11 +541,11 @@ function paginateSingle(
       const avail = bodyCapacity() - cur.usedMainSize;
       let availLines = linesFitting(block, from, avail);
       if (availLines <= 0) {
-        if (cur.items.length > 0) {
+        if (!pageEmptyForBody()) {
           cur = startPage();
           continue;
         }
-        availLines = 1; // 空页至少推进一行
+        availLines = 1; // 病态页（行高 > 页）兜底推进
       }
 
       let take = Math.min(availLines, remaining);
@@ -626,15 +662,19 @@ function columnsOfBlock(block: MeasurableBlock): number {
 /**
  * 分页（公开入口，支持分栏）
  *
- * 分栏模型：一页可容纳 `pageMainSize × columns` 的正文，渲染侧用 CSS 多栏把
- * 整页内容分配到各栏。因此这里按「分栏数变化」把块切成若干组，组内以
- * `pageMainSize × columns` 作为单栏容量调用 `paginateSingle`，再把各组页顺序
- * 拼接 —— 避免改动单栏装箱核心的容差 / 孤寡行 / 注区逻辑。
+ * 分栏模型（单序列 × 栏数容量）：页容量 = 栏容量（pageMainSize）× 栏数，
+ * 块沿主轴顺序装箱，不可拆块放不进当前列剩余空间时对齐到下一列首
+ * （弃用列尾空白）；渲染侧用 CSS 多栏把整页内容按序分配到各栏。栏数
+ * 以「块所在结构节点的 columns 属性」为准（随结构树继承），栏数变化
+ * 即开新页（同一物理页内不混排不同栏数）。
  *
  * 约束：
  * - 同一物理页不混排不同栏数（栏数变化即开新页）；
- * - 分栏模式暂不支持增量续排（`resume` 被忽略），调用方需整篇重排；
- * - 栏数取 1~3，越界夹紧。
+ * - 跨栏数组（组间）不支持增量续排（`resume` 被忽略）；单一栏数组时
+ *   resume 语义与单栏一致；
+ * - 栏数取 1~3，越界夹紧；
+ * - 多栏与分截（bands）互斥：bands 时忽略 columns 分组，两截本固定单栏；
+ *   多栏与页底浮注（noteArea）可在单一栏数组内共存（注区容量按页总量计）。
  */
 export function paginate(
   blocks: readonly MeasurableBlock[],
@@ -719,48 +759,24 @@ function paginateInner(
     }
   }
 
-  if (groups.length === 1 && groups[0]!.columns === 1) {
-    return paginateSingle(blocks, options, 1);
+  /*
+   * 单一栏数组：单序列直通 paginateSingle（栏数进容量与列边界对齐；
+   * resume 语义天然成立——前缀页只由之前的块决定）。
+   */
+  if (groups.length === 1) {
+    const group = groups[0]!;
+    return paginateSingle(group.blocks, options, group.columns);
   }
 
+  /*
+   * 栏数变化切组：组间开新页（组内以该组栏数装箱），组页按序拼接。
+   * 跨组续排语义未定义，resume 被忽略（调用方需整篇重排）。
+   */
   const pages: PaginatedPage[] = [];
   for (const group of groups) {
-    if (group.columns === 1) {
-      // 单栏：直接分页
-      const result = paginateSingle(group.blocks, options, 1);
-      for (const page of result.pages) {
-        pages.push({ ...page, index: pages.length });
-      }
-    } else {
-      // 多栏：每栏独立分页，栏间按序拼接
-      // 将块均分到各栏（简单均分；后续可按块属性优化）
-      const blocksPerColumn = Math.ceil(group.blocks.length / group.columns);
-      const columnPages: PaginatedPage[][] = [];
-      for (let col = 0; col < group.columns; col += 1) {
-        const columnBlocks = group.blocks.slice(col * blocksPerColumn, (col + 1) * blocksPerColumn);
-        if (columnBlocks.length === 0) {
-          columnPages.push([]);
-          continue;
-        }
-        const result = paginateSingle(columnBlocks, { ...options, resume: undefined }, 1);
-        columnPages.push(result.pages);
-      }
-      // 合并各栏的页：第 i 页包含各栏的第 i 页
-      const totalPages = Math.max(...columnPages.map((pages) => pages.length), 1);
-      for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
-        const items = columnPages.flatMap((colPages) => colPages[pageIndex]?.items ?? []);
-        if (items.length === 0) continue;
-        pages.push({
-          index: pages.length,
-          items,
-          blocks: items.map((item) => item.block),
-          usedMainSize: columnPages.reduce(
-            (sum, colPages) => sum + (colPages[pageIndex]?.usedMainSize ?? 0),
-            0,
-          ),
-          columns: group.columns,
-        });
-      }
+    const result = paginateSingle(group.blocks, { ...options, resume: undefined }, group.columns);
+    for (const page of result.pages) {
+      pages.push({ ...page, index: pages.length });
     }
   }
 

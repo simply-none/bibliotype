@@ -18,8 +18,10 @@ import {
 } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
+  lineRuleOverhead,
   mergeLayoutOptions,
   paginate,
+  resolveLineRule,
   resolvePageMainSize,
   resolveBottomSlack,
   sliceNodeByCharRange,
@@ -34,6 +36,7 @@ import {
 import {
   DEFAULT_MEASURE_CONTEXT,
   defaultEstimator,
+  estimateLineCharOffsets,
   collectNodeText,
   extractBlocksIndexed,
   isLeafBlock,
@@ -360,6 +363,9 @@ export class Reader {
       lineMainSizes: this.lineMainSizes,
       bodySizes: this.bodySizes,
       axis: this.axis,
+      /* 分栏单通道：布局设置的 columns 作为全树缺省（结构节点 attrs 覆盖），
+       * 与渲染侧 column-count、量尺栏宽同源 */
+      columns: this.options.columns,
     });
     this.nodeById = extracted.nodeById;
     /* 文档内锚点索引：链接 hash → 叶块 id（注码 / 注文跨页定位的兜底链路，
@@ -676,8 +682,22 @@ export class Reader {
       const to = offsets[fromLine + lineCount] ?? Number.MAX_SAFE_INTEGER;
       return { from, to };
     }
+    /*
+     * 估算回退：与 defaultEstimator 同一行构成（首行缩进扣减，
+     * estimateLineCharOffsets）。曾按均匀 fromLine × charsPerLine 切，
+     * 与估算器口径互相矛盾——缩进段跨页切片错位 indentChars 个字符。
+     */
+    const node = this.nodeOf(id);
     const cpl = Math.max(1, this.measure.charsPerLine);
-    return { from: fromLine * cpl, to: (fromLine + lineCount) * cpl };
+    if (node === undefined) {
+      return { from: fromLine * cpl, to: (fromLine + lineCount) * cpl };
+    }
+    const length = collectNodeText(node).length;
+    const { firstLineIndentChars } = lineRuleOverhead(resolveLineRule(node));
+    const estimated = estimateLineCharOffsets(length, cpl, firstLineIndentChars);
+    const from = estimated[fromLine] ?? estimated[estimated.length - 1] ?? 0;
+    const to = estimated[fromLine + lineCount] ?? length;
+    return { from, to };
   }
 
   /** 当前页的展示页码（按配置的页码样式） */

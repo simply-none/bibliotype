@@ -49,10 +49,12 @@ bibliotype 以「书籍」为一等公民：统一的数据模型（IR）、可�
 ```text
 core → layout → reader → exporter-pdf / exporter-epub
 core → editor → classical（节点与命令扩展）
+core + typography-cjk → layout → reader → exporter-pdf / exporter-epub
+core → editor → classical（节点与命令扩展）
 core + editor + layout + reader → vue → apps/demo
 core → collab / adapter-indexeddb / adapter-sqlite / adapter-http
 collab → provider-websocket
-core → annotation / typography-cjk / textconvert
+core → annotation / textconvert
 core + layout → xref / exporter-site
 ```
 

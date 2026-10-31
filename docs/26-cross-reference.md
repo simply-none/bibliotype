@@ -85,6 +85,28 @@ EPUB / 站点导出的推荐顺序：
 
 注意：**先解引用再序列化**，否则占位符会被转义。
 
+### 自动收敛（`resolveReferencesConverged`）
+
+替换会改变文本长度（页码位数、缺失标记「？」），页码因此可能过期。
+`resolveReferencesConverged` 把「建索引 → 替换 → 比较」循环至多 `maxRounds`
+（缺省 3）轮，页码稳定即提前退出；不收敛返回最后一次结果并附
+`converged: false` 与 `rounds`：
+
+```ts
+import { resolveReferencesConverged } from '@bibliotype/xref';
+
+const result = resolveReferencesConverged({
+  document,                                  // 原文档（含占位符）
+  reindex: (doc) => buildPageIndex(paginate(extractBlocks(doc)).pages),
+  replace: (doc, index) => /* 对每个文本叶子替换，返回新文档 */,
+});
+// result.document：页码与自身分页一致的终稿；result.converged / result.rounds
+```
+
+语义要点：每轮都以**原文档 + 最新索引**重跑替换（占位符只在原稿上，
+不在上一轮产物上累积），保证「产物页码 = 产物分页」。`reindex` /
+`replace` 由调用方注入——xref 只依赖 core，不感知分页器。
+
 ## 五、索引词与书末索引附录（K4）
 
 对选中文字套用 `index-term` 标记（编辑器命令 `toggleIndexTerm(term?)`，

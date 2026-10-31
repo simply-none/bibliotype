@@ -331,31 +331,14 @@ const spreadPages = computed<SpreadPage[]>(() => {
     const firstBlock = nodes[0];
     const chrome = props.reader.getPageChromeTexts(index);
     const gutter = props.reader.getPageGutterTexts(index);
-    const parts = pageFlowParts(props.reader.getPageFragments(index));
+    /* 正文三段与 page 模式共用 renderPageParts：直排行内流 / 分截 / 装饰位
+     * 分流 / 续排前缀省略同源（曾独立写一份退回块级流 + 眉批双渲染） */
+    const parts = renderPageParts(index);
     const bands = props.reader.getPageBands(index);
-
-    // 分截渲染：按 band 分组
-    let html: string;
-    if (bands !== undefined) {
-      const grouped = groupNodesByBand(nodes, bands.count);
-      if (grouped !== undefined) {
-        html = grouped
-          .map((bandNodes, bandIndex) => {
-            const ratio = bands.ratios[bandIndex] ?? 1 / bands.count;
-            const content = bandNodes.map((node) => serializeNode(node)).join('\n');
-            return `<div class="bt-band" data-band-index="${bandIndex}" style="flex-grow: ${ratio}">${content}</div>`;
-          })
-          .join('\n');
-      } else {
-        html = nodes.map((node) => serializeNode(node)).join('\n');
-      }
-    } else {
-      html = nodes.map((node) => serializeNode(node)).join('\n');
-    }
 
     return {
       index,
-      html,
+      html: parts.body,
       columns: props.reader.getPageColumns(index),
       bands,
       header: chrome?.header ?? '',
@@ -439,8 +422,107 @@ function spreadPageStyle(page: SpreadPage) {
     return { flow, eyebrow, side };
   };
 
-  /** 当前页正文流（仿真直排下分流眉批 / 旁批） */
-  const pageParts = computed(() => pageFlowParts(pageNodes.value));
+  /**
+   * 续排片段标记表（页片段节点 → 是否为跨页续排的后续片段）
+   *
+   * `getPageFragments` 与 `pagination[pageIndex].items` 一一同序（逐条产出），
+   * 据此给续排片段（fromLine > 0）发 omitRulePrefix——低格 / 抬头属于段首，
+   * 续页重发会重复缩进（与编辑画布、打印同口径）。节点缺失（文档与分页
+   * 结果短暂不一致）时返回 undefined，调用方退化为不省略前缀。
+   */
+  function continuationFlagsOf(pageIndex: number): ReadonlyMap<BookNode, boolean> | undefined {
+    const items = props.reader.pagination[pageIndex]?.items;
+    if (items === undefined) return undefined;
+    const fragments = props.reader.getPageFragments(pageIndex);
+    if (fragments.length !== items.length) return undefined;
+    const flags = new Map<BookNode, boolean>();
+    for (let i = 0; i < items.length; i += 1) {
+      const node = fragments[i];
+      if (node !== undefined) flags.set(node, (items[i]?.fromLine ?? 0) > 0);
+    }
+    return flags;
+  }
+
+  /** 按节点直排行内流序列化（续排片段省略行款前缀） */
+  function serializeVerticalFlowNodes(
+    nodes: readonly BookNode[],
+    flags: ReadonlyMap<BookNode, boolean> | undefined,
+  ): string {
+    const charsPerColumn = readerColumnCapacity.value;
+    return nodes
+      .map((node) =>
+        serializeVerticalFlow([node], {
+          charsPerColumn,
+          omitRulePrefix: flags?.get(node) ?? false,
+        }),
+      )
+      .join('');
+  }
+
+  /** 分截容器 HTML（横排 / 直排共用外层；content 由调用方按书写方向产出） */
+  function bandsContainer(
+    grouped: readonly (readonly BookNode[])[],
+    bands: { count: number; ratios: readonly number[] },
+    contentOf: (bandNodes: readonly BookNode[]) => string,
+  ): string {
+    return grouped
+      .map((bandNodes, index) => {
+        const ratio = bands.ratios[index] ?? 1 / bands.count;
+        return `<div class="bt-band" data-band-index="${index}" style="flex-grow: ${ratio}">${contentOf(bandNodes)}</div>`;
+      })
+      .join('\n');
+  }
+
+  /**
+   * 单页正文三段产出（page / spread / scroll 三模式唯一入口）
+   *
+   * 直排行内流连排（段落行内化 / 夹注双列盒 / 行款标记，续排片段省略前缀）
+   * 与横排块级序列化在此收口——三模式各写一份曾出现：对页 / 滚动退回块级
+   * 流（版面半空）、眉批旁批同时进正文流与装饰位（双份）、续排片段重发行款。
+   * 分截页按 band 分组（分组前先分流装饰节点，装饰位不再重复渲染）。
+   */
+  function renderPageParts(
+    pageIndex: number,
+  ): { body: string; eyebrow: string; side: string } {
+    const fragments = props.reader.getPageFragments(pageIndex);
+    const nodes = fragments.filter((node) => !isTextNode(node));
+    const bands = props.reader.getPageBands(pageIndex);
+    if (!verticalWriting.value) {
+      if (bands !== undefined) {
+        const grouped = groupNodesByBand(nodes, bands.count);
+        if (grouped !== undefined) {
+          return {
+            body: bandsContainer(grouped, bands, (bandNodes) =>
+              bandNodes.map((node) => serializeNode(node)).join('\n'),
+            ),
+            eyebrow: '',
+            side: '',
+          };
+        }
+      }
+      return { body: nodes.map((node) => serializeNode(node)).join('\n'), eyebrow: '', side: '' };
+    }
+    /* 直排：先分流眉批 / 旁批，再分截 / 连排——flow 不再含装饰节点 */
+    const parts = pageFlowParts(nodes);
+    const flags = continuationFlagsOf(pageIndex);
+    if (bands !== undefined) {
+      const grouped = groupNodesByBand(parts.flow, bands.count);
+      if (grouped !== undefined) {
+        return {
+          body: bandsContainer(grouped, bands, (bandNodes) =>
+            serializeVerticalFlowNodes(bandNodes, flags),
+          ),
+          eyebrow: parts.eyebrow,
+          side: parts.side,
+        };
+      }
+    }
+    return {
+      body: serializeVerticalFlowNodes(parts.flow, flags),
+      eyebrow: parts.eyebrow,
+      side: parts.side,
+    };
+  }
 
   /**
    * 当前页 HTML 片段（文本叶子不输出）
@@ -448,41 +530,14 @@ function spreadPageStyle(page: SpreadPage) {
    * 直排（古籍直排 / 仿真）走**行内流连排**（v2 批 2）：段落行内化、
    * 双行夹注双列小字盒、低格 / 抬头 / 提行随文标记，容器 `.bt-vflow`
    * 自然换列——与 CSS 块流「段段换列」的半空版面相对；横排维持块级序列化。
-   *
    * 分截（两截本 / 三截本）：按 bands 分组，每截独立容器，比例由 CSS flex-grow 控制。
    */
-  const pageHtml = computed(() => {
-    const bands = currentPageBands.value;
-    const nodes = pageNodes.value.filter((node) => !isTextNode(node));
-
-    // 分截渲染：按 band 分组，每截独立容器
-    if (bands !== undefined) {
-      const grouped = groupNodesByBand(nodes, bands.count);
-      if (grouped !== undefined) {
-        return grouped
-          .map((bandNodes, index) => {
-            const ratio = bands.ratios[index] ?? 1 / bands.count;
-            const content = verticalWriting.value
-              ? serializeVerticalFlow(bandNodes, { charsPerColumn: readerColumnCapacity.value })
-              : bandNodes.map((node) => serializeNode(node)).join('\n');
-            return `<div class="bt-band" data-band-index="${index}" style="flex-grow: ${ratio}">${content}</div>`;
-          })
-          .join('\n');
-      }
-    }
-
-    // 非分截：原有逻辑
-    if (verticalWriting.value) {
-      return serializeVerticalFlow(pageParts.value.flow, {
-        charsPerColumn: readerColumnCapacity.value,
-      });
-    }
-    return nodes.map((node) => serializeNode(node)).join('\n');
-  });
+  const currentPageParts = computed(() => renderPageParts(currentPage.value));
+  const pageHtml = computed(() => currentPageParts.value.body);
 
   /** 眉批天头容器 / 旁批界行外容器 / 书耳 / 眉栏线（当前页） */
-  const pageEyebrowHtml = computed(() => pageParts.value.eyebrow);
-  const pageSideHtml = computed(() => pageParts.value.side);
+  const pageEyebrowHtml = computed(() => currentPageParts.value.eyebrow);
+  const pageSideHtml = computed(() => currentPageParts.value.side);
   const earHtml = computed(() =>
     serializePageEar(props.reader.getPageEarText(currentPage.value), layout.value.facsimile),
   );
@@ -1109,37 +1164,18 @@ const renderedPages = computed<RenderedPage[]>(() => {
   const step = stride.value;
   const list: RenderedPage[] = [];
   for (let i = start; i <= end; i += 1) {
-    const nodes = props.reader.getPageFragments(i);
-    const blockNodes = nodes.filter((node) => !isTextNode(node));
+    const blockNodes = props.reader.getPageFragments(i).filter((node) => !isTextNode(node));
     const firstBlock = blockNodes[0];
     const chrome = props.reader.getPageChromeTexts(i);
     const gutter = props.reader.getPageGutterTexts(i);
-    const parts = pageFlowParts(props.reader.getPageFragments(i));
+    /* 正文三段与 page 模式共用 renderPageParts（同源直排行内流 / 分截 / 装饰位） */
+    const parts = renderPageParts(i);
     const bands = props.reader.getPageBands(i);
-
-    // 分截渲染：按 band 分组
-    let html: string;
-    if (bands !== undefined) {
-      const grouped = groupNodesByBand(blockNodes, bands.count);
-      if (grouped !== undefined) {
-        html = grouped
-          .map((bandNodes, bandIndex) => {
-            const ratio = bands.ratios[bandIndex] ?? 1 / bands.count;
-            const content = bandNodes.map((node) => serializeNode(node)).join('\n');
-            return `<div class="bt-band" data-band-index="${bandIndex}" style="flex-grow: ${ratio}">${content}</div>`;
-          })
-          .join('\n');
-      } else {
-        html = blockNodes.map((node) => serializeNode(node)).join('\n');
-      }
-    } else {
-      html = blockNodes.map((node) => serializeNode(node)).join('\n');
-    }
 
     list.push({
       index: i,
       mainPos: SCROLL_PADDING + i * step,
-      html,
+      html: parts.body,
       gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
       notesHtml: pageNotesHtmlOf(i),
       earHtml: serializePageEar(props.reader.getPageEarText(i), layout.value.facsimile),

@@ -80,12 +80,13 @@ describe('buildPagedLayout', () => {
     disposeMeasureSheet();
   });
 
-  it('多栏不可用', () => {
+  it('多栏编辑画布可用（9562ad2 起解禁，happy-dom 无布局时走估算分页）', () => {
     const result = buildPagedLayout({
       doc: docWithParagraphs(['子曰学而时习之']),
       options: { ...DEFAULT_LAYOUT_OPTIONS, columns: 2 },
     });
-    expect(result.usable).toBe(false);
+    expect(result.usable).toBe(true);
+    expect(result.pages.length).toBeGreaterThanOrEqual(1);
   });
 
   it('超长段落按行跨页续排：存在续排片段且片段文本为原文子串', () => {

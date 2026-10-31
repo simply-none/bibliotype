@@ -116,15 +116,16 @@ describe('脏 epub 导入导出往返：产物格式良好', () => {
     expect(all).toContain('😀');
   });
 
-  it('扁平文档的目录由顶层标题重建（nav / ncx 非空）', () => {
+  it('扁平文档的目录由顶层标题重建（nav / ncx 非空，h1~h6 全层级）', () => {
     const ncx = at('OEBPS/toc.ncx');
     const nav = at('OEBPS/nav.xhtml');
     expect(nav).not.toContain('<ol></ol>');
-    expect((ncx.match(/<navPoint /g) ?? []).length).toBe(3);
+    /* 7308491 起目录放宽为 h1~h6 栈式嵌套（与阅读器目录面板同口径），h3 亦入目录 */
+    expect((ncx.match(/<navPoint /g) ?? []).length).toBe(4);
     expect(ncx).toContain('第一篇');
     expect(ncx).toContain('第一节');
     expect(ncx).toContain('第二篇');
-    expect(ncx).not.toContain('太深不入目录');
+    expect(ncx).toContain('太深不入目录');
   });
 
   it('包内图片内联为 data URI，导出打包为 media 独立文件（不再是死链）', () => {

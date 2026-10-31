@@ -112,9 +112,12 @@ export {
 } from './line-rules.js';
 export {
   splitDoubleNoteLines,
+  planDoubleNoteColumns,
   doubleNotePlaceholderChars,
   collectNodeTextOf,
   type NotePair,
+  type NotePairPlan,
+  type NoteColumnSpan,
   type SplitDoubleNoteOptions,
 } from './double-note-split.js';
 export type { FacsimileFrameThickness, FacsimileGrid } from './facsimile-geometry.js';

@@ -21,6 +21,7 @@ import {
   collectNodeChars,
   coverageIncompleteWarning,
   isFallbackCovered,
+  pageNumberStyleChars,
   prepareFontBundle,
   resolveFallbackChain,
   sanitizeFontSlug,
@@ -130,6 +131,33 @@ describe('用字统计', () => {
     collectNodeChars(paragraph('p', 'ab'), counts);
     expect([...counts.keys()]).toEqual(['a', 'b']);
   });
+
+  it('extraSources：元数据与版面装饰文本并入统计', () => {
+    const doc = createEmptyDocument({ title: '元数据' });
+    doc.root.children = [paragraph('p1', '正文')];
+    const usage = collectDocumentChars(doc, {
+      extraSources: {
+        metadata: ['王维'],
+        chrome: ['·', pageNumberStyleChars('chinese')],
+      },
+    });
+    expect(usage.chars).toContain('王');
+    expect(usage.chars).toContain('维');
+    expect(usage.chars).toContain('·');
+    /* 中文页码字符集折算后并入：一二三……十百千万 */
+    expect(usage.chars).toContain('一');
+    expect(usage.chars).toContain('三');
+    expect(usage.chars).toContain('十');
+  });
+
+  it('页码字符集按样式折算（中文 / 阿拉伯 / 罗马）', () => {
+    expect(pageNumberStyleChars('chinese')).toContain('一');
+    expect(pageNumberStyleChars('chinese')).toContain('三');
+    expect(pageNumberStyleChars('decimal')).toBe('0123456789');
+    expect(pageNumberStyleChars('roman').toUpperCase()).toContain('V');
+    /* 未知样式返回空串（调用方无需判空） */
+    expect(pageNumberStyleChars('unknown')).toBe('');
+  });
 });
 
 describe('字体回退链（与 K6 同口径）', () => {
@@ -230,6 +258,14 @@ describe('prepareFontBundle', () => {
     expect(bundle.report.reduction).toBe(0);
     expect(bundle.warnings[0]).toContain('未提供子集化后端');
     expect(bundle.warnings.some((warning) => warning.includes('子集化后端'))).toBe(true);
+  });
+
+  it('extraSources 透传：版面装饰文本并入报告字符集（中文页码开启后含一二三）', async () => {
+    const bundle = await prepareFontBundle(bigDocument(), [], {
+      extraSources: { chrome: [pageNumberStyleChars('chinese')] },
+    });
+    expect(bundle.report.chars).toContain('一');
+    expect(bundle.report.chars).toContain('三');
   });
 
   it('空文档：不子集（避免产出空字体），仍嵌入原字节', async () => {

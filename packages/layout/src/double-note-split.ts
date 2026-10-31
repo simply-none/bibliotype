@@ -25,12 +25,110 @@ export interface SplitDoubleNoteOptions {
 /** 一对子列：[右列文本, 左列文本]（右列先读；空串 = 该列留白） */
 export type NotePair = readonly [string, string];
 
+/** 子列窗口：注文源文本的 UTF-16 码元半开区间 [start, end) */
+export interface NoteColumnSpan {
+  start: number;
+  end: number;
+}
+
+/** 一对子列的切分计划（文本与窗口同源，供切片 / 纯文本两类消费方共用） */
+export interface NotePairPlan {
+  /** 右 / 左子列文本（已代理对防劈） */
+  pair: NotePair;
+  /** 右列码元窗口（与 sliceNodeByCharRange / collectNodeText / DOM Range 同轴） */
+  right: NoteColumnSpan;
+  /** 左列码元窗口（留白列为零宽区间） */
+  left: NoteColumnSpan;
+  /** 本对右列是否缩格（仅首对可真：渲染侧在右列首补 1 字位空位盒） */
+  indented?: boolean;
+}
+
 /**
  * 节点聚合文本（与 node-slice / 估算器同口径；layout 内联避免反向依赖）
  */
 export function collectNodeTextOf(node: BookNode): string {
   if (isTextNode(node)) return node.text ?? '';
   return (node.children ?? []).reduce((sum, child) => sum + collectNodeTextOf(child), '');
+}
+
+/**
+ * 码元边界防劈代理对：边界落在高低代理之间时回退一位（整对归前段）
+ *
+ * 文本轴统一为 UTF-16 码元（与 `nodeTextLength` / `collectNodeText` / DOM
+ * Range 一致），astral 字符（扩展 B–F 区汉字、emoji）的列边界可能落在
+ * 代理对中间——回退一位宁可该列少排一字，也不产出孤代理（孤代理经序列化
+ * 即非法 XML，EPUB 整本拒开）。
+ */
+function snapBoundary(text: string, pos: number): number {
+  const prev = text.charCodeAt(pos - 1);
+  const next = text.charCodeAt(pos);
+  if (
+    pos > 0 &&
+    pos < text.length &&
+    prev >= 0xd800 &&
+    prev <= 0xdbff &&
+    next >= 0xdc00 &&
+    next <= 0xdfff
+  ) {
+    return pos - 1;
+  }
+  return pos;
+}
+
+/**
+ * 拆分双行夹注为「子列对 + 码元窗口」计划（切分的唯一事实源）
+ *
+ * 文本轴为 UTF-16 码元：窗口直接喂 {@link sliceNodeByCharRange}（行内标记
+ * 随子列保留），文本窗口互为镜像，二者不可能漂移。代理对按
+ * {@link snapBoundary} 防劈。
+ *
+ * @param text 注文全文（`collectNodeTextOf` 产物）
+ * @param charsPerSmallLine 每子列可容纳的小字数（= 每行大字数 × 2）
+ * @param options 见 {@link SplitDoubleNoteOptions}
+ */
+export function planDoubleNoteColumns(
+  text: string,
+  charsPerSmallLine: number,
+  options: SplitDoubleNoteOptions = {},
+): NotePairPlan[] {
+  const capacity = Math.max(1, Math.round(charsPerSmallLine));
+  const plans: NotePairPlan[] = [];
+  const total = text.length;
+
+  /** 按窗口取列文本（已防劈，边界即安全码元位） */
+  const columnText = (span: NoteColumnSpan): string =>
+    text.slice(span.start, span.end);
+
+  let index = 0;
+  /* 首对右列少排一位（窗口 [0, cap-1)）并标记 indented：渲染侧在右列首补
+   * 1 字位空位盒，实现「夹注起于行中、注首低一格」；短注（≤ cap-1 字）
+   * 不做缩格——空位盒与缩窗必须同时发生，否则该列多占 / 少占一格 */
+  if (options.indentFirstPair === true && total > capacity - 1 && capacity > 1) {
+    const end = snapBoundary(text, capacity - 1);
+    const right: NoteColumnSpan = { start: 0, end };
+    plans.push({ pair: [columnText(right), ''], right, left: { start: end, end }, indented: true });
+    index = end;
+  }
+
+  while (index < total) {
+    const rightEnd = snapBoundary(text, Math.min(index + capacity, total));
+    const right: NoteColumnSpan = { start: index, end: rightEnd };
+    let left: NoteColumnSpan = { start: rightEnd, end: rightEnd };
+    if (rightEnd < total) {
+      const leftEnd = snapBoundary(text, Math.min(rightEnd + capacity, total));
+      left = { start: rightEnd, end: leftEnd };
+      index = leftEnd;
+    } else {
+      index = rightEnd;
+    }
+    plans.push({ pair: [columnText(right), columnText(left)], right, left });
+  }
+
+  /* 空文本：一对空列（渲染为空盒，保持占位语义可预测） */
+  if (plans.length === 0) {
+    plans.push({ pair: ['', ''], right: { start: 0, end: 0 }, left: { start: 0, end: 0 } });
+  }
+  return plans;
 }
 
 /**
@@ -49,29 +147,7 @@ export function splitDoubleNoteLines(
   charsPerSmallLine: number,
   options: SplitDoubleNoteOptions = {},
 ): NotePair[] {
-  const capacity = Math.max(1, Math.round(charsPerSmallLine));
-  const chars = [...text];
-  const pairs: NotePair[] = [];
-  let index = 0;
-
-  /* 首对右列留空一位：夹注起于行中（被注字之后），右列首字低一格 */
-  if (options.indentFirstPair === true && chars.length > capacity - 1 && capacity > 1) {
-    const right = chars.slice(0, capacity - 1).join('');
-    index = capacity - 1;
-    pairs.push([right, '']);
-  }
-
-  while (index < chars.length) {
-    const right = chars.slice(index, index + capacity).join('');
-    index += capacity;
-    const left = chars.slice(index, index + capacity).join('');
-    index += capacity;
-    pairs.push([right, left]);
-  }
-
-  /* 空文本：一对空列（渲染为空盒，保持占位语义可预测） */
-  if (pairs.length === 0) pairs.push(['', '']);
-  return pairs;
+  return planDoubleNoteColumns(text, charsPerSmallLine, options).map((plan) => plan.pair);
 }
 
 /**

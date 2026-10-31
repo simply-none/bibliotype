@@ -208,7 +208,7 @@ describe('PdfSegmentDialog 分段导出', () => {
 
     const container = mountDialog(runner);
     /* 2 个分卷默认全选 */
-    const checks = queryAll<HTMLInputElement>('.seg-dialog__plan-check');
+    const checks = queryAll('.seg-dialog__plan-check') as HTMLInputElement[];
     expect(checks).toHaveLength(2);
     expect(container.textContent).toContain('已选 2 / 2 卷');
 

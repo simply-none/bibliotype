@@ -63,6 +63,16 @@ describe('suggestJudou', () => {
     expect(judouMarkerRange({ offset: 0 }, '子曰学')).toBeUndefined();
     expect(judouMarkerRange({ offset: 99 }, '子曰学')).toBeUndefined();
   });
+
+  it('judouMarkerRange astral 前字覆盖完整代理对（不产出孤代理）', () => {
+    /* 「𠮷」占 2 码元：offset=2（𠮷 之后）→ 前字为 astral，区间回退到 [0,2) */
+    expect(judouMarkerRange({ offset: 2 }, '𠮷也')).toEqual({ start: 0, end: 2 });
+    /* mark 切出的区间必须是合法 UTF-16（不得劈开代理对） */
+    const wrapped = '𠮷也'.slice(0, 2);
+    expect(wrapped).toBe('𠮷');
+    /* offset=3（也 之后）→ 前字为 BMP「也」，区间不变 */
+    expect(judouMarkerRange({ offset: 3 }, '𠮷也')).toEqual({ start: 2, end: 3 });
+  });
 });
 
 describe('detectProperNames', () => {

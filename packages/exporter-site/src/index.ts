@@ -28,7 +28,9 @@ export type { NavTarget, SectionPageInput, IndexPageInput, SiteCssInput } from '
 /* ---------- 搜索索引 ---------- */
 export {
   SITE_SEARCH_INDEX_VERSION,
+  DEFAULT_SEARCH_VIEW,
   normalizeSearchText,
+  nodePlainTextForView,
   buildSearchEntry,
   serializeSearchIndex,
 } from './search.js';

@@ -7,23 +7,33 @@
 
 /** 全角 / 中文标点区间 */
 const CJK_PUNCTUATION_RANGES: readonly (readonly [number, number])[] = [
-  [0x3000, 0x303f], // CJK 符号和标点
+  [0x00b7, 0x00b7], // · 间隔号
+  [0x2014, 0x2014], // — 破折号（General Punctuation）
+  [0x2018, 0x201d], // '' "" 弯引号
+  [0x2025, 0x2026], // ‥ 两点线 / … 省略号
+  [0x3000, 0x3004], // CJK 符号和标点（々〆 U+3005/3006 为叠字符号，归字母）
+  [0x3007, 0x303f], // CJK 符号和标点（余部）
   [0xfe10, 0xfe1f], // 竖排标点
   [0xfe30, 0xfe4f], // CJK 兼容形式
   [0xff01, 0xff0f], // 全角 ASCII 标点（！＂＃…）
   [0xff1a, 0xff20], // 全角 ：；＜＝＞？＠
   [0xff3b, 0xff40], // 全角 ［＼］＾＿｀
-  [0xff5b, 0xff65], // 全角 ｛｜｝～ 等
+  [0xff5b, 0xff65], // 全角 ｛｜｝～ 与半角 ｡｢｣､･
 ];
 
 /** 汉字 / 假名 / 谚文区间 */
 const CJK_LETTER_RANGES: readonly (readonly [number, number])[] = [
+  [0x2e80, 0x2fdf], // 部首区（CJK 部首补充 + 康熙部首）
+  [0x2ff0, 0x2fff], // 表意文字描述符（IDS，缺字合成用）
+  [0x3005, 0x3006], // 々〆 叠字符号
   [0x3040, 0x30ff], // 平假名 / 片假名
+  [0x31c0, 0x31ef], // 笔画
   [0x3400, 0x4dbf], // 扩展 A
   [0x4e00, 0x9fff], // 基本区
   [0xf900, 0xfaff], // 兼容汉字
   [0xac00, 0xd7af], // 谚文音节
   [0x20000, 0x2fa1f], // 扩展 B~F / 兼容补充
+  [0xff66, 0xff9f], // 半角片假名
 ];
 
 function inRanges(code: number, ranges: readonly (readonly [number, number])[]): boolean {
@@ -35,20 +45,24 @@ function inRanges(code: number, ranges: readonly (readonly [number, number])[]):
   return false;
 }
 
-/** 是否 CJK 标点（全角标点、竖排标点） */
+/** 是否 CJK 标点（全角标点、竖排标点、弯引号 / 省略号 / 破折号 / 间隔号） */
 export function isCjkPunctuation(char: string): boolean {
   if (!char) {
     return false;
   }
-  return inRanges(char.charCodeAt(0), CJK_PUNCTUATION_RANGES);
+  /* 用 codePointAt 取完整码位：charCodeAt 对扩展 B~F 区汉字只会得到
+   * 高代理（0xD800~0xDBFF），永远命中不了 0x20000+ 的区间 */
+  const code = char.codePointAt(0);
+  return code !== undefined && inRanges(code, CJK_PUNCTUATION_RANGES);
 }
 
-/** 是否汉字 / 假名 / 谚文（广义 CJK 文字） */
+/** 是否汉字 / 假名 / 谚文（广义 CJK 文字，含部首 / IDS / 笔画 / 叠字符号） */
 export function isCjkLetter(char: string): boolean {
   if (!char) {
     return false;
   }
-  return inRanges(char.charCodeAt(0), CJK_LETTER_RANGES);
+  const code = char.codePointAt(0);
+  return code !== undefined && inRanges(code, CJK_LETTER_RANGES);
 }
 
 /** 是否 ASCII 拉丁字母 */

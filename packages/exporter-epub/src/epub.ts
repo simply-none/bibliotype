@@ -21,7 +21,6 @@
  */
 import {
   DEFAULT_THEME,
-  MARK_TYPES,
   NODE_TYPES,
   PERF_PHASES,
   buildIndexAppendix,
@@ -42,6 +41,7 @@ import { resolveNodeTitle } from '@bibliotype/reader';
 import { strToU8, zipSync, type ZipOptions } from 'fflate';
 import { groupEndnotes, type EndnoteGrouping } from './endnotes.js';
 import { buildDefaultIdentifier, normalizeIdentifier, resolveIdentifier } from './identifier.js';
+import { buildAnchorFileMap, rewriteLocalAnchors } from './link-rewrite.js';
 import { MediaCollector, type MediaItem } from './media.js';
 import { buildNavXhtml } from './nav.js';
 import { buildOpf, normalizeModified, type OpfManifestItem } from './opf.js';
@@ -135,7 +135,7 @@ export interface EpubExportOptions {
    * 是否在书末追加「索引」附录（缺省 true）
    *
    * 只在文档含 `index-term` 标记时产生章节；EPUB 无固定页码，条目以词条链接
-   * 回跳正文锚点（跨文件链接自动带 `text/sec-N.xhtml` 前缀）。
+   * 回跳正文锚点（跨文件地址为内容文档同目录相对路径，如 `sec-0.xhtml#p-1`）。
    */
   includeIndex?: boolean;
   /** 索引章标题（缺省「索引」） */
@@ -144,34 +144,11 @@ export interface EpubExportOptions {
    * 调用方追加的书末附录（如校勘汇总表）
    *
    * 每个节点自成 XHTML；其中 `href="#id"` 会被改写成跨文件地址
-   * （`text/sec-N.xhtml#id`），因此调用方按普通 IR 构造即可。
+   * （`sec-N.xhtml#id`，内容文档同目录相对路径），因此调用方按普通 IR 构造即可。
    */
   appendices?: readonly BookNode[];
   /** 性能探针（I7，缺省 no-op：不传零行为零开销；span 阶段固定为 export，按 step 标签细分） */
   profiler?: Profiler;
-}
-
-/** 递归改写附录里的 `#id` 锚点为跨文件地址（未命中的保持原样） */
-function rewriteAppendixAnchors(
-  node: BookNode,
-  fileById: ReadonlyMap<string, string>,
-): BookNode {
-  const marks = node.marks?.map((mark) => {
-    if (mark.type !== MARK_TYPES.LINK) return mark;
-    const href = mark.attrs?.['href'];
-    if (typeof href !== 'string' || !href.startsWith('#')) return mark;
-    const file = fileById.get(href.slice(1));
-    return file === undefined
-      ? mark
-      : { ...mark, attrs: { ...mark.attrs, href: `${file}${href}` } };
-  });
-  return {
-    ...node,
-    ...(marks === undefined ? {} : { marks }),
-    ...(node.children === undefined
-      ? {}
-      : { children: node.children.map((child) => rewriteAppendixAnchors(child, fileById)) }),
-  };
 }
 
 /** 导出 EPUB（返回完整 epub 文件字节，含 zip 容器） */
@@ -240,17 +217,9 @@ export function exportEpub(
   const plan = planDocument(root);
 
   /* ---------- 附录（导出期追加，不改动原文档） ----------
-     先规划正文得到「块 id → 文件」映射，再把带跨文件链接的附录作为最后一节
-     追加，避免链接指向错误文件。 */
-  const fileById = new Map<string, string>();
-  const collectIds = (node: BookNode, file: string): void => {
-    if (typeof node.id === 'string' && node.id !== '') fileById.set(node.id, file);
-    for (const child of node.children ?? []) collectIds(child, file);
-  };
-  for (const section of plan.sections) {
-    for (const node of section.nodes) collectIds(node, section.file);
-  }
-
+     索引词条与调用方附录的回跳链接先落**局部锚点**，序列化后由
+     rewriteLocalAnchors 统一改写为跨文件相对地址——「锚点 → 所在文件」
+     映射在体积拆分之后建立（拆分会丢弃空节并重排文件序号，先建必过期）。 */
   const appendSection = (node: BookNode): void => {
     plan.sections.push({
       file: `text/sec-${plan.sections.length}.xhtml`,
@@ -264,17 +233,13 @@ export function exportEpub(
       buildIndexAppendix(indexEntries, {
         showPageNumbers: false,
         ...(options.indexTitle === undefined ? {} : { title: options.indexTitle }),
-        hrefFor: (blockId) => {
-          const file = fileById.get(blockId);
-          return file === undefined ? `#${blockId}` : `${file}#${blockId}`;
-        },
       }),
     );
   }
 
-  /* 调用方追加的附录（如校勘汇总表）：把 `#id` 锚点改写为跨文件地址 */
+  /* 调用方追加的附录（如校勘汇总表）：`#id` 局部锚点同样由改写阶段统一处理 */
   for (const appendixNode of options.appendices ?? []) {
-    appendSection(rewriteAppendixAnchors(appendixNode, fileById));
+    appendSection(appendixNode);
   }
   const media = new MediaCollector();
   const serializeOptions = {
@@ -301,6 +266,9 @@ export function exportEpub(
   });
   planSpan.end({ sections: split.sections.length });
 
+  /* 锚点 → 所在文件映射（拆分后建立，见附录注释） */
+  const anchorFiles = buildAnchorFileMap(split.sections, plan.anchors);
+
   const manifest: OpfManifestItem[] = [];
   const spine: string[] = [];
   const textEntries: Record<string, [Uint8Array, ZipOptions]> = {};
@@ -311,9 +279,15 @@ export function exportEpub(
     const first = section.nodes[0];
     const title =
       first !== undefined ? resolveNodeTitle(first) || metadata.title : metadata.title;
-    const body = section.nodes
-      .map((node) => serializeNode(node, serializeOptions))
-      .join('\n');
+    /* 局部锚点 → 跨文件相对地址：尾注聚合后的注码 / 回链，索引与调用方
+       附录的回跳链接（同目录相对地址，如 sec-2.xhtml#en-1） */
+    const body = rewriteLocalAnchors(
+      section.nodes
+        .map((node) => serializeNode(node, serializeOptions))
+        .join('\n'),
+      section.file,
+      anchorFiles,
+    );
     const xhtml = renderXhtmlDocument({
       title,
       language,

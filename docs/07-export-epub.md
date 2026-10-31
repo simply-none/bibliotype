@@ -167,6 +167,9 @@ exportEpub(document, { endnoteGrouping: 'book', endnoteTitle: '注释' }); // �
 - `chapter`：各章末尾追加「注释」标题行（level 2）+ 该章尾注；嵌在节内的尾注上提到所属章；不在任何章内的尾注兜底排到书末；
 - `book`：全部尾注抽到书末新增的一章（id 缺省 `endnotes`，冲突追加 `-2`），标题行 level 1；
 - 聚合在导出期完成（`groupEndnotes` 返回新根，**不改动原文档**），节点 id 保持不变，正文 `noteref` 链接照旧可跳；
+- **跨文件锚点改写**：聚合使注文落到另一 XHTML 时，注码 / 回链按拆分后的
+  「锚点 → 文件」映射统一改写为内容文档同目录相对地址（如 `sec-2.xhtml#en-1`，
+  2026-10-31 起——曾为局部 `#n` / `#r`，Apple Books / Calibre 跨文件跳转失效）；
 - 只处理 `endnote`：脚注（页底）与边注（旁栏）保持就地，抽走会破坏版式。
 
 `groupEndnotes(root, { scope, title?, id? })` 也可单独调用（自定义管线 / 增量处理）。

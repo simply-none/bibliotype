@@ -4,7 +4,7 @@
  * **为什么是行内流**：CSS 直排块流中每个块级段落独占整列（段段换列、
  * 版面半空），而古籍正文各段同列连排、段界靠格位标记（低格 / 抬头 / 提行）。
  * 本序列化器把页片段改写为**行内流**：段落 → 行内 span，双行夹注 →
- * 恒 1 大字位宽 × 整列高的**固定双列**小字盒（{@link splitDoubleNoteLines}
+ * 1 大字位宽 × 动态高度的多对双列小字盒（{@link planDoubleNoteColumns}
  * 按列容量拆右 / 左子列——竖排 block 流自右向左，DOM 序即阅读序；直排
  * multicol 轴向不可靠，已实测排除），提行 / 平抬 → `<br>` 断列，抬升 /
  * 低格 → 段首空位盒。容器（`.bt-vflow`）在 `writing-mode: vertical-rl`
@@ -18,7 +18,7 @@
  * 实测——行边界与夹注原子性自洽）、导出 paged 与打印同源。
  */
 import { NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
-import { splitDoubleNoteLines, collectNodeTextOf } from '../double-note-split.js';
+import { planDoubleNoteColumns, collectNodeTextOf } from '../double-note-split.js';
 import { escapeHtml, serializeNode, type SerializeNodeOptions } from './html-serializer.js';
 import { sliceNodeByCharRange } from '../node-slice.js';
 import { resolveLineRule, type LineRule } from '../line-rules.js';
@@ -80,35 +80,41 @@ function liftPrefix(rule: LineRule): string {
  * 按「每子列容量 = 每行大字数 × 2」拆右 / 左子列（右列满读到底续左列，
  * 「从上排到底」的古籍形制）；竖排 block 流自右向左，DOM 序即阅读序。
  * 超过一对容量的注文继续输出后续对（古籍超长注占多字位，每对 1 大字位宽）。
+ *
+ * 切分窗口由 {@link planDoubleNoteColumns} 一次算清（UTF-16 码元轴，与
+ * `sliceNodeByCharRange` 同源，代理对防劈）——窗口与子列文本出自同一份
+ * 计划，不会漂移；每对消耗 2×容量 个码元，窗口按对错开、互不重叠。
  */
 function serializeDoubleNote(
   node: BookNode,
   charsPerColumn: number,
   nodeOptions: SerializeNodeOptions | undefined,
+  indentFirstPair: boolean,
 ): string {
   const text = collectNodeTextOf(node);
-  const pairs = splitDoubleNoteLines(text, charsPerColumn * 2);
+  const plans = planDoubleNoteColumns(text, charsPerColumn * 2, { indentFirstPair });
   const extras = Object.entries(node.attrs ?? {})
     .filter(([key]) => key !== 'char')
     .map(([key, value]) => ` data-${key}="${escapeHtml(String(value))}"`)
     .join('');
-  /* 子列内容按字符区间切片：夹注内的行内标记（专名号 / 着重等）随所在
-   * 子列保留（右列 [0, cap)、左列 [cap, 2*cap)，与 splitDoubleNoteLines 同口径）；
-   * 切片函数返回同类型节点，此处只取其子内容序列化（不嵌套容器标签） */
-  const cap = charsPerColumn * 2;
+  /* 子列内容按码元窗口切片：夹注内的行内标记（专名号 / 着重等）随所在
+   * 子列保留；切片函数返回同类型节点，此处只取其子内容序列化
+   * （不嵌套容器标签） */
   const serializeChildrenOf = (sliced: BookNode): string =>
     (sliced.children ?? []).map((child) => serializeNode(child, nodeOptions)).join('');
 
-  // 输出所有对（每对包含右列和左列）
-  const pairsHtml = pairs
-    .map((_, pairIndex) => {
-      const from = pairIndex * cap;
-      const to = from + cap;
-      const rightHtml = serializeChildrenOf(sliceNodeByCharRange(node, from, to));
-      const leftFrom = to;
-      const leftTo = leftFrom + cap;
-      const leftHtml = serializeChildrenOf(sliceNodeByCharRange(node, leftFrom, leftTo));
-      return `<span class="bt-vnote-col">${rightHtml}</span><span class="bt-vnote-col">${leftHtml}</span>`;
+  const pairsHtml = plans
+    .map((plan) => {
+      const rightHtml = serializeChildrenOf(
+        sliceNodeByCharRange(node, plan.right.start, plan.right.end),
+      );
+      const leftHtml = serializeChildrenOf(
+        sliceNodeByCharRange(node, plan.left.start, plan.left.end),
+      );
+      /* 注首低一格：仅当首对真实缩格（indented）时在右列首补 1 字位空位盒，
+       * 与该列少排的一位严格配对（见 planDoubleNoteColumns） */
+      const pad = plan.indented === true ? padBox(1) : '';
+      return `<span class="bt-vnote-col">${pad}${rightHtml}</span><span class="bt-vnote-col">${leftHtml}</span>`;
     })
     .join('');
 
@@ -122,13 +128,21 @@ function serializeFlowChildren(
   nodeOptions: SerializeNodeOptions | undefined,
 ): string {
   const parts: string[] = [];
+  /* 行中起注判定：夹注之前已有任何子内容（文本 / 行内元素）时，注首低一格
+   * （古籍形制：被注字之后起注、回行对齐注首）；段首夹注顶格不缩 */
+  let hasPrecedingContent = false;
   for (const child of node.children ?? []) {
     if (isTextNode(child)) {
       parts.push(serializeNode(child, nodeOptions));
+      if ((child.text ?? '').length > 0) hasPrecedingContent = true;
     } else if (child.type === DOUBLE_NOTE_TYPE) {
-      parts.push(serializeDoubleNote(child, charsPerColumn, nodeOptions));
+      parts.push(
+        serializeDoubleNote(child, charsPerColumn, nodeOptions, hasPrecedingContent),
+      );
+      hasPrecedingContent = true;
     } else {
       parts.push(serializeNode(child, nodeOptions));
+      hasPrecedingContent = true;
     }
   }
   return parts.join('');
@@ -153,7 +167,9 @@ export function serializeVerticalFlow(
   for (const node of nodes) {
     if (isTextNode(node)) continue;
     if (!FLOW_PARAGRAPH_TYPES.has(node.type)) {
-      parts.push(serializeNode(node));
+      /* 标题 / 版式块（眉批、旁批等）同样透传 nodeOptions：打印路径经本函数
+       * 序列化眉批 / 旁批，丢选项会丢竖排字形转换 / 修订视图 / tagOverrides */
+      parts.push(serializeNode(node, options.nodeOptions));
       continue;
     }
     const rule = resolveLineRule(node);
@@ -199,14 +215,16 @@ export function groupNodesByBand(
   };
   const banded = nodes.filter((node) => !isTextNode(node) && isBanded(node));
   if (banded.length === 0) return undefined;
-  const hasDefault = nodes.some((node) => !isTextNode(node) && !isBanded(node));
+  const hasDefault = nodes.some((node) => !isBanded(node));
   const explicitMax = Math.max(...banded.map(bandOf));
-  /* 截数优先取 bandsCount 声明（来自结构节点）；未声明时按显式 max + 是否有缺省推断 */
-  const count = bandsCount ?? (explicitMax + (hasDefault ? 2 : 1));
+  /* 截数优先取 bandsCount 声明（来自结构节点 bands，与分页器同源）；
+   * 未声明时按显式 max + 是否有缺省内容推断 */
+  const count = Math.max(1, bandsCount ?? explicitMax + (hasDefault ? 2 : 1));
   const groups: BookNode[][] = Array.from({ length: count }, () => []);
   for (const node of nodes) {
-    if (isTextNode(node)) continue;
-    groups[isBanded(node) ? bandOf(node) : count - 1]!.push(node);
+    /* 未标注节点（含裸文本——页片段顶层不应有，兜底不丢内容）归最下截；
+     * 显式截位越界（如声明 2 截却标 middle）夹到最下截，绝不静默丢弃 */
+    groups[isBanded(node) ? Math.min(bandOf(node), count - 1) : count - 1]!.push(node);
   }
   return groups;
 }

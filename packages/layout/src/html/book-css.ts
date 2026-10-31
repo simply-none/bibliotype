@@ -18,6 +18,7 @@ import {
   type FeatureStyleSheet,
   type NamedStyleSet,
 } from '@bibliotype/core';
+import { buildCjkTypographyCss } from '@bibliotype/typography-cjk';
 import { combineUprightCss } from '../combine-upright.js';
 import type { LayoutOptions } from '../layout-options.js';
 import { buildCssVariables, resolvePageCrossSize, resolvePageMainSize, type StyleDeclaration } from '../style-builder.js';
@@ -89,6 +90,25 @@ export interface BuildBookCssOptions {
    * 又保证装饰落在每一页上。
    */
   decorationSelector?: string;
+  /**
+   * CJK 排印可选能力开关（缺省全关）
+   *
+   * 声明值来自 `@bibliotype/typography-cjk` 的 `buildCjkTypographyCss`。
+   * 缺省不输出任何可选声明——既有产物的字符级稳定由基线快照守护；
+   * 基础禁则兜底（line-break / word-break / overflow-wrap）不受本开关控制，
+   * 恒在根容器规则输出。
+   */
+  cjkTypography?: CjkTypographySwitches;
+}
+
+/** CJK 排印可选能力（CSS Text 4 系，旧引擎忽略即退化为不启用，不会报错） */
+export interface CjkTypographySwitches {
+  /** 标点挤压：输出 `text-spacing-trim: space-first` */
+  punctuationCompression?: boolean;
+  /** 中西文混排间距：输出 `text-autospace: normal` */
+  mixedSpacing?: boolean;
+  /** 行首行尾标点悬挂：输出 `hanging-punctuation: first last` */
+  hangingPunctuation?: boolean;
 }
 
 /** 生成书册基础样式表（变量层 + 根容器规则 + 节点类样式） */
@@ -162,6 +182,16 @@ export function buildBookCss(input: BuildBookCssOptions): string {
   if (facsimileGrid) {
     body['line-height'] = `${resolveLinePitch(tokens)}px`;
   }
+  /*
+   * CJK 禁则兜底（@bibliotype/typography-cjk 声明层接线）：
+   * - line-break: strict —— 避头尾的浏览器侧兜底，横排 / 直排都输出；
+   * - word-break: normal —— 防宿主样式 break-all 污染书册断行；
+   * - overflow-wrap: break-word —— 收编全书一处（原散落在 .bt-code-block，
+   *   该属性可继承，根容器声明后代码块行为不变）。
+   * 可选能力（text-spacing-trim / text-autospace / hanging-punctuation）经
+   * cjkTypography 开关输出，缺省全关。
+   */
+  Object.assign(body, buildCjkTypographyCss(input.cjkTypography));
   rules.push(`${containerSelector} {\n${declarationToCss(body)}\n}`);
 
   /*
@@ -235,7 +265,7 @@ ${scoped('.bt-code-block')} {
   font-size: 0.85em;
   line-height: 1.6;
   white-space: pre-wrap;
-  overflow-wrap: break-word;
+  /* 长词溢出换行已收编到根容器规则（该属性可继承，行为不变） */
 }
 ${scoped('.bt-caption')},
 ${scoped('.bt-footnote')},
@@ -781,10 +811,12 @@ ${scoped(".bt-mark-circle-emphasis[data-style='sesame']")} {
  * text-emphasis-position: under right）；文法符号（密圈 / 密点 / 抹）居字右
  * （直排惯行）——两类符号各安其位、不争空间。data-position 由 mark attrs
  * 透传（编辑侧 setMarkAttrs('circle-emphasis', { position: 'grammar' })）。
+ * 直排下 over / under 被忽略、right 关键字生效：基础规则已满足「文法居字右」；
+ * 横排无「居字右」位（合法关键字仅 over / under × right / left 组合），故
+ * data-position='grammar' 不再单列声明——曾写的双关键字组合含非法关键字
+ * （center 不是本属性的合法值），所有浏览器整条丢弃（行为上从未生效），
+ * 删除并在此记录语义边界。
  */
-${scoped(".bt-mark-circle-emphasis[data-position='grammar']")} {
-  text-emphasis-position: right center;
-}
 ${scoped('.bt-mark-note-ref')} {
   font-size: 0.72em;
   vertical-align: super;
@@ -947,30 +979,41 @@ ${scoped('.bt-vpara')} {
 ${scoped('.bt-vnote')} {
   /* 双行夹注盒：恒 1 大字位宽 × 动态高度的多对双列小字（「从上排到底」
    * 的古籍形制）。竖排逻辑轴：inline 轴 = 纵向（列高）、block 轴 = 横向
-   * （列宽方向）——故 inline-size: 100% 是整列高、block-size 是 1 字位宽；
-   * 内部多个 block 子列对沿块轴自右向左并列（DOM 序即阅读序）。字步进
-   * 补至半字位（列距/2），n 字占 ceil(n/2) 字位高。
-   * 每对包含右列和左列，多对时高度自动累加。 */
+   * （列宽方向）——block-size: 1em 即 1 大字位宽（对内两小列各半），
+   * inline-size 收缩为内容高（多对时由各对子列内容撑出，auto 即随文）；
+   * 内部多个 block 子列沿块轴自右向左并列（DOM 序即阅读序）。小字步进
+   * 取自身 1em（= 半个大字位，与容量口径 charsPerColumn×2 = 版心高÷大字
+   * 字位×2 严格互逆），n 字占 ceil(n/2) 字位高。
+   * 已知限制：夹注盒为原子 inline-block，列中剩余高度不足时整体推到下一
+   * 列（前列底部留白）——纯 CSS 双轨道随文断列不可行，行中起注由注首
+   * 低一格（indentFirstPair）标记语义。 */
   display: inline-block;
   vertical-align: top;
-  inline-size: 100%;
-  /* 高度由内容决定（多对时自动累加），不再固定为整列高 */
+  block-size: 1em;
+  inline-size: auto;
   writing-mode: vertical-rl;
 }
 ${scoped('.bt-vnote-col')} {
   display: block;
-  /* 每对中的单列高度：如果只有一对则占满，多对时按对数均分 */
-  block-size: auto;
+  /* 单小列厚度 = 半个大字位：自身字号 0.5em（正文之半）下的 1em，
+   * 两列合计恰为 .bt-vnote 的 1 大字位宽 */
+  block-size: 1em;
   font-size: 0.5em;
-  letter-spacing: calc(var(--bt-vnote-pitch, 2em) / 2 - 0.5em);
-  overflow: hidden;
+  /* 小字沿列步进取自身 1em（无额外字距）——容量口径按「版心高 ÷ 大字
+   * 字号 × 2」折算，小字步进必须恰为半个大字位；曾用的
+   * calc(var(--bt-vnote-pitch)/2 - 0.5em) 依赖从未定义的 --bt-vnote-pitch
+   * （恒走 2em 回退，步进超量 47%，尾部被裁）。溢出保持可见：若容量口径
+   * 与实渲漂移宁可露出，不做静默裁字。 */
+  letter-spacing: 0;
 }
 ${scoped('.bt-vpad')} {
-  /* 空位盒：N 字位高（宽 1em 贴列）——低格 / 挪抬的列首空位与抬升列首；
-   * 1lh = 根行高（仿真下即列距 px） */
+  /* 空位盒：低格 / 挪抬的列首空位与抬升列首——沿 inline 轴（直排纵向）
+   * 占 N 个字位步进、沿 block 轴占 1 字位厚度（与正文字同宽，不撑行盒）。
+   * 字位步进 = 自身 1em + 全局字距（与正文字逐字步进同式，曾把 inline /
+   * block 两轴写反且用 1lh 当字位——列距 ≠ 字位，低格一格被放大成 1.5+ 字位）。 */
   display: inline-block;
-  inline-size: 1em;
-  block-size: calc(1lh * var(--bt-vpad-n, 1));
+  inline-size: calc(var(--bt-vpad-n, 1) * (1em + var(--bt-${LAYOUT_TOKENS.LETTER_SPACING}, 0em)));
+  block-size: 1em;
 }
 ${scoped(`.bt-vpad[data-n='1']`)} { --bt-vpad-n: 1; }
 ${scoped(`.bt-vpad[data-n='2']`)} { --bt-vpad-n: 2; }
@@ -1003,30 +1046,106 @@ ${scoped(`.bt-vpad[data-n='4']`)} { --bt-vpad-n: 4; }`,
  * 扁平化 CSS 自定义属性
  *
  * 从 `:root { --x: v; }` 收集变量表，把所有 `var(--x)` / `var(--x, fallback)`
- * 引用替换为字面值（支持变量值互相引用，迭代至无 var 残留），删除 `:root` 块。
- * 用于导出路径的老引擎兼容（见 BuildBookCssOptions.flatten）。
+ * 引用替换为字面值，删除 `:root` 块。用于导出路径的老引擎兼容（见
+ * BuildBookCssOptions.flatten）。
+ *
+ * 实现：`var(` 的实际参数以「配平括号」取到匹配右括号（回退值可含
+ * `calc(1em + 2px)` 这类带括号函数——曾用 `[^()]*` 量化的正则匹配不到
+ * 带括号回退，整条 `var(` 原样残留，老引擎把整条声明丢弃，恰违背本
+ * 功能的初衷）；变量值互相引用与嵌套回退经递归解析（深度上限防环）。
  */
 export function flattenCssVariables(css: string): string {
   const rootMatch = /:root\s*\{([^}]*)\}/.exec(css);
   if (rootMatch === null) return css;
-  const vars = new Map<string, string>();
-  for (const line of (rootMatch[1] ?? '').split(';')) {
-    const m = /^\s*(--[\w-]+)\s*:\s*(.*?)\s*$/.exec(line);
-    if (m?.[1] !== undefined && m[2] !== undefined) vars.set(m[1], m[2]);
-  }
-  if (vars.size === 0) return css.replace(rootMatch[0], '').replace(/\n{3,}/g, '\n\n');
-
+  const vars = parseRootVariables(rootMatch[1] ?? '');
   const withoutRoot = css.replace(rootMatch[0], '').replace(/\n{3,}/g, '\n\n');
-  /* 迭代替换：变量值可能引用其他变量（迭代上限防环） */
-  let result = withoutRoot;
-  for (let round = 0; round < 5; round += 1) {
-    if (!result.includes('var(')) break;
-    result = result.replace(/var\((--[\w-]+)(?:\s*,\s*([^()]*))?\)/g, (_full, name: string, fallback?: string) => {
-      const value = vars.get(name);
-      if (value !== undefined) return value;
-      /* fallback 可能是另一个 var(...)：保留形态交由下一轮解析 */
-      return fallback !== undefined ? fallback.trim() : '';
-    });
+  if (vars.size === 0) return withoutRoot;
+  return replaceVarReferences(withoutRoot, vars, 0);
+}
+
+/** 递归深度上限（变量互引 / 嵌套回退的环保护） */
+const FLATTEN_MAX_DEPTH = 8;
+
+/** 按「括号深度 0 的分号」切分声明，产出 `名 → 值` 表（值可含括号函数） */
+function parseRootVariables(body: string): Map<string, string> {
+  const vars = new Map<string, string>();
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i <= body.length; i += 1) {
+    const char = i < body.length ? body[i] : ';';
+    if (char === '(') depth += 1;
+    else if (char === ')') depth -= 1;
+    else if (char === ';' && depth <= 0) {
+      const declaration = body.slice(start, i);
+      const m = /^\s*(--[\w-]+)\s*:\s*([\s\S]*?)\s*$/.exec(declaration);
+      if (m?.[1] !== undefined && m[2] !== undefined) vars.set(m[1], m[2]);
+      start = i + 1;
+    }
+  }
+  return vars;
+}
+
+/**
+ * 替换文本中全部 `var(...)` 引用
+ *
+ * 每个 `var(` 以括号配平取实际参数；顶层逗号切分变量名与回退值。
+ * 命中变量表 → 递归解析变量值（值可再引用变量）；未命中但有回退 →
+ * 递归解析回退（回退可嵌套 `var(...)` 或含括号函数）；都无 → 空串
+ * （与 CSS 无效变量的计算值语义一致）。超过深度上限保留原样（环保护）。
+ */
+function replaceVarReferences(text: string, vars: Map<string, string>, depth: number): string {
+  if (depth > FLATTEN_MAX_DEPTH || !text.includes('var(')) return text;
+  let result = '';
+  let cursor = 0;
+  for (;;) {
+    const open = text.indexOf('var(', cursor);
+    if (open === -1) {
+      result += text.slice(cursor);
+      break;
+    }
+    const close = matchingParen(text, open + 3);
+    if (close === -1) {
+      /* 括号不配平（截断的产物）：原样保留并跳过 */
+      result += text.slice(cursor, open + 4);
+      cursor = open + 4;
+      continue;
+    }
+    result += text.slice(cursor, open);
+    const inner = text.slice(open + 4, close);
+    const comma = topLevelComma(inner);
+    const name = (comma === -1 ? inner : inner.slice(0, comma)).trim();
+    const fallback = comma === -1 ? undefined : inner.slice(comma + 1).trim();
+    const value = vars.get(name);
+    if (value !== undefined) {
+      result += replaceVarReferences(value, vars, depth + 1);
+    } else if (fallback !== undefined) {
+      result += replaceVarReferences(fallback, vars, depth + 1);
+    }
+    cursor = close + 1;
   }
   return result;
+}
+
+/** 取与 start 位置左括号配平的右括号下标（无配平返回 -1） */
+function matchingParen(text: string, start: number): number {
+  let depth = 0;
+  for (let i = start; i < text.length; i += 1) {
+    if (text[i] === '(') depth += 1;
+    else if (text[i] === ')') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/** 顶层（括号深度 0）第一个逗号的下标（无则 -1） */
+function topLevelComma(text: string): number {
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '(') depth += 1;
+    else if (text[i] === ')') depth -= 1;
+    else if (text[i] === ',' && depth === 0) return i;
+  }
+  return -1;
 }

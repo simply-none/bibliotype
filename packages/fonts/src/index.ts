@@ -5,7 +5,12 @@
  * 导出共用。子集化本身由宿主注入后端（`subset-font` / `fonttools`），本包
  * 不含字体解析二进制。
  */
-export { collectDocumentChars, collectNodeChars } from './collect.js';
+export {
+  PAGE_NUMBER_STYLE_CHARS,
+  collectDocumentChars,
+  collectNodeChars,
+  pageNumberStyleChars,
+} from './collect.js';
 export { buildFontFaceCss, buildFontFaceRule } from './css.js';
 export type { FontFaceCssOptions } from './css.js';
 export {
@@ -28,6 +33,7 @@ export { FONT_LICENSE_FILE, buildFontLicenseText, buildFontRightsLine } from './
 export { prepareFontBundle } from './subset.js';
 export type {
   CharUsage,
+  ExtraCharSources,
   FontAssetInput,
   FontBundle,
   FontCoverageReport,

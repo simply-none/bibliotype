@@ -55,9 +55,14 @@ for (const file of files) {
 2. **只有子结构、自身无内容**的容器（常见于「卷」）不单独成页，向下递归；
 3. 直接挂在根下的零散内容块合并为一页「正文」，不丢内容；
 4. 节点 id 重复时自动加后缀（`dup`、`dup-2`）；
-5. 空结构节点（占位章）仍成页，标题显示「（空）」。
+5. 空结构节点（占位章）仍成页，标题显示「（空）」；
+6. **嵌套章节不重复**：父章节页只收**直属内容**（`PlannedSection.content`，2026-10-31 起
+   ——此前章同时含正文与子节时，子节内容随整节点进父页、又随子节自身成页，双份）。
 
 标题优先级：`attrs.title` → 首个 `heading` 文本 → 节点纯文本前 24 字 → 兜底。
+
+搜索索引与正文同口径：按 `revisionView` 过滤（缺省 `final`，`nodePlainTextForView`）
+——终稿视图下已删除文字不进页面、也不进索引。
 
 ```ts
 import { planSections, resolveSectionTitle } from '@bibliotype/exporter-site';

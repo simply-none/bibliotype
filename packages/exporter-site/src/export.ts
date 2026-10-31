@@ -51,6 +51,7 @@ export function exportSite(
     plan.sections.push({
       section: { id: 'comments', path: 'comments.html', title: '读者评论', level: 1, type: NODE_TYPES.CHAPTER },
       node: { type: NODE_TYPES.CHAPTER, id: '__comments__', children: commentNodes },
+      content: commentNodes,
     });
   }
 
@@ -72,7 +73,7 @@ export function exportSite(
   const sections = plan.sections.map((item) => item.section);
 
   plan.sections.forEach((item, index) => {
-    const bodyHtml = (item.node.children ?? [])
+    const bodyHtml = item.content
       // 站点是发布物：缺省终稿；留痕站由调用方显式传 'marked'
       .map((child) => serializeNode(child, { revisionView: options.revisionView ?? 'final' }))
       .join('\n');
@@ -93,7 +94,15 @@ export function exportSite(
     });
 
     searchEntries.push(
-      buildSearchEntry(item.section.id, item.section.title, item.section.path, item.node),
+      buildSearchEntry(
+        item.section.id,
+        item.section.title,
+        item.section.path,
+        // 索引只收本页直属内容（与页面正文一致，嵌套子节归各自条目）
+        { type: NODE_TYPES.BOOK, children: [...item.content] },
+        // 索引与页面正文同视图：缺省终稿，留痕站由调用方显式传 'marked'
+        options.revisionView ?? 'final',
+      ),
     );
   });
 

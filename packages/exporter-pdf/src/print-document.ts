@@ -14,6 +14,7 @@ import {
   DEFAULT_THEME,
   FONT_SIZE_TOKENS,
   LAYOUT_TOKENS,
+  projectRevisionView,
   type BookDocument,
   type BookNode,
   type RevisionView,
@@ -323,24 +324,39 @@ ${body}
     /* 两截本 / 三截本（v2 批 5）：页内含分截内容时按截位包分层容器（与预览同构；
      * 截高由 CSS flex-grow 比例承担） */
     const pageBands = reader.getPageBands(page.index);
-    const bands = vertical && pageBands ? groupNodesByBand(nodes, pageBands.count) : undefined;
+    /*
+     * 仿真直排装饰位（眉批 / 旁批）：只落天头 / 界行外宿主（见下方
+     * eyebrowHost / sideHost），正文流剔除后序列化，避免同页双渲染。
+     */
+    const decorSplit = vertical && layout.facsimile !== undefined;
+    const bodyNodes = decorSplit
+      ? nodes.filter((node) => node.type !== 'head-note' && node.type !== 'margin-note')
+      : nodes;
+    /* 节点 → 分页 items 下标（items 与 nodes 一一同序）：正文流剔除装饰节点后
+     * 遍历下标不再对齐，续排片段的 omitRulePrefix 必须按原序查回 */
+    const nodeIndexes = new Map<BookNode, number>();
+    nodes.forEach((node, index) => {
+      nodeIndexes.set(node, index);
+    });
+    const bands =
+      vertical && pageBands ? groupNodesByBand(bodyNodes, pageBands.count) : undefined;
     const content = bands
       ? `<div class="bt-bands">` +
         bands
           .map((bandNodes, band) => {
             const ratio = pageBands!.ratios[band] ?? 1 / pageBands!.count;
             return `<div class="bt-band" data-band="${band}" style="flex-grow: ${ratio}">${bandNodes
-              .map((node) => serializeFlowOne(node, nodes.indexOf(node)))
+              .map((node) => serializeFlowOne(node, nodeIndexes.get(node) ?? nodes.indexOf(node)))
               .join('')}</div>`;
           })
           .join('<div class="bt-band-rule" aria-hidden="true"></div>') +
         `</div>`
-      : nodes
-          .map((node, i) => {
+      : bodyNodes
+          .map((node) => {
             /* 直排段落 / 引文走行内流（与预览 BtBookView 同源，连排 + 行款标记）；
              * 标题 / 版式块保持整块序列化 */
             if (vertical && isFlowParagraphType(node.type)) {
-              return serializeFlowOne(node, i);
+              return serializeFlowOne(node, nodeIndexes.get(node) ?? nodes.indexOf(node));
             }
             return serializeNode(node, nodeOptions);
           })
@@ -498,6 +514,12 @@ function cropMarksOverlay(options: PrintDocumentOptions): string {
  * 解释，分页与跨页行切片全错位（古籍直排导出空白页的根因）。
  * 页底浮注（footnoteFloat / noteMaxRatio）同样透传：宿主预览开了浮注而导出
  * 不开，注全丢且逐页归属与预览错位。
+ *
+ * 修订视图（C5）：分页前先按 `options.revisionView`（缺省 final）投影文档——
+ * 目标视图不可见的内容（删除文字等）不消耗分页容量，页数与纸面留白才与
+ * 视图一致。投影复用 core 的 `projectRevisionView`（纯函数：接受 / 拒绝全部
+ * 修订，保留未删节点的稳定 id，块内清空时整块剔除），与 auto 模式的序列化
+ * 口径同源。
  */
 function createPagedReader(
   book: BookDocument,
@@ -524,7 +546,8 @@ function createPagedReader(
     ...(options.footnoteFloat === undefined ? {} : { footnoteFloat: options.footnoteFloat }),
     ...(options.noteMaxRatio === undefined ? {} : { noteMaxRatio: options.noteMaxRatio }),
   });
-  reader.loadDocument(book);
+  // 打印稿是成品：缺省终稿，留痕版由调用方显式传 'marked'
+  reader.loadDocument(projectRevisionView(book, options.revisionView ?? 'final'));
   return reader;
 }
 

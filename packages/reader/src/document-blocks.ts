@@ -133,19 +133,60 @@ export function collectNodeText(node: BookNode): string {
 }
 
 /**
+ * 首行缩进下的行数（估算口径）
+ *
+ * 首行容量扣减 `firstLineIndentChars` 字位（低格 / 挪抬），后续行全容量。
+ * 曾按「全部行都扣减」折算（ceil(len / (cpl - indent))），长段行数虚高、
+ * 换页提前；本函数与 {@link estimateLineCharOffsets} 互为镜像，是行构成的
+ * 唯一事实源——估算器（行数）与切片回退（行→字符映射）必须同源。
+ */
+export function estimateLineCount(
+  length: number,
+  charsPerLine: number,
+  firstLineIndentChars: number,
+): number {
+  const first = Math.max(1, charsPerLine - Math.max(0, firstLineIndentChars));
+  if (length <= first) return 1;
+  return 1 + Math.ceil((length - first) / Math.max(1, charsPerLine));
+}
+
+/**
+ * 首行缩进下的行起始字符偏移表（估算口径，与 {@link estimateLineCount} 同构）
+ *
+ * 供无 DOM 实测时的「行 → 字符区间」换算（reader.charRangeForLines 回退）：
+ * 曾按均匀 `fromLine × charsPerLine` 切，与估算器的缩进扣减口径互相矛盾，
+ * 缩进段跨页切片错位 indentChars 个字符（丢字 / 重字）。
+ */
+export function estimateLineCharOffsets(
+  length: number,
+  charsPerLine: number,
+  firstLineIndentChars: number,
+): number[] {
+  const first = Math.max(1, charsPerLine - Math.max(0, firstLineIndentChars));
+  const offsets: number[] = [];
+  let start = 0;
+  let step = first;
+  while (start < length) {
+    offsets.push(start);
+    start += step;
+    step = Math.max(1, charsPerLine);
+  }
+  return offsets;
+}
+
+/**
  * 默认估算器：按字符数折算行数
  *
- * 行款折算（v2 批 4）：段落低格 / 挪抬使首行有效容量扣减
- * （`lineRuleOverhead`，与渲染侧行内流空位盒同语义）——每行字数按
- * 「容量 − 首行扣减」折算，低格段落的行数估算不再偏少。提行 / 平抬的
- * 断列空耗取决于所在列剩余（无法预知），由实测路径承载（DOM 量尺含
- * 行内流断列效果），估算不折算、文档记录。
+ * 行款折算（v2 批 4）：段落低格 / 挪抬使**首行**有效容量扣减
+ * （`lineRuleOverhead`，与渲染侧行内流空位盒同语义）——行数按
+ * {@link estimateLineCount} 折算（仅首行扣减，后续行全容量）。
+ * 提行 / 平抬的断列空耗取决于所在列剩余（无法预知），由实测路径承载
+ * （DOM 量尺含行内流断列效果），估算不折算、文档记录。
  */
 export const defaultEstimator: BlockSizeEstimator = (node, context) => {
   const length = collectNodeText(node).length;
   const { firstLineIndentChars } = lineRuleOverhead(resolveLineRule(node));
-  const effectivePerLine = Math.max(1, context.charsPerLine - firstLineIndentChars);
-  const lines = Math.max(1, Math.ceil(length / effectivePerLine));
+  const lines = estimateLineCount(length, context.charsPerLine, firstLineIndentChars);
   return lines * context.lineSize + context.blockSpacing;
 };
 
@@ -218,6 +259,15 @@ export interface ExtractBlocksOptions {
    * 分页算术本身与方向无关（尺寸一律沿主轴），故不影响分页结果。
    */
   axis?: BlockAxis;
+  /**
+   * 布局设置的缺省分栏数（1~3，缺省 1）
+   *
+   * 单一通道：chapter / section 的 `attrs.columns` 覆盖本值，未声明结构
+   * 属性时落到布局设置——分页器只认块上的 columns 字段，渲染侧
+   * （buildRootStyle 的 column-count）与量尺都按布局设置出栏，缺这条
+   * 通道时「设置面板开了分栏、分页器仍按单栏装」三者互不相认。
+   */
+  columns?: number;
 }
 
 /**
@@ -319,6 +369,7 @@ export function extractBlocksIndexed(
   const lineMainSizes = options.lineMainSizes;
   const bodySizes = options.bodySizes;
   const axis = options.axis;
+  const defaultColumns = options.columns;
   const context: BlockMeasureContext = {
     ...DEFAULT_MEASURE_CONTEXT,
     ...options.context,
@@ -357,8 +408,9 @@ export function extractBlocksIndexed(
 
   const walk = (node: BookNode, path: string, flags: PendingFlags): void => {
     scanBands(node);
-    /* 分栏数沿结构树继承：chapter / section 的 attrs.columns 覆盖祖先值 */
-    const columns = structureColumnsOf(node) ?? flags.columns;
+    /* 分栏数沿结构树继承：chapter / section 的 attrs.columns 覆盖祖先值，
+     * 全树缺省时落到布局设置的 columns（单一通道） */
+    const columns = structureColumnsOf(node) ?? flags.columns ?? defaultColumns;
     if (isLeafBlock(node)) {
       // 空书根不产块；其余叶块（或空容器）产出可测量块
       if (node.type === NODE_TYPES.BOOK) return;

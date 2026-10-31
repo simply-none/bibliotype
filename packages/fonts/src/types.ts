@@ -95,6 +95,29 @@ export interface CharUsage {
   unique: number;
 }
 
+/**
+ * 额外用字来源：IR 正文之外、但会印在版面上的字符
+ *
+ * 页眉页脚字段文本、页码、封面题名等不在 IR 文本节点里（或以属性存在），
+ * 子集化若只统计正文，这类字符会被裁掉、渲染时回退系统字体。各来源的
+ * 字符串由调用方拼好传入（collect 保持纯函数，不读文档外部结构）。
+ */
+export interface ExtraCharSources {
+  /**
+   * 文档元数据字符串（书名 / 作者 / 版权行等）
+   *
+   * 调用方从 `doc.attrs` 等元数据来源取值后传入。
+   */
+  metadata?: readonly string[];
+  /**
+   * 版面装饰文本（页眉 / 页脚字段文本、页码字符集、装饰符号等）
+   *
+   * 页码字符集可用 `pageNumberStyleChars(style)` 按 layout 的
+   * `pageNumberStyle` 折算后传入。
+   */
+  chrome?: readonly string[];
+}
+
 /** 单字体族的覆盖报告 */
 export interface FontFamilyReport {
   /** 资产 id */
@@ -185,6 +208,13 @@ export interface PrepareFontBundleOptions {
   fallbackStack?: string;
   /** 附加字符（UI 文案 / 固定标点等，与全书用字合并） */
   extraChars?: string;
+  /**
+   * 额外用字来源（元数据 / 页眉页脚字段文本 / 页码字符集，与全书用字合并）
+   *
+   * 页码字符集按 layout 的 `pageNumberStyle` 折算（`pageNumberStyleChars`）；
+   * 页眉页脚字段文本（书名 / 章名等）调用方拼好后传入。
+   */
+  extraSources?: ExtraCharSources;
   /** 字体文件目录（CSS url 前缀，缺省 `fonts/`） */
   fontDirectory?: string;
   /** 字体展示策略（缺省 `swap`） */

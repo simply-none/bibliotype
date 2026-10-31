@@ -168,6 +168,117 @@ describe('exportSite', () => {
   });
 });
 
+describe('嵌套章节去重', () => {
+  /** 卷 → 章（含正文 + 子节）的嵌套文档 */
+  function buildNestedDocument(): BookDocument {
+    const document = createEmptyDocument({ title: '嵌套' });
+    document.root.children = [
+      {
+        id: 'ch1',
+        type: 'chapter',
+        children: [
+          { type: 'heading', children: [text('第一章')] },
+          { id: 'p1', type: 'paragraph', children: [text('章直属正文')] },
+          {
+            id: 'sec1',
+            type: 'section',
+            children: [
+              { type: 'heading', children: [text('第一节')] },
+              { id: 'p2', type: 'paragraph', children: [text('小节正文')] },
+            ],
+          },
+        ],
+      },
+    ];
+    return document;
+  }
+
+  it('每个节点只归属一个输出页（父页直属内容，子节归子页）', () => {
+    const plan = planSections(buildNestedDocument());
+    expect(plan.sections.map((item) => item.section.id)).toEqual(['ch1', 'sec1']);
+
+    const result = exportSite(buildNestedDocument());
+    const parentPage = result.files.find((file) => file.path === 'section-1.html')?.text ?? '';
+    const childPage = result.files.find((file) => file.path === 'section-2.html')?.text ?? '';
+    expect(parentPage).toContain('章直属正文');
+    expect(parentPage).not.toContain('小节正文');
+    expect(childPage).toContain('小节正文');
+    expect(childPage).not.toContain('章直属正文');
+  });
+
+  it('搜索索引同样不重复计入子节内容', () => {
+    const result = exportSite(buildNestedDocument());
+    const raw = result.files.find((file) => file.path === 'search-index.json')?.text ?? '';
+    const parsed = JSON.parse(raw) as { entries: { id: string; text: string }[] };
+    expect(parsed.entries.find((item) => item.id === 'ch1')?.text).not.toContain('小节正文');
+    expect(parsed.entries.find((item) => item.id === 'sec1')?.text).not.toContain('章直属正文');
+  });
+});
+
+describe('搜索索引与修订视图', () => {
+  it('final 视图索引不含已删除文字', () => {
+    const document = createEmptyDocument({ title: '修订' });
+    document.root.children = [
+      {
+        id: 'ch1',
+        type: 'chapter',
+        children: [
+          { type: 'heading', children: [text('修订章')] },
+          {
+            id: 'p1',
+            type: 'paragraph',
+            children: [
+              { type: 'text', text: '保留句。' },
+              { type: 'text', text: '已删文字', marks: [{ type: 'deletion' }] },
+              { type: 'text', text: '新增文字', marks: [{ type: 'insertion' }] },
+            ],
+          },
+        ],
+      },
+    ];
+    const result = exportSite(document);
+    const raw = result.files.find((file) => file.path === 'search-index.json')?.text ?? '';
+    const parsed = JSON.parse(raw) as { entries: { id: string; text: string }[] };
+    const entry = parsed.entries.find((item) => item.id === 'ch1');
+    expect(entry?.text).toContain('保留句。');
+    expect(entry?.text).toContain('新增文字');
+    expect(entry?.text).not.toContain('已删文字');
+
+    /* 页面正文与索引口径一致：终稿页面同样不含删除文字 */
+    const page = result.files.find((file) => file.path === 'section-1.html')?.text ?? '';
+    expect(page).not.toContain('已删文字');
+  });
+
+  it('original 视图索引不含插入文字，marked 视图保留全部', () => {
+    const document = createEmptyDocument({ title: '修订' });
+    document.root.children = [
+      {
+        id: 'ch1',
+        type: 'chapter',
+        children: [
+          { type: 'heading', children: [text('修订章')] },
+          {
+            id: 'p1',
+            type: 'paragraph',
+            children: [
+              { type: 'text', text: '原稿句。' },
+              { type: 'text', text: '插入文字', marks: [{ type: 'insertion' }] },
+            ],
+          },
+        ],
+      },
+    ];
+    const original = exportSite(document, { revisionView: 'original' });
+    const originalRaw = original.files.find((file) => file.path === 'search-index.json')?.text ?? '';
+    expect(originalRaw).not.toContain('插入文字');
+    expect(originalRaw).toContain('原稿句。');
+
+    const marked = exportSite(document, { revisionView: 'marked' });
+    const markedRaw = marked.files.find((file) => file.path === 'search-index.json')?.text ?? '';
+    expect(markedRaw).toContain('插入文字');
+  });
+});
+
 describe('搜索索引工具', () => {
   it('空白归一化', () => {
     expect(normalizeSearchText('  甲\n\t乙　丙  ')).toBe('甲 乙 丙');

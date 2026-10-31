@@ -109,6 +109,18 @@ describe('input-router DOM 定位', () => {
     expect(pos).not.toBeNull();
     expect(charOffsetInFrag(el, pos!.container, pos!.offset)).toBeLessThanOrEqual(7);
   });
+
+  it('charOffsetInFrag：元素容器中段 childIndex 计入前序子树文本（曾漏计）', () => {
+    const el = document.createElement('div');
+    el.dataset.blockId = 'p-1';
+    /* 「前文<img>后文」：caret 落 (p, n)（p 的第 n 个子节点之前） */
+    el.innerHTML = '<p>前文<img src="x.png" alt="">后文</p>';
+    const p = el.querySelector('p')!;
+    expect(charOffsetInFrag(el, p, 0)).toBe(0); // p 开头
+    expect(charOffsetInFrag(el, p, 1)).toBe(2); // img 之前 = 前文长度（曾返回 0）
+    expect(charOffsetInFrag(el, p, 2)).toBe(2); // img 之后（img 与后文之间无文本）
+    expect(charOffsetInFrag(el, p, 3)).toBe(4); // 容器末尾 = 前文(2)+后文(2)
+  });
 });
 
 describe('input-router：注音（ruby）注文不进入字符轴', () => {

@@ -105,8 +105,8 @@ describe('buildPrintCss：对页镜像（facing）', () => {
     });
     /* 右页（recto）装订边在左：base 48 56 → 左 56+40 */
     expect(css).toContain('@page :right {\n  margin: 48px 56px 48px 96px;');
-    /* 左页（verso）装订边在右：右 56+40 */
-    expect(css).toContain('@page :left {\n  margin: 48px 96px 48px 56px;');
+    /* 左页（verso）装订边在右：基础边距左右互换后 gutter 叠右 → 右 56+40 */
+    expect(css).toContain('@page :left {\n  margin: 48px 56px 48px 96px;');
     /* 基础 @page 仍保留尺寸与对称边距 */
     expect(css).toContain('size: 559px 794px;');
   });
@@ -130,7 +130,7 @@ describe('buildPrintCss：对页镜像（facing）', () => {
       facing: { gutter: 40 },
     });
     expect(css).toContain('.bt-page-recto {\n  padding: 48px 56px 48px 96px;');
-    expect(css).toContain('.bt-page-verso {\n  padding: 48px 96px 48px 56px;');
+    expect(css).toContain('.bt-page-verso {\n  padding: 48px 56px 48px 96px;');
   });
 
   it('A4 对页：页边距镜像（验收口径）', () => {
@@ -142,7 +142,7 @@ describe('buildPrintCss：对页镜像（facing）', () => {
     });
     expect(css).toContain('size: 794px 1123px;');
     expect(css).toContain('.bt-page-recto {\n  padding: 48px 56px 48px 94px;');
-    expect(css).toContain('.bt-page-verso {\n  padding: 48px 94px 48px 56px;');
+    expect(css).toContain('.bt-page-verso {\n  padding: 48px 56px 48px 94px;');
   });
 
   it('未启用对页：不输出镜像规则（负例）', () => {
@@ -150,6 +150,30 @@ describe('buildPrintCss：对页镜像（facing）', () => {
     expect(auto).not.toContain(':right');
     const paged = buildPrintCss({ options: DEFAULT_LAYOUT_OPTIONS, tokens: {}, mode: 'paged' });
     expect(paged).not.toContain('bt-page-recto');
+  });
+
+  it('基础边距左右不等时 verso 水平镜像（auto 与 paged 一致）', () => {
+    /* page-margin: top 10 / right 20 / bottom 30 / left 40（不对称） */
+    const tokens = { 'page-margin': '10px 20px 30px 40px' };
+    const auto = buildPrintCss({
+      options: DEFAULT_LAYOUT_OPTIONS,
+      tokens,
+      mode: 'auto',
+      facing: { gutter: 5 },
+    });
+    /* recto：装订边在左 → 左 = 40+5 */
+    expect(auto).toContain('@page :right {\n  margin: 10px 20px 30px 45px;');
+    /* verso 是 recto 的物理镜像：右 40（原左）、左 = 20+5 */
+    expect(auto).toContain('@page :left {\n  margin: 10px 40px 30px 25px;');
+
+    const paged = buildPrintCss({
+      options: DEFAULT_LAYOUT_OPTIONS,
+      tokens,
+      mode: 'paged',
+      facing: { gutter: 5 },
+    });
+    expect(paged).toContain('.bt-page-recto {\n  padding: 10px 20px 30px 45px;');
+    expect(paged).toContain('.bt-page-verso {\n  padding: 10px 40px 30px 25px;');
   });
 });
 

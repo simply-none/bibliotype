@@ -166,8 +166,10 @@ describe('Reader 注释定位', () => {
     });
     reader.loadDocument(noteRefDoc());
 
-    // 注区上限 20：第二注溢出到第 2 页，与正文引用不同页
-    expect(reader.getPageOfNote('fn-2')).toBe(1);
+    // 注区上限 20：每条注（120）均超上限且页上有正文 → 各自整条续到独占页
+    //（2026-10-31 记账口径修正前，首条注曾绕过容量检查无条件落在本页）
+    expect(reader.getPageOfNote('fn-1')).toBe(1);
+    expect(reader.getPageOfNote('fn-2')).toBe(2);
     expect(reader.getPageOfNoteRef('ref-2')).toBe(0);
     expect(reader.getPageOfNoteRef('missing')).toBeUndefined();
   });

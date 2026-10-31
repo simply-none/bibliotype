@@ -15,6 +15,8 @@ import type {
   PageIndex,
   PageReferenceMatch,
   PageReferenceOptions,
+  ResolveConvergedInput,
+  ResolveConvergedResult,
 } from './types.js';
 
 /** 节点 id 占位符模式 */
@@ -121,6 +123,58 @@ export function resolveReferences(
 ): string {
   const withLabels = registry ? replaceLabelReferences(text, registry, index, options) : text;
   return replacePageReferences(withLabels, index, options);
+}
+
+/** 页码索引等值（entries 逐键比较 + 总页数；「页码稳定」的判定口径） */
+function samePageIndex(left: PageIndex, right: PageIndex): boolean {
+  if (left.totalPages !== right.totalPages) return false;
+  const leftKeys = Object.keys(left.entries);
+  const rightKeys = Object.keys(right.entries);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (left.entries[key] !== right.entries[key]) return false;
+  }
+  return true;
+}
+
+/**
+ * 两遍收敛解析：替换 → 重建索引 → 页码稳定即止
+ *
+ * 引用占位替换会改变文本长度，进而可能使页码过期（页数虚变），单次
+ * 替换不保证「印出来的页码」正确。本函数循环「替换 → 重建索引 → 与
+ * 上一轮比较」至多 `maxRounds`（缺省 3）轮：索引稳定即提前退出。
+ *
+ * **每轮都从输入文档出发替换**（`replace(original, index_i)`，回调应为
+ * 纯函数）：替换会消耗占位符，若在上一轮产物上继续替换，后几轮就再也
+ * 改不动已印出的页码；只有「原文档 + 最新索引」重跑，产物的页码才与
+ * 产物自身的分页一致（收敛时 `index` 既是产物分页、也是产物页码的来源）。
+ *
+ * 依赖边界：xref 只依赖 core，「重排」由调用方经 `reindex` 注入
+ * （结构投影 → 分页 → 索引），本函数只负责循环与比较——确定性由
+ * 注入回调保证（不触时间 / 随机源）。
+ *
+ * 不收敛（轮数耗尽页码仍在漂移）时返回最后一次替换结果并附
+ * `converged: false`，由调用方决定告警或继续。
+ */
+export function resolveReferencesConverged(
+  input: ResolveConvergedInput,
+): ResolveConvergedResult {
+  const maxRounds = Math.max(1, input.maxRounds ?? 3);
+  let index = input.reindex(input.document);
+  let document = input.document;
+  let rounds = 0;
+  while (rounds < maxRounds) {
+    rounds += 1;
+    const replaced = input.replace(input.document, index);
+    const nextIndex = input.reindex(replaced);
+    const stable = samePageIndex(index, nextIndex);
+    document = replaced;
+    index = nextIndex;
+    if (stable) {
+      return { document, index, converged: true, rounds };
+    }
+  }
+  return { document, index, converged: false, rounds };
 }
 
 /** 文本是否含任意引用占位（不持有全局正则状态） */

@@ -21,9 +21,9 @@ export type JudouSymbol = '，' | '。' | '；' | '：' | '、' | '？' | '！';
 /** 全部句读符号（UI 下拉、校验与测试共用） */
 export const JUDOU_SYMBOLS: readonly JudouSymbol[] = ['，', '。', '；', '：', '、', '？', '！'];
 
-/** 已存在的标点：其后不再建议新句读，避免「重标」 */
+/** 已存在的标点：其后不再建议新句读，避免「重标」（含直排形式 ︒ ︑ ︠ ︡） */
 export const EXISTING_PUNCTUATION: ReadonlySet<string> = new Set([
-  ...'，。；：、？！…—·「」『』（）《》〈〉【】〔〕',
+  ...'，。；：、？！…—·「」『』（）《》〈〉【】〔〕︒︑︠︡',
   ...',.;:?!()[]{}"\'',
 ]);
 
@@ -188,8 +188,10 @@ export function suggestJudou(text: string, options: JudouRuleOptions = {}): Judo
 /**
  * 把句读候选折算成「建议标记的前一个字区间」
  *
- * 标记包裹前一个字（`offset - 1` 至 `offset`），渲染层据此在该字后用 CSS
- * 伪元素显示候选符号；这样「接受」只是加一个 mark，不改变正文字符。
+ * 标记包裹前一个字，渲染层据此在该字后用 CSS 伪元素显示候选符号；这样
+ * 「接受」只是加一个 mark，不改变正文字符。前一字可能是 astral 字符
+ * （扩展 B–F 区汉字、emoji，占两个码元）：区间按低代理回退一位，保证
+ * 覆盖完整代理对——否则 mark 包裹孤代理，序列化产物为非法 XML。
  *
  * @returns 偏移非法的候选（`offset <= 0`）返回 `undefined`
  */
@@ -199,5 +201,8 @@ export function judouMarkerRange(
 ): { start: number; end: number } | undefined {
   const { offset } = candidate;
   if (!Number.isInteger(offset) || offset <= 0 || offset > text.length) return undefined;
-  return { start: offset - 1, end: offset };
+  const prev = text.charCodeAt(offset - 1);
+  const start = prev >= 0xdc00 && prev <= 0xdfff ? offset - 2 : offset - 1;
+  if (start < 0) return undefined;
+  return { start, end: offset };
 }

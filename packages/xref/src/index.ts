@@ -17,6 +17,8 @@ export type {
   PageReferenceMatch,
   PageReferenceOptions,
   LabelReferenceMatch,
+  ResolveConvergedInput,
+  ResolveConvergedResult,
 } from './types.js';
 
 /* ---------- 第一遍：索引 ---------- */
@@ -48,5 +50,6 @@ export {
   replacePageReferences,
   replaceLabelReferences,
   resolveReferences,
+  resolveReferencesConverged,
   hasReferences,
 } from './resolve.js';

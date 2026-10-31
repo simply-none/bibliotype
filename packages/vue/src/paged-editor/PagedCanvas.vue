@@ -344,24 +344,35 @@ const flowCharsPerColumn = computed(() => {
   return Math.max(4, Math.round(cross / (Number.isFinite(size) ? size : 16)));
 });
 
-/* 序列化缓存（node 引用级 + 通道键）：增量重排复用同一片段节点 → 免重复序列化 */
-const htmlCache = new WeakMap<BookNode, string>();
+/* 序列化缓存（node 引用级 + 通道键）：增量重排复用同一片段节点 → 免重复序列化。
+ * 通道键随「书写方向 + 夹注子列容量 + 片段起点行」变化——未变子树跨轮同引用
+ * （编辑器备忘录），量尺口径（字号 / 页尺寸 / 书写方向）变了缓存值必须跟着变：
+ * 曾只按节点引用缓存，改字号后未重切片的整块片段复用旧 HTML（夹注子列容量
+ * 陈旧），编辑与阅读视觉分叉。 */
+interface HtmlCacheEntry {
+  key: string;
+  html: string;
+}
+const htmlCache = new WeakMap<BookNode, HtmlCacheEntry>();
 
 function fragHtml(frag: PagedFragment): string {
   const node: BookNode = frag.node;
   if (isTextNode(node)) return '';
   const flow = verticalWriting.value && isFlowParagraphType(node.type);
-  let html = htmlCache.get(node);
-  if (html === undefined) {
-    html = flow
-      ? serializeVerticalFlow([node], {
-          charsPerColumn: flowCharsPerColumn.value,
-          /* 续排片段（fromLine>0）是段落中段：低格 / 抬头属段首，重发会重复缩进 */
-          omitRulePrefix: frag.fromLine > 0,
-        })
-      : serializeNode(node);
-    htmlCache.set(node, html);
+  const key = `${props.options.writingMode}|${flowCharsPerColumn.value}|${frag.fromLine}`;
+  const cached = htmlCache.get(node);
+  if (cached !== undefined && cached.key === key) return cached.html;
+  let html: string;
+  if (flow) {
+    html = serializeVerticalFlow([node], {
+      charsPerColumn: flowCharsPerColumn.value,
+      /* 续排片段（fromLine>0）是段落中段：低格 / 抬头属段首，重发会重复缩进 */
+      omitRulePrefix: frag.fromLine > 0,
+    });
+  } else {
+    html = serializeNode(node);
   }
+  htmlCache.set(node, { key, html });
   return html;
 }
 

@@ -148,4 +148,73 @@ describe('serializeVerticalFlow（行内流序列化）', () => {
     /* 两段在同一个行内流里相续（无块级边界） */
     expect(html).toContain('甲</span><span class="bt-vpara">乙');
   });
+
+  it('超长夹注多对输出：全部注文恰好出现一次（切片窗口不重叠）', () => {
+    /* 容量 2 大字 → 每子列 4 小字；14 字 → 对1[一二三四|五六七八] 对2[九十甲乙|丙丁＋空] */
+    const text = '一二三四五六七八九十甲乙丙丁';
+    const withNote: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [
+        { type: 'text', text: '经' },
+        { type: 'double-note', children: [{ type: 'text', text }] },
+      ],
+    };
+    const html = serializeVerticalFlow([withNote], { charsPerColumn: 2 });
+    /* 每个字在产物中恰好出现一次：曾按 cap 步进切片，[cap,2cap) 被相邻两对重复输出 */
+    for (const char of text) {
+      expect(html.split(char).length - 1).toBe(1);
+    }
+    /* 首对缩格：右列 = 1 空位 + 3 字（cap=4） */
+    expect(html).toContain(text.slice(0, 3));
+    expect(html).toContain(text.slice(12));
+  });
+
+  it('astral 夹注不产出孤代理（码元窗口防劈代理对）', () => {
+    /* 「𠮷」为 astral（2 码元）；容量 1 大字 → 每子列 2 码元，
+     * 边界恰好落在代理对中间 → 防劈回退一位 */
+    const withNote: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [
+        { type: 'text', text: '經' },
+        { type: 'double-note', children: [{ type: 'text', text: '𠮷𠮷甲' }] },
+      ],
+    };
+    const html = serializeVerticalFlow([withNote], { charsPerColumn: 1 });
+    /* 孤代理 = 高代理后不接低代理（或反之） */
+    const loneSurrogate = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+    expect(html.match(loneSurrogate)).toBeNull();
+    expect(html).toContain('𠮷');
+  });
+
+  it('行中起注：注首低一格（首对右列补空位盒）；段首起注顶格', () => {
+    const mid: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [
+        { type: 'text', text: '經文' },
+        { type: 'double-note', children: [{ type: 'text', text: '長注正文 abcde' }] },
+      ],
+    };
+    const midHtml = serializeVerticalFlow([mid], { charsPerColumn: 4 });
+    /* 注前有正文 → 缩格：首个 vnote 列以 data-n="1" 空位盒起头 */
+    expect(midHtml).toMatch(/bt-vnote-col"><span class="bt-vpad" data-n="1"><\/span>/);
+    const head: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      children: [{ type: 'double-note', children: [{ type: 'text', text: '長注正文 abcde' }] }],
+    };
+    const headHtml = serializeVerticalFlow([head], { charsPerColumn: 4 });
+    expect(headHtml).not.toContain('bt-vpad');
+  });
+
+  it('非连排节点透传 nodeOptions（tagOverrides / verticalText 等不丢）', () => {
+    const heading: BookNode = {
+      type: NODE_TYPES.HEADING,
+      attrs: { level: 2 },
+      children: [{ type: 'text', text: '学而' }],
+    };
+    const html = serializeVerticalFlow([heading], {
+      charsPerColumn: 10,
+      nodeOptions: { tagOverrides: { heading: 'div' } },
+    });
+    expect(html).toContain('<div class="bt-heading"');
+  });
 });

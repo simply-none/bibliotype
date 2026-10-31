@@ -413,11 +413,11 @@ summarizePdfImageProblems(issues);
 
 ### 对页镜像（facing）
 
-右页（recto，奇数页）订口在左，左页（verso，偶数页）在右。`gutter` 是装订补偿（px），加在**内侧**页边距上：
+右页（recto，奇数页）订口在左，左页（verso，偶数页）在右。`gutter` 是装订补偿（px），加在**内侧**页边距上；**verso 的水平边距是 recto 的物理镜像**（基础边距左右互换后再叠中缝补偿，2026-10-31 起——此前 verso 只加 gutter、不对称基础边距不镜像）：
 
 ```ts
 renderPrintHtml(document, { mode: 'paged', facing: { gutter: 38 } });
-// A4：右页 padding 48 56 48 94 / 左页 48 94 48 56
+// A4 页边距 48 56 48 94：右页 padding 48 56 48 94+38 / 左页（镜像）48 94+38 48 56
 ```
 
 | 模式 | 实现 | 引擎要求 |
@@ -426,6 +426,13 @@ renderPrintHtml(document, { mode: 'paged', facing: { gutter: 38 } });
 | `paged` | 逐页打 `bt-page-recto / bt-page-verso` 类，`.bt-page` padding 四边重写 | 任何引擎都确定生效（推荐） |
 
 第 1 页按右页处理；仿真版式的书口带宽先并入对应物理边，再叠加中缝补偿。
+
+### 修订视图与分页（paged）
+
+`revisionView`（`marked` 缺省 / `final` / `original`）同时作用于**纸面序列化**与**预分页**：
+paged 模式分页前先按视图投影文档（core `projectRevisionView`，稳定 id 保留），
+被隐藏的内容不再消耗分页容量——final 视图的页数按过滤后的内容计算，
+与预览一致。
 
 ### 出血与裁切线
 

@@ -157,6 +157,12 @@ export function buildBookCss(input: BuildBookCssOptions): string {
     'font-size': `var(--bt-${FONT_SIZE_TOKENS.BODY})`,
     'line-height': `var(--bt-${LAYOUT_TOKENS.LINE_HEIGHT})`,
     'letter-spacing': `var(--bt-${LAYOUT_TOKENS.LETTER_SPACING})`,
+    /* 两端对齐（书排惯例）：中文正文逐字均匀分布、左右缘齐版心；不影响
+     * 换行点与行数（justify 只在行内分配空隙），分页几何不变。
+     * 仅横排启用：直排行内流里断列标记（bt-vbreak）留下的短列是容器的
+     * 「中间行」，justify 会把它拉伸到整列高——字距脱界行网格，古籍
+     * 仿真的逐字对齐被破坏；直排保持自然列高。 */
+    ...(vertical ? {} : { 'text-align': 'justify' }),
     color: `var(--bt-${COLOR_TOKENS.TEXT})`,
     'background-color': `var(--bt-${COLOR_TOKENS.BACKGROUND})`,
     'writing-mode': options.writingMode,
@@ -214,6 +220,10 @@ export function buildBookCss(input: BuildBookCssOptions): string {
   text-indent: var(--bt-${LAYOUT_TOKENS.TEXT_INDENT});
 }
 ${scoped('.bt-heading')} {
+  /* margin 显式化：UA 对 h1~h6 的缺省外边距逐级不同且跨引擎不一致——
+   * 分页推进量（估算路径 blockSpacing / 打印稿）与真实渲染因此漂移；
+   * 取 UA h2 量级作全书统一值，视觉接近既有形态且跨引擎确定 */
+  margin: 0.83em 0;
   font-family: var(--bt-${FONT_TOKENS.HEADING});
   font-size: var(--bt-${FONT_SIZE_TOKENS.HEADING});
   line-height: 1.4;
@@ -255,6 +265,22 @@ ${[1, 2, 3, 4]
 ${scoped(".bt-paragraph[data-lift='space']:not([data-indent])")},
 ${scoped(".bt-quote[data-lift='space']:not([data-indent])")} {
   text-indent: 1em;
+}
+/*
+ * 跨页续排片段顶格（与序列化器 data-continued 配套）：块按行拆分跨页后，
+ * 后继片段是同一句话的中段——首行缩进（令牌 / 低格 / 挪抬）都属于原段
+ * 首行，续片一律顶格；带缩进渲染还会让片段实际行数超过分页记账
+ * （页底空行带 / 末行裁切）。两条规则分别压过令牌规则 (0,1,0)、
+ * data-indent 规则 (0,2,0) 与挪抬规则 (0,3,0)——同特异性靠源序取胜，
+ * 故必须排在其后。
+ */
+${scoped('.bt-paragraph[data-continued]')},
+${scoped('.bt-quote[data-continued]')} {
+  text-indent: 0;
+}
+${scoped('.bt-paragraph[data-continued][data-lift]')},
+${scoped('.bt-quote[data-continued][data-lift]')} {
+  text-indent: 0;
 }
 ${scoped('.bt-list')} {
   margin: 0.5em 0;

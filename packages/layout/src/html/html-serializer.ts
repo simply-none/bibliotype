@@ -86,6 +86,16 @@ export interface SerializeNodeOptions {
    *   序列化器不再二次转义——宿主不得把用户输入拼进片段。
    */
   glyph?: (char: string) => string | undefined;
+  /**
+   * 跨页续排片段（`true` 时根元素输出 `data-continued="true"`）
+   *
+   * 块按行拆分跨页后，后继片段是**同一句话的中段**而非新段落：首行缩进
+   * （令牌 text-indent / data-indent 低格 / data-lift 挪抬）都属于原段首行，
+   * 续片一律顶格，且带缩进渲染会让片段实际行数超过分页记账（页底空行带 /
+   * 裁切）。样式侧由 book-css 的 `[data-continued]` 规则置零缩进；预览 /
+   * 编辑画布 / 打印三端按分页 items 的 `fromLine > 0` 传入。
+   */
+  continued?: boolean;
 }
 
 /** core 节点类型的默认标签映射（heading / list / text / book 动态处理） */
@@ -498,7 +508,10 @@ function elementToHtml(node: BookNode, options: SerializeNodeOptions): string {
     return `<${tag}${idAttr}${classAttr}${extras}>${inner !== '' ? inner : escapeHtml(tex)}</${tag}>`;
   }
 
-  return `<${tag}${idAttr}${classAttr}${extras}>${serializeChildren(node, options)}</${tag}>`;
+  /* 跨页续排片段标记（见 SerializeNodeOptions.contined） */
+  const continuedAttr = options.continued === true ? ' data-continued="true"' : '';
+
+  return `<${tag}${idAttr}${classAttr}${extras}${continuedAttr}>${serializeChildren(node, options)}</${tag}>`;
 }
 
 /** 标记包裹（marks[0] 为最内层，自内向外逐层包裹） */

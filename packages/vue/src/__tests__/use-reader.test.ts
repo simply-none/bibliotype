@@ -5,10 +5,10 @@
  * 重排后的页数与布局同步、scope 销毁后的事件解绑。
  */
 import { describe, expect, it } from 'vitest';
-import { effectScope, nextTick, ref } from 'vue';
+import { effectScope, nextTick, ref, shallowRef } from 'vue';
 import { NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
 import { Reader, type BlockSizeEstimator } from '@bibliotype/reader';
-import { useReader } from '../use-reader.js';
+import { useReader, useReaderBinding } from '../use-reader.js';
 
 /** 固定尺寸估算器：按节点 id 取尺寸 */
 function fixedEstimator(sizes: Record<string, number>): BlockSizeEstimator {
@@ -100,7 +100,7 @@ describe('useReader', () => {
     reader.loadDocument(sampleDoc());
 
     const { value: binding, stop } = runInScope(() => useReader(reader));
-    expect(binding.reader).toBe(reader);
+    expect(binding.reader.value).toBe(reader);
     expect(binding.totalPages.value).toBe(3);
 
     reader.goToNode('p-3');
@@ -144,8 +144,35 @@ describe('useReader', () => {
     );
 
     stop();
-    expect(binding.reader.events.hasListeners('page:change')).toBe(false);
-    binding.reader.nextPage();
+    expect(binding.reader.value.events.hasListeners("page:change")).toBe(false);
+    binding.reader.value.nextPage();
     expect(binding.currentPage.value).toBe(0);
+  });
+});
+
+describe('useReaderBinding 实例替换重绑', () => {
+  it('ref 源替换 Reader 实例：事件改绑新实例、状态整体刷新（阅读区跟随换书）', async () => {
+    const first = new Reader({ pageMainSize: 100, estimator: fixedEstimator(SIZES) });
+    first.loadDocument(sampleDoc());
+    const source = shallowRef<Reader>(first);
+    const { value: binding, stop } = runInScope(() => useReaderBinding(source));
+    expect(binding.totalPages.value).toBe(3);
+
+    const second = new Reader({ pageMainSize: 40, estimator: fixedEstimator(SIZES) });
+    second.loadDocument(sampleDoc());
+    source.value = second;
+    await nextTick();
+
+    /* 状态整体拉到新实例：总页数、目录、当前页随新文档 */
+    expect(binding.totalPages.value).toBe(second.totalPages);
+    expect(binding.reader.value).toBe(second);
+    /* 旧实例的事件已解绑：翻旧书不再推动状态 */
+    const before = binding.currentPage.value;
+    first.goToNode('p-3');
+    expect(binding.currentPage.value).toBe(before);
+    /* 新实例的事件已生效 */
+    second.nextPage();
+    expect(binding.currentPage.value).toBe(second.currentPage);
+    stop();
   });
 });

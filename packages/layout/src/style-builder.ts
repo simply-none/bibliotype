@@ -25,6 +25,8 @@ import { isFacsimileEnabled } from './facsimile.js';
 import {
   resolveFacsimileFrameThickness,
   resolveFacsimileGutterSize,
+  resolveBodyFontSize,
+  resolveLetterSpacingEm,
   resolveLinePitch,
 } from './facsimile-geometry.js';
 
@@ -249,13 +251,22 @@ export function resolvePageMainSize(
 const PAGE_NUMBER_BAND = 40;
 
 /**
+ * 页码（页脚）字形与正文末行的最小间隙（px）
+ *
+ * 书排惯例：末行距页码留一线空隙（印刷标准页码在版心下方 5~10mm，Web 预览
+ * 尺度取 3px）——页底溢出预算按此收口，正文最深只到「页码字形顶 − 3px」。
+ */
+const FOLIO_GAP_MIN = 3;
+
+/**
  * 解析页底溢出量（px，分页可用容量的放宽量）
  *
- * 几何：换页线由「版心底（H − mB − C）」下移到「页码带顶缘」，故溢出上限受
- * 三者约束：① 下边距 `mB`（侵入深度不能超过边距本身，否则正文贴到页面物理
- * 底缘并被 `overflow: hidden` 裁切）；② 页码带（未启用 pageChrome 时页码以
- * 绝对定位浮在页面下沿，版心与页码顶之间只剩 `mB − PAGE_NUMBER_BAND`）；
- * ③ 已启用页脚时其占位已从版心扣掉，溢出可吃满整个下边距。
+ * 几何：换页线由「版心底（H − mB − C）」下移到「页码字形顶 − 3px」，故溢出
+ * 上限受三者约束：① 下边距 `mB`（侵入深度不能超过边距本身，否则正文贴到
+ * 页面物理底缘并被 `overflow: hidden` 裁切）；② 页码带（未启用 pageChrome 时
+ * 页码以绝对定位浮在页面下沿，版心与页码顶之间只剩
+ * `mB − PAGE_NUMBER_BAND − 3px`）；③ 已启用页脚时其占位已从版心扣掉，
+ * 溢出可吃满下边距、只留 3px 与页脚字形隔开。
  *
  * 直排返回 0：主轴是页宽，溢出吃的是外边距（古籍版框 / 书口侧），风险与横排
  * 不同源，不默认开放。
@@ -280,8 +291,77 @@ export function resolveBottomSlack(
   const chrome = options.pageChrome;
   const footerReserved =
     chrome !== undefined && chrome.footer !== 'none' && chrome.footerSize > 0;
-  const room = footerReserved ? marginY : Math.max(0, marginY - PAGE_NUMBER_BAND);
+  const room = footerReserved
+    ? Math.max(0, marginY - FOLIO_GAP_MIN)
+    : Math.max(0, marginY - PAGE_NUMBER_BAND - FOLIO_GAP_MIN);
   return Math.max(0, Math.min(want, room));
+}
+
+/** 分页几何（主轴行网格量化结果） */export interface PaginationGeometry {
+  /**
+   * 页主轴容量（px，行网格量化后）
+   *
+   * = floor((版心主轴 + 页底溢出) ÷ 行步进) × 行步进——容量恒为整行数，
+   * 均匀行高的页面排满时内容底缘恒落在同一高度（行网格），页底不再出现
+   * 「差半行」的随机空白；量化差值与页码间隙一起构成恒定的页脚留白。
+   * 横排行步进 = 行高；直排列步进 = 列距（同一换算，见 `resolveLinePitch`）。
+   */
+  pageMainSize: number;
+  /**
+   * 页底溢出（px）= 原始容量 − 行网格容量
+   *
+   * 吸收注音（ruby）等行盒高于行步进的页面：逐行实测尺寸累加超出网格时，
+   * 由本余量承接，不额外换页。
+   */
+  bottomSlack: number;
+  /** 量化前的版心主轴（px，`resolvePageMainSize` 原值，供页框绘制参照） */
+  rawMainSize: number;
+}
+
+/**
+ * 解析分页几何：版心主轴按行网格取整 + 页底溢出预算
+ *
+ * 三端（阅读预览 / 编辑画布 / 打印）共用本函数，保证分页容量的行网格口径
+ * 一致。页底空白由两部分构成、全书恒定：行网格余量（容量取整差值）与
+ * 「版心底 → 页码字形顶」的固有间隙（页码带 / 页脚占位），二者都不随内容
+ * 逐页波动——这是书本「页脚留白是设计出来的」观感的来源。
+ */
+export function resolvePaginationGeometry(
+  options: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+): PaginationGeometry {
+  const rawMainSize = resolvePageMainSize(options, tokens);
+  const step = resolveLinePitch(tokens);
+  const slack = resolveBottomSlack(options, tokens, step);
+  const capacity = rawMainSize + slack;
+  /* epsilon 护栏：capacity 恰为步进整数倍时（30.4×23 之类）浮点除法可能
+   * 落在 22.999999999999996，floor 会丢掉最后一整行 */
+  const grid = step > 0 ? Math.floor(capacity / step + 1e-6) * step : capacity;
+  const pageMainSize = Math.max(step > 0 ? step : 1, grid);
+  return {
+    pageMainSize,
+    bottomSlack: Math.max(0, capacity - pageMainSize),
+    rawMainSize,
+  };
+}
+
+/**
+ * 直排每列字数（交叉轴容量 ÷ 字位步进，向下取整）
+ *
+ * 字位步进 = 字号 × (1 + 字距 em)——浏览器 letter-spacing 逐字追加，列内
+ * 文字按此步进推进；容量必须用同一公式向下取整，末字才能落在网格内。
+ * 曾用 round(交叉轴 ÷ 字号)（不含字距、四舍五入）：与仿真几何层
+ * （`resolveFacsimileGrid` 的 floor ÷ 字距步进）相差 1~2 字，列底出现
+ * 空白字位——界行网格之下格外刺眼（仿真直排「不能空一行」的成因）。
+ * 仿真与非仿真直排统一走本口径。
+ */
+export function resolveCharsPerColumn(
+  options: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+): number {
+  const cross = resolvePageCrossSize(options, tokens);
+  const charStep = Math.max(1, resolveBodyFontSize(tokens) * (1 + resolveLetterSpacingEm(tokens)));
+  return Math.max(1, Math.floor(cross / charStep));
 }
 
 /**

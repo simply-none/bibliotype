@@ -64,6 +64,16 @@ function parsePx(value: string | undefined): number | undefined {
   return match === null ? undefined : Number(match[1]);
 }
 
+/**
+ * 正文字号（px，令牌缺失时兜底 16）
+ *
+ * 直排每列字数（`resolveCharsPerColumn`）与列距（`resolveLinePitch`）共用，
+ * 保证「列高 ÷ 字位步进」与「界行节距」同源。
+ */
+export function resolveBodyFontSize(tokens: Readonly<Record<string, string | undefined>>): number {
+  return parsePx(tokens[FONT_SIZE_TOKENS.BODY]) ?? DEFAULT_FONT_SIZE;
+}
+
 /** 保留两位小数（避免浮点尾差进入 CSS 与断言） */
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -126,8 +136,8 @@ export function resolveLinePitch(
   return round2(size * ratio);
 }
 
-/** 字距（em）：支持 `0.02em` / `0.02` / `0.5px` 三种写法 */
-function resolveLetterSpacingEm(
+/** 字距（em）：支持 `0.02em` / `0.02` / `0.5px` 三种写法（导出供直排每列字数口径共用） */
+export function resolveLetterSpacingEm(
   tokens: Readonly<Record<string, string | undefined>>,
 ): number {
   const raw = (tokens[LAYOUT_TOKENS.LETTER_SPACING] ?? '').trim();

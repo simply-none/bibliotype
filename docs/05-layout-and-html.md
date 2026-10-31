@@ -213,6 +213,25 @@ const blocks: MeasurableBlock[] = [{ id: 'p-1', mainSize: 120, keepWithNext: tru
 const { pages, totalPages, totalBlocks } = paginate(blocks, { pageMainSize: 640 });
 ```
 
+### 分页几何（行网格与页码间隙）
+
+阅读预览 / 编辑画布 / 打印三端共用的页容量出自 `resolvePaginationGeometry`：
+
+- **主轴行网格**：容量 = floor((版心主轴 + 页底溢出预算) ÷ 行步进) × 行步进，
+  向下取整到整行——均匀行高的页排满时内容底缘恒在同一高度，页底空白全书
+  恒定（网格余量 + 版心底到页码的固有间隙），不随内容逐页波动；量化余量
+  计入 `bottomSlack`（承接注音等高于步进的行盒）。横排行步进 = 行高、
+  直排列步进 = 列距（同一换算，与界行网格严格相等）；
+- **页码间隙 3px**：页底溢出预算按「页码字形顶 − 3px」收口（印刷惯例：页码
+  在版心下方 5~10mm，末行与页码留一线空隙）——未启用页脚时
+  `下边距 − 页码带 40 − 3`，启用页脚时 `下边距 − 3`；
+- **直排每列字数**：`resolveCharsPerColumn`（交叉轴 ÷ 字位步进
+  = 字号 × (1 + 字距 em)，向下取整）——量尺 / 预览 / 打印 / 仿真几何层统一
+  口径，列内末字落在界行网格内（仿真直排列底不空字位）。
+
+普通正文页页底剩余空白只有两类排版学语义：孤寡行控制（段落末两行不拆页，
+`widowControl` 可调）与章首 / 章末起排留白。
+
 ### 页底注区（脚注浮注）
 
 块标 `floatToBottom: true` 且开启 `noteArea` 时，脚注不进正文流，而是落在所在页的页底注区：
@@ -480,7 +499,15 @@ const html = serializeVerticalFlow(nodes, { charsPerColumn: 20 });
 - **行款标记**（批 1 属性的渲染消费）：低格 / 挪抬 → 段首空位盒
   （`.bt-vpad`，N 字位高）；提行 / 平抬 → `<br class="bt-vbreak">` 断列 +
   抬升列首空位（`liftLevel` 1~4）；
+- **跨页续排片段顶格**（横排块级同款规则）：块按行拆分跨页后，后继片段是
+  同一句话的中段——序列化器 `continued: true` 输出 `data-continued="true"`，
+  book-css 置零首行缩进（令牌 / data-indent / data-lift 一并压过）；预览 /
+  编辑画布 / PDF 打印按分页 items 的 `fromLine > 0` 统一传入。带缩进渲染
+  会使片段行数超出分页记账（页底空行带）；
 - 标题 / 版式块不参与连排（原样整块输出，保持既有样式与基线）；
+- **书排对齐基线**（横排）：根容器 `text-align: justify` 两端对齐（不影响
+  换行点与行数；直排不启用——断列短列会被拉伸脱界行网格）；
+  `.bt-heading` margin 显式化 `0.83em 0`（UA 缺省逐级不同且跨引擎不确定）；
 - **量尺同形态**：`pagination-measure` 在直排时对块输出同构 HTML 实测——
   行边界与夹注原子性随真实布局自洽；预览 `BtBookView`（page / scroll /
   对页三处）直排分支消费同一序列化器；

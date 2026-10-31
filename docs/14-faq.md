@@ -441,6 +441,26 @@
   落在 `<body>` 内，`:root` 变量在 SVG 上下文挂 `<svg>` 根、经继承可达；
 - 回归测试见 `exporter-pdf` 的 `raster-svg.test.ts`（断言包装元素形态）。
 
+## 25. 导入新书后阅读区仍显示旧书 / 页码停在旧会话
+
+**现象**：导入成功（状态行提示「已导入」、顶部书名已更新），但正文区仍渲染
+上一本书的内容；e2e 冒烟「导入 → 翻页」长期失败。
+
+**根因**：两层叠加。① `BtBookView` 的页面内容 computed 只依赖 `currentPage`，
+取内容走**非响应式**的 reader 方法调用（`getPageFragments` 等）——导入载入
+新文档后当前页码仍是 0→0，computed 不失效，旧 HTML 常驻；② 宿主在导入 /
+换主题时替换 `Reader` 实例的话，`useReaderBinding` 曾在组件 setup 时捕获一次
+实例，事件还挂在旧实例上。
+
+**处理**（2026-10-31 起引擎层已修）：
+
+- computed 内显式 `void pagination.value` 声明响应式依赖（与 `gutterHtml` /
+  `pageNotesHtmlOf` 同款口径）——自写页面级 computed 时必须带上；
+- `useReaderBinding` 接受 `Reader | Ref | getter`，实例替换时自动改绑；组件
+  传 `() => props.reader`；
+- 宿主换书时自增重挂 key（demo 的 `onImportedRemount`）：新文档即新阅读
+  会话，翻页态 / 片段缓存 / 转场快照全量重置。
+
 ## 相关
 
 - 核心运行时与三层注册：[13 核心运行时](13-core-runtime.md)

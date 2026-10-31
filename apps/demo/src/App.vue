@@ -38,6 +38,7 @@
  * 传递依赖（依赖注入），不互相 import 全局单例。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue';
+import type { BookDocument } from '@bibliotype/core';
 import { type OutlineItem } from '@bibliotype/reader';
 import {
   BtBookView,
@@ -447,6 +448,18 @@ function onTocSelect(item: OutlineItem): void {
   if (mobileAsideOpen.value) mobileAsideOpen.value = false;
 }
 
+/**
+ * 导入完成：载入新书后**强制重挂阅读视图**（readerEpoch 自增 → :key 变化）。
+ *
+ * 新文档 = 新阅读会话：BtBookView 的翻页态 / 片段缓存 / 页转场快照都属旧书，
+ * 曾只换 Reader 实例不重挂，组件内部残留的旧书渲染状态盖过新文档（阅读区
+ * 停在旧书封面、页码停在旧会话）——重挂是唯一保证全量重置的收口。
+ */
+async function onImportedRemount(doc: BookDocument): Promise<void> {
+  await onImported(doc);
+  readerEpoch.value += 1;
+}
+
 
 /** 启动恢复：设置快照 + 草稿内容回灌并刷新书本 + 回跳上次阅读页；就绪后置 booted */
 async function bootstrap(): Promise<void> {
@@ -604,7 +617,7 @@ let perfProbe: PerfProbe | null = null;
           :expanded-keys="tocExpandedKeys"
           :suggestions-api="suggestionApi"
           @close="activeTab = null"
-          @imported="onImported"
+          @imported="onImportedRemount"
           @update:expanded-keys="setTocExpandedKeys"
           @select="onTocSelect"
           @accept="onAcceptSuggestions"
@@ -806,7 +819,7 @@ let perfProbe: PerfProbe | null = null;
         :expanded-keys="tocExpandedKeys"
         :suggestions-api="suggestionApi"
         @close="mobileAsideOpen = false"
-        @imported="onImported"
+        @imported="onImportedRemount"
         @update:expanded-keys="setTocExpandedKeys"
         @select="onTocSelect"
         @accept="onAcceptSuggestions"

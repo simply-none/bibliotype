@@ -8,6 +8,7 @@
 import {
   computed,
   getCurrentScope,
+  isRef,
   onScopeDispose,
   ref,
   shallowRef,
@@ -29,8 +30,8 @@ import {
 
 /** 绑定 Reader 的响应式状态与操作 */
 export interface ReaderBinding {
-  /** 绑定的 Reader 实例（命令式 API 的原点） */
-  reader: Reader;
+  /** 绑定的 Reader 实例（响应式：宿主替换实例后随源更新） */
+  reader: ComputedRef<Reader>;
   /** 当前页（自 0 起） */
   currentPage: Ref<number>;
   /** 总页数 */
@@ -72,17 +73,23 @@ export interface UseReaderReturn extends ReaderBinding {
 /**
  * 绑定既有 Reader 实例：事件 → 响应式状态
  *
+ * 来源可以是实例、Ref 或 getter：宿主在运行期**替换 Reader 实例**（换书 /
+ * 换主题 / 导入后重建等）时，事件自动改绑新实例、状态随之刷新——曾只在
+ * setup 时捕获一次实例，宿主换实例后组件仍渲染旧文档（阅读区不跟随导入）。
  * 在组件 / effectScope 内调用时，scope 销毁自动解绑事件。
  */
-export function useReaderBinding(reader: Reader): ReaderBinding {
-  const currentPage = ref(reader.currentPage);
-  const totalPages = ref(reader.totalPages);
-  const progress = ref(reader.progress);
-  const layout = shallowRef<LayoutOptions>(reader.layout);
-  const pagination = shallowRef<readonly PaginatedPage[]>(reader.pagination);
-  const outline = shallowRef<readonly OutlineItem[]>(reader.outline);
+export function useReaderBinding(source: Reader | MaybeRefOrGetter<Reader>): ReaderBinding {
+  const getReader = (): Reader => toValue(source);
+  const reader = computed(() => getReader());
+  const currentPage = ref(getReader().currentPage);
+  const totalPages = ref(getReader().totalPages);
+  const progress = ref(getReader().progress);
+  const layout = shallowRef<LayoutOptions>(getReader().layout);
+  const pagination = shallowRef<readonly PaginatedPage[]>(getReader().pagination);
+  const outline = shallowRef<readonly OutlineItem[]>(getReader().outline);
 
   const sync = (): void => {
+    const reader = getReader();
     currentPage.value = reader.currentPage;
     totalPages.value = reader.totalPages;
     progress.value = reader.progress;
@@ -91,18 +98,28 @@ export function useReaderBinding(reader: Reader): ReaderBinding {
     pagination.value = reader.pagination;
   };
   const syncWithOutline = (): void => {
-    outline.value = reader.outline;
+    outline.value = getReader().outline;
     sync();
   };
 
-  const unsubscribe = [
-    reader.events.on('page:change', sync),
-    reader.events.on('document:load', syncWithOutline),
-    reader.events.on('toc:ready', syncWithOutline),
+  const bind = (target: Reader): (() => void)[] => [
+    target.events.on('page:change', sync),
+    target.events.on('document:load', syncWithOutline),
+    target.events.on('toc:ready', syncWithOutline),
   ];
+  let unbind: (() => void)[] = bind(getReader());
+  // 实例替换：改绑事件并把状态整体拉到新实例的当前值（旧订阅先解绑防串书）
+  if (isRef(source) || typeof source === 'function') {
+    watch(source, (next, prev) => {
+      if (next === prev) return;
+      for (const off of unbind) off();
+      unbind = bind(getReader());
+      syncWithOutline();
+    });
+  }
   if (getCurrentScope() !== undefined) {
     onScopeDispose(() => {
-      for (const off of unsubscribe) off();
+      for (const off of unbind) off();
     });
   }
 
@@ -114,20 +131,20 @@ export function useReaderBinding(reader: Reader): ReaderBinding {
     layout,
     pagination,
     outline,
-    activeOutlineItem: computed(() => reader.getOutlineItemAtPage(currentPage.value)),
+    activeOutlineItem: computed(() => getReader().getOutlineItemAtPage(currentPage.value)),
     // 用定位表里的 key（无 id 节点回退树路径），与 toc-model / 折叠集合同源
-    activeOutlineKey: computed(() => reader.getOutlineAnchorAtPage(currentPage.value)?.key),
-    pageNodes: computed(() => reader.getPageNodes(currentPage.value)),
+    activeOutlineKey: computed(() => getReader().getOutlineAnchorAtPage(currentPage.value)?.key),
+    pageNodes: computed(() => getReader().getPageNodes(currentPage.value)),
     pageNumberText: computed(() => {
       const page = currentPage.value;
       if (totalPages.value === 0 || page < 0) return '';
-      return reader.formatCurrentPageNumber();
+      return getReader().formatCurrentPageNumber();
     }),
-    next: () => reader.nextPage(),
-    prev: () => reader.prevPage(),
-    goToPage: (pageIndex) => reader.goToPage(pageIndex),
-    goToNode: (nodeId) => reader.goToNode(nodeId),
-    repaginate: (overrides) => reader.repaginate(overrides),
+    next: () => getReader().nextPage(),
+    prev: () => getReader().prevPage(),
+    goToPage: (pageIndex) => getReader().goToPage(pageIndex),
+    goToNode: (nodeId) => getReader().goToNode(nodeId),
+    repaginate: (overrides) => getReader().repaginate(overrides),
   };
 }
 

@@ -370,7 +370,9 @@ function fragHtml(frag: PagedFragment): string {
       omitRulePrefix: frag.fromLine > 0,
     });
   } else {
-    html = serializeNode(node);
+    /* 横排续排片段同样输出 data-continued（book-css 置零首行缩进）；
+     * 与下方 continuationRule 的画布侧规则双保险，语义同源 */
+    html = serializeNode(node, { continued: frag.fromLine > 0 });
   }
   htmlCache.set(node, { key, html });
   return html;

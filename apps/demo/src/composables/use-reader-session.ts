@@ -22,9 +22,8 @@ import {
 import { type BookDocument } from '@bibliotype/core';
 import {
   computeMetricsSignature,
-  resolveBottomSlack,
   resolvePageCrossSize,
-  resolvePageMainSize,
+  resolvePaginationGeometry,
   type BlockAxis,
   type LayoutOptions,
 } from '@bibliotype/layout';
@@ -92,19 +91,18 @@ export function useReaderSession(deps: ReaderSessionDeps) {
     ...typographyMeasure(),
   }));
 
-  /** 每页可用主轴尺寸（预览与编辑共用同一口径，保证分页归属一致） */
-  const pageMainSize = computed(() =>
-    resolvePageMainSize(effectiveLayout.value, tokens.value),
-  );
-
   /**
-   * 页底溢出（px）：末行允许伸入下边距的深度（按「不压页码带」截断）
-   *
-   * 预览 / 编辑画布 / PDF 导出共用本值，三端逐页归属才能一致。
+   * 分页几何（预览与编辑共用同一口径，保证分页归属一致）：
+   * 主轴按行网格取整（容量恒为整行数，页底留白全书恒定，不再随机差半行）、
+   * 溢出余量承接注音等高于步进的行盒、末行最深到页码字形上方 3px。
    */
-  const bottomSlack = computed(() =>
-    resolveBottomSlack(effectiveLayout.value, tokens.value, typographyMeasure().lineSize ?? 30),
+  const paginationGeometry = computed(() =>
+    resolvePaginationGeometry(effectiveLayout.value, tokens.value),
   );
+  const pageMainSize = computed(() => paginationGeometry.value.pageMainSize);
+
+  /** 页底溢出（px）= 原始容量 − 行网格容量（见 resolvePaginationGeometry） */
+  const bottomSlack = computed(() => paginationGeometry.value.bottomSlack);
 
   /**
    * DOM 实测块尺寸（块 id → 主轴尺寸 px）与每行起始字符偏移（块 id → number[]）

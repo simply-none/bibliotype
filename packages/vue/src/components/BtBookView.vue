@@ -22,7 +22,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { DEFAULT_THEME, FONT_SIZE_TOKENS, NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import type { FeatureStyleSheet, NamedStyleSet } from '@bibliotype/core';
-import { buildPageStyle, buildRootStyle, facsimilePageOf, isVerticalMode, resolvePageCrossSize } from '@bibliotype/layout';
+import { buildPageStyle, buildRootStyle, facsimilePageOf, isVerticalMode, resolveCharsPerColumn } from '@bibliotype/layout';
 import { buildBookCss, groupNodesByBand, serializeNode, serializePageEar, serializePageGutter, serializePageNotes, serializeVerticalFlow } from '@bibliotype/layout/html';
 import {
   formatPageNumber,
@@ -143,8 +143,10 @@ const emit = defineEmits<{
   (event: 'tap-center'): void;
 }>();
 
+/* getter 传源：宿主替换 Reader 实例（换书 / 换主题 / 导入重建）时自动重绑，
+ * 曾捕获 setup 时的实例一次，换实例后阅读区停留在旧文档 */
 const { layout, pagination, pageNumberText, currentPage, totalPages } = useReaderBinding(
-  props.reader,
+  () => props.reader,
 );
 
 /** 书写方向为直排：滚动模式翻页轴随之由纵向转为水平（自右向左） */
@@ -379,14 +381,12 @@ function spreadPageStyle(page: SpreadPage) {
   /**
    * 直排每行大字数（行内流的夹注子列容量基准）
    *
-   * 版心高（交叉轴，扣页眉页脚）÷ 正文字号；与量尺 `charsPerLine` 同源
-   * 口径（0.95 字宽系数不取——行内流按 1em 字位对齐界行）。
+   * 统一走 resolveCharsPerColumn：交叉轴 ÷ 字位步进（字号 × (1+字距)）向下
+   * 取整——与量尺、打印、仿真几何层同口径（曾 round ÷ 字号，列底空字位）。
    */
-  const readerColumnCapacity = computed(() => {
-    const cross = resolvePageCrossSize(layout.value, tokens.value);
-    const size = Number.parseFloat(tokens.value['font-size-body'] ?? '16');
-    return Math.max(4, Math.round(cross / (Number.isFinite(size) ? size : 16)));
-  });
+  const readerColumnCapacity = computed(() =>
+    resolveCharsPerColumn(layout.value, tokens.value),
+  );
 
   /**
    * 当前页 HTML 片段（文本叶子不输出）
@@ -426,15 +426,21 @@ function spreadPageStyle(page: SpreadPage) {
    * 续排片段标记表（页片段节点 → 是否为跨页续排的后续片段）
    *
    * `getPageFragments` 与 `pagination[pageIndex].items` 一一同序（逐条产出），
-   * 据此给续排片段（fromLine > 0）发 omitRulePrefix——低格 / 抬头属于段首，
-   * 续页重发会重复缩进（与编辑画布、打印同口径）。节点缺失（文档与分页
-   * 结果短暂不一致）时返回 undefined，调用方退化为不省略前缀。
+   * 据此给续排片段（fromLine > 0）发标记——横排置零首行缩进（data-continued）、
+   * 直排省略行款前缀（omitRulePrefix），与编辑画布、打印同口径。
+   *
+   * **必须传入渲染所用的同一份 fragments 数组**：getPageFragments 每次调用
+   * 都新建切片对象（sliceNodeByCharRange 逐次产出新引用），两次调用的节点
+   * 无法按引用互认（曾独立调用致 Map 查找全部落空、续排标记永不生效）。
+   * 节点缺失（文档与分页结果短暂不一致）时返回 undefined，调用方退化为
+   * 不标记。
    */
-  function continuationFlagsOf(pageIndex: number): ReadonlyMap<BookNode, boolean> | undefined {
+  function continuationFlagsOf(
+    fragments: readonly BookNode[],
+    pageIndex: number,
+  ): ReadonlyMap<BookNode, boolean> | undefined {
     const items = props.reader.pagination[pageIndex]?.items;
-    if (items === undefined) return undefined;
-    const fragments = props.reader.getPageFragments(pageIndex);
-    if (fragments.length !== items.length) return undefined;
+    if (items === undefined || fragments.length !== items.length) return undefined;
     const flags = new Map<BookNode, boolean>();
     for (let i = 0; i < items.length; i += 1) {
       const node = fragments[i];
@@ -484,27 +490,36 @@ function spreadPageStyle(page: SpreadPage) {
   function renderPageParts(
     pageIndex: number,
   ): { body: string; eyebrow: string; side: string } {
+    /* 响应式依赖：分页结果换新引用（loadDocument / repaginate）必须使本
+     * computed 失效——曾只依赖 currentPage，同页码下换文档（0→0）时旧
+     * HTML 常驻（导入后阅读区停在旧书的根因）。方法调用本身非响应式，
+     * 依赖声明与 gutterHtml / pageNotesHtmlOf 同款。 */
+    void pagination.value;
     const fragments = props.reader.getPageFragments(pageIndex);
     const nodes = fragments.filter((node) => !isTextNode(node));
     const bands = props.reader.getPageBands(pageIndex);
+    /* 续排片段标记（与渲染同源同一份 fragments，见 continuationFlagsOf）：
+     * 横排 data-continued 置零首行缩进、直排省略行款前缀 */
+    const flags = continuationFlagsOf(fragments, pageIndex);
+    const serializeBlock = (node: BookNode): string =>
+      serializeNode(node, { continued: flags?.get(node) ?? false });
     if (!verticalWriting.value) {
       if (bands !== undefined) {
         const grouped = groupNodesByBand(nodes, bands.count);
         if (grouped !== undefined) {
           return {
             body: bandsContainer(grouped, bands, (bandNodes) =>
-              bandNodes.map((node) => serializeNode(node)).join('\n'),
+              bandNodes.map((node) => serializeBlock(node)).join('\n'),
             ),
             eyebrow: '',
             side: '',
           };
         }
       }
-      return { body: nodes.map((node) => serializeNode(node)).join('\n'), eyebrow: '', side: '' };
+      return { body: nodes.map((node) => serializeBlock(node)).join('\n'), eyebrow: '', side: '' };
     }
     /* 直排：先分流眉批 / 旁批，再分截 / 连排——flow 不再含装饰节点 */
     const parts = pageFlowParts(nodes);
-    const flags = continuationFlagsOf(pageIndex);
     if (bands !== undefined) {
       const grouped = groupNodesByBand(parts.flow, bands.count);
       if (grouped !== undefined) {
@@ -538,9 +553,13 @@ function spreadPageStyle(page: SpreadPage) {
   /** 眉批天头容器 / 旁批界行外容器 / 书耳 / 眉栏线（当前页） */
   const pageEyebrowHtml = computed(() => currentPageParts.value.eyebrow);
   const pageSideHtml = computed(() => currentPageParts.value.side);
-  const earHtml = computed(() =>
-    serializePageEar(props.reader.getPageEarText(currentPage.value), layout.value.facsimile),
-  );
+  const earHtml = computed(() => {
+    void pagination.value;
+    return serializePageEar(
+      props.reader.getPageEarText(currentPage.value),
+      layout.value.facsimile,
+    );
+  });
   const showEyebrowLine = computed(() => layout.value.facsimile?.eyebrow === true);
 
 /**
@@ -646,7 +665,11 @@ const STYLE_ELEMENT_ID = 'bt-book-css';
 /** 页首块 margin 吞掉（书排惯例）：分页模型把块间折叠间距计入前一块推进量，
  * 新页从版心上缘 0 起排；渲染若保留首块 margin-top 会塌穿 flow 外溢到页边距区，
  * 页首多出空隙且页尾末行被 overflow 裁切（标题 UA 外边距 ~23px、注文 0.55em）。 */
-const PAGE_START_RULE = `\n.bt-reader-page__flow > :first-child {\n  margin-block-start: 0;\n}\n`;
+const PAGE_START_RULE =
+  `\n.bt-reader-page__flow > :first-child {\n  margin-block-start: 0;\n}\n` +
+  /* 分截页：容器 div 无 margin，页首截内的首块仍带自身 margin——同样吞掉
+   * （分页模型把折叠间距计入前一块推进量，新页从版心上缘 0 起排） */
+  `\n.bt-reader-page__flow > .bt-bands:first-child > .bt-band:first-child > :first-child {\n  margin-block-start: 0;\n}\n`;
 
 function syncBookStyle(): void {
   if (typeof document === 'undefined') return;

@@ -466,3 +466,36 @@ describe('竖排文字形态', () => {
     );
   });
 });
+
+describe('serializeNode 续排片段标记', () => {
+  const para = (text: string): BookNode => ({
+    type: NODE_TYPES.PARAGRAPH,
+    children: [{ type: 'text', text }],
+  });
+
+  it('continued: true 输出 data-continued（横排续片置零缩进的钩子）', () => {
+    expect(serializeNode(para('续行'), { continued: true })).toContain(
+      '<p class="bt-paragraph" data-continued="true">续行</p>',
+    );
+  });
+
+  it('缺省不输出（产物与既有版本逐字节一致）', () => {
+    expect(serializeNode(para('首行'))).toBe('<p class="bt-paragraph">首行</p>');
+    expect(serializeNode(para('首行'), { continued: false })).toBe(
+      '<p class="bt-paragraph">首行</p>',
+    );
+  });
+
+  it('data-continued 与既有属性共存（id / data-indent）', () => {
+    const node: BookNode = {
+      type: NODE_TYPES.PARAGRAPH,
+      id: 'p-9',
+      attrs: { indent: 2 },
+      children: [{ type: 'text', text: '低格续行' }],
+    };
+    const html = serializeNode(node, { continued: true });
+    expect(html).toContain('id="p-9"');
+    expect(html).toContain('data-indent="2"');
+    expect(html).toContain('data-continued="true"');
+  });
+});

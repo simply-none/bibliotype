@@ -52,7 +52,7 @@ const storage: AnnotationStorage = {
   },
 };
 
-const { currentPage } = useReaderBinding(props.reader);
+const { currentPage } = useReaderBinding(() => props.reader);
 
 function anchorOfCurrentPage(): Anchor | null {
   const nodes = props.reader.getPageNodes(currentPage.value);

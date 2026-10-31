@@ -23,6 +23,7 @@ import {
   paginate,
   resolvePageMainSize,
   resolveBottomSlack,
+  resolvePaginationGeometry,
   sliceNodeByCharRange,
   type BlockAxis,
   type LayoutOptions,
@@ -274,9 +275,13 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
   const tokens = input.tokens ?? DEFAULT_THEME;
   const context: BlockMeasureContext = { ...DEFAULT_MEASURE_CONTEXT, ...input.measure };
-  const pageMainSize = input.pageMainSize ?? resolvePageMainSize(options, tokens);
-  const bottomSlack =
-    input.bottomSlack ?? resolveBottomSlack(options, tokens, context.lineSize);
+  /* 分页几何与阅读态同源（行网格量化 + 页底溢出预算）；调用方显式传入时尊重传值 */
+  const geometry =
+    input.pageMainSize !== undefined || input.bottomSlack !== undefined
+      ? undefined
+      : resolvePaginationGeometry(options, tokens);
+  const pageMainSize = input.pageMainSize ?? geometry?.pageMainSize ?? resolvePageMainSize(options, tokens);
+  const bottomSlack = input.bottomSlack ?? geometry?.bottomSlack ?? resolveBottomSlack(options, tokens, context.lineSize);
   // 主轴口径随书写方向（直排按列推进）；块上的 axis 标注与量尺 / 分页同源
   const axis: BlockAxis = isVerticalMode(options.writingMode) ? 'column' : 'row';
   const empty: BuildPagedResult = {

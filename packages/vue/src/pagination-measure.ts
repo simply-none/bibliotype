@@ -24,6 +24,7 @@ import {
   WRITING_MODES,
   isVerticalMode,
   mergeLayoutOptions,
+  resolveCharsPerColumn,
   resolvePageCrossSize,
   resolvePageMarginBox,
   type BlockAxis,
@@ -484,13 +485,10 @@ function renderMeasureSheet(
   const blocks = allBlocks.slice(start, end);
   /* 直排行内流同形态量尺（v2 批 2）：块 HTML 与预览同构（段落行内化、
    * 夹注双列小字盒），行边界与夹注原子性随真实布局自洽。
-   * 每行大字数 = 量尺内容高（直排交叉轴）÷ 正文字号（与预览口径一致，
-   * 不取 0.95 系数——行内流按 1em 字位对齐界行）。 */
-  const bodyPx = Number.parseFloat(tokens[FONT_SIZE_TOKENS.BODY] ?? '16');
-  const flowChars = Math.max(
-    4,
-    Math.round(contentMain / (Number.isFinite(bodyPx) ? bodyPx : 16)),
-  );
+   * 每行大字数 = 量尺内容高（直排交叉轴）÷ 字位步进（字号 × (1+字距)），
+   * 向下取整——与预览 readerColumnCapacity、打印 charsPerColumn、仿真几何层
+   * 统一走 resolveCharsPerColumn（曾 round ÷ 字号，列底空出 1~2 字位）。 */
+  const flowChars = resolveCharsPerColumn(options, tokens);
   /* 每行大字数（直排：内容高 ÷ 字号，与预览 readerColumnCapacity 同口径） */
   sheet.innerHTML = blocks
     .map((block) => {

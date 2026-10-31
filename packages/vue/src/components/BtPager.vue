@@ -10,7 +10,10 @@ import { useReaderBinding } from '../use-reader.js';
 
 const props = withDefaults(defineProps<{ reader: Reader; step?: number }>(), { step: 1 });
 
-const { currentPage, totalPages, pageNumberText, goToPage } = useReaderBinding(props.reader);
+/* getter 传源：宿主替换 Reader 实例时自动重绑（与 BtBookView 同口径） */
+const { currentPage, totalPages, pageNumberText, goToPage } = useReaderBinding(
+  () => props.reader,
+);
 
 /** 步进 clamp：不足一步时落到首 / 末页，避免越界 */
 function next(): boolean {

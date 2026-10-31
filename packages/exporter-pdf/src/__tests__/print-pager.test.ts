@@ -12,7 +12,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import { DEFAULT_THEME, NODE_TYPES, createEmptyDocument, type BookDocument } from '@bibliotype/core';
-import { CLASSICAL_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
+import { CLASSICAL_LAYOUT_OPTIONS, DEFAULT_LAYOUT_OPTIONS, type LayoutOptions } from '@bibliotype/layout';
 import { Reader } from '@bibliotype/reader';
 import { createPrintPager, renderPrintHtml } from '../print-document.js';
 import {
@@ -524,5 +524,24 @@ describe('光栅参数收敛', () => {
     expect(resolveRasterConcurrency(Number.NaN)).toBe(3);
     expect(resolveRasterConcurrency(0)).toBe(1);
     expect(resolveRasterConcurrency(99)).toBe(6);
+  });
+});
+
+describe('打印 paged：跨页续排片段（data-continued）', () => {
+  it('横排续排片段输出 data-continued（续行顶格，页首片段不标）', () => {
+    /* 横排：长段 78 字按列容量 26 拆 3 行，页主轴 60px 只容 2 行 → 跨页 */
+    const doc = sliceDoc();
+    const pager = createPrintPager(doc, {
+      mode: 'paged',
+      layout: { ...DEFAULT_LAYOUT_OPTIONS, pageSize: { name: 'A5', width: 400, height: 200 } },
+      pageMainSize: 60,
+      context: { charsPerLine: 26, lineSize: 30, blockSpacing: 0 },
+    });
+    const page0 = pager.renderPage(0);
+    const page1 = pager.renderPage(1);
+    /* 第 1 页片段从行 0 起：不标续排 */
+    expect(page0).not.toContain('data-continued');
+    /* 第 2 页片段是续排（fromLine>0）→ 标 data-continued */
+    expect(page1).toContain('data-continued="true"');
   });
 });

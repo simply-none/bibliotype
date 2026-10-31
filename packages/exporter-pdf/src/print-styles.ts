@@ -324,6 +324,10 @@ ${chromeVars}  break-after: page;
 }
 .bt-page__flow > :first-child {
   margin-block-start: 0;
+}
+/* 分截页：页首截内的首块同样吞 margin（与预览 PAGE_START_RULE 同口径） */
+.bt-page__flow > .bt-bands:first-child > .bt-band:first-child > :first-child {
+  margin-block-start: 0;
 }`);
     }
     if (facingGutter !== undefined && box !== undefined) {

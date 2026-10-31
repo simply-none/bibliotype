@@ -16,7 +16,7 @@ import { useReaderBinding } from '@bibliotype/vue';
 
 const props = defineProps<{ reader: Reader }>();
 
-const { progress, currentPage, totalPages, pageNumberText } = useReaderBinding(props.reader);
+const { progress, currentPage, totalPages, pageNumberText } = useReaderBinding(() => props.reader);
 
 /** 进度百分比（0~100 取整） */
 const percent = computed(() => Math.round(progress.value * 100));

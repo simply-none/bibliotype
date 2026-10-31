@@ -112,8 +112,15 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 继承覆盖、行为不变）；text-spacing-trim / text-autospace / hanging-punctuation
  * 三项可选能力经 cjkTypography 开关输出、缺省全关（不进入本基线）。
  * 样式表全文变化，基线重锁。
+ *
+ * 2026-10-31 二十四次更新（跨页续排顶格 + 书排对齐基线）：新增
+ * `[data-continued]` 续排片段顶格规则（横排续片是同一句话的中段，首行缩进
+ * 属原段首行；两条规则分别压过令牌 / data-indent / 挪抬规则的特异性，故排
+ * 其后）；根容器补 text-align: justify（书排两端对齐，不影响换行点与行数）；
+ * `.bt-heading` margin 显式化 0.83em 0（UA 缺省逐级不同且跨引擎不确定）。
+ * 样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '2393587c';
+export const CLASSICAL_CSS_FNV = '1a359fee';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';

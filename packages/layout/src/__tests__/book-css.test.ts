@@ -411,3 +411,32 @@ describe('flattenCssVariables（老引擎扁平化）', () => {
     expect(flat).toContain('p: ;');
   });
 });
+
+describe('续排片段顶格（data-continued）', () => {
+  it('段落 / 引文的续排规则输出且排在缩进规则之后（同特异性源序取胜）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toContain('.bt-paragraph[data-continued],');
+    expect(css).toContain('.bt-quote[data-continued]');
+    /* data-lift 规则特异性 (0,3,0)，顶格规则必须带 [data-lift] 变体压过它 */
+    expect(css).toContain('.bt-paragraph[data-continued][data-lift]');
+    /* 源序：data-continued 规则出现在 data-indent 与 data-lift 规则之后 */
+    const indentAt = css.indexOf("[data-indent='1']");
+    const continuedAt = css.indexOf('.bt-paragraph[data-continued],');
+    expect(continuedAt).toBeGreaterThan(indentAt);
+  });
+
+  it('根容器 text-align: justify 仅横排（直排断列短列不得被拉伸脱网格）', () => {
+    const horizontal = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(horizontal).toContain('text-align: justify');
+    const vertical = buildBookCss({
+      tokens: DEFAULT_THEME,
+      options: { ...DEFAULT_LAYOUT_OPTIONS, writingMode: 'vertical-rl' },
+    });
+    expect(vertical).not.toContain('text-align: justify');
+  });
+
+  it('标题 margin 显式化（UA 缺省跨引擎不确定）', () => {
+    const css = buildBookCss({ tokens: DEFAULT_THEME, options: DEFAULT_LAYOUT_OPTIONS });
+    expect(css).toMatch(/\.bt-heading \{[^}]*margin: 0\.83em 0;/s);
+  });
+});

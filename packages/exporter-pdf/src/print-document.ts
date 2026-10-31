@@ -12,8 +12,6 @@
  */
 import {
   DEFAULT_THEME,
-  FONT_SIZE_TOKENS,
-  LAYOUT_TOKENS,
   projectRevisionView,
   type BookDocument,
   type BookNode,
@@ -24,9 +22,8 @@ import {
   DEFAULT_LAYOUT_OPTIONS,
   isVerticalMode,
   mergeLayoutOptions,
-  resolvePageCrossSize,
-  resolvePageMainSize,
-  resolveBottomSlack,
+  resolveCharsPerColumn,
+  resolvePaginationGeometry,
   facsimilePageOf,
   type BlockAxis,
   type LayoutOptions,
@@ -307,14 +304,9 @@ ${body}
     const vertical = isVerticalMode(layout.writingMode);
     /* 筒子叶版心交替（v2 批 7）：页级变体驱动版心 / 耳框 / 内缩随奇偶换侧 */
     const pageFacsimile = facsimilePageOf(layout.facsimile, page.index);
-    /* 每行大字数（交叉轴 ÷ 字号）：夹注每子列容量 = 本值 × 2（与预览同口径） */
-    const bodyPx = Number.parseFloat(tokens[FONT_SIZE_TOKENS.BODY] ?? '16');
-    const charsPerColumn = Math.max(
-      4,
-      Math.round(
-        resolvePageCrossSize(layout, tokens) / (Number.isFinite(bodyPx) ? bodyPx : 16),
-      ),
-    );
+    /* 每行大字数：交叉轴 ÷ 字位步进（字号 × (1+字距)）向下取整——与预览 /
+     * 量尺 / 仿真几何层统一走 resolveCharsPerColumn（夹注每子列容量 = 本值 × 2） */
+    const charsPerColumn = Math.max(4, resolveCharsPerColumn(layout, tokens));
     const serializeFlowOne = (node: BookNode, i: number): string =>
       serializeVerticalFlow([node], {
         charsPerColumn,
@@ -358,7 +350,13 @@ ${body}
             if (vertical && isFlowParagraphType(node.type)) {
               return serializeFlowOne(node, nodeIndexes.get(node) ?? nodes.indexOf(node));
             }
-            return serializeNode(node, nodeOptions);
+            /* 续排片段（fromLine>0）输出 data-continued：横排续片是同一句话的
+             * 中段，首行缩进属原段首行，book-css / 打印样式据此置零 */
+            const itemIndex = nodeIndexes.get(node);
+            return serializeNode(node, {
+              ...nodeOptions,
+              continued: (items[itemIndex ?? -1]?.fromLine ?? 0) > 0,
+            });
           })
           .join('\n');
     /*
@@ -535,10 +533,14 @@ function createPagedReader(
     measure: options.context,
     estimator: options.estimator ?? defaultEstimator,
     blockSizes: options.blockSizes,
-    pageMainSize: options.pageMainSize ?? defaultPageMainSize(layout, tokens),
+    /* 分页几何与预览 / 编辑三端同源：主轴行网格取整 + 页底溢出预算（调用方
+     * 显式传入时尊重传值——分页导出与预览逐页归属一致的关键） */
+    pageMainSize:
+      options.pageMainSize ??
+      resolvePaginationGeometry(layout, tokens).pageMainSize,
     bottomSlack:
       options.bottomSlack ??
-      resolveBottomSlack(layout, tokens, defaultLineSize(tokens)),
+      resolvePaginationGeometry(layout, tokens).bottomSlack,
     lineOffsets: options.lineOffsets,
     lineSizes: options.lineSizes,
     lineMainSizes: options.lineMainSizes,
@@ -551,21 +553,4 @@ function createPagedReader(
   return reader;
 }
 
-/** 每页可用主轴尺寸（与 reader / 编辑画布同源：resolvePageMainSize，含页边距与版框边框扣除） */
-function defaultPageMainSize(
-  layout: LayoutOptions,
-  tokens: Readonly<Record<string, string | undefined>>,
-): number {
-  return resolvePageMainSize(layout, tokens);
-}
-
 /** 正文行高（px）：字号令牌 × 行高令牌（无 DOM 时的回退口径，与量尺同源近似） */
-function defaultLineSize(
-  tokens: Readonly<Record<string, string | undefined>>,
-): number {
-  const num = (value: string | undefined, fallback: number): number => {
-    const match = /^(\d+(?:\.\d+)?)(?:px)?$/.exec((value ?? '').trim());
-    return match === null ? fallback : Number(match[1]);
-  };
-  return num(tokens[FONT_SIZE_TOKENS.BODY], 16) * num(tokens[LAYOUT_TOKENS.LINE_HEIGHT], 1.9);
-}

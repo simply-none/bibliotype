@@ -57,7 +57,11 @@ useReader(docRef);
 | `repaginate` | `(overrides?) => void` | 重排 |
 
 `useReaderBinding(reader)` 只绑定不创建，可在任意组件内对同一 Reader 多次调用
-（组件 / effectScope 销毁时自动解绑事件）。
+（组件 / effectScope 销毁时自动解绑事件）。来源也接受 `Ref<Reader>` / getter：
+宿主运行期**替换 Reader 实例**（换书 / 换主题 / 导入重建）时事件自动改绑新
+实例、状态整体刷新——`BtBookView` / `BtPager` 已默认以 getter 传源；曾只在
+setup 时捕获一次实例，换实例后组件仍渲染旧文档（阅读区不跟随导入）。返回的
+`reader` 为 `ComputedRef<Reader>`（响应式指向当前实例）。
 
 ## 组件
 

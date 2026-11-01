@@ -123,6 +123,13 @@ export interface BuildPagedResult {
   blocks: MeasurableBlock[];
   /** 块 id → 每行起始字符偏移（阶段三选择映射复用） */
   lineOffsets: ReadonlyMap<string, number[]>;
+  /**
+   * 块 id → 行数（直排为字位数；字位口径下行号即字符序号）
+   *
+   * 直排行边界不按「行」而按「字位」记账（见 resolveVerticalMeasureContext），
+   * 本表是唯一行数来源；横排为空表（行边界由 lineOffsets 承载）。
+   */
+  lineCounts: ReadonlyMap<string, number>;
   /** 块 id → 主轴推进尺寸（增量重排时供下轮合并复用） */
   sizes: ReadonlyMap<string, number>;
   /** 块 id → 真实行高 px（不含块间距；增量重排时供下轮合并复用） */
@@ -292,6 +299,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     pages: [],
     blocks: [],
     lineOffsets: new Map(),
+    lineCounts: new Map(),
     sizes: new Map(),
     lineSizes: new Map(),
     lineMainSizes: new Map(),
@@ -319,6 +327,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     blockSizes: incremental ? prev.sizes : undefined,
     lineOffsets: incremental ? prev.lineOffsets : undefined,
     lineSizes: incremental ? prev.lineSizes : undefined,
+    lineCounts: incremental ? prev.lineCounts : undefined,
     bodySizes: incremental ? prev.bodySizes : undefined,
     axis,
     /* 分栏单通道：布局设置的 columns 作为全树缺省（结构节点 attrs 覆盖） */
@@ -353,6 +362,8 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   for (const [id, v] of fresh.sizes) sizes.set(id, v);
   const lineOffsets = new Map<string, number[]>(incremental ? prev.lineOffsets : []);
   for (const [id, v] of fresh.lineOffsets) lineOffsets.set(id, v);
+  const lineCounts = new Map<string, number>(incremental ? prev.lineCounts : []);
+  for (const [id, v] of fresh.lineCounts) lineCounts.set(id, v);
   const lineSizes = new Map<string, number>(incremental ? prev.lineSizes : []);
   for (const [id, v] of fresh.lineSizes) lineSizes.set(id, v);
   const lineMainSizes = new Map<string, number[]>(incremental ? prev.lineMainSizes : []);
@@ -370,6 +381,9 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
         lineSizes.delete(id);
         lineMainSizes.delete(id);
       }
+      /* 直排字位数同口径清理：重测后不再产出（量不到 / 空块）时删旧值，
+       * 否则 extractBlocks 会以陈旧字位数给定 lineCount，造出幽灵续排片段 */
+      if (!fresh.lineCounts.has(id)) lineCounts.delete(id);
       // 重测后不再产出块体高（量不到 / 高度为 0）时清陈旧项
       if (!fresh.bodySizes.has(id)) bodySizes.delete(id);
     }
@@ -380,6 +394,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     lineOffsets,
     lineSizes,
     lineMainSizes,
+    lineCounts,
     bodySizes,
     axis,
     /* 分栏单通道：与第一遍抽取同参 */
@@ -400,6 +415,9 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     }
     for (const id of [...lineSizes.keys()]) {
       if (!live.has(id)) lineSizes.delete(id);
+    }
+    for (const id of [...lineCounts.keys()]) {
+      if (!live.has(id)) lineCounts.delete(id);
     }
     for (const id of [...lineMainSizes.keys()]) {
       if (!live.has(id)) lineMainSizes.delete(id);
@@ -428,7 +446,14 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     targetBlockId !== undefined && prev !== undefined
       ? resolvePaginateResume(prev, blocks, targetBlockId)
       : undefined;
-  const result = paginate(blocks, { pageMainSize, bottomSlack, resume, bands });
+  const result = paginate(blocks, {
+    pageMainSize,
+    bottomSlack,
+    resume,
+    bands,
+    /* 孤寡行与阅读态同源（LayoutOptions.widowControl，缺省严格 2/2） */
+    ...(options.widowControl !== undefined ? { widowControl: options.widowControl } : {}),
+  });
   const pages: PagedPage[] = result.pages.map((page) => {
     const fragments: PagedFragment[] = [];
     for (const item of page.items) {
@@ -481,6 +506,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     pages,
     blocks,
     lineOffsets,
+    lineCounts,
     lineSizes,
     lineMainSizes,
     bodySizes,

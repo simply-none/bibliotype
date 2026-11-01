@@ -137,16 +137,17 @@ describe('serializeVerticalFlow（行内流序列化）', () => {
     expect(html).toContain('<span class="bt-vnote" data-kind="jiaozhu"><span class="bt-vnote-col">注六字</span><span class="bt-vnote-col"></span></span>');
   });
 
-  it('标题不连排（原样整块输出），多段落片段相续', () => {
+  it('章题随文连排：恒提行断列（br），题后正文同列接排', () => {
     const heading: BookNode = {
       type: NODE_TYPES.HEADING,
       attrs: { level: 2 },
       children: [{ type: 'text', text: '学而第一' }],
     };
     const html = serializeVerticalFlow([heading, para('甲'), para('乙')], { charsPerColumn: 10 });
-    expect(html).toContain('<h2 class="bt-heading" data-level="2">学而第一</h2>');
-    /* 两段在同一个行内流里相续（无块级边界） */
-    expect(html).toContain('甲</span><span class="bt-vpara">乙');
+    /* 题前恒提行（另起一列顶格），题盒本身行内化（块级会整列白扔） */
+    expect(html).toContain('<br class="bt-vbreak"><h2 class="bt-heading" data-level="2">学而第一</h2>');
+    /* 题后正文与后续段落同列相续（无块级边界） */
+    expect(html).toContain('学而第一</h2><span class="bt-vpara">甲</span><span class="bt-vpara">乙</span>');
   });
 
   it('超长夹注多对输出：全部注文恰好出现一次（切片窗口不重叠）', () => {

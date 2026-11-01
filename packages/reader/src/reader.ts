@@ -114,6 +114,12 @@ export interface RepaginateOptions {
    * （见 extractBlocks 的 bodySizes 说明）。
    */
   bodySizes?: ReadonlyMap<string, number> | null;
+  /**
+   * 块 id → 真实行数（DOM 实测，直排专用：一行 = 一个字位）
+   *
+   * 与 blockSizes 同源产出；传 null 清空，传 undefined 保持当前值。
+   */
+  lineCounts?: ReadonlyMap<string, number> | null;
   /** 排文主轴；传 null 清空回退横排（undefined 保持当前值） */
   axis?: BlockAxis | null;
   /** 孤寡行控制；传 null 清空回退缺省 2/2（undefined 保持当前值） */
@@ -158,6 +164,8 @@ export interface ReaderOptions {
   lineMainSizes?: ReadonlyMap<string, number[]>;
   /** 块 id → 块体高（px，DOM 实测，不含外边距）；供 paginate 按体高判页 */
   bodySizes?: ReadonlyMap<string, number>;
+  /** 块 id → 真实行数（DOM 实测，直排一行 = 一个字位）；与 blockSizes 同源产出 */
+  lineCounts?: ReadonlyMap<string, number>;
   /**
    * 排文主轴（直排传 `'column'`，缺省 `'row'`）
    *
@@ -229,6 +237,8 @@ export class Reader {
   private lineMainSizes: ReadonlyMap<string, number[]> | undefined;
   /** 块 id → 块体高（px，DOM 实测，不含外边距） */
   private bodySizes: ReadonlyMap<string, number> | undefined;
+  /** 块 id → 真实行数（DOM 实测，直排一行 = 一个字位） */
+  private lineCounts: ReadonlyMap<string, number> | undefined;
   /** 排文主轴（直排为 column）：透传给 extractBlocks，仅供下游解释 lineSize 语义 */
   private axis: BlockAxis | undefined;
   /** 脚注浮注：脚注块不进正文流，落所在页页底注区 */
@@ -276,11 +286,13 @@ export class Reader {
     this.lineSizes = options.lineSizes;
     this.lineMainSizes = options.lineMainSizes;
     this.bodySizes = options.bodySizes;
+    this.lineCounts = options.lineCounts;
     this.axis = options.axis;
     this.footnoteFloat = options.footnoteFloat === true;
     // 与 paginate 的夹取口径一致：注区至少 5%（保证有空间），至多占满一页
     this.noteMaxRatio = Math.min(1, Math.max(0.05, options.noteMaxRatio ?? 0.4));
-    this.widowControl = options.widowControl;
+    // 孤寡行：显式选项优先，否则取布局配置（LayoutOptions.widowControl，缺省严格 2/2）
+    this.widowControl = options.widowControl ?? options.layout?.widowControl;
     this.events = options.events ?? createEventBus();
   }
 
@@ -347,11 +359,18 @@ export class Reader {
     if (overrides.bodySizes !== undefined) {
       this.bodySizes = overrides.bodySizes ?? undefined;
     }
+    if (overrides.lineCounts !== undefined) {
+      this.lineCounts = overrides.lineCounts ?? undefined;
+    }
     if (overrides.axis !== undefined) {
       this.axis = overrides.axis ?? undefined;
     }
     if (overrides.widowControl !== undefined) {
       this.widowControl = overrides.widowControl ?? undefined;
+    } else if (overrides.layout !== undefined) {
+      /* 布局配置携带孤寡行设置（demo 设置面板经 layoutPatch 下发）：显式
+       * overrides.widowControl 未给时跟随布局 */
+      this.widowControl = this.options.widowControl;
     }
 
     const extracted = extractBlocksIndexed(this.doc, {
@@ -362,6 +381,7 @@ export class Reader {
       lineSizes: this.lineSizes,
       lineMainSizes: this.lineMainSizes,
       bodySizes: this.bodySizes,
+      lineCounts: this.lineCounts,
       axis: this.axis,
       /* 分栏单通道：布局设置的 columns 作为全树缺省（结构节点 attrs 覆盖），
        * 与渲染侧 column-count、量尺栏宽同源 */

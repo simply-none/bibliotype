@@ -30,10 +30,13 @@ export interface ThemeConfig {
   fontToken: string;
 }
 
-/** 现代横排：默认布局 + 默认主题 */
+/** 现代横排：默认布局 + 默认主题（孤寡行宽松 1/1：Web 阅读页底尽量排满） */
 export const MODERN_THEME: ThemeConfig = {
   label: '现代横排',
-  layout: DEFAULT_LAYOUT_OPTIONS,
+  layout: {
+    ...DEFAULT_LAYOUT_OPTIONS,
+    widowControl: { minFirst: 1, minLast: 1 },
+  },
   tokens: { ...DEFAULT_THEME },
   fontToken: FONT_TOKENS.BODY,
 };
@@ -41,7 +44,11 @@ export const MODERN_THEME: ThemeConfig = {
 /** 古籍直排：16 开直排 + 古典令牌覆盖（楷体系字体、无首行缩进、版框四周双边） */
 export const CLASSICAL_THEME: ThemeConfig = {
   label: '古籍直排',
-  layout: CLASSICAL_LAYOUT_OPTIONS,
+  layout: {
+    ...CLASSICAL_LAYOUT_OPTIONS,
+    // 直排连排 + 页底排满：孤寡行宽松（短段不再整段挪页，列底排满）
+    widowControl: { minFirst: 1, minLast: 1 },
+  },
   tokens: {
     ...DEFAULT_THEME,
     ...CLASSICAL_THEME_OVERRIDES,
@@ -59,7 +66,11 @@ export const CLASSICAL_THEME: ThemeConfig = {
  */
 export const FACSIMILE_THEME: ThemeConfig = {
   label: '古籍仿真直排',
-  layout: FACSIMILE_PRESETS[0]?.layout ?? FACSIMILE_BASE_LAYOUT,
+  layout: {
+    ...(FACSIMILE_PRESETS[0]?.layout ?? FACSIMILE_BASE_LAYOUT),
+    // 仿真直排同口径：页底排满，界行网格内不空列
+    widowControl: { minFirst: 1, minLast: 1 },
+  },
   tokens: { ...DEFAULT_THEME },
   fontToken: FONT_TOKENS.CLASSICAL_BODY,
 };

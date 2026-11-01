@@ -27,6 +27,8 @@ import {
   isFacsimileEnabled,
   resolveFacsimileGutterSize,
   resolvePageMarginBox,
+  WRITING_MODES,
+  isVerticalMode,
   type LayoutOptions,
   type PageMarginBox,
 } from '@bibliotype/layout';
@@ -280,7 +282,23 @@ ${chromeVars}  break-after: page;
 .bt-page > :first-child {
   margin-block-start: 0;
 }
-.bt-page-number {
+/* 页码：横排居中于物理底部；直排移到页侧竖排（右起→左侧、左起→右侧，
+ * 与预览 book-css 同口径——古籍书面叶次随排文方向走） */
+${
+  isVerticalMode(options.writingMode)
+    ? `.bt-page-number {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  ${options.writingMode === WRITING_MODES.VERTICAL_LR ? 'right' : 'left'}: 0.5em;
+  writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--bt-${FONT_SIZE_TOKENS.NOTE});
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}`
+    : `.bt-page-number {
   position: absolute;
   bottom: 0.5em;
   left: 0;
@@ -288,6 +306,7 @@ ${chromeVars}  break-after: page;
   text-align: center;
   font-size: var(--bt-${FONT_SIZE_TOKENS.NOTE});
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}`
 }`);
     /*
      * 逐页分栏（两道独立闸门，不满足时产物逐字符不变）：

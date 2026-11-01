@@ -11,6 +11,17 @@ import {
   type CombineUprightOptions,
 } from './combine-upright.js';
 import type { FacsimileOptions } from './facsimile.js';
+import type { WidowControl } from './paginator.js';
+
+/**
+ * 孤寡行控制预设：严格（首末片段各 ≥2 行，印刷惯例）
+ *
+ * 代价：段落跨页遇「只剩 1 行空间」时整段挪页，页底出现 ≤1 行空白。
+ */
+export const WIDOW_CONTROL_STRICT: WidowControl = { minFirst: 2, minLast: 2 };
+
+/** 孤寡行控制预设：宽松（首末片段 ≥1 行，页底尽量排满，Web 阅读口径） */
+export const WIDOW_CONTROL_LOOSE: WidowControl = { minFirst: 1, minLast: 1 };
 
 /** 页码样式 */
 export const PAGE_NUMBER_STYLES = {
@@ -127,6 +138,14 @@ export interface LayoutOptions {
    */
   bottomSlack?: BottomSlackOptions;
   /**
+   * 孤寡行控制（缺省 `WIDOW_CONTROL_STRICT`：首末片段各 ≥2 行，印刷惯例）
+   *
+   * 段落跨页时首行不孤悬页底、末行不孤悬次页顶；代价是页底可能出现 ≤1 行
+   * 空白。追求满版（Web 阅读）可放宽为 `WIDOW_CONTROL_LOOSE`（各 ≥1 行）。
+   * Reader 未显式传 widowControl 时从本字段取值。
+   */
+  widowControl?: WidowControl;
+  /**
    * 古籍仿真版式（版框 / 界行 / 版心）
    *
    * 缺省 `undefined` = 未启用：现代横排与「古籍直排」走改造前的原路径，
@@ -145,6 +164,7 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
   pageNumberStyle: PAGE_NUMBER_STYLES.DECIMAL,
   combineUpright: DEFAULT_COMBINE_OPTIONS,
   bottomSlack: DEFAULT_BOTTOM_SLACK,
+  widowControl: WIDOW_CONTROL_STRICT,
 };
 
 /** 古籍默认布局（直排右起、16 开、单栏、中文页码） */

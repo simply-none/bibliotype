@@ -12,7 +12,8 @@
  *
  * 段落行内化的代价与取舍：块级 margin / 块级样式随盒消失，段界语义全部由
  * 行内标记承载（空位 / 断列），这是古籍行款的原生形态（连排本无段间距）。
- * 标题 / 版式块（牌记 / 眉批等）不参与连排，原样整块输出（保持既有样式）。
+ * 章题同样连排（提行 + 题文，列内接排正文）；版式块（牌记 / 眉批 / 表格 /
+ * 图）不参与连排，原样整块输出（保持既有样式）。
  *
  * 消费方：预览 `BtBookView`（直排分支）、量尺 `pagination-measure`（同形态
  * 实测——行边界与夹注原子性自洽）、导出 paged 与打印同源。
@@ -44,17 +45,36 @@ export interface SerializeVerticalFlowOptions {
 /** 双行夹注类型（classical 插件节点，layout 不依赖 classical，按 kebab-case 字符串表列——与 reader 分块口径一致） */
 const DOUBLE_NOTE_TYPE = 'double-note';
 
-/** 参与连排的段落类节点（正文段落 + 引文；标题与版式块不连排） */
+/** 携带行款规则的连排段落（正文段落 + 引文） */
 const FLOW_PARAGRAPH_TYPES: ReadonlySet<string> = new Set([
   NODE_TYPES.PARAGRAPH,
   NODE_TYPES.QUOTE,
 ]);
 
 /**
- * 节点是否参与行内流连排（段落 / 引文）
+ * 章题（heading）：随文连排，但**自带提行**
  *
- * 供分页画布判定片段的渲染通道：连排片段以行内流序列化并作行内呈现，
- * 其余（标题 / 版式块）保持整块。
+ * 古籍直排的章题是「另起一列顶格起写的一句」，列内继续接排正文——不是
+ * 独占整列的版式块。块级呈现的代价是每道题白扔一整列（2em 字号 × 继承的
+ * 行高比例 = 2 列），满版目标的首要残源。
+ */
+const FLOW_HEADING_TYPES: ReadonlySet<string> = new Set([NODE_TYPES.HEADING]);
+
+/**
+ * 节点是否参与行内流连排（段落 / 引文 / 章题）
+ *
+ * 供渲染通道判定（预览 / 编辑画布 / 打印 / 量尺同口径）：命中者以行内流
+ * 序列化并作行内呈现，其余（表格 / 图 / 注文 / 牌记 / 眉批…）保持整块。
+ */
+export function isFlowInlineType(type: string): boolean {
+  return FLOW_PARAGRAPH_TYPES.has(type) || FLOW_HEADING_TYPES.has(type);
+}
+
+/**
+ * 是否为携带行款规则的连排段落（低格 / 抬头 / 提行语义只属于段落，章题恒提行）
+ *
+ * 分页器据此区分「断列来源」：非本类型（含章题 / 表格 / 图 / 注文）在直排流
+ * 里必落列首，需要 `breakColumn` 对齐列宽。
  */
 export function isFlowParagraphType(type: string): boolean {
   return FLOW_PARAGRAPH_TYPES.has(type);
@@ -166,8 +186,15 @@ export function serializeVerticalFlow(
   const parts: string[] = [];
   for (const node of nodes) {
     if (isTextNode(node)) continue;
+    if (FLOW_HEADING_TYPES.has(node.type)) {
+      /* 章题随文连排 + 恒提行：`<br class="bt-vbreak">` 另起一列顶格，题文
+       * 之后正文在同一列接排（块级呈现会整列白扔）。行盒厚度由 book-css
+       * 锁到列距（2em 字号 × 继承的行高比例会把一列撑成两列）。 */
+      parts.push(`<br class="bt-vbreak">${serializeNode(node, options.nodeOptions)}`);
+      continue;
+    }
     if (!FLOW_PARAGRAPH_TYPES.has(node.type)) {
-      /* 标题 / 版式块（眉批、旁批等）同样透传 nodeOptions：打印路径经本函数
+      /* 版式块（眉批、旁批等）同样透传 nodeOptions：打印路径经本函数
        * 序列化眉批 / 旁批，丢选项会丢竖排字形转换 / 修订视图 / tagOverrides */
       parts.push(serializeNode(node, options.nodeOptions));
       continue;

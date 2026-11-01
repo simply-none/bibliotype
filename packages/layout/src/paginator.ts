@@ -122,6 +122,14 @@ export interface MeasurableBlock {
    * （直排的结构分截走 bands），调用方应避免同时声明。
    */
   columns?: number;
+  /**
+   * 一列沿主轴的宽度（px，直排用）
+   *
+   * 直排的 `lineSize` 是**一个字位**的宽度（列距 ÷ 每列字数）而非一整列，
+   * 故 `breakColumn` 的对齐单位不能取 lineSize（会把列首对齐到字位网格，
+   * 断列失效）；本字段给出列宽，缺省回退 `lineSize`（横排多栏语义）。
+   */
+  columnMainSize?: number;
 }
 
 /** 排文主轴：横排按行（row）推进，直排按列（column）推进 */
@@ -603,15 +611,16 @@ function paginateSingle(
     pendingBreak = false;
 
     /* 列级断列（直排行内流）：当前列剩余空间弃用（对齐列距），本块从新列
-     * 顶格起写；横排（axis 'row'）无列概念，无操作 */
+     * 顶格起写；横排（axis 'row'）无列概念，无操作。对齐单位取列宽
+     * （columnMainSize）而非 lineSize：直排 lineSize 是一个字位宽，按它对
+     * 齐等于把块对齐到字位网格，断列完全失效。 */
     if (
       !onFreshPage &&
       block.breakColumn === true &&
-      blockAxisOf(block) === 'column' &&
-      (block.lineSize ?? 0) > 0
+      blockAxisOf(block) === 'column'
     ) {
-      const pitch = block.lineSize!;
-      cur.usedMainSize = Math.ceil(cur.usedMainSize / pitch) * pitch;
+      const pitch = block.columnMainSize ?? block.lineSize ?? 0;
+      if (pitch > 0) cur.usedMainSize = Math.ceil(cur.usedMainSize / pitch - 1e-9) * pitch;
     }
 
     /* 页底浮注：不进正文流，落到本页注区（容量随之收缩） */

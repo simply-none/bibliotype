@@ -108,6 +108,11 @@ const pageSizeModeOptions: ReadonlyArray<{ value: PageSizeMode; label: string }>
 /** 当前生效适配（缺省与脏值都读作「固定」） */
 const pageSizeMode = computed(() => resolvePageSizeMode(props.layout));
 
+/** 孤寡行回显：末行 ≥2 = 严格，否则宽松（缺省随主题预设） */
+const widowKey = computed(() =>
+  (props.layout.widowControl?.minLast ?? 2) >= 2 ? 'strict' : 'loose',
+);
+
 /**
  * 生效性回显（消除静默失效）：宽 / 高档显示宿主算出的实际倍率；量不到舞台时
  * 明示回退固定开本，不再让「选了但没反应」只能靠猜。
@@ -344,6 +349,17 @@ const TRANSITION_OPTIONS: ReadonlyArray<{ value: 'slide' | 'fade' | 'none'; labe
       <span class="panel__label">分栏</span>
       <select class="panel__input" :value="layout.columns" @change="api.patchLayout({ columns: Number(($event.target as HTMLSelectElement).value) })">
         <option v-for="count in 3" :key="count" :value="count">{{ count }} 栏</option>
+      </select>
+    </label>
+    <label class="panel__field">
+      <span class="panel__label">孤寡行控制</span>
+      <select
+        class="panel__input"
+        :value="widowKey"
+        @change="api.patchLayout({ widowControl: ($event.target as HTMLSelectElement).value === 'loose' ? { minFirst: 1, minLast: 1 } : { minFirst: 2, minLast: 2 } })"
+      >
+        <option value="loose">宽松（页底尽量排满）</option>
+        <option value="strict">严格（首末各 ≥2 行，印刷惯例）</option>
       </select>
     </label>
     <label class="panel__field">

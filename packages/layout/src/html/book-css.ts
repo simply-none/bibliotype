@@ -21,6 +21,7 @@ import {
 import { buildCjkTypographyCss } from '@bibliotype/typography-cjk';
 import { combineUprightCss } from '../combine-upright.js';
 import type { LayoutOptions } from '../layout-options.js';
+import { WRITING_MODES } from '../writing-mode.js';
 import { buildCssVariables, resolvePageCrossSize, resolvePageMainSize, type StyleDeclaration } from '../style-builder.js';
 import { isVerticalMode } from '../writing-mode.js';
 import { isFacsimileEnabled } from '../facsimile.js';
@@ -860,8 +861,26 @@ ${scoped('.bt-footnote + .bt-footnote')} {
   padding-block-start: 0;
 }
 
-/* ---------- 7. 页脚页码（固定横排显示，居中于页面物理底部） ---------- */
-${scoped('.bt-page-number')} {
+/* ---------- 7. 页脚页码（横排居中于页面物理底部；直排移到页侧竖排显示） ---------- */
+${
+  vertical
+    ? /* 直排：右起（vertical-rl）页码竖排于**左侧**、左起（vertical-lr）于**右侧**
+       * ——古籍书面叶次随排文方向走，不占版心下缘。字形直立向下读，
+       * 沿页面中线垂直居中；位于页边距内，不与末列争位。 */
+      `${scoped('.bt-page-number')} {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  ${options.writingMode === WRITING_MODES.VERTICAL_LR ? 'right' : 'left'}: 16px;
+  writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75em;
+  letter-spacing: 0.15em;
+  color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}`
+    : `${scoped('.bt-page-number')} {
   position: absolute;
   bottom: 16px;
   left: 0;
@@ -871,6 +890,7 @@ ${scoped('.bt-page-number')} {
   font-size: 0.75em;
   letter-spacing: 0.15em;
   color: var(--bt-${COLOR_TOKENS.NOTE_TEXT});
+}`
 }
 /*
  * 页眉 / 页脚：由渲染层按页注入（编辑画布、打印稿、阅读预览同源），
@@ -1001,6 +1021,27 @@ ${scoped('.bt-vflow')} {
 }
 ${scoped('.bt-vpara')} {
   display: inline;
+}
+${scoped('.bt-vflow')} .bt-heading {
+  /* 章题随文连排（古籍形制：另起一列顶格、题后同列接排正文）：
+   * - display: inline —— 块级呈现会让题独占整列，题后正文被迫另起一列，
+   *   每道题白扔一整列（满版目标的首要残源）；
+   * - margin: 0 —— 块的 0.83em 外边距在直排里落在列宽方向，会撑宽题列；
+   * - line-height 锁列距 —— 继承的倍数行高按 2em 字号重算（1.9em×2 =
+   *   60.8px = 两列），一列被撑成两列、界行网格逐列错位。锁死后行盒恒
+   *   1 列，2em 字形左右各出边 0.8px（可接受，网格不错位）。
+   * 用后代选择器（非直接子代）：编辑画布把每个片段包在 .bt-paged-frag 里，
+   * 题盒与容器之间多一层，直接子代匹配不中。 */
+  display: inline;
+  margin: 0;
+  line-height: ${resolveLinePitch(tokens)}px;
+}
+/* 页首断列标记：页流本身已从列首起排（分页器的 breakColumn 在空页上
+ * 也不占列），再断一次会白扔一整列。量尺表里因块包装器 display:contents
+ * 包住标记而不命中——相对测量不受首列空置影响。 */
+.bt-reader-page__flow > .bt-vbreak:first-child,
+.bt-page__flow > .bt-vbreak:first-child {
+  display: none;
 }
 ${scoped('.bt-vnote')} {
   /* 双行夹注盒：恒 1 大字位宽 × 动态高度的多对双列小字（「从上排到底」

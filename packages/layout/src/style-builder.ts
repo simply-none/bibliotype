@@ -261,22 +261,24 @@ const FOLIO_GAP_MIN = 3;
 /**
  * 解析页底溢出量（px，分页可用容量的放宽量）
  *
- * 几何：换页线由「版心底（H − mB − C）」下移到「页码字形顶 − 3px」，故溢出
- * 上限受三者约束：① 下边距 `mB`（侵入深度不能超过边距本身，否则正文贴到
- * 页面物理底缘并被 `overflow: hidden` 裁切）；② 页码带（未启用 pageChrome 时
- * 页码以绝对定位浮在页面下沿，版心与页码顶之间只剩
- * `mB − PAGE_NUMBER_BAND − 3px`）；③ 已启用页脚时其占位已从版心扣掉，
- * 溢出可吃满下边距、只留 3px 与页脚字形隔开。
+ * 几何：换页线由「版心主轴末端」向页码侧下移，最深到「页码字形顶 − 3px」，
+ * 溢出上限受三者约束：① 主轴末端侧边距（侵入深度不能超过边距本身，否则
+ * 正文贴到页面物理边缘并被 `overflow: hidden` 裁切）；② 页码带（未启用
+ * pageChrome 时页码绝对定位浮在页缘，版心与页码之间只剩
+ * `边距 − PAGE_NUMBER_BAND − 3px`）；③ 已启用页脚时其占位已从版心扣掉，
+ * 溢出可吃满该侧边距、只留 3px 与页脚字形隔开。
  *
- * 直排返回 0：主轴是页宽，溢出吃的是外边距（古籍版框 / 书口侧），风险与横排
- * 不同源，不默认开放。
+ * 横排主轴 = 页高（下沉吃地脚）；**直排主轴 = 页宽，下沉吃排文末端侧的
+ * 边距（右起为左边距——页码亦竖排于该侧）**，预算公式与横排同款：页码
+ * 竖排在页缘 16px 处、字形厚约一行高，正文末列最深距页码字形 3px。直排
+ * 曾恒为 0（「不默认开放」），导致末列与页码之间恒空 1 列宽的余量——
+ * 满版目标下与横排同口径开放。
  */
 export function resolveBottomSlack(
   options: LayoutOptions,
   tokens: Readonly<Record<string, string | undefined>>,
   lineSize: number,
 ): number {
-  if (isVerticalMode(options.writingMode)) return 0;
   const slack: BottomSlackOptions | undefined = options.bottomSlack;
   if (slack === undefined) return 0;
   const want =
@@ -286,7 +288,9 @@ export function resolveBottomSlack(
         ? slack.lines * lineSize
         : 0;
   if (want <= 0) return 0;
-  // 溢出吃的是下边距（地脚），取四边盒的 bottom 而非 top（上下不对称时才正确）
+  // 溢出吃排文末端侧的边距：横排取四边盒 bottom（地脚），直排取 left
+  // （vertical-rl 末列侧，页码竖排于该侧；vertical-lr 末列在右、页码亦右，
+  // 边距对称时与 left 等值）
   const marginY = resolvePageMarginBox(tokens).bottom;
   const chrome = options.pageChrome;
   const footerReserved =
@@ -338,9 +342,16 @@ export function resolvePaginationGeometry(
    * 落在 22.999999999999996，floor 会丢掉最后一整行 */
   const grid = step > 0 ? Math.floor(capacity / step + 1e-6) * step : capacity;
   const pageMainSize = Math.max(step > 0 ? step : 1, grid);
+  /*
+   * 直排不放开页底溢出（恒 0）：横排的溢出预算让「末行」伸进地脚边距；
+   * 直排的末行是**列**，列宽是硬边（一列能容几字由交叉轴取整决定），
+   * 版心宽 ÷ 列距 的余量（如 558 − 18×30.4 = 10.8px）不足一整列，
+   * 排不进任何字，放行它只会让末列探进左边距被页框裁掉（截字）。
+   */
+  const vertical = isVerticalMode(options.writingMode);
   return {
     pageMainSize,
-    bottomSlack: Math.max(0, capacity - pageMainSize),
+    bottomSlack: vertical ? 0 : Math.max(0, capacity - pageMainSize),
     rawMainSize,
   };
 }
@@ -362,6 +373,71 @@ export function resolveCharsPerColumn(
   const cross = resolvePageCrossSize(options, tokens);
   const charStep = Math.max(1, resolveBodyFontSize(tokens) * (1 + resolveLetterSpacingEm(tokens)));
   return Math.max(1, Math.floor(cross / charStep));
+}
+
+/**
+ * 直排「字位步进」与量度上下文（估算 / 切片 / 光标映射的口径源）
+ *
+ * 直排正文是**字位网格**：一个字占一格，格子沿列（纵向）排到列底再换列，
+ * 列本身沿主轴（横向）推进。故直排把「一行」的定义收紧为**一个字位**：
+ *
+ * - `charsPerLine = 1`：一行（= 一个 lineCount 单位）恰含一个字；
+ * - `lineSize = 列距 ÷ 每列字数`：一个字位沿主轴占的宽度（px）；
+ * - `blockSpacing = 0`：段落行内化（`.bt-vpara` display:inline）后块与块
+ *   共享列，块间没有折叠外边距，间距全部由行内空位盒（`.bt-vpad`）承担；
+ * - `columnPitch = 列距`：一列的宽度（px），列级断列（breakColumn）的对齐单位。
+ *
+ * 这样三件事自动同源：
+ * 1. 估算器（`defaultEstimator` 的 `行数 × 行高 + 块间距`）= 字数 × 字位宽，
+ *    短段不再被「每段至少一整列」放大；
+ * 2. 行 → 字符换算（`estimateLineCharOffsets`）退化为恒等映射 `[0,1,2,…]`，
+ *    跨页切片的字符边界与真实换列位置严格一致；
+ * 3. 分页容量 = 页主轴 ÷ 字位宽 = 列数 × 每列字数，页装满即 18 列 × 53 字。
+ *
+ * 曾用横排口径（每行 52 字 × 行高 30）喂直排：一列被当成一行、(列数×每列字数)
+ * 的容量被压成「页宽 ÷ 行高」列数 × 单字高度，页内实际只能装 1/4 内容，
+ * 用户可见「每页大片空白 + 段落中途截断」。
+ */
+export interface VerticalMeasureContext {
+  /** 恒 1：直排「一行」= 一个字位 */
+  charsPerLine: number;
+  /** 一个字位沿主轴（列宽方向）的宽度 px = 列距 ÷ 每列字数 */
+  lineSize: number;
+  /** 恒 0：段落行内化后块间无折叠外边距 */
+  blockSpacing: number;
+  /** 列距（一列沿主轴的宽度 px，列级断列的对齐单位） */
+  columnPitch: number;
+  /** 每列字数（交叉轴容量 ÷ 字位步进，向下取整） */
+  charsPerColumn: number;
+  /** 字位步进（交叉轴每字推进 px = 字号 × (1 + 字距 em)） */
+  charPitch: number;
+}
+
+export function resolveVerticalMeasureContext(
+  options: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+): VerticalMeasureContext {
+  const columnPitch = Math.max(1, resolveLinePitch(tokens));
+  const charsPerColumn = resolveCharsPerColumn(options, tokens);
+  return {
+    charsPerLine: 1,
+    lineSize: columnPitch / charsPerColumn,
+    blockSpacing: 0,
+    columnPitch,
+    charsPerColumn,
+    charPitch: Math.max(
+      1,
+      resolveBodyFontSize(tokens) * (1 + resolveLetterSpacingEm(tokens)),
+    ),
+  };
+}
+
+/** 一个字位沿主轴（直排列宽方向）的宽度 px（直排量度上下文的 lineSize 口径） */
+export function resolveVerticalSlotSize(
+  options: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+): number {
+  return resolveVerticalMeasureContext(options, tokens).lineSize;
 }
 
 /**

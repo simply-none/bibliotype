@@ -22,8 +22,10 @@ import {
 import { type BookDocument } from '@bibliotype/core';
 import {
   computeMetricsSignature,
+  isVerticalMode,
   resolvePageCrossSize,
   resolvePaginationGeometry,
+  resolveVerticalMeasureContext,
   type BlockAxis,
   type LayoutOptions,
 } from '@bibliotype/layout';
@@ -72,13 +74,30 @@ export function useReaderSession(deps: ReaderSessionDeps) {
   /**
    * 估算上下文（与字号 / 行距 / 开本联动）
    *
-   * 每行字数按页面交叉轴（横排取内容宽 / 直排取内容高）与字号折算，
-   * 0.95 为 CJK 字宽近似因子；行尺寸（主轴每行）= 字号 × 行距。
+   * 横排：每行字数按页面交叉轴（内容宽）与字号折算，0.95 为 CJK 字宽近似
+   * 因子，行尺寸 = 字号 × 行距。
+   *
+   * 直排：走**字位网格**口径（resolveVerticalMeasureContext）——一「行」就是
+   * 一个字位，`lineSize` 是字位宽（列距 ÷ 每列字数）、`blockSpacing` 为 0、
+   * `columnPitch` 为列距。曾把横排口径（每行 ~52 字 × 行高 30）喂直排：一列
+   * 被当成一行，页容量被压成 (列数 × 单字高)，页内只装十几块 ≈ 二百余字，
+   * 用户可见「每页大片空白 + 段落中途截断」。
+   *
    * 交叉轴走 `resolvePageCrossSize`：解析 page-margin 令牌、扣掉版框边框，
    * 直排下还扣页眉 / 页脚占位（吃的是每列行长，不是列数）。
    */
   function typographyMeasure(): Partial<BlockMeasureContext> {
-    const cross = resolvePageCrossSize(effectiveLayout.value, tokens.value);
+    const layout = effectiveLayout.value;
+    if (isVerticalMode(layout.writingMode)) {
+      const slot = resolveVerticalMeasureContext(layout, tokens.value);
+      return {
+        charsPerLine: slot.charsPerLine,
+        lineSize: slot.lineSize,
+        blockSpacing: slot.blockSpacing,
+        columnPitch: slot.columnPitch,
+      };
+    }
+    const cross = resolvePageCrossSize(layout, tokens.value);
     return {
       charsPerLine: Math.max(1, Math.round((cross / fontSizeNum.value) * 0.95)),
       lineSize: Math.round(fontSizeNum.value * lineHeightNum.value),
@@ -117,6 +136,8 @@ export function useReaderSession(deps: ReaderSessionDeps) {
   /** 逐行行盒尺寸（注音行不等高时按行判页；与 lineSizes 同源实测） */
   const blockLineMainSizes = shallowRef<ReadonlyMap<string, number[]>>(new Map());
   const blockBodySizes = shallowRef<ReadonlyMap<string, number>>(new Map());
+  /** 块 id → 行数（直排为字位数；横排为空表，行边界由 lineOffsets 承载） */
+  const blockLineCounts = shallowRef<ReadonlyMap<string, number>>(new Map());
   /** 量尺解析出的排文主轴（直排 column），透传给 Reader 的块 axis 标注 */
   const blockAxis = shallowRef<BlockAxis>('row');
 
@@ -140,6 +161,7 @@ export function useReaderSession(deps: ReaderSessionDeps) {
       lineOffsets: blockLineOffsets.value,
       lineSizes: blockLineSizes.value,
       lineMainSizes: blockLineMainSizes.value,
+      lineCounts: blockLineCounts.value,
       bodySizes: blockBodySizes.value,
       axis: blockAxis.value,
     });
@@ -168,21 +190,23 @@ export function useReaderSession(deps: ReaderSessionDeps) {
   /** 重测当前 Reader 文档的块尺寸 / 行边界 / 真实行高并重排预览（DOM 实测，需已挂载） */
   function remeasure(): void {
     const doc = reader.value.document ?? lunyuDocument;
-    const { sizes, lineOffsets, lineSizes, lineMainSizes, bodySizes, axis } = measurePagination({
-      doc,
-      options: effectiveLayout.value,
-      tokens: tokens.value,
-      fontToken: activeFontToken.value,
-      /* 功能样式与渲染同源：度量签名含 features（会触发本函数），量尺也必须
-       * 应用同一份 features——07ad411 只接了编辑态，阅读态漏传导致改行高 /
-       * 段距类功能样式时分页归属与渲染错尺 */
-      features: deps.features.value,
-      measure: typographyMeasure(),
-    });
+    const { sizes, lineOffsets, lineSizes, lineMainSizes, lineCounts, bodySizes, axis } =
+      measurePagination({
+        doc,
+        options: effectiveLayout.value,
+        tokens: tokens.value,
+        fontToken: activeFontToken.value,
+        /* 功能样式与渲染同源：度量签名含 features（会触发本函数），量尺也必须
+         * 应用同一份 features——07ad411 只接了编辑态，阅读态漏传导致改行高 /
+         * 段距类功能样式时分页归属与渲染错尺 */
+        features: deps.features.value,
+        measure: typographyMeasure(),
+      });
     blockSizes.value = sizes;
     blockLineOffsets.value = lineOffsets;
     blockLineSizes.value = lineSizes;
     blockLineMainSizes.value = lineMainSizes;
+    blockLineCounts.value = lineCounts;
     blockBodySizes.value = bodySizes;
     blockAxis.value = axis;
     reader.value.repaginate({
@@ -191,6 +215,7 @@ export function useReaderSession(deps: ReaderSessionDeps) {
       lineOffsets,
       lineSizes,
       lineMainSizes,
+      lineCounts,
       bodySizes,
       axis,
       measure: typographyMeasure(),
@@ -295,6 +320,7 @@ export function useReaderSession(deps: ReaderSessionDeps) {
     blockLineOffsets,
     blockLineSizes,
     blockLineMainSizes,
+    blockLineCounts,
     blockBodySizes,
     blockAxis,
     remeasure,

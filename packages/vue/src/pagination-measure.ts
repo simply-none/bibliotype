@@ -27,9 +27,11 @@ import {
   resolveCharsPerColumn,
   resolvePageCrossSize,
   resolvePageMarginBox,
+  resolveVerticalMeasureContext,
   type BlockAxis,
   type LayoutOptions,
   type StyleDeclaration,
+  type VerticalMeasureContext,
   type WritingMode,
 } from '@bibliotype/layout';
 import { buildBookCss, serializeNode, serializeVerticalFlow } from '@bibliotype/layout/html';
@@ -250,6 +252,20 @@ function mainMargins(cs: CSSStyleDeclaration, axis: MeasureAxis): [number, numbe
 function lastBlockSize(el: HTMLElement, axis: MeasureAxis): number {
   const cs = getComputedStyle(el);
   const [m1, m2] = mainMargins(cs, axis);
+  /* 共享流量尺：块包装器 display:contents 自身无盒——跨度取后代元素联合，
+   * 尾距取末个后代元素的 block-end 外边距（真实页面同构的折叠口径） */
+  if (axis.vertical && el.offsetWidth === 0) {
+    const descendants = Array.from(el.querySelectorAll('*')) as HTMLElement[];
+    if (descendants.length === 0) return 0;
+    const rects = descendants.map((n) => n.getBoundingClientRect());
+    const extent = Math.max(...rects.map((r) => r.right)) - Math.min(...rects.map((r) => r.left));
+    const last = descendants[descendants.length - 1] as HTMLElement;
+    const lastCs = getComputedStyle(last);
+    const m2 = axis.rl
+      ? Number.parseFloat(lastCs.marginLeft) || 0
+      : Number.parseFloat(lastCs.marginRight) || 0;
+    return extent + Math.max(0, m2);
+  }
   return (axis.vertical ? el.offsetWidth : el.offsetHeight) + m1 + m2;
 }
 
@@ -346,10 +362,10 @@ export function lineAdvances(starts: readonly number[], body: number): number[] 
 function measureLineBoxes(
   el: HTMLElement,
   axis: MeasureAxis,
-): { offsets: number[]; mainSizes: number[] } {
+): { offsets: number[]; mainSizes: number[]; body: number } {
   const list = collectTextOffsets(el);
   const total = list.reduce((sum, entry) => sum + entry.len, 0);
-  if (total === 0) return { offsets: [0], mainSizes: [] };
+  if (total === 0) return { offsets: [0], mainSizes: [], body: 0 };
 
   // 逐文本节点取矩形：整块 Range 会连带 `<rt>` 注文（它是真实文本节点），
   // 其推进坐标与基础行不同源，会把注音误算成额外一行
@@ -361,7 +377,7 @@ function measureLineBoxes(
       ...Array.from(range.getClientRects()).filter((r) => r.height > 0 || r.width > 0),
     );
   }
-  if (baseRects.length === 0) return { offsets: [0], mainSizes: [] };
+  if (baseRects.length === 0) return { offsets: [0], mainSizes: [], body: 0 };
 
   // 归并同一行（列）的矩形（容差 2px）：同一行的多段文本 / 行内元素共享推进起点
   const boxes: MeasuredLineBox[] = [];
@@ -380,7 +396,7 @@ function measureLineBoxes(
   }
 
   boxes.sort((a, b) => (axis.vertical && axis.rl ? b.start - a.start : a.start - b.start));
-  if (boxes.length <= 1) return { offsets: [0], mainSizes: [] };
+  if (boxes.length <= 1) return { offsets: [0], mainSizes: [], body: el.offsetWidth };
 
   /** 字符 g 的推进起点（行首偏移二分用） */
   const edgeOf = (g: number): number => {
@@ -416,17 +432,105 @@ function measureLineBoxes(
   /*
    * 行盒尺寸与行首偏移同序：仅在行数一致时成对产出（偏移去重后可能少于行盒）。
    * 逐行尺寸取行推进量而非字形内容盒（详见 lineAdvances）。
+   * body 为块的主轴**联合跨度**（首列起缘 → 末列终缘，baseRects 全覆盖）：
+   * 共享流量尺下块与块共享列，块的真实占位含末列的不满部分，必须用小数
+   * 跨度记账——曾按 offsetWidth（整数、浏览器已按整列归并）取值，每块虚高
+   * ~0.5 列 × 每页块数 = 页末 1~3 列空白。
    */
-  const body = axis.vertical ? el.offsetWidth : el.offsetHeight;
+  const body =
+    axis.vertical
+      ? Math.max(...baseRects.map((r) => r.right)) - Math.min(...baseRects.map((r) => r.left))
+      : Math.max(...baseRects.map((r) => r.bottom)) - Math.min(...baseRects.map((r) => r.top));
   const mainSizes =
     offsets.length === boxes.length ? lineAdvances(boxes.map((box) => box.start), body) : [];
-  return { offsets, mainSizes };
+  return { offsets, mainSizes, body };
+}
+
+/**
+ * 直排字位坐标探针
+ *
+ * 把矩形的「列向缘 + 列内纵向偏移」换算成**绝对流位置**（单位：字位）：
+ *
+ * ```
+ * position = 列序号 × 每列字数 + (纵向偏移 ÷ 字位步进)
+ * ```
+ *
+ * 直排正文是字位网格（一列排满换列），故同一坐标系下相邻块的流位置之差
+ * 就是块的**真实占位**（含列尾余量、行款空位盒、断列空转）。曾按相邻块
+ * 的「行款起始缘（rect.right）之差」当推进量：同列内相邻块该缘完全相同
+ * （都取到列右边界），差恒为 0 → 全部回退估算器，页内只能装十几块、
+ * 每页大片空白。
+ *
+ * 列序号取整：列向坐标取矩形的**中心**再向下取整——字盒宽（1 字）比列距窄，
+ * 若拿字盒的左右缘各自取整，同一列会算出相邻两个列号（右缘 → k、左缘 →
+ * k+1），块跨度凭空多出整整一列（13 字段落量成 66 字位，分页器以为一页
+ * 只装得下十几块）。列心落在 (k+0.5)×列距，向下取整后同列恒得 k，与字盒
+ * 左对齐 / 居中 / 右对齐均无关；常量偏移（容器内边距）对所有块同时生效，
+ * 在取差时抵消。
+ */
+function createSlotProbe(
+  flow: HTMLElement,
+  axis: MeasureAxis,
+  slot: VerticalMeasureContext,
+): (colCenter: number, crossEdge: number) => number {
+  const rect = flow.getBoundingClientRect();
+  const originMain = axis.rl ? rect.right : rect.left;
+  const originCross = rect.top;
+  return (colCenter, crossEdge) => {
+    const col = Math.floor(
+      (axis.rl ? originMain - colCenter : colCenter - originMain) / slot.columnPitch + 1e-6,
+    );
+    return col * slot.charsPerColumn + (crossEdge - originCross) / slot.charPitch;
+  };
+}
+
+/**
+ * 块的字位跨度（首字位 → 末字位之后）
+ *
+ * 块包装器是 `display:contents`（自身无盒），故用 Range 取**后代的行盒矩形**：
+ * 竖排下每个矩形即一列在该块上的片段（top = 该列首字、bottom = 该列末字），
+ * 首矩形取列序最前（rl 取最右）、末矩形取列序最后（rl 取最左）。跨度因此
+ * 自动包含列尾余量与跨列空转，与真实页内占位同尺。
+ */
+function slotExtentOf(
+  el: HTMLElement,
+  axis: MeasureAxis,
+  at: (colCenter: number, crossEdge: number) => number,
+): { start: number; end: number } | null {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const rects = Array.from(range.getClientRects()).filter(
+    (rect) => rect.width > 0 && rect.height > 0,
+  );
+  const head = rects[0];
+  if (head === undefined) return null;
+  let first = head;
+  let last = head;
+  for (const rect of rects) {
+    if (axis.rl ? rect.right > first.right : rect.left < first.left) first = rect;
+    if (axis.rl ? rect.left < last.left : rect.right > last.right) last = rect;
+  }
+  /* 列向取矩形中心：字盒（1 字宽）窄于列距，左右缘各自取整会落到相邻两列 */
+  const centerOf = (rect: DOMRect): number => (rect.left + rect.right) / 2;
+  return {
+    start: at(centerOf(first), first.top),
+    end: at(centerOf(last), last.bottom),
+  };
 }
 
 /** 建表并渲染各块（复用），返回与 blocks 对齐的已渲染元素（含空位 null） */
 function renderMeasureSheet(
   input: MeasureBlockSizesInput,
-): { blocks: ReturnType<typeof extractBlocksIndexed>['blocks']; rendered: (HTMLElement | null)[]; targetedOnly: boolean; axis: MeasureAxis } | null {
+): {
+  blocks: ReturnType<typeof extractBlocksIndexed>['blocks'];
+  rendered: (HTMLElement | null)[];
+  targetedOnly: boolean;
+  axis: MeasureAxis;
+  /** 直排字位口径（横排缺省）：每列字数 / 列距 / 字位步进 */
+  slot?: VerticalMeasureContext;
+  /** 直排共享流容器（字位坐标原点，横排缺省） */
+  flow?: HTMLElement | null;
+} | null {
   if (typeof document === 'undefined') return null;
 
   const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
@@ -489,14 +593,45 @@ function renderMeasureSheet(
    * 向下取整——与预览 readerColumnCapacity、打印 charsPerColumn、仿真几何层
    * 统一走 resolveCharsPerColumn（曾 round ÷ 字号，列底空出 1~2 字位）。 */
   const flowChars = resolveCharsPerColumn(options, tokens);
-  /* 每行大字数（直排：内容高 ÷ 字号，与预览 readerColumnCapacity 同口径） */
+  if (axis.vertical) {
+    /* 直排：**共享流容器**量尺——所有块的行内流 HTML 连续放入同一个
+     * `.bt-vflow`（块包装器 display:contents，不产生盒），与真实页面完全
+     * 同构。曾把每块独立包在 block div 里：直排下每个 div 独立断列、
+     * mainSize 向上取整到整列，而真实页面块与块**共享列**（上块末列的
+     * 残差由下一段填充）——每块虚高 ~0.5 列 × 每页块数 = 页末 1~3 列空白。 */
+    const blockHtml = blocks
+      .map((block) => {
+        const node = indexed.nodeById.get(block.id);
+        if (node === undefined) return '';
+        const html = serializeVerticalFlow([node], { charsPerColumn: flowChars });
+        if (html.trim() === '') return '';
+        return `<div class="${BLOCK_CLASS}" data-measure-id="${escapeAttr(block.id)}" style="display:contents">${html}</div>`;
+      })
+      .join('');
+    sheet.innerHTML = `<div class="${CONTAINER_SELECTOR}__flow bt-vflow">${blockHtml}</div>`;
+    const wrappers = Array.from(sheet.querySelectorAll(`[data-measure-id]`)) as HTMLElement[];
+    const byId = new Map<string, HTMLElement>();
+    for (const el of wrappers) {
+      const id = el.getAttribute('data-measure-id');
+      if (id !== null) byId.set(id, el);
+    }
+    const rendered = blocks.map((block) => byId.get(block.id) ?? null);
+    /* 直排：字位口径与共享流容器一并回传——量尺按「列序号 × 每列字数 +
+     * 列内字位偏移」求每块的绝对流位置（见 createSlotProbe） */
+    return {
+      blocks,
+      rendered,
+      targetedOnly,
+      axis,
+      slot: resolveVerticalMeasureContext(options, tokens),
+      flow: sheet.firstElementChild as HTMLElement | null,
+    };
+  }
   sheet.innerHTML = blocks
     .map((block) => {
       const node = indexed.nodeById.get(block.id);
       if (node === undefined) return '';
-      const html = axis.vertical
-        ? serializeVerticalFlow([node], { charsPerColumn: flowChars })
-        : serializeNode(node);
+      const html = serializeNode(node);
       if (html.trim() === '') return '';
       return `<div class="${BLOCK_CLASS}" data-measure-id="${escapeAttr(block.id)}">${html}</div>`;
     })
@@ -524,6 +659,15 @@ export interface MeasurePaginationResult {
   axis: BlockAxis;
   /** 块 id → 主轴推进尺寸(px)（到下一块上缘，含块间折叠外边距） */
   sizes: ReadonlyMap<string, number>;
+  /**
+   * 块 id → 行数（直排：字位数）
+   *
+   * 直排的一「行」就是一个字位（见 resolveVerticalMeasureContext），故本表给出
+   * 的是块占用的**字位个数**；分页器按它做行级拆分，与字符的映射退化为恒等
+   * （第 k 个字位 = 第 k 个字），跨页切片的字符边界与真实换列位置严格一致。
+   * 横排不产出本表（行边界由 lineOffsets 承载）。
+   */
+  lineCounts: ReadonlyMap<string, number>;
   /** 块 id → 每行起始字符偏移[]（仅多行块产出） */
   lineOffsets: ReadonlyMap<string, number[]>;
   /** 块 id → 真实行高 px（自身高度 ÷ 行数，不含块间距；仅多行块产出） */
@@ -573,26 +717,41 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
     return {
       axis: blockAxis,
       sizes: new Map(),
+      lineCounts: new Map(),
       lineOffsets: new Map(),
       lineSizes: new Map(),
       lineMainSizes: new Map(),
       bodySizes: new Map(),
     };
-  const { blocks, rendered, targetedOnly, axis } = sheet;
+  const { blocks, rendered, targetedOnly, axis, slot, flow } = sheet;
 
   const sizes = new Map<string, number>();
+  const lineCounts = new Map<string, number>();
   const lineOffsets = new Map<string, number[]>();
   const lineSizes = new Map<string, number>();
   const lineMainSizes = new Map<string, number[]>();
   const bodySizes = new Map<string, number>();
+  /* 直排：字位绝对流位置（列序号 × 每列字数 + 列内字位）；横排不建 */
+  const slotAt = slot !== undefined && flow ? createSlotProbe(flow, axis, slot) : null;
+  const extents =
+    slotAt === null
+      ? []
+      : rendered.map((el) => (el === null ? null : slotExtentOf(el, axis, slotAt)));
   for (let i = 0; i < blocks.length; i += 1) {
     // 定点模式：仅产出目标块（index 0）；后一块只为折叠口径参照，不入结果
     if (targetedOnly && i > 0) break;
     const el = rendered[i];
     if (el === null) continue;
     const id = (blocks[i] as (typeof blocks)[number]).id;
-    // 逐块推进量 = 到下一渲染块首缘的距离（含块间折叠外边距；横排取上缘 offsetTop，
-    // 直排取行款起始缘 rect.right/left）；末块取自身尺寸 + 两端外边距
+    if (axis.vertical && slot !== undefined) {
+      measureVerticalBlock(id, el, i, extents, slot, rendered.length, {
+        sizes,
+        lineCounts,
+        bodySizes,
+      });
+      continue;
+    }
+    // 逐块推进量 = 到下一渲染块首缘的距离（含块间折叠外边距；横排取上缘 offsetTop）
     let nextEl: HTMLElement | null = null;
     for (let j = i + 1; j < rendered.length; j += 1) {
       const cand = rendered[j];
@@ -602,26 +761,14 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
       }
     }
     const advance =
-      nextEl === null
-        ? lastBlockSize(el, axis)
-        : axis.vertical
-          ? // 直排：块沿水平推进。必须用**同一坐标系**量相邻两块起始缘——两块都取
-            // getBoundingClientRect（视口坐标，量尺工作表停在 left:-100000px 的偏移在相减时抵消）。
-            // 若一块用 rect、另一块用 offsetLeft（offsetParent 坐标）则 -100000 不抵消，
-            // 推进量恒为巨负值被下方 `advance > 0` 丢弃 → 直排整段回退估算、列数与渲染不符而溢出边距。
-            // rl：块在 next 右侧，起始缘=右缘，推进 = el.right − next.right；lr 反之。
-            (axis.rl
-              ? el.getBoundingClientRect().right - nextEl.getBoundingClientRect().right
-              : nextEl.getBoundingClientRect().left - el.getBoundingClientRect().left)
-          : nextEl.offsetTop - el.offsetTop;
+      nextEl === null ? lastBlockSize(el, axis) : nextEl.offsetTop - el.offsetTop;
     if (Number.isFinite(advance) && advance > 0) sizes.set(id, advance);
-    // 块体尺寸：主轴向盒尺寸（不含外边距；横排 offsetHeight、直排 offsetWidth），供 paginate 按体高计追加代价
-    const body = axis.vertical ? el.offsetWidth : el.offsetHeight;
-    if (body > 0) bodySizes.set(id, body);
     const lines = measureLineBoxes(el, axis);
+    const body = el.offsetHeight;
+    if (body > 0) bodySizes.set(id, body);
     if (lines.offsets.length > 1) {
       lineOffsets.set(id, lines.offsets);
-      // 真实行高（主轴推进）：自身盒主轴尺寸 ÷ 真实行数，避免把块间距摊进行高
+      // 真实行高（主轴推进）：自身跨度 ÷ 真实行数，避免把块间距摊进行高
       if (body > 0) lineSizes.set(id, body / lines.offsets.length);
       // 逐行行盒：注音行不等高时供分页按行累加（与 lineOffsets 等长才产出）
       if (lines.mainSizes.length === lines.offsets.length) {
@@ -629,7 +776,59 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
       }
     }
   }
-  return { axis: blockAxis, sizes, lineOffsets, lineSizes, lineMainSizes, bodySizes };
+  return { axis: blockAxis, sizes, lineCounts, lineOffsets, lineSizes, lineMainSizes, bodySizes };
+}
+
+/** 直排单块的占位入账（字位口径） */
+function measureVerticalBlock(
+  id: string,
+  el: HTMLElement,
+  index: number,
+  extents: readonly ({ start: number; end: number } | null)[],
+  slot: VerticalMeasureContext,
+  total: number,
+  out: {
+    sizes: Map<string, number>;
+    lineCounts: Map<string, number>;
+    bodySizes: Map<string, number>;
+  },
+): void {
+  const extent = extents[index] ?? null;
+  if (extent === null) return;
+  /* 字位跨度（slots）与主轴长度（px）严格分开：extent 是**字位数**，
+   * 一切写进分页模型的 size 都必须是 px。曾把两者直接 Math.max 混用，
+   * 每个连排段落的推进量被放大 1/lineSize（≈1.74）倍 → 分页预算按
+   * 578px 报满、真实内容只占 405px，整页 40% 是空白。 */
+  const slots = Math.max(0, extent.end - extent.start);
+  const body = slots * slot.lineSize;
+  if (!(body > 0)) return;
+  out.bodySizes.set(id, body);
+  /*
+   * 推进量 = 到**下一块首字位**的流位置之差，而非块自身跨度：
+   * - 连排段落（行内流）与后继同列接排，两值相等；
+   * - 断列块（标题 / 表 / 图 / 注文）在竖排 block 流里是块级元素，块尾必落
+   *   列尾（后继另起一列），这段空耗必须计入推进量，否则分页器以为还有
+   *   空间、排进的内容在真实页末溢出被裁（用户可见的「段落截断」）。
+   */
+  let nextStart: number | null = null;
+  for (let j = index + 1; j < total; j += 1) {
+    const cand = extents[j];
+    if (cand !== null && cand !== undefined) {
+      nextStart = cand.start;
+      break;
+    }
+  }
+  const span = nextStart === null ? slots : Math.max(slots, nextStart - extent.start);
+  const advance = span * slot.lineSize;
+  if (Number.isFinite(advance) && advance > 0) out.sizes.set(id, advance);
+  /* 字位数四舍五入成整数行（分页器按整数行切），并以块内真实字符数为上限：
+   * 行款空位盒使字位多于字符（低格 / 挪抬），不封顶会产出「无字可填」的
+   * 空片段 */
+  const chars = collectTextOffsets(el).reduce((sum, entry) => sum + entry.len, 0);
+  out.lineCounts.set(
+    id,
+    Math.max(1, Math.min(Math.round(slots), Math.max(1, chars))),
+  );
 }
 
 /**

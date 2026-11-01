@@ -24,7 +24,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { isTextNode, type BookNode, type FeatureStyleSheet, type NamedStyleSet } from '@bibliotype/core';
 import { FONT_SIZE_TOKENS } from '@bibliotype/core';
 import { buildPageStyle, buildRootStyle, facsimilePageOf, isVerticalMode, resolvePageCrossSize, type LayoutOptions } from '@bibliotype/layout';
-import { buildBookCss, serializeNode, serializePageGutter, serializeVerticalFlow, isFlowParagraphType } from '@bibliotype/layout/html';
+import { buildBookCss, serializeNode, serializePageGutter, serializeVerticalFlow, isFlowInlineType } from '@bibliotype/layout/html';
 import {
   buildPageChromeIndex,
   formatPageNumber,
@@ -142,12 +142,13 @@ function syncStyle(): void {
   const emptyBlockRule =
     `\n${FRAG_SELECTOR} :is(.bt-paragraph, .bt-heading):empty::before {\n  content: "\\200B";\n}\n`;
   /*
-   * 直排行内流（v2 批 3）：连排片段（段落 / 引文）以行内呈现——片段边界
-   * 不再断列，正文跨片段在同一列连排（与预览 BtBookView 同形态）；空段落
-   * 的行内 span 无行盒，同样以零宽字符撑出落点。
+   * 直排行内流（v2 批 3）：连排片段（段落 / 引文 / 章题）以行内呈现——
+   * 片段边界不再断列，正文跨片段在同一列连排（与预览 BtBookView 同形态）；
+   * 空段落的行内 span 无行盒，同样以零宽字符撑出落点。
+   * 页首片段的断列标记本就多余（页流从列首起排），遮掉免得白扔一整列。
    */
   const verticalFlowRule =
-    `\n${CONTAINER_SELECTOR}__flow.bt-vflow > ${FRAG_SELECTOR}--inline {\n  display: inline;\n}\n${CONTAINER_SELECTOR}__flow.bt-vflow > ${FRAG_SELECTOR}--inline > .bt-vpara:empty::before {\n  content: "\\200B";\n}\n`;
+    `\n${CONTAINER_SELECTOR}__flow.bt-vflow > ${FRAG_SELECTOR}--inline {\n  display: inline;\n}\n${CONTAINER_SELECTOR}__flow.bt-vflow > ${FRAG_SELECTOR}--inline > .bt-vpara:empty::before {\n  content: "\\200B";\n}\n${CONTAINER_SELECTOR}__flow.bt-vflow > ${FRAG_SELECTOR}:first-child > .bt-vbreak:first-child {\n  display: none;\n}\n`;
   let el = document.getElementById(STYLE_ELEMENT_ID) as HTMLStyleElement | null;
   if (el === null) {
     el = document.createElement('style');
@@ -358,7 +359,7 @@ const htmlCache = new WeakMap<BookNode, HtmlCacheEntry>();
 function fragHtml(frag: PagedFragment): string {
   const node: BookNode = frag.node;
   if (isTextNode(node)) return '';
-  const flow = verticalWriting.value && isFlowParagraphType(node.type);
+  const flow = verticalWriting.value && isFlowInlineType(node.type);
   const key = `${props.options.writingMode}|${flowCharsPerColumn.value}|${frag.fromLine}`;
   const cached = htmlCache.get(node);
   if (cached !== undefined && cached.key === key) return cached.html;
@@ -379,7 +380,7 @@ function fragHtml(frag: PagedFragment): string {
 }
 
 function fragIsFlow(frag: PagedFragment): boolean {
-  return verticalWriting.value && !isTextNode(frag.node) && isFlowParagraphType(frag.node.type);
+  return verticalWriting.value && !isTextNode(frag.node) && isFlowInlineType(frag.node.type);
 }
 
 const renderedPages = computed<RenderedPage[]>(() => {

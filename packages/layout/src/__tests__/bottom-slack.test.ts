@@ -59,18 +59,19 @@ describe('resolveBottomSlack', () => {
     expect(resolveBottomSlack(withFooter, tokens, LINE)).toBe(45);
   });
 
-  it('页边距为 0 或直排 → 0（无侵入空间 / 主轴口径不同源）', () => {
+  it('页边距为 0 → 0（无侵入空间）；直排同预算公式（末列下沉向页码留 3px）', () => {
     const noMargin = { ...DEFAULT_THEME, 'page-margin': '0px 0px' };
     expect(
       resolveBottomSlack(layout({ bottomSlack: { lines: 1 } }), noMargin, LINE),
     ).toBe(0);
+    /* 直排主轴 = 页宽，下沉吃排文末端侧边距：同一预算公式（48 − 40 − 3） */
     expect(
       resolveBottomSlack(
         layout({ bottomSlack: { lines: 1 }, writingMode: 'vertical-rl' }),
         DEFAULT_THEME,
         LINE,
       ),
-    ).toBe(0);
+    ).toBe(5);
   });
 
   it('非法 / 非正值一律归零', () => {
@@ -110,18 +111,19 @@ describe('resolvePaginationGeometry（行网格量化）', () => {
     expect(geo.pageMainSize).toBeGreaterThan(geo.rawMainSize + 5 - step);
   });
 
-  it('直排：主轴按列距取整（列数与界行网格一致），余量入 bottomSlack', () => {
+  it('直排：主轴按列距取整（列数与界行网格一致），不放开页底溢出', () => {
     const geo = resolvePaginationGeometry(
       layout({ writingMode: 'vertical-rl', pageSize: PAGE_SIZES.A5, }),
       DEFAULT_THEME,
     );
     const pitch = 30.4;
-    /* 直排不下沉（slack 输入 0），bottomSlack 输出 = 量化余量 ∈ [0, 列距)，
-     * 页左缘空白全书恒定 */
+    /* 直排的末行是一整列：列宽是硬边，版心宽 ÷ 列距 的余量（< 1 列）排不进
+     * 任何字，放行它只会让末列探进左边距被页框裁掉 → bottomSlack 恒 0。
+     * 容量仍按「raw + 预算」再按列距向下取整。 */
     expect((geo.pageMainSize / pitch) % 1).toBeCloseTo(0, 6);
-    expect(geo.pageMainSize).toBeLessThanOrEqual(geo.rawMainSize);
-    expect(geo.bottomSlack).toBeCloseTo(geo.rawMainSize - geo.pageMainSize, 6);
-    expect(geo.bottomSlack).toBeLessThan(pitch);
+    expect(geo.bottomSlack).toBe(0);
+    expect(geo.pageMainSize).toBeLessThanOrEqual(geo.rawMainSize + 5);
+    expect(geo.pageMainSize).toBeGreaterThan(geo.rawMainSize + 5 - pitch);
   });
 });
 

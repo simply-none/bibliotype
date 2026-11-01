@@ -32,7 +32,7 @@ loadDocument
   ├─ emit('document:load')           
   ├─ repaginate()
   │    ├─ extractBlocksIndexed(doc)  → 线性叶块序列 + 块 id→节点索引
-  │    │                              （结构容器首块 + h1/h2 标题 breakBefore；浮注开启时脚注块标 floatToBottom）
+  │    │                              （结构容器首块 + h1/h2 标题 breakBefore，直排连排见下；浮注开启时脚注块标 floatToBottom）
   │    ├─ paginate(blocks)           → 页编排（keepWithNext / 页底注区等）
   │    ├─ 索引块→页映射 + 容器锚点（容器 id → 首叶所在页）
   │    └─ emit('page:change')
@@ -175,7 +175,7 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 - **版式文本容器**（注文 / 牌记 / 题记等）无论子级形态恒整体成块（编辑保存规范化后样式与 id 不丢失）；
 - **表格是复合原子块**：`table` 整体成块（`COMPOSITE_ATOMIC_TYPES`），不再逐层下钻到 `table-row` / `table-cell`；
   否则块序列只剩单元格段落，序列化会丢失 `<table>` 包裹、页面上表现为空白（详见 [21 表格编辑](21-table-editing.md)）；
-- **h1 / h2 标题另起页**：章 / 节级标题（`attrs.level` ≤ `HEADING_BREAK_BEFORE_MAX_LEVEL`，缺省 2）仿纸质书从新页页首起排，标记 `breakBefore`；h3~h6 不强制另起页。该标记与结构容器首块标记、分页符标记正交，主轴方向由调用方按书写方向传尺寸，**横排与直排同逻辑**；
+- **h1 / h2 标题另起页**：章 / 节级标题（`attrs.level` ≤ `HEADING_BREAK_BEFORE_MAX_LEVEL`，缺省 2）仿纸质书从新页页首起排，标记 `breakBefore`；h3~h6 不强制另起页。该标记与结构容器首块标记、分页符标记正交，主轴方向由调用方按书写方向传尺寸，**横排与直排不同**（2026-10-31 起直排连排：axis 为 column 时标题不另起页，结构容器仅前后件——封面 / 书名页 / 版权页 / 封底——保持独立起页，卷 / 章 / 节随文接排）；
 - **主轴标注 `axis`**：`extractBlocks(doc, { axis: 'column' })` 给可拆块标 `axis: 'column'`（直排），横排缺省 `'row'`；`lineSize` 在直排下即列宽。分页算术只认沿主轴的尺寸，故方向不影响装箱结果；
 - 标题块标记 `keepWithNext`（与下段同页）。
 
@@ -198,11 +198,11 @@ const pageNo = formatPageNumber(12, 'chinese');   // '十二'（decimal / chines
 | 场景 | 规则 |
 | --- | --- |
 | 贪心装箱 | 块沿主轴累加，超页换页 |
-| `breakBefore` / `breakAfter` | 强制换页（章首 / 卷末 / h1·h2 标题；横排与直排同逻辑，由 `extractBlocks` 产出 `breakBefore`） |
+| `breakBefore` / `breakAfter` | 强制换页（章首 / 卷末 / h1·h2 标题；由 `extractBlocks` 产出 `breakBefore`，横排全量、直排仅前后件——章节随文连排） |
 | `keepWithNext` | 与下一块同页；放不下则整体换页（下一块强制换页时不连坐；下块可拆时仅要求头部 minFirst 行同页） |
 | 行级拆分（`splittable` + `lineSize`） | 装不下的正文段落在行处断开跨页续排（直排即「列」处断开，`axis='column'`、`lineSize` 为列宽），页输出 `items: PageItem[]`（`fromLine` / `lineCount`）；未拆分时 `lineCount=0` 按整块渲染，`blocks` 字段向后兼容 |
 | 逐行行盒（`lineMainSizes`） | 注音（ruby）等行内增高使行高不等时，按实测逐行尺寸累加判页 / 结算片段（`lineRangeMainSize` 与渲染侧同口径）；缺省 / 长度不符回退均高 `lineSize`，行为与旧版一致 |
-| 孤寡行控制（`widowControl`） | 拆分后首页片段 ≥ minFirst 行、末页片段 ≥ minLast 行（默认 2 / 2），不满足则让行或整体换页 |
+| 孤寡行控制（`widowControl`） | 拆分后首页片段 ≥ minFirst 行、末页片段 ≥ minLast 行（缺省严格 2/2，印刷惯例），不满足则让行或整体换页；`LayoutOptions.widowControl` 可调（预设 `WIDOW_CONTROL_STRICT` / `WIDOW_CONTROL_LOOSE` 1/1），Reader 未显式传入时取布局字段，页底留白与满版取舍由此控制 |
 | 超大块 | 可拆者按每页容纳行数连续跨页；不可拆者独占一页（避免死循环） |
 | 表格 | 复合原子块：不标 `splittable`，整块占位；超大表独占一页，不拆行 / 单元格 |
 | 非法输入 | `pageMainSize <= 0` 或块尺寸为负抛 `RangeError` |

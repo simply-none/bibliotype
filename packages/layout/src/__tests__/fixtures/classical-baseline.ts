@@ -119,8 +119,20 @@ export const CLASSICAL_BASELINE_FONT_TOKEN = 'font-family-classical-body';
  * 其后）；根容器补 text-align: justify（书排两端对齐，不影响换行点与行数）；
  * `.bt-heading` margin 显式化 0.83em 0（UA 缺省逐级不同且跨引擎不确定）。
  * 样式表全文变化，基线重锁。
+ *
+ * 2026-10-31 二十五次更新（直排页码侧置）：`.bt-page-number` 直排下移到
+ * 页侧竖排——右起（vertical-rl）排左侧、左起（vertical-lr）排右侧，沿页面
+ * 中线垂直居中（古籍书面叶次随排文方向走，不占版心下缘）；横排声明不变。
+ * 样式表全文变化，基线重锁。
+ *
+ * 2026-11-01 二十六次更新（直排章题随文连排）：新增
+ * `.bt-vflow .bt-heading`（display: inline + margin: 0 + line-height 锁列距——
+ * 块级题独占整列且继承 1.9em×2em 行高撑成两列）与页首断列标记遮蔽
+ * `.bt-reader-page__flow > .bt-vbreak:first-child` / `.bt-page__flow > …`
+ * （页流本身已从列首起排，再断一次白扔一整列）。两条均在直排分支内，
+ * 横排产物逐字符不变。样式表全文变化，基线重锁。
  */
-export const CLASSICAL_CSS_FNV = '1a359fee';
+export const CLASSICAL_CSS_FNV = '63df08f3';
 
 /** 基线度量签名的 FNV-1a 哈希 */
 export const CLASSICAL_SIGNATURE_FNV = 'c6b7f9f4';
@@ -131,8 +143,8 @@ export const CLASSICAL_MAIN_SIZE = 581;
 /** 基线版心交叉轴尺寸（页高 − 边距 − 版框） */
 export const CLASSICAL_CROSS_SIZE = 881;
 
-/** 基线页底溢出（直排恒为 0：溢出吃的是外边距，不默认开放） */
-export const CLASSICAL_BOTTOM_SLACK = 0;
+/** 基线页底溢出（直排末列下沉：min(半行, 边距 48 − 页码带 40 − 3px 间隙) = 5） */
+export const CLASSICAL_BOTTOM_SLACK = 5;
 
 /**
  * FNV-1a 32 位哈希（十六进制 8 位）

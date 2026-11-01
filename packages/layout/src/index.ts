@@ -2,6 +2,9 @@
  * @bibliotype/layout 统一导出入口
  */
 
+/* ---------- 直排行内流（块判定口径） ---------- */
+export { isFlowParagraphType, isFlowInlineType } from './html/vertical-flow.js';
+
 /* ---------- 书写方向 ---------- */
 export { WRITING_MODES, TEXT_ORIENTATIONS, isVerticalMode } from './writing-mode.js';
 export type { WritingMode, TextOrientation } from './writing-mode.js';
@@ -43,6 +46,8 @@ export {
   PAGE_CHROME_FIELDS,
   DEFAULT_PAGE_CHROME,
   DEFAULT_BOTTOM_SLACK,
+  WIDOW_CONTROL_STRICT,
+  WIDOW_CONTROL_LOOSE,
   DEFAULT_LAYOUT_OPTIONS,
   CLASSICAL_LAYOUT_OPTIONS,
   FACSIMILE_BASE_LAYOUT,
@@ -153,6 +158,8 @@ export {
   resolveBottomSlack,
   resolvePaginationGeometry,
   resolveCharsPerColumn,
+  resolveVerticalMeasureContext,
+  resolveVerticalSlotSize,
   resolvePageMarginBox,
   resolvePageMargins,
   resolvePageBorderWidth,
@@ -161,6 +168,7 @@ export type {
   StyleDeclaration,
   BuildRootStyleInput,
   PaginationGeometry,
+  VerticalMeasureContext,
 } from './style-builder.js';
 
 /* ---------- 行级切片（纸书跨页片段渲染契约） ---------- */

@@ -24,6 +24,7 @@ import {
   mergeLayoutOptions,
   resolveCharsPerColumn,
   resolvePaginationGeometry,
+  resolveVerticalMeasureContext,
   facsimilePageOf,
   type BlockAxis,
   type LayoutOptions,
@@ -37,7 +38,7 @@ import {
   serializePageGutter,
   serializePageNotes,
   serializeVerticalFlow,
-  isFlowParagraphType,
+  isFlowInlineType,
   groupNodesByBand,
   type SerializeNodeOptions,
 } from '@bibliotype/layout/html';
@@ -100,6 +101,13 @@ export interface PrintDocumentOptions {
    * 与 lineSizes 同源产出；注音（ruby）等行高不等时按行判页，与屏幕预览一致。
    */
   lineMainSizes?: ReadonlyMap<string, number[]>;
+  /**
+   * 块 id → 行数（DOM 实测，仅 paged；直排为字位数）
+   *
+   * 直排的行边界按字位记账（一「行」= 一个字位），无 DOM 时按估算上下文
+   * 折算；浏览器侧传入与预览同一份可保证跨页切片字符边界一致。
+   */
+  lineCounts?: ReadonlyMap<string, number>;
   /**
    * 块 id → 块体高（px，DOM 实测自身盒高，不含外边距，仅 paged）
    *
@@ -345,9 +353,9 @@ ${body}
         `</div>`
       : bodyNodes
           .map((node) => {
-            /* 直排段落 / 引文走行内流（与预览 BtBookView 同源，连排 + 行款标记）；
-             * 标题 / 版式块保持整块序列化 */
-            if (vertical && isFlowParagraphType(node.type)) {
+            /* 直排段落 / 引文 / 章题走行内流（与预览 BtBookView 同源，连排 + 行款标记）；
+             * 其余版式块保持整块序列化 */
+            if (vertical && isFlowInlineType(node.type)) {
               return serializeFlowOne(node, nodeIndexes.get(node) ?? nodes.indexOf(node));
             }
             /* 续排片段（fromLine>0）输出 data-continued：横排续片是同一句话的
@@ -526,11 +534,21 @@ function createPagedReader(
   options: PrintDocumentOptions,
 ): Reader {
   const merged = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, layout);
+  const vertical = isVerticalMode(merged.writingMode);
+  /*
+   * 估算上下文缺省：直排必须用**字位口径**（一「行」= 一个字位），不能落回
+   * Reader 的 DEFAULT_MEASURE_CONTEXT（每行 26 字 × 行高 30 的横排估算）——
+   * 否则无 DOM 路径（Node 出 PDF）一列被当成一行，页容被压掉 3/4，导出稿
+   * 逐页大片空白。横排维持调用方传值 / 默认估算。
+   */
+  const context =
+    options.context ??
+    (vertical ? resolveVerticalMeasureContext(merged, tokens) : undefined);
   const reader = new Reader({
     layout,
     tokens,
-    axis: isVerticalMode(merged.writingMode) ? 'column' : 'row',
-    measure: options.context,
+    axis: vertical ? 'column' : 'row',
+    measure: context,
     estimator: options.estimator ?? defaultEstimator,
     blockSizes: options.blockSizes,
     /* 分页几何与预览 / 编辑三端同源：主轴行网格取整 + 页底溢出预算（调用方
@@ -544,6 +562,7 @@ function createPagedReader(
     lineOffsets: options.lineOffsets,
     lineSizes: options.lineSizes,
     lineMainSizes: options.lineMainSizes,
+    lineCounts: options.lineCounts,
     bodySizes: options.bodySizes,
     ...(options.footnoteFloat === undefined ? {} : { footnoteFloat: options.footnoteFloat }),
     ...(options.noteMaxRatio === undefined ? {} : { noteMaxRatio: options.noteMaxRatio }),

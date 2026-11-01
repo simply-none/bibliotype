@@ -12,7 +12,13 @@
  * - 尺寸估算可插拔（默认按文本长度 × 每行字符数估算行数）。
  */
 import { NODE_TYPES, isTextNode, type BookDocument, type BookNode } from '@bibliotype/core';
-import { lineRuleOverhead, resolveLineRule, type BlockAxis, type MeasurableBlock } from '@bibliotype/layout';
+import {
+  isFlowParagraphType,
+  lineRuleOverhead,
+  resolveLineRule,
+  type BlockAxis,
+  type MeasurableBlock,
+} from '@bibliotype/layout';
 
 /** 结构容器类型（其首个叶块另起页） */
 const STRUCTURE_TYPES: ReadonlySet<string> = new Set([
@@ -71,10 +77,26 @@ const COMPOSITE_ATOMIC_TYPES: ReadonlySet<string> = new Set([NODE_TYPES.TABLE]);
  * 强制另起页的标题级别上限
  *
  * h1 / h2（章 / 节级标题）仿纸质书从新页页首起排；h3~h6 不强制另起页，
- * 仅保留 `keepWithNext` 与下段同页（见下方 leaf 块标记）。横排 / 直排同
- * 逻辑：分页主轴方向由调用方按书写方向传尺寸，`breakBefore` 与书写方向无关。
+ * 仅保留 `keepWithNext` 与下段同页（见下方 leaf 块标记）。
+ * **仅横排生效**：古籍直排（axis 'column'）本无「页」的概念，卷 / 章 / 节
+ * 随文连排、靠低格 / 提行标记段界——标题强制另起页会在直排里制造大量
+ * 页末空白（用户可见的「每页很多空白」主因之一）。
  */
 const HEADING_BREAK_BEFORE_MAX_LEVEL = 2;
+
+/**
+ * 直排下仍强制另起页的结构容器（前后件）
+ *
+ * 直排连排把「卷 / 章 / 节」的另起页一律取消（随文接排）；仅封面 / 书名页 /
+ * 版权页 / 封底这类**前后件单页版面**保持独立起页——它们是书的物理件，
+ * 与正文连排语义无关。
+ */
+const VERTICAL_BREAK_BEFORE_TYPES: ReadonlySet<string> = new Set([
+  NODE_TYPES.COVER,
+  NODE_TYPES.TITLE_PAGE,
+  NODE_TYPES.COPYRIGHT_PAGE,
+  NODE_TYPES.BACK_COVER,
+]);
 
 /**
  * 恒整块呈现（不跨页拆分）的块类型
@@ -111,6 +133,14 @@ export interface BlockMeasureContext {
   lineSize: number;
   /** 块间附加间距（px） */
   blockSpacing: number;
+  /**
+   * 一列沿主轴的宽度（px，仅直排给定）
+   *
+   * 直排的「行」被收紧为一个字位（charsPerLine = 1、lineSize = 字位宽，见
+   * layout 的 resolveVerticalMeasureContext），而断列（breakColumn）要对齐的是
+   * **整列**：本字段给出列宽（= 列距），块以它为基础做列首对齐。横排无需填。
+   */
+  columnPitch?: number;
 }
 
 /** 默认估算上下文（16px 字号 × 1.9 行高，A5 单栏近似） */
@@ -252,6 +282,16 @@ export interface ExtractBlocksOptions {
    */
   bodySizes?: ReadonlyMap<string, number>;
   /**
+   * 块 id → 真实行数（DOM 实测；与 blockSizes 同源产出）
+   *
+   * 直排（axis = 'column'）专用：直排的「行」是一个**字位**（见 layout 的
+   * resolveVerticalMeasureContext），行数即块占的字位数，且行→字符是恒等
+   * 映射（无需 lineOffsets 逐字存储）。命中时直接给定 lineCount，使
+   * paginate 的行级拆分与页容量的字位口径严格同源——缺这条通道时
+   * lineCount 退为 floor(推进量 ÷ 字位宽)，浮点尾差会逐块丢 1 个字位。
+   */
+  lineCounts?: ReadonlyMap<string, number>;
+  /**
    * 排文主轴（缺省 `'row'`）
    *
    * 直排（`'column'`）时给可拆块打上 `axis: 'column'` 标记，向分页 / 切片环节
@@ -365,6 +405,7 @@ export function extractBlocksIndexed(
   const estimator = options.estimator ?? defaultEstimator;
   const blockSizes = options.blockSizes;
   const lineOffsets = options.lineOffsets;
+  const lineCounts = options.lineCounts;
   const lineSizes = options.lineSizes;
   const lineMainSizes = options.lineMainSizes;
   const bodySizes = options.bodySizes;
@@ -431,7 +472,7 @@ export function extractBlocksIndexed(
         node.type === NODE_TYPES.BREAK && node.attrs?.['variant'] === PAGE_BREAK_VARIANT;
       // 可拆段：行高用真实实测值（不含块间距），行数用实测行边界显式给定，
       // 消除「推进量÷行数」把间距摊入行高导致的每页少放 1~2 行页底空白
-      const lines = lineOffsets?.get(id)?.length ?? 0;
+      const lines = lineCounts?.get(id) ?? lineOffsets?.get(id)?.length ?? 0;
       // 逐行行盒（DOM 实测）：ruby 注音等行内增高使行高不等，长度即真实行数；
       // 命中时优先于均高 lineSizes，均高仅作回退口径（切片换算 / 旧消费方）
       const measuredLineSizes = splittable ? lineMainSizes?.get(id) : undefined;
@@ -443,31 +484,42 @@ export function extractBlocksIndexed(
       if (perLineSizes !== undefined) {
         lineSize =
           perLineSizes.reduce((sum, size) => sum + size, 0) / perLineSizes.length;
-      } else if (splittable && hasMeasured && lines > 1) {
+      } else if (axis !== 'column' && splittable && hasMeasured && lines > 1) {
+        /* 直排不走本分支：直排 lineSize 恒取字位宽（context.lineSize），推进量
+         * 含块前空位 / 断列空耗，拿它除行数会把空耗摊进字位宽 → 后续块字位
+         * 偏大、整页容量逐块缩水 */
         lineSize = lineSizes?.get(id) ?? (measured as number) / lines;
       }
       // 页内追加代价：mainSize 是到下一块上缘的「推进量」（已含与下一块的折叠间距），
       // 那份间距在前一块的入账里就已被支付，故往本页追加一块的代价只取块体高
       const advance = hasMeasured ? (measured as number) : estimator(node, context);
       let bodyMainSize: number | undefined;
-      if (hasMeasured) {
-        // 实测口径：优先取量尺直接实测的体高；未命中时按「行数 × 真实行高」折算
-        // （与量尺同源）。推进量与体高相差不足 0.5px 属亚像素噪声，不产出字段
-        const direct = bodySizes?.get(id) ?? 0;
-        const body =
-          direct > 0
-            ? direct
-            : splittable && perLineSizes !== undefined
-              ? perLineSizes.reduce((sum, size) => sum + size, 0)
-              : splittable && lines > 1
-                ? lines * lineSize
-                : 0;
-        if (body > 0 && advance - body >= 0.5) bodyMainSize = body;
-      } else {
-        // 估算口径：defaultEstimator 产出「行数 × 行高 + 块间距」，按行高向下折算即体高
-        // （与 paginate.lineCountOf 的 floor 折算同源，不会多扣 blockSpacing）
-        const body = Math.max(1, Math.floor(advance / lineSize)) * lineSize;
-        if (advance - body >= 0.5) bodyMainSize = body;
+      /*
+       * 直排不拆「推进量 / 体高」：推进量已是字位占位（连排段落 = 本块字位跨度；
+       * 断列块 = 含列尾空耗到下一块列首），块间无折叠外边距。分页追加代价
+       * 必须与入账同值——若按体高判「装得下」而按推进量入账，页末会出现
+       * 「判得下、却整列跳过容量」的溢出（内容被页框裁掉）。
+       */
+      if (axis !== 'column') {
+        if (hasMeasured) {
+          // 实测口径：优先取量尺直接实测的体高；未命中时按「行数 × 真实行高」折算
+          // （与量尺同源）。推进量与体高相差不足 0.5px 属亚像素噪声，不产出字段
+          const direct = bodySizes?.get(id) ?? 0;
+          const body =
+            direct > 0
+              ? direct
+              : splittable && perLineSizes !== undefined
+                ? perLineSizes.reduce((sum, size) => sum + size, 0)
+                : splittable && lines > 1
+                  ? lines * lineSize
+                  : 0;
+          if (body > 0 && advance - body >= 0.5) bodyMainSize = body;
+        } else {
+          // 估算口径：defaultEstimator 产出「行数 × 行高 + 块间距」，按行高向下折算即体高
+          // （与 paginate.lineCountOf 的 floor 折算同源，不会多扣 blockSpacing）
+          const body = Math.max(1, Math.floor(advance / lineSize)) * lineSize;
+          if (advance - body >= 0.5) bodyMainSize = body;
+        }
       }
       // 标题分级另起页：h1 / h2（章 / 节级）仿纸质书从新页页首起排；h3~h6 不强制
       // （仅 keepWithNext 与下段同页）。与结构容器首块标记、分页符标记正交。
@@ -478,10 +530,23 @@ export function extractBlocksIndexed(
             ? rawLevel
             : Number(rawLevel) || 1
           : 0;
+      /* 直排连排：章节标题不另起页（横排 h1/h2 印刷惯例仅限 axis 'row'） */
       const breakBeforeByHeading =
-        headingLevel > 0 && headingLevel <= HEADING_BREAK_BEFORE_MAX_LEVEL;
+        axis !== 'column' && headingLevel > 0 && headingLevel <= HEADING_BREAK_BEFORE_MAX_LEVEL;
       const breakBefore =
         (flags.breakBefore === true || breakBeforeByHeading) && !isPageBreak;
+      /*
+       * 列级断列（直排行内流）两个来源：
+       * ① 段落行款 breakLine / 平抬（lift newline）——段落自己另起一列；
+       * ② 非连排块（标题 / 表格 / 图 / 注文 / 牌记…）——直排流里它们是
+       *    块级元素，竖排 block 流的块首必落在列首，行内流在此处强制换列。
+       * 漏标 ② 时这些块在页里会落进列中，浏览器渲染时把它推到下一列，
+       * 而分页器没扣这份列尾空耗 → 页末内容溢出被裁（“段落截断”）。
+       */
+      const columnBreaks =
+        axis === 'column' &&
+        (blockAxisColumnOf(node) || !isFlowParagraphType(node.type));
+      const breakColumn = !breakBefore && !isPageBreak && columnBreaks;
       blocks.push({
         id,
         mainSize: advance,
@@ -492,7 +557,7 @@ export function extractBlocksIndexed(
               ...(axis === 'column' ? { axis } : {}),
               ...(perLineSizes !== undefined
                 ? { lineMainSizes: [...perLineSizes], lineCount: perLineSizes.length }
-                : hasMeasured && lines > 1
+                : hasMeasured && (axis === 'column' ? lines > 0 : lines > 1)
                   ? { lineCount: lines }
                   : {}),
             }
@@ -502,11 +567,17 @@ export function extractBlocksIndexed(
         // breakBefore（如它正好是结构容器首块）会只让它独占一页、中间多出一张空白页
         ...(breakBefore ? { breakBefore: true } : {}),
         ...(isPageBreak ? { breakAfter: true } : {}),
-        /* 列级断列（直排行内流，v2 批 4）：段落行款 breakLine / 平抬（lift
-         * newline）→ 本块另起一列顶格起写（仍在本页）；paginator 在直排下
-         * 对齐列距，渲染侧行内流断列标记呈现同一语义 */
-        ...(!breakBefore && !isPageBreak && blockAxisColumnOf(node) ? { breakColumn: true } : {}),
-        ...(node.type === NODE_TYPES.HEADING ? { keepWithNext: true } : {}),
+        /* 列级断列（直排行内流）：本块另起一列顶格起写（仍在本页）；
+         * paginator 对齐到列宽（columnMainSize），渲染侧行内流的断列标记 /
+         * 块级元素换列呈现同一语义 */
+        ...(breakColumn ? { breakColumn: true } : {}),
+        ...(breakColumn && context.columnPitch !== undefined
+          ? { columnMainSize: context.columnPitch }
+          : {}),
+        /* keepWithNext（标题与下段同页）仅横排：古籍直排的标题就是文首
+         * 一句，随文连排、不与下段捆绑——捆绑会在「标题+下段 ≥2 列放不下」
+         * 时整组挪页，制造 1~2 列的页末空白（满版目标的主要残源） */
+        ...(node.type === NODE_TYPES.HEADING && axis !== 'column' ? { keepWithNext: true } : {}),
         ...(columns !== undefined && columns > 1 ? { columns } : {}),
         /* 两截本 / 三截本截位序号（v2 批 5）：块级 band 属性透传给分页器 */
         ...(band !== undefined ? { band } : {}),
@@ -517,9 +588,13 @@ export function extractBlocksIndexed(
     const elementChildren = (node.children ?? []).filter((child) => !isTextNode(child));
     const isStructure = STRUCTURE_TYPES.has(node.type);
     let first = true;
+    /* 直排连排：结构容器的首叶另起页仅保留前后件（封面 / 书名页 / 版权页 /
+     * 封底）；卷 / 章 / 节随文接排。横排维持全部结构容器另起页。 */
+    const structureBreaks =
+      axis === 'column' ? VERTICAL_BREAK_BEFORE_TYPES.has(node.type) : isStructure;
     elementChildren.forEach((child, index) => {
       walk(child, `${path}/${index}`, {
-        breakBefore: isStructure && first ? true : undefined,
+        breakBefore: structureBreaks && first ? true : undefined,
         ...(columns !== undefined ? { columns } : {}),
       });
       first = false;

@@ -69,7 +69,7 @@ import { useTocPrefs } from './composables/use-toc-prefs.js';
 import { installPerfProbe, type PerfProbe } from './composables/use-perf-probe.js';
 import { lunyuDocument } from './data/lunyu.js';
 import { UI_SKINS } from './ui-skin.js';
-import { useAppThemes } from './composables/use-app-themes.js';
+import { useAppThemes, type ThemeKey } from './composables/use-app-themes.js';
 import { useAppSkin } from './composables/use-app-skin.js';
 import { useMobileShell } from './composables/use-mobile-shell.js';
 import { useStageSize } from './composables/use-stage-size.js';
@@ -220,6 +220,17 @@ snapshotPersistBound = persistSettingsSnapshot;
  * 默认、横竖排随之归位，整本观感回到初始化。改用 watch 全量兜底，任何路径改了偏好
  * 都即时写回 localStorage，无需调用方逐个补 `persistSettingsSnapshot()`。
  */
+
+/**
+ * 顶栏 / 更多面板的主题切换入口：先清空上一主题残留的版式设置（令牌补丁与
+ * 功能样式，见 useStyleSettings.resetForThemeSwitch），再走主题切换流程——
+ * 版式度量令牌（字号 / 行高 / 字距 / 缩进 / 字体族）与书写方向强耦合，横排调
+ * 的值残留到直排 / 仿真会破坏字位网格与界行对齐。
+ */
+function onSwitchTheme(key: ThemeKey): void {
+  styleApi.resetForThemeSwitch();
+  switchTheme(key);
+}
 watch(
   [
     themeKey,
@@ -578,7 +589,7 @@ let perfProbe: PerfProbe | null = null;
       :pdf-exporting="pdfExporting"
       :pdf-progress="pdfProgress"
       :compare-open="compareOpen"
-      :switch-theme="switchTheme"
+      :switch-theme="onSwitchTheme"
       :toggle-edit-mode="toggleEditMode"
       :toggle-tab="toggleTab"
       :on-export-epub="onExportEpub"
@@ -862,7 +873,7 @@ let perfProbe: PerfProbe | null = null;
       :open-mobile-tab="openMobileTab"
       :toggle-edit-mode="toggleEditMode"
       :on-mobile-action="onMobileAction"
-      :switch-theme="switchTheme"
+      :switch-theme="onSwitchTheme"
       :set-ui-skin="setUiSkin"
       :on-export-epub="onExportEpub"
       :on-export-pdf="onExportPdf"

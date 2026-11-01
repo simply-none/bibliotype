@@ -362,7 +362,25 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     scheduleSave();
   }
 
-  /** 恢复全部默认（本书作用域清空，并删除已存快照）
+  /**
+   * 主题切换净版（F-设置残留）：清空令牌补丁与功能样式，使命名样式 / 编辑
+   * 行为 / 夜间配色保留。
+   *
+   * 版式度量令牌（字号 / 行高 / 字距 / 缩进 / 字体族）与功能样式的块级声明
+   * 和书写方向强耦合——横排调的值残留到直排 / 仿真会破坏字位网格与界行
+   * 对齐（列距 / 每列字数都由它们决定）。切主题即应用新主题的完整版式，
+   * 残留补丁一律清空；持久化走常规落盘（本书作用域）。
+   */
+  function resetForThemeSwitch(): void {
+    tokenPatch.value = {};
+    features.value = {};
+    sourceDirty = true;
+    if (draftMode.value) beginDraft();
+    scheduleSave();
+  }
+
+  /**
+   * 恢复全部默认（本书作用域清空，并删除已存快照）
    *
    * 直写源状态并立即生效：已存快照此刻删除，若只清草稿、
    * 「关闭不保存」会造成内存与存储不一致（重开后回落默认）。
@@ -580,6 +598,7 @@ export function useStyleSettings(options: UseStyleSettingsOptions = {}) {
     setFeatureDeclaration,
     setFeatureDeclarations,
     resetFeature,
+    resetForThemeSwitch,
     resetAll,
     patchEditing,
     patchEditingDirect,

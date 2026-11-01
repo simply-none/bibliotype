@@ -328,8 +328,8 @@ const spreadPages = computed<SpreadPage[]>(() => {
   if (!spreadEnabled.value) return [];
   const count = totalPages.value;
   if (count === 0) return [];
-  const anchor = currentPage.value % 2 === 0 ? currentPage.value : currentPage.value - 1;
-  const indexes = [anchor, anchor + 1].filter((index) => index >= 0 && index < count);
+  const anchor = currentPage.value % 2 === 1 ? currentPage.value : currentPage.value + 1;
+  const indexes = [anchor, anchor - 1].filter((index) => index >= 0 && index < count);
   return indexes.map((index) => {
     const nodes = props.reader.getPageFragments(index).filter((node) => !isTextNode(node));
     const firstBlock = nodes[0];
@@ -396,7 +396,7 @@ function spreadPageStyle(page: SpreadPage) {
     ...(page.pageStyle ?? {}),
     position: 'absolute' as const,
     top: '0',
-    left: `${(page.index % 2) * (pageSize.value.width + SPREAD_GAP) * scale.value}px`,
+    left: `${(1 - (page.index % 2)) * (pageSize.value.width + SPREAD_GAP) * scale.value}px`,
   };
 }
 
@@ -874,8 +874,11 @@ const stageStyle = computed(() => ({
  *
  * 页态可能落在某一对的右页（如目录跳页、单页模式残留），成对换页需先回到本对左页。
  */
+/* 对页锚点 = 左页 = 奇数索引：横排左开本对页为 [verso 偶数页码 左 | recto 右]，
+ * 直排右起对页右页先读（页码小的在右）——两种装订的对页配对同构：
+ * [奇数索引 左 | 偶数索引 右]。旧实现（偶数索引在左）与两者皆颠倒。 */
 const spreadAnchor = computed(() =>
-  spreadEnabled.value ? currentPage.value - (currentPage.value % 2) : currentPage.value,
+  spreadEnabled.value ? (currentPage.value % 2 === 1 ? currentPage.value : currentPage.value + 1) : currentPage.value,
 );
 
 /**

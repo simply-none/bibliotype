@@ -131,7 +131,7 @@ export function buildFacsimileDecorationCss(
        * 沿**块轴（横向）**分布，三个字段会在窄带内水平叠置互相重叠
        * （实测缺陷）。容器显式 horizontal-tb（阻断页面继承）按物理纵向
        * 分栏、字段各自竖排，字段沿带纵向分布、横向居中。 */
-      `${scoped('.bt-page-gutter')} {\n  position: absolute;\n  top: var(--bt-fs-inset-top);\n  bottom: var(--bt-fs-inset-bottom);\n  width: var(--bt-fs-gutter-size);\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: space-between;\n  padding: 0.35em 0;\n  writing-mode: horizontal-tb;\n  font-size: 0.62em;\n  line-height: 1.2;\n  letter-spacing: 0.12em;\n  color: ${gutterColor};\n  overflow: hidden;\n  pointer-events: none;\n${mouthRule}}`,
+      `${scoped('.bt-page-gutter')} {\n  position: absolute;\n  top: var(--bt-fs-inset-top);\n  bottom: var(--bt-fs-inset-bottom);\n  width: var(--bt-fs-gutter-size);\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: space-between;\n  /* 底部余量加大（F-10）：叶次末字不再贴容器下缘被 overflow 裁切 */\n  padding: 0.35em 0 0.6em;\n  writing-mode: horizontal-tb;\n  font-size: 0.62em;\n  line-height: 1.2;\n  letter-spacing: 0.12em;\n  color: ${gutterColor};\n  overflow: hidden;\n  pointer-events: none;\n${mouthRule}}`,
     );
     rules.push(
       `${scoped(".bt-page-gutter[data-side='left']")} {\n  left: var(--bt-fs-inset-left);\n}\n${scoped(
@@ -141,7 +141,7 @@ export function buildFacsimileDecorationCss(
     rules.push(
       /* 字段自任竖排：竖排文本沿带纵向推进；max-height 限其字数长度，
        * 超长书名裁断（真实古籍版心书名亦常截短）。 */
-      `${scoped('.bt-page-gutter__field')} {\n  writing-mode: vertical-rl;\n  max-height: 8em;\n  overflow: hidden;\n  white-space: nowrap;\n}`,
+      `${scoped('.bt-page-gutter__field')} {\n  writing-mode: vertical-rl;\n  max-height: 8em;\n  flex-shrink: 0;\n  overflow: hidden;\n  white-space: nowrap;\n}`,
     );
     if (gutter.fishTail !== 'none') {
       /*
@@ -159,12 +159,24 @@ export function buildFacsimileDecorationCss(
               ? 2
               : 1;
       const style = gutter.fishTailStyle ?? GUTTER_FISH_TAIL_STYLES.BLACK;
+      /*
+       * 鱼尾形制（F-11）：尾体自版心带一侧伸出、叉口朝**折口**（版心所在侧），
+       * 叉口张角 ≈ 50% 带宽、深 ≈ 55%——接近真实鱼尾的燕尾叉形。
+       * 左侧版心叉口朝左（polygon 尖点在 x=0），右侧版心整体镜像（叉口朝右）。
+       */
+      const fishPointLeft =
+        'polygon(100% 0, 100% 32%, 42% 44%, 0 50%, 42% 56%, 100% 68%, 100% 100%, 88% 100%, 88% 0)';
+      const fishPointRight =
+        'polygon(0 0, 0 32%, 58% 44%, 100% 50%, 58% 56%, 0 68%, 0 100%, 12% 100%, 12% 0)';
       const shapeByStyle: Record<string, string> = {
-        black: `  background: ${gutterColor};\n  clip-path: polygon(100% 0, 0 50%, 100% 100%, 100% 66%, 30% 50%, 100% 34%);\n`,
-        white: `  background: transparent;\n  border: 1.5px solid ${gutterColor};\n  clip-path: polygon(100% 0, 0 50%, 100% 100%, 100% 66%, 30% 50%, 100% 34%);\n`,
+        black: `  background: ${gutterColor};\n`,
+        white: `  background: transparent;\n  border: 1.5px solid ${gutterColor};\n`,
         line: `  background: transparent;\n  border-block-end: 1.5px solid ${gutterColor};\n`,
-        floral: `  background: ${gutterColor};\n  clip-path: polygon(50% 0, 68% 18%, 92% 14%, 88% 38%, 100% 50%, 88% 62%, 92% 86%, 68% 82%, 50% 100%, 32% 82%, 8% 86%, 12% 62%, 0 50%, 12% 38%, 8% 14%, 32% 18%);\n`,
+        floral: `  background: ${gutterColor};\n`,
       };
+      /* 黑 / 白态用鱼尾剪裁；线态保留细线勾形。侧向镜像经 CSS 变量注入剪裁。 */
+      const clipBySide = (point: string): string =>
+        `  clip-path: polygon(var(--fish-clip-points, ${point}));\n`;
       const positionRules = Array.from({ length: count }, (_, index) => {
         /* 均布：把版心带除去两端余量后按 N+1 等分落位；偶数序尾垂直镜像相向 */
         const top = Math.round(((index + 1) * 100) / (count + 1));
@@ -172,8 +184,19 @@ export function buildFacsimileDecorationCss(
         return `${scoped(`.bt-page-gutter__fish:nth-of-type(${index + 1})`)} {\n  top: ${top}%;${flip}\n}`;
       }).join('\n');
       rules.push(
-        `${scoped('.bt-page-gutter__fish')} {\n  position: absolute;\n  left: 12%;\n  right: 12%;\n  height: 0.6em;\n${shapeByStyle[style] ?? shapeByStyle.black!}}${positionRules}`,
+        `${scoped('.bt-page-gutter__fish')} {\n  position: absolute;\n  left: 12%;\n  right: 12%;\n  height: 0.6em;\n${
+          style === 'line'
+            ? shapeByStyle.line!
+            : (shapeByStyle[style] ?? shapeByStyle.black!) + clipBySide(fishPointLeft)
+        }}${positionRules}`,
       );
+      /* 右侧版心的鱼尾叉口镜像朝右（CSS 变量携带右侧多边形点列） */
+      if (style !== 'line') {
+        const rightPoints = fishPointRight.replace('polygon(', '').replace(')', '');
+        rules.push(
+          `${scoped(".bt-page-gutter[data-side='right']")} {\n  --fish-clip-points: ${rightPoints};\n}`,
+        );
+      }
     }
     /* 版心已承载叶次时，页脚页码重复显示 → 隐藏（页眉页脚配置不受影响） */
     if (gutter.fields.includes('pageNumber')) {

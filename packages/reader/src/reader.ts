@@ -122,6 +122,8 @@ export interface RepaginateOptions {
    * 与 blockSizes 同源产出；传 null 清空，传 undefined 保持当前值。
    */
   lineCounts?: ReadonlyMap<string, number> | null;
+  /** 夹注原子盒区间；传 null 清空（undefined 保持当前值） */
+  atomicRanges?: ReadonlyMap<string, readonly { slotStart: number; slotEnd: number; charStart: number; charEnd: number }[]> | null;
   /** 排文主轴；传 null 清空回退横排（undefined 保持当前值） */
   axis?: BlockAxis | null;
   /** 孤寡行控制；传 null 清空回退缺省 2/2（undefined 保持当前值） */
@@ -200,6 +202,8 @@ export interface ReaderOptions {
    * 页底仅剩一行时继续取一行，消除「不足两行整段换页」的页底空白。
    */
   widowControl?: WidowControl;
+  /** 夹注原子盒区间（直排切片吸附，量尺产出） */
+  atomicRanges?: ReadonlyMap<string, readonly { slotStart: number; slotEnd: number; charStart: number; charEnd: number }[]>;
 }
 
 /** 默认每页主轴尺寸（横排取内容区高，竖排取内容区宽；含页边距与版框边框扣除） */
@@ -287,6 +291,8 @@ export class Reader {
   private bodySizes: ReadonlyMap<string, number> | undefined;
   /** 块 id → 真实行数（DOM 实测，直排一行 = 一个字位） */
   private lineCounts: ReadonlyMap<string, number> | undefined;
+  /** 块 id → 夹注原子盒区间（直排切片吸附；横排缺省） */
+  private atomicRanges: ReadonlyMap<string, readonly { slotStart: number; slotEnd: number; charStart: number; charEnd: number }[]> | undefined;
   /** 排文主轴（直排为 column）：透传给 extractBlocks，仅供下游解释 lineSize 语义 */
   private axis: BlockAxis | undefined;
   /** 脚注浮注：脚注块不进正文流，落所在页页底注区 */
@@ -335,6 +341,7 @@ export class Reader {
     this.lineMainSizes = options.lineMainSizes;
     this.bodySizes = options.bodySizes;
     this.lineCounts = options.lineCounts;
+    this.atomicRanges = options.atomicRanges;
     this.axis = options.axis;
     this.effectiveMeasure = alignMeasureToLayout(
       this.options,
@@ -427,6 +434,9 @@ export class Reader {
     }
     if (overrides.lineCounts !== undefined) {
       this.lineCounts = overrides.lineCounts ?? undefined;
+    }
+    if (overrides.atomicRanges !== undefined) {
+      this.atomicRanges = overrides.atomicRanges ?? undefined;
     }
     if (overrides.axis !== undefined) {
       this.axis = overrides.axis ?? undefined;
@@ -798,10 +808,22 @@ export class Reader {
     lineCount: number,
   ): { from: number; to: number } {
     const offsets = this.lineOffsets?.get(id);
+
     if (offsets !== undefined && offsets.length > 0) {
       const from = offsets[fromLine] ?? offsets[offsets.length - 1] ?? 0;
       const to = offsets[fromLine + lineCount] ?? Number.MAX_SAFE_INTEGER;
-      return { from, to };
+      /* 夹注原子吸附：切片边界落在 bt-vnote 盒内时，整盒归入后页（注尾留白 */
+      /* 与禁则空位同形），消除注文被劈成两个独立重排盒的错行。 */
+      let fromSnapped = from;
+      let toSnapped = to;
+      const ranges = this.atomicRanges?.get(id);
+      if (ranges !== undefined) {
+        for (const range of ranges) {
+          if (range.charStart < toSnapped && toSnapped < range.charEnd) toSnapped = range.charStart;
+          if (range.charStart < fromSnapped && fromSnapped < range.charEnd) fromSnapped = range.charStart;
+        }
+      }
+      return { from: fromSnapped, to: toSnapped };
     }
     /*
      * 估算回退：与 defaultEstimator 同一行构成（首行缩进扣减，

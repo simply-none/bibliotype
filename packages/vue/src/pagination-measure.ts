@@ -84,6 +84,21 @@ export interface MeasureBlockSizesInput {
    * 否则渲染块与分页块错位。
    */
   extracted?: ExtractedBlocks;
+  /**
+   * 页级精测片段（两遍量尺的第二遍，直排专用）
+   *
+   * 第一遍（全书连排量尺）分页后，把每页片段集（Reader.getPageFragments
+   * 产物，已按当前偏移表切片）交回：工作表改为**逐页复刻盒**渲染——片段
+   * 在盒内的换列相位与真实页一致，禁则断点逐一对齐，从盒内直接读出每页
+   * 的真实页界字符写进偏移表。Reader 的跨页切片据此与页盒渲染逐字符一致：
+   * 页 p 恰好渲染盒里落在容量内的字符，漂移内容自然归还下一页。
+   * 分页归属保持第一遍（不重排、无相位再掷）；迭代 2~3 轮至偏移表稳定。
+   */
+  pageFragments?: readonly (readonly {
+    blockId: string;
+    node: BookNode;
+    fromLine: number;
+  }[])[];
 }
 
 const SHEET_ID = 'bt-measure-sheet';
@@ -151,6 +166,14 @@ function resolveMargins(
 /** 属性值转义（id 落入 data-measure-id 属性） */
 function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+/** 夹注原子盒区间（块内相对字位 / 块内相对字符，切片吸附用） */
+export interface AtomicRange {
+  slotStart: number;
+  slotEnd: number;
+  charStart: number;
+  charEnd: number;
 }
 
 /**
@@ -237,6 +260,7 @@ function applySheetStyle(
   contentMain: number,
   options: LayoutOptions,
   tokens: Readonly<Record<string, string | undefined>>,
+  columns: number,
 ): void {
   const skip = new Set(['column-count', 'column-gap', 'background-color', 'background']);
   sheet.style.cssText = '';
@@ -254,14 +278,25 @@ function applySheetStyle(
       sheet.style.setProperty(prop, value);
     }
     sheet.style.overflow = 'visible';
+  } else if (columns === 1) {
+    /* 横排单栏：与直排同构的**页框复刻**量尺——尺寸 / 页边距 padding / 版框
+     * border / border-box 一并复刻（buildPageStyle 同源），行宽即真实页的
+     * 内容盒宽。曾按令牌名义值定宽（border 3px 名义 vs 浏览器 double 的
+     * used width 2.67px），行宽系统性窄 0.667px——量尺比真实页窄属保守
+     * 安全，但与直排口径不一致；复刻后两端逐像素同尺。 */
+    const pageStyleH = buildPageStyle(options.pageSize, tokens);
+    for (const [prop, value] of Object.entries(pageStyleH)) {
+      sheet.style.setProperty(prop, value);
+    }
+    sheet.style.height = 'auto';
+    sheet.style.overflow = 'visible';
   } else {
-    // 定交叉轴尺、主轴随内容，离屏不可见但保留布局盒（visibility:hidden 仍产生度量）
+    // 多栏（columns > 1）：维持令牌定宽的单栏量尺（栏宽 = (版心宽 − 栏距×(N−1)) ÷ N，
+    // 不含边框 used width 修正——多栏与仿真版式互斥，名义值即无版框场景）。
+    // 定交叉轴尺、主轴随内容，离屏不可见但保留布局盒（visibility:hidden 仍产生度量）。
     //
-    // 必须用 fixed 而非 absolute：长文档（尤其直排）量尺主轴会长到几十万 px，
-    // absolute 定位在 left:-100000px 时右缘仍落在文档内（如 -100000 + 511277），
-    // 会把文档的横向可滚动区撑到那一步，冒出一条几乎滚不动的横条；横条又吃掉
-    // 视口高度，`height:100vh` 的外壳随之多出 15px，再连带出一条同样无意义的竖条。
-    // fixed 元素的盒不参与文档滚动区计算，量尺再宽也不会撑出滚动条。
+    // 必须用 fixed 而非 absolute：长文档量尺主轴会长到几十万 px，absolute
+    // 定位会把文档滚动区撑出无意义的横条；fixed 元素的盒不参与文档滚动区计算。
     const auto = `${Math.max(1, Math.round(contentMain))}px`;
     sheet.style.position = 'fixed';
     sheet.style.left = '-100000px';
@@ -676,6 +711,7 @@ function renderMeasureSheet(
     contentMain,
     options,
     tokens,
+    columns,
   );
 
   // 块抽取：调用方已抽过（同源）则直接复用，避免同一文档重复全树遍历
@@ -833,6 +869,20 @@ export interface MeasurePaginationResult {
    * {@link MeasuredVerticalGeometry} 的浏览器 used border 说明）。
    */
   geometry?: MeasuredVerticalGeometry;
+  /**
+   * 夹注原子盒区间（块 id → 区间数组；横排缺省）
+   *
+   * 跨页切片边界落在盒内时整体归入后页（Reader 的 charRangeForLines 消费），
+   * 消除夹注被劈成两个重排盒的错行。
+   */
+  atomicRanges?: ReadonlyMap<string, readonly AtomicRange[]>;
+  /**
+   * 页界字符（两遍量尺第二遍产出；块 id → 每页边界）
+   *
+   * 调用方经 `applyPageBoundaries` 装配进第一遍偏移表：Reader 的跨页切片
+   * 随之与页复刻盒渲染逐字符一致（禁则相位漂移归零）。
+   */
+  pageBoundaries?: ReadonlyMap<string, readonly { slotIdx: number; char: number }[]>;
 }
 
 /**
@@ -855,9 +905,193 @@ function resolveBlockAxis(input: MeasureBlockSizesInput): BlockAxis {
   return isVerticalMode(options.writingMode) ? 'column' : 'row';
 }
 
+/**
+ * 页级精测量（两遍量尺的第二遍，直排）
+ *
+ * 工作表逐页复刻：每页一个内容盒（高度 = 页流高），片段在盒内以真实页相位
+ * 换列。产出**页界字符**（盒内实测的每页真实换列边界，pageBoundaries）——
+ * 调用方经 `applyPageBoundaries` 把页界装配进第一遍偏移表后，Reader 的跨页
+ * 切片与页盒渲染逐字符一致：页 p 恰好渲染盒里落在容量内的字符，漂移内容
+ * 自然归还下一页。分页归属（sizes / lineCounts）保持第一遍结果。
+ */
+function measureByPageFragments(input: MeasureBlockSizesInput): MeasurePaginationResult | null {
+  if (typeof document === 'undefined') return null;
+  const pageFragments = input.pageFragments;
+  if (pageFragments === undefined || pageFragments.length === 0) return null;
+
+  const options = mergeLayoutOptions(DEFAULT_LAYOUT_OPTIONS, input.options ?? {});
+  if (!isVerticalMode(options.writingMode)) return null;
+  const tokens = input.tokens ?? DEFAULT_THEME;
+
+  const axis = mainAxisOf(options.writingMode);
+  syncMeasureCss(tokens, options, input.fontToken, input.features);
+  const sheet = ensureSheet();
+  applySheetStyle(
+    sheet,
+    buildRootStyle({ tokens, options, fontToken: input.fontToken }),
+    axis,
+    resolvePageCrossSize(options, tokens),
+    options,
+    tokens,
+    1,
+  );
+
+  /* 实测几何先行：空页盒量真实内容盒（每列字数 / 列距），探针与夹注容量
+   * 都必须在实测网格上运算（令牌折算与真实页差 1 字位会让页界错格）。 */
+  const tokenSlot = resolveVerticalMeasureContext(options, tokens);
+  sheet.innerHTML = '<div class="bt-measure-pagebox bt-vflow" data-page="probe"></div>';
+  const probeBox = sheet.firstElementChild as HTMLElement | null;
+  const geometry =
+    probeBox !== null ? measureReplicaGeometry(sheet, probeBox, tokenSlot) ?? undefined : undefined;
+  const slot: VerticalMeasureContext =
+    geometry !== undefined
+      ? {
+          charsPerLine: 1,
+          blockSpacing: 0,
+          columnPitch: geometry.columnPitch,
+          charsPerColumn: geometry.charsPerColumn,
+          charPitch: geometry.charPitch,
+          lineSize: geometry.lineSize,
+        }
+      : tokenSlot;
+
+  /* 页盒：每页一个内容盒，片段在盒内按真实页相位换列 */
+  const boxHtml = pageFragments
+    .map((frags, pageIdx) => {
+      const inner = frags
+        .map((frag, fragIdx) => {
+          const html = serializeVerticalFlow([frag.node], {
+            charsPerColumn: slot.charsPerColumn,
+            omitRulePrefix: frag.fromLine > 0,
+          });
+          if (html.trim() === '') return '';
+          return '<div data-measure-frag="' + pageIdx + ':' + fragIdx + '" data-block-id="' + escapeAttr(frag.blockId) + '" style="display:contents">' + html + '</div>';
+        })
+        .join('');
+      return '<div class="bt-measure-pagebox bt-vflow" data-page="' + pageIdx + '">' + inner + '</div>';
+    })
+    .join('');
+  sheet.innerHTML = boxHtml;
+
+  const boxes = Array.from(sheet.querySelectorAll('.bt-measure-pagebox')) as HTMLElement[];
+  if (boxes.length === 0) return null;
+
+  /* 逐盒探针：片段的块内相对字位跨度 + 字符数 */
+  interface FragSpan {
+    page: number;
+    blockId: string;
+    fromLine: number;
+    start: number;
+    end: number;
+    chars: number;
+  }
+  const spans: FragSpan[] = [];
+  for (let p = 0; p < boxes.length; p += 1) {
+    const box = boxes[p] as HTMLElement;
+    if (!(box.getBoundingClientRect().height > 0)) continue;
+    const probe = createSlotProbe(box, axis, slot);
+    const pageFrags = pageFragments[p] ?? [];
+    const fragEls = Array.from(box.querySelectorAll('[data-measure-frag]')) as HTMLElement[];
+    for (let fi = 0; fi < fragEls.length; fi += 1) {
+      const el = fragEls[fi] as HTMLElement;
+      const extent = slotExtentOf(el, axis, probe);
+      if (extent === null) continue;
+      const chars = collectTextOffsets(el).reduce((sum, entry) => sum + entry.len, 0);
+      if (chars === 0) continue;
+      spans.push({
+        page: p,
+        blockId: el.getAttribute('data-block-id') ?? '',
+        fromLine: pageFrags[fi]?.fromLine ?? 0,
+        start: extent.start,
+        end: extent.end,
+        chars,
+      });
+    }
+  }
+  if (spans.length === 0) return null;
+
+  /* 页界字符：每页「最后一颗 slot < 页容量−1」的字符（1 字位安全边距：页界
+   * 附近禁则断点对相位敏感，少取 1 字位保证重掷不溢出）。边界归属的块与
+   * 偏移表下标用**续段 fromLine**（分页器切片算术 fromLine + cnt），与
+   * Reader 实际切片严格同标。 */
+  const capacity =
+    geometry !== undefined
+      ? Math.max(1, geometry.pageMainSize / geometry.lineSize)
+      : Math.max(1, resolvePaginationGeometry(options, tokens).pageMainSize / slot.lineSize);
+  const boundaryByBlock = new Map<string, { slotIdx: number; char: number }[]>();
+  for (let p = 0; p + 1 < pageFragments.length; p += 1) {
+    const frags = pageFragments[p] ?? [];
+    if (frags.length === 0) continue;
+    const last = frags[frags.length - 1];
+    if (last === undefined) continue;
+    const nextFirst = (pageFragments[p + 1] ?? [])[0];
+    if (nextFirst === undefined || nextFirst.blockId !== last.blockId) continue;
+    /* 页界在本页末片段所属块内部（块跨页续排）：找该片段在页 p 的跨度 */
+    const span = spans.find(
+      (s) => s.page === p && s.blockId === last.blockId && s.fromLine === last.fromLine,
+    );
+    if (span === undefined) continue;
+    const fragSlots = Math.max(1e-6, span.end - span.start);
+    const withinSlots = capacity - span.start - 1;
+    const within = Math.max(
+      0,
+      Math.min(span.chars, Math.floor((withinSlots / fragSlots) * span.chars)),
+    );
+    const list = boundaryByBlock.get(last.blockId) ?? [];
+    list.push({ slotIdx: nextFirst.fromLine, char: within + last.fromLine });
+    boundaryByBlock.set(last.blockId, list);
+  }
+
+  return {
+    axis: 'column',
+    sizes: new Map(),
+    lineCounts: new Map(),
+    lineOffsets: new Map(),
+    lineSizes: new Map(),
+    lineMainSizes: new Map(),
+    bodySizes: new Map(),
+    pageBoundaries: boundaryByBlock,
+    ...(geometry !== undefined ? { geometry } : {}),
+  };
+}
+
+/**
+ * 把页界字符应用进偏移表（两遍量尺的装配步）
+ *
+ * 边界下标之后的字位从边界字符起 1 字位/字线性顺延（续段内容随页界平移，
+ * 与页盒渲染一致）。返回新表（不改动入参）。
+ */
+export function applyPageBoundaries(
+  offsets: ReadonlyMap<string, number[]>,
+  boundaries: ReadonlyMap<string, readonly { slotIdx: number; char: number }[]>,
+): ReadonlyMap<string, number[]> {
+  const result = new Map<string, number[]>();
+  for (const [id, table] of offsets) {
+    const tableCopy = [...table];
+    const list = boundaries.get(id);
+    if (list !== undefined) {
+      for (const boundary of list) {
+        if (boundary.slotIdx < 0 || boundary.slotIdx >= tableCopy.length) continue;
+        const tail = tableCopy[tableCopy.length - 1] as number;
+        const bounded = Math.min(boundary.char, tail);
+        for (let k = boundary.slotIdx; k < tableCopy.length; k += 1) {
+          tableCopy[k] = Math.min(tail, bounded + (k - boundary.slotIdx));
+        }
+      }
+    }
+    result.set(id, tableCopy);
+  }
+  return result;
+}
+
 /** 量尺主体（埋点在外层，便于把整段 DOM 实测算作一次测量） */
 function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginationResult {
   const blockAxis = resolveBlockAxis(input);
+  /* 两遍量尺第二遍：页级精测（直排 + 调用方传入逐页片段集） */
+  if (input.pageFragments !== undefined && input.pageFragments.length > 0) {
+    const refined = measureByPageFragments(input);
+    if (refined !== null) return refined;
+  }
   const sheet = renderMeasureSheet(input);
   if (sheet === null)
     return {
@@ -877,6 +1111,8 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
   const lineSizes = new Map<string, number>();
   const lineMainSizes = new Map<string, number[]>();
   const bodySizes = new Map<string, number>();
+  /* 夹注原子盒区间（直排切片吸附用；横排无原子盒） */
+  const atomicRanges = new Map<string, AtomicRange[]>();
   /* 直排：字位绝对流位置（列序号 × 每列字数 + 列内字位）；横排不建 */
   const slotAt = slot !== undefined && flow ? createSlotProbe(flow, axis, slot) : null;
   const extents =
@@ -890,11 +1126,12 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
     if (el === null) continue;
     const id = (blocks[i] as (typeof blocks)[number]).id;
     if (axis.vertical && slot !== undefined && slotAt !== null) {
-      measureVerticalBlock(id, el, i, extents, slot, rendered.length, slotAt, {
+      measureVerticalBlock(id, el, i, extents, slot, rendered.length, axis, slotAt, {
         sizes,
         lineCounts,
         lineOffsets,
         bodySizes,
+        atomicRanges,
       });
       continue;
     }
@@ -931,6 +1168,7 @@ function measurePaginationInner(input: MeasureBlockSizesInput): MeasurePaginatio
     lineSizes,
     lineMainSizes,
     bodySizes,
+    ...(atomicRanges.size > 0 ? { atomicRanges } : {}),
     ...(geometry !== undefined ? { geometry } : {}),
   };
 }
@@ -1061,12 +1299,14 @@ function measureVerticalBlock(
   extents: readonly ({ start: number; end: number } | null)[],
   slot: VerticalMeasureContext,
   total: number,
+  axis: MeasureAxis,
   probe: (colCenter: number, crossEdge: number) => number,
   out: {
     sizes: Map<string, number>;
     lineCounts: Map<string, number>;
     lineOffsets: Map<string, number[]>;
     bodySizes: Map<string, number>;
+    atomicRanges: Map<string, AtomicRange[]>;
   },
 ): void {
   const extent = extents[index] ?? null;
@@ -1106,6 +1346,32 @@ function measureVerticalBlock(
   out.lineCounts.set(id, Math.max(1, Math.round(slots)));
   const offsets = measureSlotCharOffsets(el, probe, slot.charPitch, slots, extent.start);
   if (offsets !== null) out.lineOffsets.set(id, offsets);
+  /* 夹注原子区间：bt-vnote 为原子 inline-block，跨页切片边界落在盒内会把
+   * 注文劈成两个独立重排的盒（错行）。记录盒的字位/字符区间，切片时把
+   * 边界吸附到盒首（整盒归入后页，注尾留白与禁则空位同形）。 */
+  const notes = Array.from(el.querySelectorAll('.bt-vnote')) as HTMLElement[];
+  if (notes.length > 0) {
+    const blockList = collectTextOffsets(el);
+    const ranges: AtomicRange[] = [];
+    for (const note of notes) {
+      const noteExtent = slotExtentOf(note, axis, probe);
+      if (noteExtent === null) continue;
+      const noteList = collectTextOffsets(note);
+      if (noteList.length === 0) continue;
+      const first = noteList[0]!;
+      const last = noteList[noteList.length - 1]!;
+      const firstEntry = blockList.find((entry) => entry.node === first.node);
+      const lastEntry = blockList.find((entry) => entry.node === last.node);
+      if (firstEntry === undefined || lastEntry === undefined) continue;
+      ranges.push({
+        slotStart: noteExtent.start - extent.start,
+        slotEnd: noteExtent.end - extent.start,
+        charStart: firstEntry.start,
+        charEnd: lastEntry.start + last.len,
+      });
+    }
+    if (ranges.length > 0) out.atomicRanges.set(id, ranges);
+  }
 }
 
 /**

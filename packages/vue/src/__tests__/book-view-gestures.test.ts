@@ -111,10 +111,11 @@ describe('BtBookView 对页（B4）', () => {
     return reader;
   }
 
-  it('facing 模式一次渲染两页', () => {
+  it('facing 模式一次渲染两页（首 spread 为 [page2 左 | page1 右]）', () => {
     const wrapper = mount(BtBookView, {
       props: { reader: makeMultiPageReader(), spread: 'facing' },
     });
+    console.log("DEBUG nums:", wrapper.findAll('.bt-page-number').map(n => n.text()))
     expect(wrapper.findAll('.bt-reader-page')).toHaveLength(2);
   });
 
@@ -123,7 +124,8 @@ describe('BtBookView 对页（B4）', () => {
       props: { reader: makeMultiPageReader(), spread: 'facing' },
     });
     const pages = wrapper.findAll('.bt-reader-page');
-    // jsdom 无布局尺寸 → scale = 1；页宽取自页框 inline 宽
+    // jsdom 无布局尺寸 → scale = 1；页宽取自页框 inline 宽。新配对：
+    // 新配对：左页 = 奇数索引（page2），右页 = 偶数索引（page1）在右槽。
     const pageWidth = Number.parseFloat((pages[0].element as HTMLElement).style.width);
     expect((pages[1].element as HTMLElement).style.left).toBe(`${pageWidth + 24}px`);
   });

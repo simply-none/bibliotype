@@ -258,23 +258,24 @@ describe('BtBookView', () => {
       const wrapper = mount(BtBookView, { props: { reader, mode: 'page', spread: 'facing' } });
       const view = wrapper.find('.bt-book-view');
 
-      // 首页对（0-1）→ 第二对（2-3）：一次滚轮直接跨 2 页
+      // 新配对（[奇数索引 左 | 偶数索引 右]）：首页对 = [1 左 | 0 右]，
+      // current 为对的左页。一次滚轮跨 2 页内容：→ 第二对 [3 左 | 2 右]
       await view.trigger('wheel', { deltaY: 200 });
-      expect(reader.currentPage).toBe(2);
+      expect(reader.currentPage).toBe(3);
 
       vi.advanceTimersByTime(400);
       await view.trigger('wheel', { deltaY: 200 });
-      expect(reader.currentPage).toBe(4);
+      expect(reader.currentPage).toBe(5);
 
-      // 已在最后一对（4-5）：继续向前不移动页态
+      // 已在最后一对（[5 左 | 4 右]）：继续向前不移动页态
       vi.advanceTimersByTime(400);
       await view.trigger('wheel', { deltaY: 200 });
-      expect(reader.currentPage).toBe(4);
+      expect(reader.currentPage).toBe(5);
 
       // 反向一次退一整对
       vi.advanceTimersByTime(400);
       await view.trigger('wheel', { deltaY: -300 });
-      expect(reader.currentPage).toBe(2);
+      expect(reader.currentPage).toBe(3);
     } finally {
       vi.useRealTimers();
     }

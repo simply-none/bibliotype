@@ -18,6 +18,15 @@ import { escapeHtml } from './html-serializer.js';
  * @param facsimile 仿真版式（取位置 / 口子 / 鱼尾 / 字段顺序）
  * @returns 版心 HTML；未配置或所有字段为空时返回空串
  */
+/**
+ * 版心单字段最大字符数
+ *
+ * 与 book-css 的 `.bt-page-gutter__field { max-height: 8em }` 对齐：竖排
+ * 字符步进 = 字宽 1em + 字距 0.12em ≈ 1.12em，8em ÷ 1.12 ≈ 7 字。CSS 裁切
+ * 只是兜底，序列化端按完整字符截断（F-9）。
+ */
+export const GUTTER_FIELD_MAX_CHARS = 7;
+
 export function serializePageGutter(
   texts: PageGutterTexts,
   facsimile: FacsimileOptions | undefined,
@@ -30,7 +39,12 @@ export function serializePageGutter(
       const raw = field === 'none' ? '' : (texts[field] ?? '');
       const text = raw.trim();
       if (text === '') return '';
-      return `<div class="bt-page-gutter__field" data-field="${field}">${escapeHtml(text)}</div>`;
+      /* 整字符截断（F-9）：CSS 侧 max-height 8em 按「字宽 1em + 字距 0.12em」
+       * 折算 ≈ 7 字，超长卷名在 8em 盒内被 overflow: hidden 裁到半个字符；
+       * 序列化端按完整字符截断，CSS 裁切只作兜底。 */
+      const clipped =
+        text.length > GUTTER_FIELD_MAX_CHARS ? text.slice(0, GUTTER_FIELD_MAX_CHARS) : text;
+      return `<div class="bt-page-gutter__field" data-field="${field}">${escapeHtml(clipped)}</div>`;
     })
     .filter((item) => item !== '');
   if (fields.length === 0) return '';

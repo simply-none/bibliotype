@@ -31,7 +31,7 @@ import {
 } from '@bibliotype/layout';
 import type { MeasuredVerticalGeometry } from '@bibliotype/vue';
 import { DEFAULT_MEASURE_CONTEXT, Reader, type BlockMeasureContext } from '@bibliotype/reader';
-import { measurePagination, useDocumentStats } from '@bibliotype/vue';
+import { applyPageBoundaries, measurePagination, useDocumentStats } from '@bibliotype/vue';
 import { lunyuDocument } from '../data/lunyu.js';
 import type { StyleSettingsApi } from './use-style-settings.js';
 import type { ThemeKey } from './use-app-themes.js';
@@ -266,6 +266,75 @@ export function useReaderSession(deps: ReaderSessionDeps) {
         : paginationGeometry.value.pageMainSize,
       bottomSlack: bottomSlack.value,
     });
+    /*
+     * 第二遍（直排页界精测）：连排流的换列断点受禁则影响，断点落点随内容
+     * 起始相位变化——第一遍的全书连排相位与真实页不同，页末累计 ±2~3 字位
+     * 漂移（溢出的字落进边距）。把当前分页的逐页片段交回量尺，按**页复刻
+     * 盒**渲染（片段在盒内的换列相位与真实页一致），从盒内直接读出每页的
+     * 真实页界字符写进偏移表——Reader 的跨页切片与页盒渲染逐字符一致，
+     * 漂移内容自然归还下一页。分页归属保持第一遍（不重排、无相位再掷），
+     * 迭代 2 轮至偏移表稳定（页界残差每轮缩小，收敛到亚字位）。
+     * 含分截页 / 页底注页不走精测（页盒形态不同），保持第一遍结果。
+     */
+    if (vertical && sizes.size > 0) {
+      const basePaginate = (lineOffsets: ReadonlyMap<string, number[]>) =>
+        reader.value.repaginate({
+          layout: effectiveLayout.value,
+          blockSizes: sizes,
+          lineOffsets,
+          lineSizes,
+          lineMainSizes,
+          lineCounts,
+          bodySizes,
+          axis,
+          measure: typographyMeasure(),
+          pageMainSize: vertical
+            ? (geometry?.pageMainSize ?? paginationGeometry.value.pageMainSize)
+            : paginationGeometry.value.pageMainSize,
+          bottomSlack: bottomSlack.value,
+        });
+      const pages = reader.value.pagination;
+      const hasBandsOrNotes = pages.some(
+        (page) => page.bands !== undefined || (page.notes !== undefined && page.notes.length > 0),
+      );
+      if (!hasBandsOrNotes) {
+        let currentOffsets = lineOffsets;
+        for (let iter = 0; iter < 3; iter += 1) {
+          basePaginate(currentOffsets);
+          const curPages = reader.value.pagination;
+          const pageFragments = curPages.map((page) => {
+            const frags = reader.value.getPageFragments(page.index);
+            return page.items
+              .map((it, i) => ({ blockId: it.block.id, fromLine: it.fromLine, node: frags[i] }))
+              .filter((frag) => frag.node !== undefined);
+          });
+          const refined = measurePagination({
+            doc,
+            options: effectiveLayout.value,
+            tokens: tokens.value,
+            fontToken: activeFontToken.value,
+            features: deps.features.value,
+            measure: typographyMeasure(),
+            pageFragments,
+          });
+          const boundaries = refined.pageBoundaries;
+          if (boundaries === undefined || boundaries.size === 0) break;
+          const nextOffsets = applyPageBoundaries(currentOffsets, boundaries);
+          /* 收敛检测：偏移表与上一轮一致即停 */
+          let changed = false;
+          for (const [id, offs] of nextOffsets) {
+            const prev = currentOffsets.get(id);
+            if (prev === undefined || prev.length !== offs.length || offs.some((v, k) => prev[k] !== v)) {
+              changed = true;
+              break;
+            }
+          }
+          currentOffsets = nextOffsets;
+          if (!changed) break;
+        }
+        basePaginate(currentOffsets);
+      }
+    }
   }
 
   /** 去抖重测（等 DOM / 布局稳定，避免拖动字号 / 开本时频繁量尺） */

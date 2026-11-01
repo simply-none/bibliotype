@@ -509,6 +509,7 @@ export function useExport(deps: ExportDeps) {
             bottomSlack: readerApi.bottomSlack.value,
             context: readerApi.typographyMeasure(),
             blockSizes: readerApi.blockSizes.value,
+            lineCounts: readerApi.blockLineCounts?.value,
             lineOffsets: readerApi.blockLineOffsets.value,
             lineSizes: readerApi.blockLineSizes.value,
             lineMainSizes: readerApi.blockLineMainSizes.value,

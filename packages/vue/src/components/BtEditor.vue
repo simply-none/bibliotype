@@ -548,6 +548,7 @@ function onImageDblclick(event: MouseEvent): void {
         :editor="props.editor"
         :index="paged.pagedIndex.value"
         :chars-per-line="paged.charsPerLine.value"
+        :vertical-geometry="paged.lastResult.value?.verticalGeometry"
         :initial-page="props.initialPage"
         @update:visible-page="emit('update:visiblePage', $event)"
         @edited="onPagedEdited"

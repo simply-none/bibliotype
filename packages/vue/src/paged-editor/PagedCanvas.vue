@@ -51,6 +51,7 @@ import {
   resolveCaretTarget,
 } from './input-router.js';
 import type { PagedFragment, PagedPage } from './use-paged-layout.js';
+import type { MeasuredVerticalGeometry } from '../pagination-measure.js';
 
 const props = withDefaults(
   defineProps<{
@@ -89,6 +90,13 @@ const props = withDefaults(
     index?: PagedIndex | null;
     /** 每行字符估算（回退口径，须与分页构建同源） */
     charsPerLine?: number;
+    /**
+     * 直排实测几何（复刻页框产出，来自 buildPagedLayout.verticalGeometry）
+     *
+     * 行内流夹注容量（每列字数）优先取实测值，与量尺 / 分页同尺——令牌折算
+     * 会被浏览器 double 边框 used width 收敛带偏 1 字/列。缺省回退令牌折算。
+     */
+    verticalGeometry?: MeasuredVerticalGeometry;
     /** 首轮分页就绪后定位到该页（自 0 起；「阅读当前页 → 进编辑」位置记忆链路，一次性消费） */
     initialPage?: number;
   }>(),
@@ -338,8 +346,11 @@ interface RenderedPage {
   chromeOn: boolean;
 }
 
-/* 直排行内流：每行大字数（交叉轴 ÷ 字号，与预览 readerColumnCapacity 同口径） */
+/* 直排行内流：每行大字数（优先实测几何的每列字数，与量尺 / 分页同尺；
+ * 未实测时回退令牌折算——与预览 readerColumnCapacity 同口径） */
 const flowCharsPerColumn = computed(() => {
+  const measured = props.verticalGeometry?.charsPerColumn;
+  if (typeof measured === 'number' && measured > 0) return Math.round(measured);
   const cross = resolvePageCrossSize(props.options, props.tokens);
   const size = Number.parseFloat(props.tokens[FONT_SIZE_TOKENS.BODY] ?? '16');
   return Math.max(4, Math.round(cross / (Number.isFinite(size) ? size : 16)));

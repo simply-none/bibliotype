@@ -127,7 +127,11 @@ export function buildFacsimileDecorationCss(
         ? `  border-top: ${mouthBar}px solid ${gutterColor};\n  border-bottom: ${mouthBar}px solid ${gutterColor};\n`
         : '';
     rules.push(
-      `${scoped('.bt-page-gutter')} {\n  position: absolute;\n  top: var(--bt-fs-inset-top);\n  bottom: var(--bt-fs-inset-bottom);\n  width: var(--bt-fs-gutter-size);\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: space-between;\n  padding: 0.35em 0;\n  writing-mode: vertical-rl;\n  font-size: 0.62em;\n  line-height: 1.2;\n  letter-spacing: 0.12em;\n  color: ${gutterColor};\n  overflow: hidden;\n  pointer-events: none;\n${mouthRule}}`,
+      /* 版心带容器保持水平书写：flex-direction: column 在 vertical-rl 下
+       * 沿**块轴（横向）**分布，三个字段会在窄带内水平叠置互相重叠
+       * （实测缺陷）。容器显式 horizontal-tb（阻断页面继承）按物理纵向
+       * 分栏、字段各自竖排，字段沿带纵向分布、横向居中。 */
+      `${scoped('.bt-page-gutter')} {\n  position: absolute;\n  top: var(--bt-fs-inset-top);\n  bottom: var(--bt-fs-inset-bottom);\n  width: var(--bt-fs-gutter-size);\n  box-sizing: border-box;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: space-between;\n  padding: 0.35em 0;\n  writing-mode: horizontal-tb;\n  font-size: 0.62em;\n  line-height: 1.2;\n  letter-spacing: 0.12em;\n  color: ${gutterColor};\n  overflow: hidden;\n  pointer-events: none;\n${mouthRule}}`,
     );
     rules.push(
       `${scoped(".bt-page-gutter[data-side='left']")} {\n  left: var(--bt-fs-inset-left);\n}\n${scoped(
@@ -135,7 +139,9 @@ export function buildFacsimileDecorationCss(
       )} {\n  right: var(--bt-fs-inset-right);\n}`,
     );
     rules.push(
-      `${scoped('.bt-page-gutter__field')} {\n  max-height: 8em;\n  overflow: hidden;\n  white-space: nowrap;\n}`,
+      /* 字段自任竖排：竖排文本沿带纵向推进；max-height 限其字数长度，
+       * 超长书名裁断（真实古籍版心书名亦常截短）。 */
+      `${scoped('.bt-page-gutter__field')} {\n  writing-mode: vertical-rl;\n  max-height: 8em;\n  overflow: hidden;\n  white-space: nowrap;\n}`,
     );
     if (gutter.fishTail !== 'none') {
       /*

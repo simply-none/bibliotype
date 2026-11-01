@@ -142,6 +142,20 @@ export interface BlockMeasureContext {
    * **整列**：本字段给出列宽（= 列距），块以它为基础做列首对齐。横排无需填。
    */
   columnPitch?: number;
+  /**
+   * 每列字数（仅直排字位口径给定，随 columnPitch 一起出现）
+   *
+   * 量尺复刻页框**实测**产出（浏览器对 double 边框 used width 的收敛会让令牌
+   * 折算与真实渲染差 1 字/列）；渲染层（行内流夹注容量规划）经
+   * `Reader.measureContext` 取同一份值，保证量尺 / 分页 / 渲染三方同尺。
+   */
+  charsPerColumn?: number;
+  /**
+   * 字位步进（px，仅直排字位口径给定；字号 × (1+字距 em)）
+   *
+   * 与 charsPerColumn 同源实测；列内容量 = floor(内容盒高 ÷ 本值)。
+   */
+  charPitch?: number;
 }
 
 /** 默认估算上下文（16px 字号 × 1.9 行高，A5 单栏近似） */

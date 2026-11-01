@@ -52,6 +52,24 @@ import {
 import { buildPrintCss, type PrintFacingOptions, type PrintMode } from './print-styles.js';
 import { buildPdfOutline, type PdfOutlineEntry } from './pdf-outline.js';
 
+/**
+ * 读量度上下文里的实测每列字数（直排字位口径）
+ *
+ * 预览量尺（复刻页框实测）的上下文带 `charsPerColumn` / `charPitch`；纯令牌
+ * 折算的上下文（resolveVerticalMeasureContext）也带——两者都以「直排字位
+ * 口径 + 携带每列字数」为可信标志。横排上下文 / 缺省返回 undefined（调用方
+ * 回退令牌折算）。
+ */
+function readMeasuredCharsPerColumn(
+  context: Partial<BlockMeasureContext> | undefined,
+): number | undefined {
+  const ctx = context as Partial<{ charsPerLine?: number; charsPerColumn?: number }> | undefined;
+  if (ctx === undefined) return undefined;
+  if (ctx.charsPerLine !== 1) return undefined;
+  const raw = ctx.charsPerColumn;
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? Math.round(raw) : undefined;
+}
+
 /** 打印文档生成选项 */
 export interface PrintDocumentOptions {
   /** 布局选项（缺省 DEFAULT_LAYOUT_OPTIONS；古籍传 CLASSICAL_LAYOUT_OPTIONS） */
@@ -312,9 +330,15 @@ ${body}
     const vertical = isVerticalMode(layout.writingMode);
     /* 筒子叶版心交替（v2 批 7）：页级变体驱动版心 / 耳框 / 内缩随奇偶换侧 */
     const pageFacsimile = facsimilePageOf(layout.facsimile, page.index);
-    /* 每行大字数：交叉轴 ÷ 字位步进（字号 × (1+字距)）向下取整——与预览 /
-     * 量尺 / 仿真几何层统一走 resolveCharsPerColumn（夹注每子列容量 = 本值 × 2） */
-    const charsPerColumn = Math.max(4, resolveCharsPerColumn(layout, tokens));
+    /* 每行大字数：优先取调用方量度上下文里的**实测**每列字数（量尺复刻页框
+     * 产出——浏览器 double 边框 used width 收敛让令牌折算与真实渲染差 1 字/列）；
+     * 未携带（纯估算路径）回退令牌折算 resolveCharsPerColumn（与预览 /
+     * 仿真几何层同源）。夹注每子列容量 = 本值 × 2。 */
+    const measuredChars = readMeasuredCharsPerColumn(options.context);
+    const charsPerColumn = Math.max(
+      4,
+      measuredChars ?? resolveCharsPerColumn(layout, tokens),
+    );
     const serializeFlowOne = (node: BookNode, i: number): string =>
       serializeVerticalFlow([node], {
         charsPerColumn,

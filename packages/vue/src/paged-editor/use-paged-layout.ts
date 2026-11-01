@@ -40,7 +40,7 @@ import {
 } from '@bibliotype/reader';
 import type { Node as PMNode } from 'prosemirror-model';
 import type { BookEditor } from '@bibliotype/editor';
-import { measurePagination } from '../pagination-measure.js';
+import { measurePagination, type MeasuredVerticalGeometry } from '../pagination-measure.js';
 import { PERF_LAYOUT, perfNow, perfRecord } from '../perf.js';
 import { buildPagedIndex, charOfLine, type PagedIndex, type PmLeafPos } from './selection-bridge.js';
 
@@ -140,6 +140,13 @@ export interface BuildPagedResult {
   bodySizes: ReadonlyMap<string, number>;
   /** 生效的每行字符估算（回退口径，供片段归属换算同源复用） */
   charsPerLine: number;
+  /**
+   * 直排实测几何（复刻页框产出；横排 / 无布局环境缺省）
+   *
+   * 渲染侧（PagedCanvas 的行内流夹注容量）据此取每列字数，与量尺 / 分页同尺
+   * （令牌折算会被浏览器 double 边框 used width 收敛带偏 1 字/列）。
+   */
+  verticalGeometry?: MeasuredVerticalGeometry;
 }
 
 /** 行区间 [fromLine, fromLine+lineCount) → 字符半开区间（实测优先，回退 charsPerLine 估算） */
@@ -442,12 +449,19 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   const nodeById = indexed.nodeById;
   // 增量分页：定点实测（无增删块、只改一块）时，目标块之前的页原样复用，
   // 只从目标块所在页的页首重排——大文档下把 paginate 的 O(页数) 降为 O(尾页数)
+  /*
+   * 直排实测几何：量尺复刻页框产出后，页主轴容量优先用实测值（浏览器
+   * double 边框 used width 收敛会让令牌折算与真实页差半列，末列留白 /
+   * 断列错位）。横排 fresh.geometry 为 undefined，维持令牌口径不变。
+   */
+  const verticalGeometry = fresh.geometry;
+  const effectiveMainSize = verticalGeometry?.pageMainSize ?? pageMainSize;
   const resume =
     targetBlockId !== undefined && prev !== undefined
       ? resolvePaginateResume(prev, blocks, targetBlockId)
       : undefined;
   const result = paginate(blocks, {
-    pageMainSize,
+    pageMainSize: effectiveMainSize,
     bottomSlack,
     resume,
     bands,
@@ -501,7 +515,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
   return {
     usable: pages.length > 0,
     axis,
-    pageMainSize,
+    pageMainSize: effectiveMainSize,
     bottomSlack,
     pages,
     blocks,
@@ -512,6 +526,7 @@ export function buildPagedLayout(input: BuildPagedInput): BuildPagedResult {
     bodySizes,
     sizes,
     charsPerLine: context.charsPerLine,
+    ...(verticalGeometry !== undefined ? { verticalGeometry } : {}),
   };
 }
 

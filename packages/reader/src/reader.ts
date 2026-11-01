@@ -211,6 +211,15 @@ function defaultPageMainSize(
 }
 
 /**
+ * 直排页尾预留字位数
+ *
+ * 连排流换列断点的禁则相位漂移（±2~3 字位/页，见 repaginate 内注释）的
+ * 吸收预算。预留过小则页末仍有 1 字落进边距；过大则每页末列收笔过早、
+ * 满版度下降。3 字位（≈1.7 字）在两者间平衡。
+ */
+const VERTICAL_PAGE_GUARD_SLOTS = 3;
+
+/**
  * 量度上下文与书写方向对齐（直排 → 字位网格口径）
  *
  * 直排的「一行」是一个**字位**：`charsPerLine = 1`、`lineSize` 是字位宽、
@@ -346,6 +355,18 @@ export class Reader {
     return this.axis ?? 'row';
   }
 
+  /**
+   * 当前生效的量度上下文（直排为字位口径，见 {@link alignMeasureToLayout}）
+   *
+   * 渲染层据此取「每列字数」等字位口径做行内流序列化（夹注双列小字盒的
+   * 容量规划），保证渲染与量尺 / 分页同尺——量尺复刻页框实测的口径会与
+   * 令牌折算差 1 字/列（浏览器 double 边框 used width 收敛），渲染侧必须
+   * 跟随实测口径而非自行折算。
+   */
+  get measureContext(): BlockMeasureContext {
+    return this.effectiveMeasure;
+  }
+
   /* ---------------- 文档与重排 ---------------- */
 
   /** 载入文档：提取块 → 分页 → 建目录 → 触发事件 */
@@ -469,8 +490,25 @@ export class Reader {
     this.blocks.forEach((block, index) => {
       if (!this.blockIndexById.has(block.id)) this.blockIndexById.set(block.id, index);
     });
+    /*
+     * 直排页尾预留：连排流的换列断点受禁则（避头尾）影响，断点落点随内容
+     * 起始相位变化，一页累计 ±2~3 字位——量尺（全书连排相位）与真实页
+     * （页首起排相位）的差值会让页末 1~2 字溢出页容量，落进页边距
+     * （margin 浮字）。页容量按 3 字位预留收缩后，漂移在页内吸收，
+     * 代价仅页末列收笔提前约 1~2 字（与禁则自然空位同形，不可见）。
+     * 横排行高远大于字位，无需预留（亚像素容差已够）。页容量不足
+     * 30 字位的微型页（单测夹具）不预留——预留额会超过页容量本身。
+     */
+    const guardSlots =
+      this.pageMainSize >= VERTICAL_PAGE_GUARD_SLOTS * this.effectiveMeasure.lineSize * 10
+        ? VERTICAL_PAGE_GUARD_SLOTS
+        : 0;
+    const verticalGuard =
+      guardSlots > 0 && this.blockAxis === 'column' && this.effectiveMeasure.lineSize > 0
+        ? guardSlots * this.effectiveMeasure.lineSize
+        : 0;
     const result = paginate(this.blocks, {
-      pageMainSize: this.pageMainSize,
+      pageMainSize: Math.max(1, this.pageMainSize - verticalGuard),
       bottomSlack: this.bottomSlackPx,
       /* 两截本 / 三截本（v2 批 5）：结构节点 `bands` 声明驱动分截分页 */
       ...(extracted.bands !== undefined ? { bands: extracted.bands } : {}),

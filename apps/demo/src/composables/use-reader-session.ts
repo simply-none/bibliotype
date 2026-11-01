@@ -29,6 +29,7 @@ import {
   type BlockAxis,
   type LayoutOptions,
 } from '@bibliotype/layout';
+import type { MeasuredVerticalGeometry } from '@bibliotype/vue';
 import { DEFAULT_MEASURE_CONTEXT, Reader, type BlockMeasureContext } from '@bibliotype/reader';
 import { measurePagination, useDocumentStats } from '@bibliotype/vue';
 import { lunyuDocument } from '../data/lunyu.js';
@@ -89,6 +90,21 @@ export function useReaderSession(deps: ReaderSessionDeps) {
   function typographyMeasure(): Partial<BlockMeasureContext> {
     const layout = effectiveLayout.value;
     if (isVerticalMode(layout.writingMode)) {
+      /* 直排优先用**复刻页框实测几何**（measuredGeometry，remeasure 产出）：
+       * 浏览器对 double 边框 used width 的收敛让令牌折算（resolveVerticalMeasure
+       * Context）与真实页差 1 字/列——量尺按名义值装箱、页面按实测值换列，
+       * 每页末列系统性留白约 1/3 列。实测口径与量尺 / 渲染三方同尺。 */
+      const g = measuredGeometry.value;
+      if (g !== undefined) {
+        return {
+          charsPerLine: 1,
+          lineSize: g.lineSize,
+          blockSpacing: 0,
+          columnPitch: g.columnPitch,
+          charsPerColumn: g.charsPerColumn,
+          charPitch: g.charPitch,
+        };
+      }
       const slot = resolveVerticalMeasureContext(layout, tokens.value);
       return {
         charsPerLine: slot.charsPerLine,
@@ -118,7 +134,17 @@ export function useReaderSession(deps: ReaderSessionDeps) {
   const paginationGeometry = computed(() =>
     resolvePaginationGeometry(effectiveLayout.value, tokens.value),
   );
-  const pageMainSize = computed(() => paginationGeometry.value.pageMainSize);
+  /**
+   * 直排实测几何（复刻页框产出，remeasure 刷新；横排恒 undefined）
+   *
+   * 直排的 pageMainSize 优先取实测值（页框内容宽 ÷ 列距取整），避免令牌
+   * 名义边框与浏览器 used width 的差值在「页宽恰在整列边界附近」时多算
+   *或少算一列。
+   */
+  const measuredGeometry = shallowRef<MeasuredVerticalGeometry | undefined>(undefined);
+  const pageMainSize = computed(
+    () => measuredGeometry.value?.pageMainSize ?? paginationGeometry.value.pageMainSize,
+  );
 
   /** 页底溢出（px）= 原始容量 − 行网格容量（见 resolvePaginationGeometry） */
   const bottomSlack = computed(() => paginationGeometry.value.bottomSlack);
@@ -152,6 +178,10 @@ export function useReaderSession(deps: ReaderSessionDeps) {
 
   /** 创建已载入文档的 Reader（loadDocument 触发全链路分页，按当前排版估算） */
   function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocument): Reader {
+    /* 实测几何随 Reader 重建失效：旧主题的复刻页框几何对新主题必然错尺，
+     * 置空后回退令牌折算（与旧版行为一致），随后的 remeasure 立即以新主题
+     * 实测值刷新。 */
+    measuredGeometry.value = undefined;
     const r = new Reader({
       layout,
       /* 令牌透传：Reader 在直排下自行按「布局 + 令牌」推导字位口径（换主题 /
@@ -175,6 +205,11 @@ export function useReaderSession(deps: ReaderSessionDeps) {
 
   const reader = shallowRef<Reader>(createReader(effectiveLayout.value));
 
+  /* 开发期诊断钩子：控制台可读取 Reader 实例（检查分页 items / 量尺口径） */
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>)['__btReader'] = reader;
+  }
+
   /**
    * 书籍版本号（文档 / 元数据变更计数）
    *
@@ -193,7 +228,7 @@ export function useReaderSession(deps: ReaderSessionDeps) {
   /** 重测当前 Reader 文档的块尺寸 / 行边界 / 真实行高并重排预览（DOM 实测，需已挂载） */
   function remeasure(): void {
     const doc = reader.value.document ?? lunyuDocument;
-    const { sizes, lineOffsets, lineSizes, lineMainSizes, lineCounts, bodySizes, axis } =
+    const { sizes, lineOffsets, lineSizes, lineMainSizes, lineCounts, bodySizes, axis, geometry } =
       measurePagination({
         doc,
         options: effectiveLayout.value,
@@ -205,6 +240,9 @@ export function useReaderSession(deps: ReaderSessionDeps) {
         features: deps.features.value,
         measure: typographyMeasure(),
       });
+    /* 直排实测几何随量尺刷新（复刻页框的每列字数 / 页主轴容量）；横排为
+     * undefined，pageMainSize 回退令牌折算（paginationGeometry）。 */
+    measuredGeometry.value = geometry;
     blockSizes.value = sizes;
     blockLineOffsets.value = lineOffsets;
     blockLineSizes.value = lineSizes;
@@ -212,6 +250,7 @@ export function useReaderSession(deps: ReaderSessionDeps) {
     blockLineCounts.value = lineCounts;
     blockBodySizes.value = bodySizes;
     blockAxis.value = axis;
+    const vertical = isVerticalMode(effectiveLayout.value.writingMode);
     reader.value.repaginate({
       layout: effectiveLayout.value,
       blockSizes: sizes,
@@ -222,7 +261,9 @@ export function useReaderSession(deps: ReaderSessionDeps) {
       bodySizes,
       axis,
       measure: typographyMeasure(),
-      pageMainSize: pageMainSize.value,
+      pageMainSize: vertical
+        ? (geometry?.pageMainSize ?? paginationGeometry.value.pageMainSize)
+        : paginationGeometry.value.pageMainSize,
       bottomSlack: bottomSlack.value,
     });
   }

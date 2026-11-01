@@ -276,17 +276,31 @@ function isSplittable(block: MeasurableBlock): boolean {
  * 页高与块推进量来自 getComputedStyle / offsetTop，普遍带小数（如行高 30.4）；
  * 严格 ≤ 与向下取整会把「实渲放得下」的尾行 / 尾块挤到下一页，且误差逐块累积，
  * 一页可虚耗近一行。比较统一放宽半个像素，行取数先加容差再向下取整。
+ *
+ * **直排（axis 'column'）不能用 0.5px 绝对容差**：直排的「行」是一个字位
+ * （lineSize ≈ 0.56px），0.5px ≈ 0.9 字位——页末允许近一字溢出，而直排的列
+ * 是硬网格（每列字数固定），溢出的字落进第 N+1 列被页框裁掉（用户可见的
+ * 「明明不是末尾却在中间截断」）。故容差按单元尺寸的 2% 取：横排
+ * （行高 ~30px）仍为 0.5px 上限，直排缩到 ~0.011px（量尺是浮点矩形，
+ * 无 offsetTop 整数舍入噪声，近零容差即正确）。
  */
 const SUBPIXEL_TOL = 0.5;
 
-/** 带容差的「装得下」判断 */
-function fits(used: number, required: number, capacity: number): boolean {
-  return used + required <= capacity + SUBPIXEL_TOL;
+/** 带容差的「装得下」判断（tol 为绝对 px 容差） */
+function fits(used: number, required: number, capacity: number, tol: number): boolean {
+  return used + required <= capacity + tol;
 }
 
-/** 带容差的「可放行数」（向下取整前先把可用空间放宽半个像素） */
-function linesWithin(avail: number, lineSize: number): number {
-  return Math.floor((avail + SUBPIXEL_TOL) / lineSize);
+/** 带容差的「可放行数」（向下取整前先把可用空间放宽容差） */
+function linesWithin(avail: number, lineSize: number, tol: number): number {
+  return Math.floor((avail + tol) / lineSize);
+}
+
+/** 块的装箱容差（px）：直排按字位尺寸相对取，横排维持 0.5px */
+function tolOf(block: MeasurableBlock): number {
+  if (blockAxisOf(block) !== 'column') return SUBPIXEL_TOL;
+  const unit = typeof block.lineSize === 'number' && block.lineSize > 0 ? block.lineSize : 0.5;
+  return Math.min(SUBPIXEL_TOL, unit * 0.02);
 }
 
 /** 块的真实行数：逐行尺寸优先，其次显式 lineCount，最后按 mainSize/lineSize 折算 */
@@ -329,15 +343,16 @@ export function lineRangeMainSize(
 
 /** 从 from 行起，avail 空间内能放下的行数（逐行尺寸优先，带亚像素容差） */
 function linesFitting(block: MeasurableBlock, from: number, avail: number): number {
+  const tol = tolOf(block);
   const sizes = block.lineMainSizes;
   if (sizes === undefined || sizes.length === 0) {
-    return linesWithin(avail, block.lineSize as number);
+    return linesWithin(avail, block.lineSize as number, tol);
   }
   let used = 0;
   let count = 0;
   for (let i = from; i < sizes.length; i += 1) {
     const size = sizes[i] as number;
-    if (used + size > avail + SUBPIXEL_TOL) break;
+    if (used + size > avail + tol) break;
     used += size;
     count += 1;
   }
@@ -530,7 +545,7 @@ function paginateSingle(
     padToNextColumn(required);
     // 「空页也必须放置」（超大块独占一页，避免死循环）只对真空页放行：
     // 注文已占页时正文放不下须另起，否则注文与正文在页底重叠
-    if (!fits(cur.usedMainSize, required, bodyCapacity()) && !pageEmptyForBody()) {
+    if (!fits(cur.usedMainSize, required, bodyCapacity(), tolOf(block)) && !pageEmptyForBody()) {
       cur = startPage();
     }
     // 入账仍用推进量（含块尾间距）
@@ -613,14 +628,22 @@ function paginateSingle(
     /* 列级断列（直排行内流）：当前列剩余空间弃用（对齐列距），本块从新列
      * 顶格起写；横排（axis 'row'）无列概念，无操作。对齐单位取列宽
      * （columnMainSize）而非 lineSize：直排 lineSize 是一个字位宽，按它对
-     * 齐等于把块对齐到字位网格，断列完全失效。 */
+     * 齐等于把块对齐到字位网格，断列完全失效。
+     *
+     * **列界上的 <br> 会再掷一个空列**：内容恰好排满一列（used 落在列距
+     * 整数倍上）时，浏览器的 <br> 仍会终止本列并另起一列——产生一个整列
+     * 空白，其后内容整体错位一列（用户可见的「页中出现整列空白」）。模型
+     * 必须同步多记一列：恰在列界上时再进一列，而非原地不动。 */
     if (
       !onFreshPage &&
       block.breakColumn === true &&
       blockAxisOf(block) === 'column'
     ) {
       const pitch = block.columnMainSize ?? block.lineSize ?? 0;
-      if (pitch > 0) cur.usedMainSize = Math.ceil(cur.usedMainSize / pitch - 1e-9) * pitch;
+      if (pitch > 0) {
+        const aligned = Math.ceil(cur.usedMainSize / pitch - 1e-9) * pitch;
+        cur.usedMainSize = aligned <= cur.usedMainSize + 1e-6 ? aligned + pitch : aligned;
+      }
     }
 
     /* 页底浮注：不进正文流，落到本页注区（容量随之收缩） */

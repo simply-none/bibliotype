@@ -8,7 +8,11 @@ export { useEditorBinding } from './use-editor.js';
 export type { EditorBinding, EditorBindingOptions } from './use-editor.js';
 
 export { measureBlockSizes, measurePagination, disposeMeasureSheet } from './pagination-measure.js';
-export type { MeasureBlockSizesInput, MeasurePaginationResult } from './pagination-measure.js';
+export type {
+  MeasureBlockSizesInput,
+  MeasurePaginationResult,
+  MeasuredVerticalGeometry,
+} from './pagination-measure.js';
 
 export {
   PERF_LAYOUT,

@@ -317,6 +317,8 @@ interface SpreadPage {
   earHtml: string;
   eyebrowHtml: string;
   sideHtml: string;
+  /** 对页左页版心换侧后的页根样式（含版心带内缩 padding 随变体重建） */
+  pageStyle?: Record<string, string>;
   showPageNumber: boolean;
   numberText: string;
 }
@@ -333,6 +335,20 @@ const spreadPages = computed<SpreadPage[]>(() => {
     const firstBlock = nodes[0];
     const chrome = props.reader.getPageChromeTexts(index);
     const gutter = props.reader.getPageGutterTexts(index);
+    /* 对页版心朝书口折叠侧：这是对页几何的必然（真实筒子叶两页版心
+     * 相对而立于折缝），不依赖 gutter.alternate 开关——左页（锚点页）
+     * 版心翻到内缘、右页保持基侧；耳框随行。 */
+    const facsimileVariant = (() => {
+      const facsimile = layout.value.facsimile;
+      if (facsimile?.gutter === undefined) return facsimile;
+      if (index !== anchor) return facsimile;
+      const side: import('@bibliotype/layout').GutterSide = facsimile.gutter.side === 'left' ? 'right' : 'left';
+      return { ...facsimile, gutter: { ...facsimile.gutter, side } };
+    })();
+    /* 页根样式随变体重建：版心换侧后，版心带的版面内缩（padding）必须
+     * 同步换边，否则正文压进版心带（实测缺陷）。 */
+    const variantOptions = facsimileVariant === layout.value.facsimile ? layout.value : { ...layout.value, facsimile: facsimileVariant };
+    const variantRootStyle = buildRootStyle({ tokens: tokens.value, options: variantOptions, fontToken: props.fontToken });
     /* 正文三段与 page 模式共用 renderPageParts：直排行内流 / 分截 / 装饰位
      * 分流 / 续排前缀省略同源（曾独立写一份退回块级流 + 眉批双渲染） */
     const parts = renderPageParts(index);
@@ -346,8 +362,12 @@ const spreadPages = computed<SpreadPage[]>(() => {
       header: chrome?.header ?? '',
       footer: chrome?.footer ?? '',
       notesHtml: pageNotesHtmlOf(index),
-      gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
-      earHtml: serializePageEar(props.reader.getPageEarText(index), layout.value.facsimile),
+      gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, facsimileVariant),
+      earHtml: serializePageEar(props.reader.getPageEarText(index), facsimileVariant),
+      pageStyle: {
+        ...buildPageStyle(pageSize.value, tokens.value),
+        ...variantRootStyle,
+      },
       eyebrowHtml: parts.eyebrow,
       sideHtml: parts.side,
       showPageNumber:
@@ -372,6 +392,8 @@ const spreadStageStyle = computed(() => ({
 function spreadPageStyle(page: SpreadPage) {
   return {
     ...scaledPageStyle.value,
+    /* 对页左页（锚点页）版心换侧时，页根样式（含版心带内缩 padding）随变体重建 */
+    ...(page.pageStyle ?? {}),
     position: 'absolute' as const,
     top: '0',
     left: `${(page.index % 2) * (pageSize.value.width + SPREAD_GAP) * scale.value}px`,
@@ -384,9 +406,29 @@ function spreadPageStyle(page: SpreadPage) {
    * 统一走 resolveCharsPerColumn：交叉轴 ÷ 字位步进（字号 × (1+字距)）向下
    * 取整——与量尺、打印、仿真几何层同口径（曾 round ÷ 字号，列底空字位）。
    */
-  const readerColumnCapacity = computed(() =>
-    resolveCharsPerColumn(layout.value, tokens.value),
-  );
+  /**
+   * 每列大字数（行内流夹注容量规划口径）
+   *
+   * 优先取 Reader 生效量度上下文的实测值（量尺复刻页框产出——浏览器对
+   * double 边框 used width 的收敛会让令牌折算与真实页差 1 字/列，渲染侧
+   * 必须跟随实测口径）；上下文未带每列字数（横排上下文 / 旧宿主）时回退
+   * 令牌折算（resolveCharsPerColumn，与打印 / 仿真几何层同源）。
+   */
+  const readerColumnCapacity = computed(() => {
+    const ctx = props.reader.measureContext as Partial<{
+      charsPerColumn?: number;
+      charsPerLine: number;
+    }> | undefined;
+    if (
+      ctx !== undefined &&
+      ctx.charsPerLine === 1 &&
+      typeof ctx.charsPerColumn === 'number' &&
+      ctx.charsPerColumn > 0
+    ) {
+      return Math.round(ctx.charsPerColumn);
+    }
+    return resolveCharsPerColumn(layout.value, tokens.value);
+  });
 
   /**
    * 当前页 HTML 片段（文本叶子不输出）
@@ -557,7 +599,7 @@ function spreadPageStyle(page: SpreadPage) {
     void pagination.value;
     return serializePageEar(
       props.reader.getPageEarText(currentPage.value),
-      layout.value.facsimile,
+      facsimilePageOf(layout.value.facsimile, currentPage.value),
     );
   });
   const showEyebrowLine = computed(() => layout.value.facsimile?.eyebrow === true);
@@ -627,9 +669,10 @@ const EMPTY_GUTTER_TEXTS = {
 /** 当前页版心（书口）HTML；未启用仿真版式或封面页为空串 */
 const gutterHtml = computed(() => {
   void pagination.value;
+  /* 筒子叶交替（v2 批 7）：页级变体决定版心所在侧（与打印 / 编辑画布同源） */
   return serializePageGutter(
     props.reader.getPageGutterTexts(currentPage.value) ?? EMPTY_GUTTER_TEXTS,
-    layout.value.facsimile,
+    facsimilePageOf(layout.value.facsimile, currentPage.value),
   );
 });
 
@@ -1199,9 +1242,9 @@ const renderedPages = computed<RenderedPage[]>(() => {
       index: i,
       mainPos: SCROLL_PADDING + i * step,
       html: parts.body,
-      gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, layout.value.facsimile),
+      gutterHtml: serializePageGutter(gutter ?? EMPTY_GUTTER_TEXTS, facsimilePageOf(layout.value.facsimile, i)),
       notesHtml: pageNotesHtmlOf(i),
-      earHtml: serializePageEar(props.reader.getPageEarText(i), layout.value.facsimile),
+      earHtml: serializePageEar(props.reader.getPageEarText(i), facsimilePageOf(layout.value.facsimile, i)),
       eyebrowHtml: parts.eyebrow,
       sideHtml: parts.side,
       // 启用页眉页脚后，页码归属页脚字段；未启用才走老的「页脚仅页码」

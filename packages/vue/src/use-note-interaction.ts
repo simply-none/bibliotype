@@ -394,6 +394,14 @@ export function useNoteInteraction(options: UseNoteInteractionOptions): UseNoteI
       activateElement(inPage);
       return;
     }
+    /* 复合键直查：带源文件路径的 href（part0006.html#calibre_pb_0）的
+     * 目标 id 跨文件重名，完整 href 才能精确命中（导入侧 data-source-anchor
+     * 复合键同标）。 */
+    const compositePage = reader.getPageOfNode(href);
+    if (compositePage !== undefined) {
+      jumpTo(compositePage);
+      return;
+    }
     const directPage = reader.getPageOfNode(targetId);
     if (directPage !== undefined) {
       jumpTo(directPage);

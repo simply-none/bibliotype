@@ -41,6 +41,25 @@ export const COMMON_NODE_ATTRS = {
   rawAttrs: { default: null },
 } as const;
 
+/*
+ * 源文档元素 id 捕获（目录跳转锚点）：EPUB / DOCX / HTML 的书内交叉引用
+ * （书内目录、注码）以源 id 为目标（`<a href="part0013.html#BE6O1-…">`），
+ * parseDOM 不捕获则导入后目标锚点彻底丢失——书内目录点击三级解析全落空。
+ * 捕获进 rawAttrs.id（不占用节点 id 命名，规避 EPUB 跨文件 id 碰撞），
+ * Reader 按 rawAttrs.id 建页索引，跳转解析链第二级直查。
+ */
+function sourceIdAttrs(dom: HTMLElement): { rawAttrs?: { id?: string; sourceAnchor?: string } } {
+  const id = dom.getAttribute('id');
+  const sourceAnchor = dom.getAttribute('data-source-anchor');
+  if (id !== null && id !== '') {
+    return {
+      rawAttrs: { id, ...(sourceAnchor !== null ? { sourceAnchor } : {}) },
+    };
+  }
+  if (sourceAnchor !== null) return { rawAttrs: { sourceAnchor } };
+  return {};
+}
+
 /** 结构节点属性（附标题，reader 目录提取依赖；供扩展规格复用） */
 export const STRUCTURE_NODE_ATTRS = {
   ...COMMON_NODE_ATTRS,
@@ -136,7 +155,9 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
             const match = /(?:^|\s)docx-style-([A-Za-z0-9_-]+)/.exec(
               dom.getAttribute('class') ?? '',
             );
-            return match === null ? {} : { rawAttrs: { styleId: `ns-docx-${match[1]}` } };
+            const sourceId = sourceIdAttrs(dom);
+            if (match === null) return sourceId.rawAttrs === undefined ? {} : sourceId;
+            return { rawAttrs: { ...sourceId.rawAttrs, styleId: `ns-docx-${match[1]}` } };
           },
         },
       ],
@@ -151,12 +172,12 @@ export const CORE_EDITOR_NODE_SPECS: readonly EditorNodeSpecEntry[] = [
       // 首位保留自有类选择器（不回归既有默认行为），再补充标准 h1~h6（level 由标签推断）
       parseDOM: [
         { tag: 'div.bt-heading' },
-        { tag: 'h1', getAttrs: () => ({ level: 1 }) },
-        { tag: 'h2', getAttrs: () => ({ level: 2 }) },
-        { tag: 'h3', getAttrs: () => ({ level: 3 }) },
-        { tag: 'h4', getAttrs: () => ({ level: 4 }) },
-        { tag: 'h5', getAttrs: () => ({ level: 5 }) },
-        { tag: 'h6', getAttrs: () => ({ level: 6 }) },
+        { tag: 'h1', getAttrs: (dom): Record<string, unknown> => ({ level: 1, ...sourceIdAttrs(dom) }) },
+        { tag: 'h2', getAttrs: (dom): Record<string, unknown> => ({ level: 2, ...sourceIdAttrs(dom) }) },
+        { tag: 'h3', getAttrs: (dom): Record<string, unknown> => ({ level: 3, ...sourceIdAttrs(dom) }) },
+        { tag: 'h4', getAttrs: (dom): Record<string, unknown> => ({ level: 4, ...sourceIdAttrs(dom) }) },
+        { tag: 'h5', getAttrs: (dom): Record<string, unknown> => ({ level: 5, ...sourceIdAttrs(dom) }) },
+        { tag: 'h6', getAttrs: (dom): Record<string, unknown> => ({ level: 6, ...sourceIdAttrs(dom) }) },
       ],
     },
   },

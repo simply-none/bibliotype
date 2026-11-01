@@ -122,6 +122,17 @@ export function buildStructuredHtml(
       inlineBodyImages(doc, actual, files, options.mediaTypes);
     }
 
+    /* 源锚点标记（F-B）：给带 id 的元素注入 data-source-anchor="文件#id"，
+     * 序列化后由导入 schema 捕获（rawAttrs → attrs.sourceAnchor）——书内交叉
+     * 引用（书内目录）的目标 id 跨文件重名（calibre_pb_0 各文件重复），
+     * 「文件#id」复合键才能精确解析目标。 */
+    const idElements = body.getElementsByTagName('*');
+    for (let i = 0; i < idElements.length; i += 1) {
+      const el = idElements.item(i);
+      const id = el?.getAttribute('id') ?? '';
+      if (id !== '') el?.setAttribute('data-source-anchor', `${actual}#${id}`);
+    }
+
     const entries = byDoc.get(actual) ?? byDoc.get(path) ?? [];
     if (entries.length === 0) {
       /* 目录未收录的文档：整篇保留。自动内联目录页仅在此时才丢弃，

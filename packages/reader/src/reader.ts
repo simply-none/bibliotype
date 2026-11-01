@@ -292,6 +292,8 @@ export class Reader {
   /** 块 id → 真实行数（DOM 实测，直排一行 = 一个字位） */
   private lineCounts: ReadonlyMap<string, number> | undefined;
   /** 块 id → 夹注原子盒区间（直排切片吸附；横排缺省） */
+  /** 源文档元素 id（rawAttrs.id）→ 页：书内交叉引用（书内目录）的跳转索引 */
+  private sourceIdPageById: ReadonlyMap<string, number> = new Map();
   private atomicRanges: ReadonlyMap<string, readonly { slotStart: number; slotEnd: number; charStart: number; charEnd: number }[]> | undefined;
   /** 排文主轴（直排为 column）：透传给 extractBlocks，仅供下游解释 lineSize 语义 */
   private axis: BlockAxis | undefined;
@@ -610,7 +612,26 @@ export class Reader {
    * @returns 未载入 / 节点无 id / 不在块序列中时为 `undefined`
    */
   getPageOfNode(nodeId: string): number | undefined {
-    return this.pageByBlockId.get(nodeId);
+    return (
+      this.pageByBlockId.get(nodeId) ??
+      this.sourceIdPageById.get(nodeId) ??
+      this.resolveSourceIdBySuffix(nodeId)
+    );
+  }
+
+  /**
+   * 源 id 后缀容错解析：书内链接的 href 相对路径（part0006.html#锚点）与
+   * 导入侧复合键（text/part0006.html#锚点，zip 内解析路径）相差目录前缀——
+   * 按「/ 文件名#hash」后缀匹配（边界含 /，part11 不会误吞 part1）。
+   */
+  private resolveSourceIdBySuffix(href: string): number | undefined {
+    if (!href.includes('/') && !href.includes('#')) return undefined;
+    const tail = href.slice(Math.max(href.lastIndexOf('/'), 0) + 0).replace(/^\//, '');
+    const suffix = '/' + tail;
+    for (const [key, page] of this.sourceIdPageById) {
+      if (key.endsWith(suffix)) return page;
+    }
+    return undefined;
   }
 
   /**
@@ -1265,5 +1286,24 @@ export class Reader {
     };
 
     firstLeafIn(this.doc.root, '');
+
+    /* 源文档元素 id → 页（书内目录 / 交叉引用的跳转索引）：块节点的
+     * attrs.id 由导入 schema 捕获（rawAttrs 展开回顶层，EPUB 源锚点），首次出现优先。 */
+    const sourceIdPage = new Map<string, number>();
+    for (const block of this.blocks) {
+      const page = this.pageByBlockId.get(block.id);
+      if (page === undefined) continue;
+      const node = this.nodeById.get(block.id);
+      const rawAttrs = node?.attrs as { id?: unknown; sourceAnchor?: unknown } | undefined;
+      const rawId = rawAttrs?.id;
+      const sourceAnchor = typeof rawAttrs?.sourceAnchor === 'string' ? rawAttrs.sourceAnchor : undefined;
+      if (typeof rawId === 'string' && rawId !== '' && !sourceIdPage.has(rawId)) {
+        sourceIdPage.set(rawId, page);
+      }
+      if (sourceAnchor !== undefined && !sourceIdPage.has(sourceAnchor)) {
+        sourceIdPage.set(sourceAnchor, page);
+      }
+    }
+    this.sourceIdPageById = sourceIdPage;
   }
 }

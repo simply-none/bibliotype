@@ -33,6 +33,9 @@ describe('古典直排分页基线', () => {
     const reader = new Reader({
       layout: CLASSICAL_LAYOUT_OPTIONS,
       pageMainSize: resolvePageMainSize(CLASSICAL_LAYOUT_OPTIONS, TOKENS),
+      /* 显式字位口径（一「行」= 一块 100px）：本用例锁定分页装箱基线，
+       * 与令牌推导的字位宽解耦，避免字号 / 字距调整漂移基线 */
+      measure: { charsPerLine: 1, lineSize: 100, blockSpacing: 0, columnPitch: 100 },
       estimator: () => 100,
     });
     reader.loadDocument(tenParagraphs());

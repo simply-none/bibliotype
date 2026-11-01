@@ -359,7 +359,7 @@ describe('Reader 重排', () => {
     expect(measured.totalPages).toBe(3);
   });
 
-  it('axis 透传：直排标 column，清空回退 row，分页结果不变', () => {
+  it('axis 仅作量尺标注：caller 传 column 不改变装箱结果，清空回退 row', () => {
     const estimator = fixedEstimator({ 'h-1': 30, 'p-1': 60, 'p-2': 60, 'p-3': 100 });
     const row = new Reader({ pageMainSize: 100, estimator });
     row.loadDocument(sampleDoc());
@@ -373,6 +373,41 @@ describe('Reader 重排', () => {
 
     vertical.repaginate({ axis: null });
     expect(vertical.blockAxis).toBe('row');
+  });
+
+  it('量尺主轴与书写方向不一致时作废量尺表，不影响同轴实测', () => {
+    const estimator = fixedEstimator({ 'h-1': 30, 'p-1': 60, 'p-2': 60, 'p-3': 100 });
+    /* 基准：直排布局 + 无实测（横排实测在主题切换瞬间会被当直排数据喂进来，
+     * 每块按横排行记账 → 页末大片留白 + 句子被中途截断） */
+    const clean = new Reader({
+      layout: { writingMode: 'vertical-rl' },
+      pageMainSize: 100,
+      estimator,
+      axis: 'column',
+    });
+    clean.loadDocument(sampleDoc());
+
+    // 跨轴：横排量尺（axis 'row'）不得参与直排分页，结果应与无实测一致
+    const stale = new Reader({
+      layout: { writingMode: 'vertical-rl' },
+      pageMainSize: 100,
+      estimator,
+      axis: 'row',
+      blockSizes: new Map([['p-1', 900]]),
+    });
+    stale.loadDocument(sampleDoc());
+    expect(stale.totalPages).toBe(clean.totalPages);
+
+    // 同轴：直排量尺照常生效（900 的块要跨更多页）
+    const measured = new Reader({
+      layout: { writingMode: 'vertical-rl' },
+      pageMainSize: 100,
+      estimator,
+      axis: 'column',
+      blockSizes: new Map([['p-1', 900]]),
+    });
+    measured.loadDocument(sampleDoc());
+    expect(measured.totalPages).toBeGreaterThan(clean.totalPages);
   });
 
   it('空文档分页为 0 页且进度为 0', () => {

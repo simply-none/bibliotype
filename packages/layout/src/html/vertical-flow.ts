@@ -22,7 +22,7 @@ import { NODE_TYPES, isTextNode, type BookNode } from '@bibliotype/core';
 import { planDoubleNoteColumns, collectNodeTextOf } from '../double-note-split.js';
 import { escapeHtml, serializeNode, type SerializeNodeOptions } from './html-serializer.js';
 import { sliceNodeByCharRange } from '../node-slice.js';
-import { resolveLineRule, type LineRule } from '../line-rules.js';
+import { resolveLineRule, flowBoundarySlots, type LineRule } from '../line-rules.js';
 
 /** 行内流序列化选项 */
 export interface SerializeVerticalFlowOptions {
@@ -201,15 +201,19 @@ export function serializeVerticalFlow(
     }
     const rule = resolveLineRule(node);
     /*
-     * 段首标记：提行 / 平抬断列（br）+ 抬升空位；低格 / 挪抬用段首空位盒
-     * （inline span 的 text-indent 无效——空位盒在段起处占 N 字位高，
-     * 无论段起位于列首还是列中，语义均为「低 N 格起写」✓）
+     * 段首标记：提行 / 平抬断列（br）+ 抬升空位；**段界恒低一格**
+     *
+     * 连排下段与段同列接排，块级外边距随行内化消失——不给段首空位盒，
+     * 整页就是一面字墙（真实古籍 EPUB 实测：一页 33 段 bt-vpad 数为 0，
+     * 目录 / 版权页条目全部粘连）。空位盒在段起处占 N 字位高，无论段起
+     * 位于列首还是列中，语义均为「低 N 格起写」✓；显式低格 / 挪抬取
+     * 较大值（flowBoundarySlots）。
      */
-    const indent = rule.indentChars + (rule.lift === 'space' ? 1 : 0);
+    const indent = flowBoundarySlots(rule);
     const prefix =
       options.omitRulePrefix === true
         ? ''
-        : `${liftPrefix(rule)}${indent > 0 ? padBox(indent) : ''}`;
+        : `${liftPrefix(rule)}${padBox(indent)}`;
     parts.push(
       `${prefix}<span class="bt-vpara">${serializeFlowChildren(node, chars, options.nodeOptions)}</span>`,
     );

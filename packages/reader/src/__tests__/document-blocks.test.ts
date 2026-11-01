@@ -283,11 +283,13 @@ describe('extractBlocks', () => {
     expect(single[0]?.lineSize).toBe(DEFAULT_MEASURE_CONTEXT.lineSize);
   });
 
-  it('axis：直排给可拆块标注 column，横排缺省不标注且尺寸不变', () => {
+  it('axis：直排给所有块标注 column，横排缺省不标注且尺寸不变', () => {
     const vertical = extractBlocks(sampleDoc(), { axis: 'column' });
     expect(vertical.find((b) => b.id === 'p-1')?.axis).toBe('column');
-    // 不可拆块（标题）不带主轴标注：它不参与行级切片
-    expect(vertical.find((b) => b.id === 'h-1')?.axis).toBeUndefined();
+    /* 不可拆块（标题 / 图 / 表 / 注文）同样要标注：分页器只在块带 column 时
+     * 才对齐断列（breakColumn），漏标会让页末多丢一整列、正文整体错位 */
+    expect(vertical.find((b) => b.id === 'h-1')?.axis).toBe('column');
+    expect(vertical.every((b) => b.axis === 'column')).toBe(true);
 
     const horizontal = extractBlocks(sampleDoc(), { axis: 'row' });
     expect(horizontal.every((b) => b.axis === undefined)).toBe(true);

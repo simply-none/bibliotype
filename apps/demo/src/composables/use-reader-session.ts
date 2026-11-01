@@ -154,6 +154,9 @@ export function useReaderSession(deps: ReaderSessionDeps) {
   function createReader(layout: LayoutOptions, document: BookDocument = lunyuDocument): Reader {
     const r = new Reader({
       layout,
+      /* 令牌透传：Reader 在直排下自行按「布局 + 令牌」推导字位口径（换主题 /
+       * 漏传 measure 的宿主不会被横排量尺带偏），推导结果必须与主题同源 */
+      tokens: tokens.value,
       measure: typographyMeasure(),
       pageMainSize: pageMainSize.value,
       bottomSlack: bottomSlack.value,

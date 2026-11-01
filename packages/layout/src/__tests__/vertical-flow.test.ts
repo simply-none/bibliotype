@@ -100,9 +100,15 @@ describe('serializeVerticalFlow（行内流序列化）', () => {
     return node;
   };
 
-  it('段落行内化（bt-vpara），无行款时零额外标记', () => {
+  it('段落行内化（bt-vpara）+ 段界恒低一格；续排片段不重发', () => {
     const html = serializeVerticalFlow([para('正文')], { charsPerColumn: 10 });
-    expect(html).toBe('<span class="bt-vpara">正文</span>');
+    /* 连排下块级外边距消失，段界只能靠段首低一格呈现——不给就是一面字墙 */
+    expect(html).toBe('<span class="bt-vpad" data-n="1"></span><span class="bt-vpara">正文</span>');
+    const cont = serializeVerticalFlow([para('续排')], {
+      charsPerColumn: 10,
+      omitRulePrefix: true,
+    });
+    expect(cont).toBe('<span class="bt-vpara">续排</span>');
   });
 
   it('低格 → 段首空位盒（N 字位高，列首列中语义一致）；挪抬并入空位', () => {
@@ -114,7 +120,10 @@ describe('serializeVerticalFlow（行内流序列化）', () => {
 
   it('提行 / 平抬 → 断列 br；抬升 → 列首空位盒（data-n）', () => {
     const breakHtml = serializeVerticalFlow([para('另起', { breakLine: true })], { charsPerColumn: 10 });
-    expect(breakHtml).toContain('<br class="bt-vbreak"><span class="bt-vpara">');
+    /* 断列 br 之后仍带段界空位盒（提行后段首低一格） */
+    expect(breakHtml).toContain(
+      '<br class="bt-vbreak"><span class="bt-vpad" data-n="1"></span><span class="bt-vpara">',
+    );
     const lift = serializeVerticalFlow(
       [para('天恩', { lift: 'newline', liftLevel: 3 })],
       { charsPerColumn: 10 },
@@ -146,8 +155,10 @@ describe('serializeVerticalFlow（行内流序列化）', () => {
     const html = serializeVerticalFlow([heading, para('甲'), para('乙')], { charsPerColumn: 10 });
     /* 题前恒提行（另起一列顶格），题盒本身行内化（块级会整列白扔） */
     expect(html).toContain('<br class="bt-vbreak"><h2 class="bt-heading" data-level="2">学而第一</h2>');
-    /* 题后正文与后续段落同列相续（无块级边界） */
-    expect(html).toContain('学而第一</h2><span class="bt-vpara">甲</span><span class="bt-vpara">乙</span>');
+    /* 题后正文与后续段落同列相续（无块级边界，段首各低一格） */
+    expect(html).toContain(
+      '学而第一</h2><span class="bt-vpad" data-n="1"></span><span class="bt-vpara">甲</span><span class="bt-vpad" data-n="1"></span><span class="bt-vpara">乙</span>',
+    );
   });
 
   it('超长夹注多对输出：全部注文恰好出现一次（切片窗口不重叠）', () => {
@@ -203,7 +214,9 @@ describe('serializeVerticalFlow（行内流序列化）', () => {
       children: [{ type: 'double-note', children: [{ type: 'text', text: '長注正文 abcde' }] }],
     };
     const headHtml = serializeVerticalFlow([head], { charsPerColumn: 4 });
-    expect(headHtml).not.toContain('bt-vpad');
+    /* 段界空位盒属于段首（每段一个），夹注盒自身不加列首空位 */
+    expect(headHtml).toContain('<span class="bt-vpara"><span class="bt-vnote"');
+    expect(headHtml).not.toContain('bt-vnote-col"><span class="bt-vpad"');
   });
 
   it('非连排节点透传 nodeOptions（tagOverrides / verticalText 等不丢）', () => {

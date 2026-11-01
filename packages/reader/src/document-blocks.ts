@@ -14,6 +14,7 @@
 import { NODE_TYPES, isTextNode, type BookDocument, type BookNode } from '@bibliotype/core';
 import {
   isFlowParagraphType,
+  flowBoundarySlots,
   lineRuleOverhead,
   resolveLineRule,
   type BlockAxis,
@@ -215,8 +216,23 @@ export function estimateLineCharOffsets(
  */
 export const defaultEstimator: BlockSizeEstimator = (node, context) => {
   const length = collectNodeText(node).length;
-  const { firstLineIndentChars } = lineRuleOverhead(resolveLineRule(node));
-  const lines = estimateLineCount(length, context.charsPerLine, firstLineIndentChars);
+  const rule = resolveLineRule(node);
+  const { firstLineIndentChars } = lineRuleOverhead(rule);
+  /*
+   * 直排段界字位（与 `serializeVerticalFlow` 的 `bt-vpad` 同源）：连排下
+   * 每段段首都多占一个空位盒，渲染有、估算没有就会每页少算「段数」个
+   * 字位（30 余段 ≈ 一整列）——真实页末溢出被裁。字位口径以
+   * `columnPitch` 为凖（仅直排量度上下文持有），横排不折算，产物零变化。
+   */
+  const boundary =
+    context.columnPitch !== undefined && isFlowParagraphType(node.type)
+      ? flowBoundarySlots(rule)
+      : 0;
+  const lines = estimateLineCount(
+    length + boundary,
+    context.charsPerLine,
+    firstLineIndentChars,
+  );
   return lines * context.lineSize + context.blockSpacing;
 };
 
@@ -550,11 +566,20 @@ export function extractBlocksIndexed(
       blocks.push({
         id,
         mainSize: advance,
+        /*
+         * 直排主轴标注：**所有块**（含标题 / 图 / 表 / 注文等不可拆块）都要带
+         * `axis: 'column'`。分页器只在 `blockAxisOf(block) === 'column'` 时才
+         * 执行断列对齐（breakColumn），曾只给可拆块标注 → 标题这类块拿不到
+         * 对齐，分页器把它当「列中一行」入账，浏览器却因行内流的断列标记把它
+         * 推到下一列：本页因此多丢一整列（页末半截空白）且其后正文整体错位一列，
+         * 页末被裁——用户可见的「明明还有空位却从中间截断」。横排（axis 'row'）
+         * 不写本字段，产物逐字节不变。
+         */
+        ...(axis === 'column' ? { axis } : {}),
         ...(splittable
           ? {
               splittable: true,
               lineSize,
-              ...(axis === 'column' ? { axis } : {}),
               ...(perLineSizes !== undefined
                 ? { lineMainSizes: [...perLineSizes], lineCount: perLineSizes.length }
                 : hasMeasured && (axis === 'column' ? lines > 0 : lines > 1)

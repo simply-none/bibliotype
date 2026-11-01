@@ -111,6 +111,8 @@ export {
 export {
   resolveLineRule,
   lineRuleOverhead,
+  flowBoundarySlots,
+  FLOW_PARAGRAPH_BOUNDARY_SLOTS,
   NO_LINE_RULE,
   type LineRule,
   type LiftType,

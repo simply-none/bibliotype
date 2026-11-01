@@ -64,6 +64,24 @@ export function resolveLineRule(node: BookNode): LineRule {
   return { indentChars, lift, liftLevel, breakLine };
 }
 
+/** 直排连排的段界缺省字位数（段首低一格） */
+export const FLOW_PARAGRAPH_BOUNDARY_SLOTS = 1;
+
+/**
+ * 段界字位数（直排连排的段首空位盒）
+ *
+ * 直排正文是连排：段与段同列接排、块级外边距随行内化消失，段界只能由
+ * 段首「低格」空位盒呈现。缺省低一格；显式低格 / 挪抬更大时取显式值。
+ * 渲染（`serializeVerticalFlow` 的 `bt-vpad`）与估算（`defaultEstimator`
+ * 的字位折算）共用本函数，保证「所见」与「所算」同源。
+ */
+export function flowBoundarySlots(rule: LineRule): number {
+  return Math.max(
+    FLOW_PARAGRAPH_BOUNDARY_SLOTS,
+    rule.indentChars + (rule.lift === 'space' ? 1 : 0),
+  );
+}
+
 /**
  * 行款的估算折算（无 DOM 路径的容量口径）
  *

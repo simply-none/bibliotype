@@ -18,12 +18,14 @@ import {
 } from '@bibliotype/core';
 import {
   DEFAULT_LAYOUT_OPTIONS,
+  isVerticalMode,
   lineRuleOverhead,
   mergeLayoutOptions,
   paginate,
   resolveLineRule,
   resolvePageMainSize,
   resolveBottomSlack,
+  resolveVerticalMeasureContext,
   sliceNodeByCharRange,
   type BlockAxis,
   type LayoutOptions,
@@ -208,6 +210,41 @@ function defaultPageMainSize(
   return resolvePageMainSize(layout, tokens);
 }
 
+/**
+ * 量度上下文与书写方向对齐（直排 → 字位网格口径）
+ *
+ * 直排的「一行」是一个**字位**：`charsPerLine = 1`、`lineSize` 是字位宽、
+ * `blockSpacing = 0`、`columnPitch` 是列距（见 layout 的
+ * `resolveVerticalMeasureContext`）。任何一条横排口味的量表（每行数十字、
+ * lineSize 是行高）漏进直排分页，一列就被当成一行：92k 字的书实测排出
+ * 1030 页、每页只排 89 字，页末大片空白且句子从句中截断——正是用户可见的
+ * 「明明还能塞进去文字，就突然从中间截断了」。
+ *
+ * 判归：调用方显式声明的主轴与布局一致时视为**有意**指定量度（打印 / 导出
+ * 用合成尺），原样尊重；主轴缺失或与布局不一致（换主题重建 Reader 的
+ * 瞬态、漏传 measure 的宿主）则以布局 + 令牌推导，避免「新布局 + 旧尺」。
+ * 横排完全不受影响（原样返回传入值）。
+ */
+function alignMeasureToLayout(
+  layout: LayoutOptions,
+  tokens: Readonly<Record<string, string | undefined>>,
+  measure: BlockMeasureContext,
+  axis: BlockAxis | undefined,
+): BlockMeasureContext {
+  if (!isVerticalMode(layout.writingMode)) return measure;
+  // 已是字位口径：调用方自定义的微调（缩放手感等）保留
+  if (measure.charsPerLine === 1 && measure.columnPitch !== undefined) return measure;
+  // 显式声明直排主轴：视为有意给定合成量度，原样尊重
+  if (axis === 'column') return measure;
+  const slot = resolveVerticalMeasureContext(layout, tokens);
+  return {
+    charsPerLine: slot.charsPerLine,
+    lineSize: slot.lineSize,
+    blockSpacing: slot.blockSpacing,
+    columnPitch: slot.columnPitch,
+  };
+}
+
 /** 流式分块选项 → 缓存键（缺省值与显式值视为不同选项，避免误命中） */
 function flowCacheKey(options: BuildFlowChunksOptions): string {
   return `${options.maxBlocksPerChunk ?? ''}|${options.maxCharsPerChunk ?? ''}`;
@@ -227,6 +264,8 @@ export class Reader {
   private readonly tokens: Readonly<Record<string, string | undefined>>;
   private readonly estimator: BlockSizeEstimator;
   private measure: BlockMeasureContext;
+  /** 与书写方向对齐后的量度上下文（直排为字位口径，见 alignMeasureToLayout） */
+  private effectiveMeasure: BlockMeasureContext;
   /** 实测块尺寸映射（DOM 实测）；缺省回退估算 */
   private blockSizes: ReadonlyMap<string, number> | undefined;
   /** 块 → 每行起始字符偏移表（DOM 实测）；供 getPageFragments 按真实行切片 */
@@ -288,6 +327,12 @@ export class Reader {
     this.bodySizes = options.bodySizes;
     this.lineCounts = options.lineCounts;
     this.axis = options.axis;
+    this.effectiveMeasure = alignMeasureToLayout(
+      this.options,
+      this.tokens,
+      this.measure,
+      this.axis,
+    );
     this.footnoteFloat = options.footnoteFloat === true;
     // 与 paginate 的夹取口径一致：注区至少 5%（保证有空间），至多占满一页
     this.noteMaxRatio = Math.min(1, Math.max(0.05, options.noteMaxRatio ?? 0.4));
@@ -373,16 +418,34 @@ export class Reader {
       this.widowControl = this.options.widowControl;
     }
 
+    /* 主轴与实际书写方向比对：不一致则作废量尺表（见下方 extractBlocksIndexed 说明） */
+    const layoutAxis: BlockAxis = isVerticalMode(this.options.writingMode) ? 'column' : 'row';
+    const metricsMatchAxis = (this.axis ?? layoutAxis) === layoutAxis;
+    // 量度上下文同样必须跟随书写方向（见 alignMeasureToLayout 说明）
+    this.effectiveMeasure = alignMeasureToLayout(
+      this.options,
+      this.tokens,
+      this.measure,
+      this.axis,
+    );
     const extracted = extractBlocksIndexed(this.doc, {
       estimator: this.estimator,
-      context: this.measure,
-      blockSizes: this.blockSizes,
-      lineOffsets: this.lineOffsets,
-      lineSizes: this.lineSizes,
-      lineMainSizes: this.lineMainSizes,
-      bodySizes: this.bodySizes,
-      lineCounts: this.lineCounts,
-      axis: this.axis,
+      context: this.effectiveMeasure,
+      /*
+       * 主轴由**布局书写方向**唯一决定（与量尺的 resolveBlockAxis 同源）。
+       * 调用方传入的 axis 只是量尺产物的标注，不能反过来决定块的主轴：
+       * 主题切换会以「新布局 + 旧量尺表」重建 Reader，旧表（横排实测的行高 /
+       * 行偏移 / 推进量）喂给直排分页时每块按横排行记账，一页只装得下十几块，
+       * 页末大片留白、句子从中间被截断。轴不一致时量尺表一并作废，回退估算
+       * （估算器按当前 measure 上下文的字位口径给行数）。
+       */
+      blockSizes: metricsMatchAxis ? this.blockSizes : undefined,
+      lineOffsets: metricsMatchAxis ? this.lineOffsets : undefined,
+      lineSizes: metricsMatchAxis ? this.lineSizes : undefined,
+      lineMainSizes: metricsMatchAxis ? this.lineMainSizes : undefined,
+      bodySizes: metricsMatchAxis ? this.bodySizes : undefined,
+      lineCounts: metricsMatchAxis ? this.lineCounts : undefined,
+      axis: layoutAxis,
       /* 分栏单通道：布局设置的 columns 作为全树缺省（结构节点 attrs 覆盖），
        * 与渲染侧 column-count、量尺栏宽同源 */
       columns: this.options.columns,
@@ -460,7 +523,7 @@ export class Reader {
   get bottomSlackPx(): number {
     return (
       this.bottomSlack ??
-      resolveBottomSlack(this.options, this.tokens, this.measure.lineSize)
+      resolveBottomSlack(this.options, this.tokens, this.effectiveMeasure.lineSize)
     );
   }
 
@@ -708,7 +771,7 @@ export class Reader {
      * 与估算器口径互相矛盾——缩进段跨页切片错位 indentChars 个字符。
      */
     const node = this.nodeOf(id);
-    const cpl = Math.max(1, this.measure.charsPerLine);
+    const cpl = Math.max(1, this.effectiveMeasure.charsPerLine);
     if (node === undefined) {
       return { from: fromLine * cpl, to: (fromLine + lineCount) * cpl };
     }

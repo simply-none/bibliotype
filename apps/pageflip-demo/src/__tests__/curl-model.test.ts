@@ -48,42 +48,39 @@ describe('solveFoldPose · forward 边缘拖拽', () => {
   });
 });
 
-describe('solveFoldPose · backward 掀回', () => {
+describe('solveFoldPose · backward 掀回（与 forward 镜像对称）', () => {
   const grab: Point = { x: 0, y: 300 };
 
-  it('触点在书脊（p_back=0）时为折平隐藏态（镜像到页外）', () => {
+  it('p=0（触点未拉动）时全页平贴', () => {
     const pose = solveFoldPose({ grab, touch: { x: 0, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
     expect(pose.progress).toBe(0);
-    expect(pose.radius).toBeCloseTo(CFG.landRadius, 5);
-    const d = deformPoint({ x: 300, y: 300 }, pose, SIZE);
-    expect(d.x).toBeLessThan(0); // 材料翻到页外
-    expect(d.z).toBeLessThanOrEqual(2 * CFG.landRadius + 1e-6);
-  });
-
-  it('触点推进时折痕跟随触点 x，progress = touch.x / w', () => {
-    const pose = solveFoldPose({ grab, touch: { x: 100, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
-    expect(pose.progress).toBeCloseTo(0.25, 5);
-    expect(pose.creaseOrigin.x).toBeCloseTo(100, 5);
-  });
-
-  it('p_back=1（触点达自由边）时完全铺开', () => {
-    const pose = solveFoldPose({ grab, touch: { x: 400, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
-    expect(pose.progress).toBe(1);
-    for (const x of [0, 100, 300, 399]) {
-      const d = deformPoint({ x, y: 300 }, pose, SIZE);
-      expect(d.z).toBe(0);
-      expect(d.x).toBeCloseTo(x, 5);
+    for (const x of [0, 100, 200, 399]) {
+      expect(deformPoint({ x, y: 300 }, pose, SIZE).z).toBe(0);
     }
   });
 
-  it('掀回中态：书脊侧材料已铺平（逐渐盖住下层页），自由边侧仍卷入', () => {
-    const pose = solveFoldPose({ grab, touch: { x: 200, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
-    const deposited = deformPoint({ x: 100, y: 300 }, pose, SIZE);
-    expect(deposited.face).toBe('flat');
-    expect(deposited.x).toBeCloseTo(100, 5);
-    const curling = deformPoint({ x: 300, y: 300 }, pose, SIZE);
-    expect(curling.face).not.toBe('flat'); // 卷曲压缩段（材料被卷入）
-    expect(curling.x).toBeLessThan(300); // 向折痕方向压缩
+  it('折痕自书脊扫向自由边：触点右移 → 折痕右移、进度增长', () => {
+    const pose = solveFoldPose({ grab, touch: { x: 100, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(pose.progress).toBeCloseTo(0.125, 5); // 100 / (2×400)
+    expect(pose.creaseOrigin.x).toBeCloseTo(50, 5); // 中垂线：推进 = 行程/2
+    expect(pose.radius).toBeCloseTo(0.03 * 400 + 0.05 * 50, 3);
+  });
+
+  it('掀起材料翻出自由边页外（镜像 forward 越书脊）', () => {
+    // 深拉：折痕接近自由边，掀起材料（书脊侧）翻过自由边落到页外右侧
+    const pose = solveFoldPose({ grab, touch: { x: 400, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(pose.creaseOrigin.x).toBeCloseTo(200, 5);
+    expect(pose.progress).toBeCloseTo(0.5, 5);
+    // 书脊侧材料（x < 200）已掀起：其背面斜披段落到折痕右侧（页内/页外）
+    const d = deformPoint({ x: 0, y: 300 }, pose, SIZE);
+    expect(d.face).not.toBe('flat');
+    expect(d.x).toBeGreaterThan(200); // 翻到折痕另一侧
+  });
+
+  it('快甩语义与 forward 一致：进度阈值 / 甩速判定可完成翻页', () => {
+    // 手指拖到 clampTouch 上限（1.3W）时进度 ≈ 0.65 > completeProgress
+    const pose = solveFoldPose({ grab, touch: { x: 520, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(pose.progress).toBeGreaterThan(0.25);
   });
 });
 

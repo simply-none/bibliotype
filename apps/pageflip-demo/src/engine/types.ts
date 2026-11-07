@@ -23,7 +23,8 @@ export interface PageSize {
 /** 翻页方向（相对屏幕的行款）。 */
 export type FlipOrientation = 'ltr' | 'rtl';
 
-/** 翻页动作方向：forward = 揭过当前页看下一页；backward = 掀回上一页。 */
+/** 翻页动作方向：forward = 当前页自自由边掀起翻向书脊侧，揭示下一页；
+ *  backward = 当前页自书脊侧掀起翻向自由边侧，揭示上一页（与 forward 镜像对称）。 */
 export type FlipAction = 'forward' | 'backward';
 
 /** 抓取模式：角部拖拽（折痕倾斜、圆锥感）或边缘拖拽（折痕平行书脊）。 */

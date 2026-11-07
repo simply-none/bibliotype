@@ -250,12 +250,12 @@ export class FlipController {
       const progress = this.pose?.progress ?? 0;
       const adopted = this.virtualTouchAt(this.session, progress);
       // swipe 会话：把位移原点平移到当前按下点，使行程从当前进度无缝继续
+      //（两方向行程均为 2×折痕推进——中垂线模型）
       if (this.session.inputMode === 'swipe') {
-        const forwardP = this.session.action === 'forward' ? progress : 1 - progress;
-        const sign = (this.session.action === 'forward') === ((this.provider?.orientation ?? 'ltr') === 'ltr') ? 1 : -1;
-        // forward 行程 = 2×折痕推进（中垂线），backward 折痕跟随手指（1×）
-        const travelScale = this.session.action === 'forward' ? 2 : 1;
-        this.session.swipeOrigin = { x: event.x + sign * this.session.session.distEnd * travelScale * forwardP, y: event.y };
+        const forwardLtr =
+          (this.session.action === 'forward') === ((this.provider?.orientation ?? 'ltr') === 'ltr');
+        const travel = this.session.session.distEnd * 2 * progress;
+        this.session.swipeOrigin = { x: forwardLtr ? event.x + travel : event.x - travel, y: event.y };
       }
       this.downTime = event.time;
       this.downScreen = { x: event.x, y: event.y };
@@ -288,8 +288,9 @@ export class FlipController {
       mode: zone.mode,
       grab: zone.grab,
       session: foldSession,
-      fromPage: zone.action === 'forward' ? this.currentPage : this.currentPage - 1,
-      underPage: zone.action === 'forward' ? this.currentPage + 1 : this.currentPage,
+      // 对称语义：翻动的始终是当前页（fromPage），下层揭示目标页
+      fromPage: this.currentPage,
+      underPage: zone.action === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
       progressCap: this.progressCapFor(zone.action),
       inputMode: 'grab',
       swipeOrigin: { x: event.x, y: event.y },
@@ -320,14 +321,11 @@ export class FlipController {
         Math.max(this.swipeTravel(event.x), 0),
         this.session.progressCap * this.session.session.distEnd
       );
-      const grabF =
-        this.session.action === 'forward'
-          ? this.session.grab
-          : { x: this.page.width - this.session.grab.x, y: this.session.grab.y };
+      const grab = this.session.grab;
       const n = this.session.session.axisNormal;
       this.rawTouch = {
-        x: grabF.x - n.x * travel,
-        y: grabF.y + (event.y - this.session.swipeOrigin.y) * 0.5,
+        x: grab.x - n.x * travel,
+        y: grab.y + (event.y - this.session.swipeOrigin.y) * 0.5,
       };
       this.samples.push({ time: event.time, dist: travel });
     } else {
@@ -383,8 +381,9 @@ export class FlipController {
       mode: 'edge',
       grab,
       session: foldSession,
-      fromPage: forward ? this.currentPage : this.currentPage - 1,
-      underPage: forward ? this.currentPage + 1 : this.currentPage,
+      // 对称语义：翻动的始终是当前页
+      fromPage: this.currentPage,
+      underPage: forward ? this.currentPage + 1 : this.currentPage - 1,
       progressCap: 1,
       inputMode: 'swipe',
       // 原点保持按下点：提交瞬间即继承从按下到现在的全部行程
@@ -396,9 +395,8 @@ export class FlipController {
       pendingReturn: false,
     };
     // 起始姿态：行程 0（触点 = 抓取点）
-    const grabF = forward ? grab : { x: w - grab.x, y: grab.y };
-    this.rawTouch = { ...grabF };
-    this.filteredTouch = { ...grabF };
+    this.rawTouch = { ...grab };
+    this.filteredTouch = { ...grab };
     this.samples = [];
     this.dirty = true;
   }
@@ -458,18 +456,17 @@ export class FlipController {
     if (!state) {
       return 0;
     }
-    const grabF = state.action === 'forward' ? state.grab : { x: this.pageRect.width - state.grab.x, y: state.grab.y };
     const n = state.session.axisNormal;
-    return -((touch.x - grabF.x) * n.x + (touch.y - grabF.y) * n.y);
+    return -((touch.x - state.grab.x) * n.x + (touch.y - state.grab.y) * n.y);
   }
 
   /** 由会话进度反解规范空间触点（打断接续用）。 */
   private virtualTouchAt(state: FlipSessionState, progress: number): Point {
-    const forwardP = state.action === 'forward' ? progress : 1 - progress;
-    const grabF = state.action === 'forward' ? state.grab : { x: this.pageRect.width - state.grab.x, y: state.grab.y };
-    const n = state.session.axisNormal;
-    const dist = state.session.distEnd * forwardP;
-    return { x: grabF.x - n.x * dist, y: grabF.y - n.y * dist };
+    const dist = state.session.distEnd * progress;
+    return {
+      x: state.grab.x - state.session.axisNormal.x * dist,
+      y: state.grab.y - state.session.axisNormal.y * dist,
+    };
   }
 
   // ---------- 抓取区判定 ----------
@@ -523,8 +520,9 @@ export class FlipController {
       mode,
       grab,
       session: foldSession,
-      fromPage: action === 'forward' ? this.currentPage : this.currentPage - 1,
-      underPage: action === 'forward' ? this.currentPage + 1 : this.currentPage,
+      // 对称语义：翻动的始终是当前页
+      fromPage: this.currentPage,
+      underPage: action === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
       progressCap: 1,
       inputMode: 'grab',
       swipeOrigin: { x: 0, y: 0 },
@@ -548,8 +546,8 @@ export class FlipController {
       mode: 'edge',
       grab,
       session: foldSession,
-      fromPage: action === 'forward' ? this.currentPage : this.currentPage - 1,
-      underPage: action === 'forward' ? this.currentPage + 1 : this.currentPage,
+      fromPage: this.currentPage,
+      underPage: action === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
       progressCap: BOUNCE_PROGRESS,
       inputMode: 'grab',
       swipeOrigin: { x: 0, y: 0 },
@@ -659,7 +657,7 @@ export class FlipController {
     }
     const forward = state.action === 'forward';
     if (state.targetProgress >= 1) {
-      this.currentPage = forward ? state.fromPage + 1 : state.fromPage;
+      this.currentPage = forward ? state.fromPage + 1 : state.fromPage - 1;
       this.emitState();
     }
     this.session = null;
@@ -707,12 +705,11 @@ export class FlipController {
     if (!underTex) {
       return; // 首帧纹理未就绪，prefetch 会置 dirty
     }
-    // 落定淡出：镜像平贴态（forward 尾段 / backward 起段）落在页外，
-    // 让背面平铺段随进度消隐，避免"悬空整页 → 完成瞬间硬切消失"。
+    // 落定淡出：镜像平贴态（p→1，材料翻出页外）随进度消隐，
+    // 避免"悬空整页 → 完成瞬间硬切消失"；forward/backward 对称。
     let flipFade = 0;
     if (state && this.pose) {
-      const forwardP = state.action === 'forward' ? this.pose.progress : 1 - this.pose.progress;
-      flipFade = smoothstep(0.85, 1, forwardP);
+      flipFade = smoothstep(0.85, 1, this.pose.progress);
     }
     this.renderer.render(
       {

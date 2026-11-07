@@ -1,17 +1,16 @@
 /**
  * 折痕姿态求解：触点/进度 → 折痕几何（纯函数）。
  *
- * 统一模型（forward / backward 共用同一套数学）：
- * - 规范空间书脊在 x=0、自由边在 x=W；折痕从自由边（p=0，全平）扫向书脊
- *   （p=1，镜像折平），折痕沿「抓取点 → 触点」轴线推进。
- * - 折痕左侧（s<0）材料平铺在桌面上，右侧（s>0）绕圆柱卷起并在弧长超过
- *   radius·π 后平背延伸、悬于折痕另一侧——即「卷曲 + 平背」两段式。
- * - 卷曲半径随进度正弦鼓包（起止松、中段最紧），折平端以 landRadius
- *   压成纸厚：forward 末段（翻过去贴落）/ backward 起段（折平隐藏）。
- * - backward（掀回上一页）= 上一页以镜像抓取点走同一 forward 求解：
- *   抓取点镜像到自由边（w − grab.x），触点直接复用（手指捏住折痕行进），
- *   掀回进度 = 1 − p。折平态恰好是跨书脊镜像（材料落在页外，仅书脊处
- *   留 ~纸厚折脊，形成"上一页边缘微露"的效果）。
+ * 统一模型（forward / backward 完全对称，仅抓取侧与页面序号不同）：
+ * - 规范空间书脊在 x=0、自由边在 x=W；
+ * - forward：抓取点在自由边，折痕自自由边扫向书脊，掀起材料越过书脊
+ *   翻出页外左侧，下层揭示下一页；
+ * - backward：抓取点在书脊侧，折痕自书脊扫向自由边，掀起材料越过
+ *   自由边翻出页外右侧，下层揭示上一页——与 forward 镜像对称；
+ * - 折痕 = 抓取点与触点连线的**中垂线**（2D 刚性折叠，云展网/StPageFlip
+ *   同款），卷曲半径随进度正弦鼓包，折平端以 landRadius 压成纸厚。
+ * - 两方向共用同一进度语义：p ∈ [0,1] = 折叠完成度（0 全平、1 全部
+ *   翻出页外），落定淡出等后处理因此天然对称。
  */
 import type { FlipAction, FlipConfig, FoldPose, GrabMode, PageSize, Point } from './types';
 
@@ -78,35 +77,30 @@ export function createFoldSession(
   size: PageSize,
   config: FlipConfig
 ): FoldSession {
-  const axisNormal = axisNormalFor(grab, touch, mode, action, size);
+  const axisNormal = axisNormalFor(grab, touch, mode, action);
   return {
     grab: { ...grab },
     axisNormal,
     mode,
     action,
     touchYOffset: touch.y - grab.y,
-    distEnd: distEndFor(mirrorGrab(grab, action, size), axisNormal, size),
+    distEnd: distEndFor(grab, axisNormal, size),
     size,
     config,
   };
 }
 
 /** 卷起侧法向：从触点指向抓取点；边缘模式锁水平（折痕平行书脊）。 */
-function axisNormalFor(grab: Point, touch: Point, mode: GrabMode, action: FlipAction, size: PageSize): Point {
-  const grabF = mirrorGrab(grab, action, size);
-  const touchF = action === 'forward' ? touch : { x: touch.x, y: touch.y };
-  let nx = grabF.x - touchF.x;
-  let ny = mode === 'edge' ? 0 : grabF.y - touchF.y;
+function axisNormalFor(grab: Point, touch: Point, mode: GrabMode, action: FlipAction): Point {
+  let nx = grab.x - touch.x;
+  let ny = mode === 'edge' ? 0 : grab.y - touch.y;
   const len = Math.sqrt(nx * nx + ny * ny);
   if (len < EPSILON) {
-    return { x: 1, y: 0 };
+    // 触点与抓取点重合（自动翻页起点 / swipe 提交瞬间）：
+    // 按动作方向给默认轴向——forward 抓自由边（+x），backward 抓书脊（-x）
+    return action === 'forward' ? { x: 1, y: 0 } : { x: -1, y: 0 };
   }
   return { x: nx / len, y: ny / len };
-}
-
-/** backward：抓取点镜像到自由边（w − grab.x），使上一页复用 forward 几何。 */
-function mirrorGrab(grab: Point, action: FlipAction, size: PageSize): Point {
-  return action === 'forward' ? grab : { x: size.width - grab.x, y: grab.y };
 }
 
 /** 推进终点：页面四角在 −n̂ 方向上距抓取点的最远射影。 */
@@ -127,55 +121,37 @@ function distEndFor(grab: Point, normal: Point, size: PageSize): number {
 
 /**
  * 拖拽求解：由实时触点解算姿态（折痕方向 / 锥化随触点实时变化，跟手）。
- * 返回 pose.progress 以「自由端推进比例」计（手指拖过页面中线 ≈ 0.5）：
- * forward 为 0→1，backward 为 1→0 的掀回度。
- *
- * 折痕语义（各自模拟真实手势）：
- * - forward：捏住自由端拖拽 → 折痕 = 抓取点与触点连线的**中垂线**
- *   （2D 刚性折叠，云展网/StPageFlip 同款），自由端跟随手指，
- *   已掀材料绕大半径圆柱卷起，背面（镜像内容）自 θ>π/2 起大面积朝上；
- * - backward：捏住折痕（折叠态的纸脊）行进 → 折痕跟随手指，逐渐铺开。
+ * forward / backward 共用同一套数学（仅抓取侧不同）：
+ * 折痕 = 抓取点与触点连线的**中垂线**（2D 刚性折叠），自由端跟随手指；
+ * 折痕推进 = 手指行程的一半，progress = 手指行程 / 2·distEnd。
  */
 export function solveFoldPose(input: FoldSolveInput): FoldPose {
-  const { grab, touch, mode, action, size, config } = input;
-  const grabF = mirrorGrab(grab, action, size);
-  const touchF = action === 'forward' ? touch : { x: touch.x, y: touch.y };
-  const normal = axisNormalFor(grab, touch, mode, action, size);
-  const distEnd = distEndFor(grabF, normal, size);
+  const { grab, touch, mode, size, config } = input;
+  const normal = axisNormalFor(grab, touch, mode, input.action);
+  const distEnd = distEndFor(grab, normal, size);
   const fingerDist = clamp(
-    -((touchF.x - grabF.x) * normal.x + (touchF.y - grabF.y) * normal.y),
+    -((touch.x - grab.x) * normal.x + (touch.y - grab.y) * normal.y),
     0,
     distEnd * 2
   );
-  const fraction = clamp(fingerDist / (distEnd * 2), 0, 1);
-  if (action === 'forward') {
-    // 中垂线：折痕推进 = 手指行程的一半；progress = 手指行程 / 2·distEnd
-    //（手指拖满两个页宽 = 折痕到达书脊 = 整页翻过）
-    return buildPose(grabF, normal, mode, action, fingerDist / 2, fraction, touchF.y - grabF.y, distEnd, size, config);
-  }
-  // backward：progress = 掀回度 = 手指行程 / distEnd（书脊=0，达自由边=1）；
-  // 折痕跟随手指：forwardProgress = fingerDist/distEnd（folded 端折痕在书脊）。
-  const backFraction = clamp(fingerDist / distEnd, 0, 1);
-  return buildPose(grabF, normal, mode, action, fingerDist, backFraction, touchF.y - grabF.y, distEnd, size, config);
+  const progress = clamp(fingerDist / (distEnd * 2), 0, 1);
+  return buildPose(grab, normal, mode, fingerDist / 2, progress, touch.y - grab.y, distEnd, size, config);
 }
 
 /**
  * 按进度求解（snap 补间 / 点击翻页）：轴线与锥化偏移冻结自会话，
- * 保证补间路径与拖拽几何连续。
- * forward：dist = distEnd·p —— p=1 时折痕恰达书脊，整页翻过（镜像平贴）。
+ * 保证补间路径与拖拽几何连续。dist = distEnd·p——p=1 时折痕到达推进
+ * 终点，整页翻出页外（forward 越书脊、backward 越自由边）。
  */
 export function solveFoldPoseAtProgress(session: FoldSession, p: number): FoldPose {
-  const grabF = mirrorGrab(session.grab, session.action, session.size);
   const pClamped = clamp(p, 0, 1);
-  const dist = session.action === 'forward' ? session.distEnd * pClamped : session.distEnd * (1 - pClamped);
-  const forwardP = session.action === 'forward' ? pClamped : 1 - pClamped;
+  const dist = session.distEnd * pClamped;
   return buildPose(
-    grabF,
+    session.grab,
     session.axisNormal,
     session.mode,
-    session.action,
     dist,
-    forwardP,
+    pClamped,
     session.touchYOffset,
     session.distEnd,
     session.size,
@@ -183,28 +159,26 @@ export function solveFoldPoseAtProgress(session: FoldSession, p: number): FoldPo
   );
 }
 
-/** 姿态装配核心：dist = 折痕推进量，forwardProgress = 自由端推进比例（0..1）。 */
+/** 姿态装配核心：dist = 折痕推进量，progress = 折叠完成比例（0..1）。 */
 function buildPose(
-  grabF: Point,
+  grab: Point,
   normal: Point,
   mode: GrabMode,
-  action: FlipAction,
   dist: number,
-  forwardProgress: number,
+  progress: number,
   touchYOffset: number,
   distEnd: number,
   size: PageSize,
   config: FlipConfig
 ): FoldPose {
   const { width: w, height: h } = size;
-  // progress 以「自由端推进比例」计：手指拖过页面中线 ≈ 0.5，拖满一个页宽 = 1
-  const p = forwardProgress <= 0 ? 0 : clamp(forwardProgress, 0, 1);
+  const p = progress <= 0 ? 0 : clamp(progress, 0, 1);
 
   // 折痕点：沿抓取轴推进；边缘模式 y 随触点轻微跟随
-  let px = grabF.x - normal.x * dist;
-  let py = grabF.y - normal.y * dist;
+  let px = grab.x - normal.x * dist;
+  let py = grab.y - normal.y * dist;
   if (mode === 'edge') {
-    py = grabF.y + touchYOffset * 0.25;
+    py = grab.y + touchYOffset * 0.25;
   }
 
   // 折痕方向：垂直于 n̂，约定 y 分量 ≥ 0（边缘模式恒平行书脊）
@@ -228,7 +202,7 @@ function buildPose(
   let taper = 0;
   if (mode === 'corner') {
     const spread = clamp(Math.abs(touchYOffset) / (h * 0.5), 0, 1);
-    taper = config.taperStrength * spread * ((grabF.y / h - 0.5) * 2);
+    taper = config.taperStrength * spread * ((grab.y / h - 0.5) * 2);
   }
 
   return {
@@ -238,8 +212,8 @@ function buildPose(
     radius,
     taper,
     flatten,
-    progress: action === 'forward' ? p : 1 - p,
-    // 掀起材料全长（卷曲压缩段 + 背面平铺段）——背面三角宽度与投影范围依据
+    progress: p,
+    // 掀起材料全长（卷曲压缩段 + 背面斜披段）——背面三角宽度与投影范围依据
     strength: dist,
   };
 }

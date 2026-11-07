@@ -12,6 +12,7 @@
     "build:full": "turbo run build --force",
     "dev": "turbo run dev",
     "dev:demo": "pnpm --filter @bibliotype/demo dev",
+    "dev:pageflip": "pnpm --filter @bibliotype/pageflip-demo dev",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "verify": "pnpm build && pnpm test && pnpm typecheck",

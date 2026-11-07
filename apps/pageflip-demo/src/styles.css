@@ -1,0 +1,27 @@
+/* 仿真翻页 Demo 全局样式（仅本应用生效，不进入任何库包） */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1c1a17;
+  /* 移动端：禁止浏览器默认手势（滚动 / 缩放 / 长按菜单），翻页手势完全接管 */
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family:
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    'Noto Sans SC',
+    sans-serif;
+}

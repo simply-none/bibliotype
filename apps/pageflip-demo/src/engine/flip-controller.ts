@@ -588,6 +588,8 @@ export class FlipController {
       this.filteredTouch.x += (this.rawTouch.x - this.filteredTouch.x) * k;
       this.filteredTouch.y += (this.rawTouch.y - this.filteredTouch.y) * k;
       const capped = this.capTouch(this.filteredTouch);
+      // 折痕 y 跟随实时触点：同步会话偏移，snap 接续时折痕不跳变
+      state.session.touchYOffset = capped.y - state.grab.y;
       this.pose = solveFoldPose({
         grab: state.grab,
         touch: capped,
@@ -718,6 +720,7 @@ export class FlipController {
         pose: this.pose,
         flipFade,
         paperT: this.config.landRadius * 2,
+        bindSide: state ? (state.action === 'forward' ? -1 : 1) : 0,
         debug: this.debugFlag,
       },
       underTex,

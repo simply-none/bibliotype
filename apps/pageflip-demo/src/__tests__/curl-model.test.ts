@@ -35,6 +35,13 @@ describe('solveFoldPose · forward 边缘拖拽', () => {
     expect(100 / pose.radius).toBeGreaterThan(Math.PI);
   });
 
+  it('折痕恒竖直（平行装订边）：触点 y 变化不改变折痕方向', () => {
+    const pose = solveFoldPose({ grab, touch: { x: 200, y: 80 }, mode: 'edge', action: 'forward', size: SIZE, config: CFG });
+    expect(pose.creaseDir).toEqual({ x: 0, y: 1 });
+    // 折痕 y 随触点轻微跟随（1/4 行程）
+    expect(pose.creaseOrigin.y).toBeCloseTo(300 + (80 - 300) * 0.25, 5);
+  });
+
   it('progress=1（手指拖满 2×页宽）时折痕达书脊、压平为纸厚，整页镜像翻过', () => {
     // 手指拖到抓取点的镜像位（−W），中垂线折痕恰好推进到书脊
     const pose = solveFoldPose({ grab, touch: { x: -400, y: 300 }, mode: 'edge', action: 'forward', size: SIZE, config: CFG });
@@ -66,8 +73,8 @@ describe('solveFoldPose · backward 掀回（与 forward 镜像对称）', () =>
     expect(pose.radius).toBeCloseTo(0.03 * 400 + 0.05 * 50, 3);
   });
 
-  it('掀起材料翻出自由边页外（镜像 forward 越书脊）', () => {
-    // 深拉：折痕接近自由边，掀起材料（书脊侧）翻过自由边落到页外右侧
+  it('掀起材料翻折叠到折痕另一侧（镜像 forward 越中线）', () => {
+    // 深拉：折痕接近自由边，掀起材料（书脊侧）翻过折痕落到另一侧
     const pose = solveFoldPose({ grab, touch: { x: 400, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
     expect(pose.creaseOrigin.x).toBeCloseTo(200, 5);
     expect(pose.progress).toBeCloseTo(0.5, 5);
@@ -84,8 +91,8 @@ describe('solveFoldPose · backward 掀回（与 forward 镜像对称）', () =>
   });
 });
 
-describe('solveFoldPose · 角部拖拽', () => {
-  it('折痕方向垂直于拉扯方向', () => {
+describe('solveFoldPose · 角部捏角斜翻', () => {
+  it('折痕方向垂直于拉扯方向（斜折痕）', () => {
     const pose = solveFoldPose({
       grab: { x: 400, y: 0 },
       touch: { x: 120, y: 300 },
@@ -127,7 +134,7 @@ describe('solveFoldPose · 角部拖拽', () => {
 
 describe('会话补间一致性', () => {
   it('按进度求解与轴上触点实时求解结果一致', () => {
-    const grab: Point = { x: 400, y: 0 };
+    const grab: Point = { x: 400, y: 90 };
     const touch: Point = { x: 160, y: 240 };
     const session = createFoldSession(grab, touch, 'corner', 'forward', SIZE, CFG);
     // 轴上虚拟触点：抓取点沿 −axisNormal 推进 2·distEnd·p（中垂线行程）
@@ -136,6 +143,8 @@ describe('会话补间一致性', () => {
       x: grab.x - session.axisNormal.x * session.distEnd * 2 * p,
       y: grab.y - session.axisNormal.y * session.distEnd * 2 * p,
     };
+    // 拖拽中折痕 y 跟随实时触点（控制器每帧同步会话偏移）
+    session.touchYOffset = virtualTouch.y - grab.y;
     const live = solveFoldPose({ grab, touch: virtualTouch, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
     const byProgress = solveFoldPoseAtProgress(session, p);
     expect(byProgress.creaseOrigin.x).toBeCloseTo(live.creaseOrigin.x, 6);

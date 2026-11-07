@@ -35,6 +35,7 @@ uniform float uTaper;        // 轴向锥化
 uniform float uLift;         // 掀起材料全长（背面斜披段落桌依据）
 uniform float uFlat;         // 1 = 下层页（跳过形变）
 uniform float uMirrorSign;   // +1 = LTR，-1 = RTL（X 镜像）
+uniform float uBindSide;     // 书体缘约束：-1 左书体外缘（forward）/ +1 自由缘内侧（backward）/ 0 无
 
 varying vec2 vUv;
 varying float vS;            // 到折痕有符号距离（掀侧为正）
@@ -65,6 +66,17 @@ void main() {
          + uCreaseDir * xiPx
          + uWrapNormal * mix(bend, mirrored, overCrest);
     zLift = mix(lift, 2.0 * r * (1.0 - backFrac), overCrest);
+
+    // 书体缘约束（真实装订书）：折回部分甩出后落在装订侧书体上，
+    // 最多到书体外缘为止——forward 书脊左侧书体（外缘 x=-(W-14)），
+    // backward 自由缘内侧（x=W-14）。越出外缘的余量沿缘立起
+    // （纸被书缘/相邻书挡住），不会无限甩出（撕纸感）。
+    if (overCrest > 0.5 && uBindSide != 0.0) {
+      float edgeX = uBindSide < 0.0 ? -(uSize.x - 14.0) : (uSize.x - 14.0);
+      float overEdge = uBindSide < 0.0 ? max(edgeX - pos2.x, 0.0) : max(pos2.x - edgeX, 0.0);
+      pos2.x = uBindSide < 0.0 ? max(pos2.x, edgeX) : min(pos2.x, edgeX);
+      zLift += min(overEdge * 0.5, 80.0);
+    }
   }
 
   vS = s;
@@ -96,7 +108,8 @@ uniform float uRadius;        // 卷曲半径
 uniform float uTaper;         // 轴向锥化
 uniform float uLift;          // 掀起材料全长（自由端高光定位）
 uniform float uLandFade;      // 落定淡出系数（0=不透明，1=背面平铺段全透明）
-uniform float uPaperT;        // 每页纸厚（px）——书口页叠边层距
+uniform float uPaperT;        // 每页纸厚（px）——书口页叠边纹理的层距
+uniform float uBody;          // 1 = 装订侧书体页叠面（素纸渲染）
 uniform float uDebug;
 
 varying vec2 vUv;
@@ -104,6 +117,26 @@ varying float vS;
 varying float vXi;
 
 void main() {
+  // 装订侧书体（书脊左侧页叠面）：素纸 + 外缘薄层 + 书脊沟 + 接触投影。
+  // 折回部分甩出后落在它上面——与真实书本"纸翻过来贴在书的左半边"一致。
+  if (uBody > 0.5) {
+    vec3 paper = vec3(0.946, 0.928, 0.878);
+    float dOuter = (1.0 - vUv.x) * uSize.x;    // 距书体外缘（vUv.x = 0 端）
+    float stackW = uPaperT * 5.0;
+    float strip = 1.0 - smoothstep(stackW - uPaperT * 0.5, stackW, dOuter);
+    float shade = 1.0 - 0.06 * floor(dOuter / uPaperT)
+        - 0.22 * smoothstep(0.3, 0.5, abs(fract(dOuter / uPaperT) - 0.5));
+    vec3 col = mix(paper, paper * shade, strip);
+    col *= 1.0 - 0.12 * smoothstep(0.04, 0.0, vUv.x);        // 外缘微暗
+    col *= 1.0 - 0.20 * smoothstep(0.05, 0.0, 1.0 - vUv.x);  // 书脊沟（贴页缘）
+    float wS = max(uShadowWidth, 1.0);
+    float t1 = exp(-pow((vS + 0.22 * wS) / (0.34 * wS), 2.0));
+    float t2 = 0.5 * exp(-pow((vS - 0.12 * wS) / (0.45 * wS), 2.0));
+    col *= 1.0 - uShadowStrength * clamp(t1 + t2, 0.0, 1.0);
+    gl_FragColor = vec4(col, 1.0);
+    return;
+  }
+
   float uFront = mix(vUv.x, 1.0 - vUv.x, uMirror);
   float rL = max(uRadius * (1.0 - uTaper * vXi), 0.25);
   float foldW = rL * 3.141592653589793;     // 卷曲压缩段的材料全长
@@ -155,6 +188,16 @@ void main() {
     float dHead = vUv.y * uSize.y;           // 距天头
     float dTail = (1.0 - vUv.y) * uSize.y;   // 距地脚
     float stackW = uPaperT * 5.0;            // 叠边露出约 5 层
+
+    // 装订侧书页叠边：左缘薄层纸缘（书厚在装订侧同样可见）
+    float dBind = vUv.x * uSize.x;           // 距装订边（规范空间恒 uv.x = 0）
+    float bindStrip = 1.0 - smoothstep(stackW * 0.7 - uPaperT * 0.5, stackW * 0.7, dBind);
+    if (bindStrip > 0.003) {
+      float bindShade = 1.0 - 0.06 * floor(dBind / uPaperT)
+          - 0.22 * smoothstep(0.3, 0.5, abs(fract(dBind / uPaperT) - 0.5));
+      col *= mix(1.0, bindShade, bindStrip);
+    }
+
     float foreStrip = 1.0 - smoothstep(stackW - uPaperT * 0.5, stackW, dFore);
     if (foreStrip > 0.003) {
       float sheetShade = 1.0 - 0.06 * floor(dFore / uPaperT)

@@ -9,7 +9,7 @@ const ZONE_OPTS = {
 };
 
 describe('resolveGrabZone', () => {
-  it('右下角附近 → 角部 forward', () => {
+  it('右下角附近 → 角部 forward（捏角斜翻）', () => {
     const zone = resolveGrabZone({ x: 380, y: 580 }, SIZE, ZONE_OPTS);
     expect(zone?.mode).toBe('corner');
     expect(zone?.action).toBe('forward');
@@ -20,6 +20,7 @@ describe('resolveGrabZone', () => {
     const zone = resolveGrabZone({ x: 30, y: 20 }, SIZE, ZONE_OPTS);
     expect(zone?.mode).toBe('corner');
     expect(zone?.action).toBe('backward');
+    expect(zone?.grab).toEqual({ x: 0, y: 0 });
   });
 
   it('右侧边缘带 → 边缘 forward，抓取点 y 钳制在 15%~85%', () => {

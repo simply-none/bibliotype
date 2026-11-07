@@ -26,7 +26,8 @@ export interface GrabZoneOptions {
 const EDGE_Y_CLAMP = 0.15;
 
 /**
- * 判定触点所属抓取区：角部（近四角）优先，其次两侧边缘带；页面中部返回 null。
+ * 判定触点所属抓取区：角部（近四角，捏角斜翻）优先，其次两侧边缘带
+ * （捏边翻页，折痕平行书脊）；页面中部返回 null。
  * 纯几何判定，不考虑翻页可用性——边界方向由控制器以橡皮筋进度上限承接。
  */
 export function resolveGrabZone(touch: Point, size: PageSize, options: GrabZoneOptions): GrabZone | null {

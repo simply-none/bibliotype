@@ -27,19 +27,20 @@ export type FlipOrientation = 'ltr' | 'rtl';
  *  backward = 当前页自书脊侧掀起翻向自由边侧，揭示上一页（与 forward 镜像对称）。 */
 export type FlipAction = 'forward' | 'backward';
 
-/** 抓取模式：角部拖拽（折痕倾斜、圆锥感）或边缘拖拽（折痕平行书脊）。 */
+/** 抓取模式：角部拖拽（斜折痕，真实捏角翻页）或边缘拖拽（折痕平行书脊）。 */
 export type GrabMode = 'corner' | 'edge';
 
 /**
  * 折痕姿态——驱动顶点形变的完整参数集（规范空间）。
  *
  * - `creaseOrigin`：折痕线上的一点（沿抓取轴推进的当前折点）。
- * - `creaseDir`：折痕方向单位向量（垂直于拉扯方向，约定 y 分量 ≥ 0）。
- * - `wrapNormal`：指向「被卷起侧」的单位法向（规范空间平面内）。
+ * - `creaseDir`：折痕方向单位向量（装订书模型恒平行书脊：(0,1)）。
+ * - `wrapNormal`：指向「被卷起侧」的单位法向（规范空间平面内，恒水平）。
  *   s = (p − creaseOrigin)·wrapNormal > 0 的顶点进入卷曲区域。
- * - `radius`：卷曲半径（卷曲带宽度基准）；沿折痕轴向按 `taper` 线性锥化。
+ * - `radius`：卷曲半径（卷曲带宽度基准）。
+ * - `taper`：保留字段，装订书折痕恒竖直、无锥化，恒 0。
  * - `flatten ∈ [0,1]`：落页压平系数（折叠完成端收拢卷曲带）。
- * - `progress ∈ [0,1]`：翻页进度（自由端推进比例）。
+ * - `progress ∈ [0,1]`：翻页进度（折叠完成比例）。
  * - `strength`：掀起材料全长（像素）——背面平铺段宽度与投影范围的依据。
  */
 export interface FoldPose {
@@ -92,6 +93,13 @@ export interface FlipSceneState {
   flipFade: number;
   /** 每页纸厚（px，= 2×landRadius）——书口页叠边纹理的层距依据。 */
   paperT: number;
+  /**
+   * 书体缘约束：翻折部分甩出后最多落在书体上、不越过书体外缘。
+   * -1 = forward（书脊左侧书体，外缘 x=-W）；
+   * +1 = backward（自由缘内侧，外缘 x=W）；
+   * 0 = 无会话不钳制。
+   */
+  bindSide: number;
   /** 调试视图（法线 / 网格着色）。 */
   debug: boolean;
 }
@@ -114,9 +122,8 @@ export interface FlipConfig {
   radiusMax: number;
   /** 落页时纸张残余厚度半径（像素）——每页纸厚，折缝高度 = 2×此值。 */
   landRadius: number;
-  /** 折痕轴向锥化幅度上限（圆锥感，0 关闭）。 */
+  /** 折痕轴向锥化幅度上限（角部抓取的圆锥感，0 关闭）。 */
   taperStrength: number;
-  /** 平背延伸段下垂幅度（相对抬升高度）。 */
   /** 松手后继续翻页的进度阈值。 */
   completeProgress: number;
   /** 松手后继续翻页的速度阈值（像素/毫秒）。 */

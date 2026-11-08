@@ -26,8 +26,9 @@ controller.setProvider(myPageProvider); // 实现 PageProvider：把每页画到
 手势：拖拽角 / 边翻页（捏角斜折痕带书脊锚定约束、捏边平行书脊）、快甩
 完成、点击边/角自动翻页、方向键 / PageUp·Down / 滚轮；松手按「进度阈值
 OR 甩动速度」判定完成或回弹；边界橡皮筋；snap 补间可被新手势随时接管。
-桌面端鼠标悬停在**角部**热区时显示卷角预览（边缘热区不预览——真实书上
-悬停不会掀页；触摸设备无 hover，不触发）。
+桌面端鼠标悬停在**角部**热区时显示卷角预览（页角轻轻掀起的翻页提示）；
+悬停在**左右边缘**热区时书脊向沟内**微微弯折**（不掀页——书被轻轻掰开的
+预览效果）；触摸设备无 hover，不触发。
 
 ### 接入约束
 
@@ -136,6 +137,7 @@ new FlipController(canvas, { config });
 | `spineAoStrength` / `spineAoWidth` | 0.16 / 0.085 | 书脊常驻 AO |
 | `gutterCreaseDepth` / `gutterCreaseWidthRatio` | 0.42 / 0.006 | 双页书沟窄缝谷阴影（深度 / 缝宽比） |
 | `gutterRiseStrength` | 0.1 | 书沟坡面光泽高光幅度 |
+| `gutterFlexDepthRatio` | 0.05 | 边缘悬停书脊弯折深度（相对页高，渐入渐出） |
 | `stackLayers` | 5 | 书口叠边层数 |
 | `stackLayerDepth` / `stackLayerCrease` | 0.06 / 0.22 | 层深 / 层缝 |
 | `stackTopEdgeLight` / `stackHeadTailRatio` | 0.2 / 0.55 | 亮边 / 天头地脚带宽比 |

@@ -36,6 +36,7 @@ uniform float uTaper;        // 轴向锥化
 uniform float uDrapeBulge;   // 背面斜披段弧拱高度（px）
 uniform float uLift;         // 掀起材料全长（背面斜披段落桌依据）
 uniform float uFlat;         // 1 = 下层页（跳过形变）
+uniform float uGutterFlexZ;  // 书脊弯折深度（px，已按悬停强度缩放；0 = 平铺）
 uniform float uFrame;        // 页面帧（几何装订侧）：0 left / 1 right / 2 top / 3 bottom
 uniform float uOffsetX;      // 世界 X 偏移（双页模式：右面 +W_c/2、左面 −W_c/2、单页 0）
 
@@ -76,6 +77,14 @@ void main() {
       2.0 * r * (1.0 - drapeEase) + uDrapeBulge * drapeArc * drapeArc,
       overCrest
     );
+  }
+
+  if (uGutterFlexZ > 0.01 && uFlat > 0.5) {
+    // 边缘悬停的书脊弯折：两侧页面近缝向沟内微凹（背离观察者），
+    // 自由边不动——书脊被轻轻掰开的预览效果（不掀页）
+    float t = clamp(aPos.x / uSize.x, 0.0, 1.0);
+    float recess = pow(1.0 - t, 1.6);
+    zLift -= uGutterFlexZ * recess;
   }
 
   vS = s;
@@ -128,8 +137,9 @@ uniform float uFrontDark;     // 正面卷曲段渐暗幅度
 uniform vec2 uRootAo;         // 折痕根部 AO（强度, 宽度比）
 uniform vec2 uSpineAo;        // 书脊常驻 AO（强度, 宽度）
 uniform float uGutter;        // 1 = 双页书沟着色生效
+uniform float uGutterFlex;    // 书脊弯折强度 0..1（边缘悬停，缝谷阴影随之加深）
 uniform vec2 uGutterCrease;   // 书沟窄缝谷阴影（强度, 特征宽度 px）
-uniform vec3 uGutterRise;     // 峰肩光泽高光（幅度, 中心距 px, 带宽 px）
+uniform vec3 uGutterRise;     // 坡面光泽高光（幅度, 中心距 px, 带宽 px）
 uniform float uStackLayers;   // 书口页叠边层数
 uniform float uStackLayerDepth;  // 叠边层深
 uniform float uStackLayerCrease; // 叠边层缝对比
@@ -192,7 +202,7 @@ void main() {
     if (uGutter > 0.5) {
       float dSpinePx = vUv.x * uSize.x;
       float gutterCrease = exp(-dSpinePx / max(uGutterCrease.y, 1.0));
-      col *= 1.0 - uGutterCrease.x * gutterCrease;
+      col *= 1.0 - uGutterCrease.x * (1.0 + 0.35 * uGutterFlex) * gutterCrease;
       float sheenT = (dSpinePx - uGutterRise.y) / max(uGutterRise.z, 1.0);
       float gutterSheen = exp(-sheenT * sheenT);
       col *= 1.0 + uGutterRise.x * gutterSheen;

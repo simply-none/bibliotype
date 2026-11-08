@@ -133,11 +133,14 @@ export class GlRenderer {
     gl.uniform1f(u.get('uFrontDark')!, shading.frontCurlDark);
     gl.uniform2f(u.get('uRootAo')!, shading.rootAoStrength, shading.rootAoWidthRatio);
     gl.uniform2f(u.get('uSpineAo')!, shading.spineAoStrength, shading.spineAoWidth);
-    // 书沟着色参数（几何保持平铺桌面——书沟立体感仅由片元着色的
-    // 缝谷阴影 + 光泽表达，uGutter 按绘制对象逐次开关）
+    // 书沟着色参数（几何保持平铺桌面——书沟立体感由片元着色的缝谷阴影 +
+    // 光泽表达，uGutter 按绘制对象逐次开关）；书脊弯折（边缘悬停）：
+    // 深度按页高换算并已按弯折强度缩放，供顶点着色器微凹
     const creaseW = Math.max(shading.gutterCreaseWidthRatio * this.pageSize.width, 1);
     gl.uniform2f(u.get('uGutterCrease')!, shading.gutterCreaseDepth, creaseW);
     gl.uniform3f(u.get('uGutterRise')!, shading.gutterRiseStrength, this.pageSize.width * 0.06, this.pageSize.width * 0.05);
+    gl.uniform1f(u.get('uGutterFlexZ')!, shading.gutterFlexDepthRatio * this.pageSize.height * state.gutterFlex);
+    gl.uniform1f(u.get('uGutterFlex')!, state.gutterFlex);
     gl.uniform1f(u.get('uStackLayers')!, shading.stackLayers);
     gl.uniform1f(u.get('uStackLayerDepth')!, shading.stackLayerDepth);
     gl.uniform1f(u.get('uStackLayerCrease')!, shading.stackLayerCrease);
@@ -275,7 +278,7 @@ export class GlRenderer {
       'uVP', 'uSize', 'uCreaseOrigin', 'uCreaseDir', 'uWrapNormal', 'uRadius', 'uTaper',
       'uFlat', 'uFrame', 'uTuvFrame', 'uOffsetX', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
       'uBackTint', 'uBackWash', 'uBackShade', 'uFrontDark', 'uRootAo', 'uSpineAo',
-      'uGutter', 'uGutterCrease', 'uGutterRise',
+      'uGutter', 'uGutterFlexZ', 'uGutterFlex', 'uGutterCrease', 'uGutterRise',
       'uStackLayers', 'uStackLayerDepth', 'uStackLayerCrease', 'uStackTopLight', 'uStackHtRatio',
       'uLift', 'uDrapeBulge', 'uLandFade', 'uPaperT', 'uTex', 'uDebug', 'uAlpha',
     ];
@@ -307,7 +310,8 @@ export class GlRenderer {
 
   private buildMeshes(): void {
     this.flipMesh = this.createGridMesh(this.renderOptions.meshSegmentsX, this.renderOptions.meshSegmentsY);
-    this.underMesh = this.createGridMesh(1, 1);
+    // 下层页 48×2 细分：书脊弯折（边缘悬停）形变集中在缝部，需要近缝分辨率
+    this.underMesh = this.createGridMesh(48, 2);
   }
 
   /** 构建页面网格：交错 [x, y, u, v]，规范空间 [0,W]×[0,H]。 */

@@ -124,6 +124,9 @@ export class FlipController {
   private session: FlipSessionState | null = null;
   /** 悬停预览（idle 态且指针悬于抓取热区；仅鼠标 / 笔 hover 触发）。 */
   private hover: { zone: GrabZone; side: SpreadSide; pose: FoldPose } | null = null;
+  /** 书脊弯折（边缘悬停）：当前强度 0..1 与目标（tick 内渐入渐出）。 */
+  private flexK = 0;
+  private flexTarget = 0;
   private rawTouch: Point = { x: 0, y: 0 };
   private filteredTouch: Point = { x: 0, y: 0 };
   private pose: FoldPose | null = null;
@@ -877,6 +880,15 @@ export class FlipController {
     this.lastFrame = now;
     this.updateFps(dt);
 
+    // 书脊弯折（边缘悬停）渐入渐出
+    if (this.flexK !== this.flexTarget) {
+      this.flexK += (this.flexTarget - this.flexK) * (1 - Math.exp(-dt / 70));
+      if (Math.abs(this.flexTarget - this.flexK) < 0.004) {
+        this.flexK = this.flexTarget;
+      }
+      this.dirty = true;
+    }
+
     const state = this.session;
     if (this.phase === 'drag' && state) {
       // 触点低通滤波（与帧率无关），随后实时求解
@@ -940,9 +952,10 @@ export class FlipController {
       this.renderFrame();
     }
     // 空闲停帧：静止且干净时不再排程下一帧（输入事件 / markDirty 唤醒）；
-    // 翻页会话期间（drag/snap）、纹理回填欠账期间与渲染脏帧持续运转。
+    // 翻页会话期间（drag/snap）、纹理回填欠账期间、书脊弯折渐变期间与
+    // 渲染脏帧持续运转。
     this.rafActive = false;
-    if (this.phase !== 'idle' || this.dirty || pendingUploads) {
+    if (this.phase !== 'idle' || this.dirty || pendingUploads || this.flexK !== this.flexTarget) {
       this.schedule();
     } else if (this.fpsSamples.length >= 2) {
       // 停帧前用现有样本结算一次 fps（避免启动即停时读数停留在 0）
@@ -1054,6 +1067,8 @@ export class FlipController {
     const previewing = this.phase === 'idle' ? this.hover : null;
     const pose = state && this.pose ? this.pose : previewing?.pose ?? null;
     const spreadMode = this.effectiveViewMode() === 'spread';
+    // 书脊弯折（边缘悬停）：仅静止双页呈现（翻页会话开始即随悬停清除退场）
+    const gutterFlex = spreadMode && !state ? this.flexK : 0;
     // 落定淡出：镜像平贴态（p→1，材料翻出页外）随进度消隐，
     // 避免"悬空整页 → 完成瞬间硬切消失"；forward/backward 对称。
     let flipFade = 0;
@@ -1128,6 +1143,7 @@ export class FlipController {
         paperT: this.config.geometry.landRadius * 2,
         shading: this.config.shading,
         debug: this.debugFlag,
+        gutterFlex,
         flippingPage: flippingFace,
         underPage: 2 * underS,
         spread: {
@@ -1155,6 +1171,7 @@ export class FlipController {
         paperT: this.config.geometry.landRadius * 2,
         shading: this.config.shading,
         debug: this.debugFlag,
+        gutterFlex,
         flippingPage: flipIndex,
         underPage: underIndex,
         spread: null,
@@ -1267,12 +1284,23 @@ export class FlipController {
       return;
     }
     const zone = this.resolveInteractiveZone(touch);
-    // 仅角部悬停预览：边缘热区不预览——真实书上悬停不会掀页，且边缘
-    // 带宽、误触率高（真实掀页仍从边缘拖拽 / 点击触发）
-    if (!zone || zone.mode !== 'corner') {
+    if (!zone) {
       this.clearHover();
       return;
     }
+    if (zone.mode === 'edge') {
+      // 边缘悬停：书脊弯折——两侧页面近缝向沟内微凹（不掀页；页角卷曲
+      // 已按需求移除），弯折渐入由 tick 推进。仅双页生效（单页无中缝）。
+      const hadHover = this.hover !== null;
+      const wanted = this.effectiveViewMode() === 'spread' ? 1 : 0;
+      this.hover = null;
+      if (hadHover || this.flexTarget !== wanted || this.flexK > 0) {
+        this.flexTarget = wanted;
+        this.markDirty();
+      }
+      return;
+    }
+    this.flexTarget = 0; // 角部卷曲预览：书脊弯折退场
     if (
       this.hover &&
       this.hover.side === side &&
@@ -1288,7 +1316,8 @@ export class FlipController {
   }
 
   private clearHover(): void {
-    if (this.hover) {
+    this.flexTarget = 0; // 书脊弯折渐出
+    if (this.hover || this.flexK > 0) {
       this.hover = null;
       this.markDirty();
     }

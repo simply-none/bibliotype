@@ -635,16 +635,18 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
     expect(adapter.lastState?.flippingPage).toBe(0);
     expect(adapter.lastState?.underPage).toBe(1);
     expect(adapter.lastState?.pose?.progress ?? 1).toBeLessThan(0.2);
-    // 边缘热区（右缘中部）→ 不预览（真实书上悬停不会掀页）
+    // 边缘热区（右缘中部）→ 不掀页预览；单页无中缝，弯折不生效
     controller['handleHover'](462, 350);
     advance(controller, 32);
     expect(adapter.lastState?.pose).toBeNull();
     expect(controller['hover']).toBeNull();
-    // 离开热区（页面中部）
+    expect(adapter.lastState?.gutterFlex).toBe(0);
+    // 离开热区（页面中部）→ 弯折渐出
     controller['handleHover'](250, 350);
-    advance(controller, 32);
-    expect(adapter.lastState?.pose).toBeNull();
-    expect(controller['hover']).toBeNull();
+    expect(controller['flexTarget']).toBe(0);
+    for (let i = 0; i < 30; i++) advance(controller, 16);
+    expect(controller['flexK']).toBe(0);
+    expect(adapter.lastState?.gutterFlex).toBe(0);
     // 拖拽会话中悬停被忽略
     controller['handleHover'](455, 45);
     pointer(controller, 'down', 455, 45, 1300);
@@ -702,6 +704,50 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
     advance(controller, 1000);
     advance(controller, 16);
     expect(controller['rafActive']).toBe(false);
+    controller.destroy();
+  });
+});
+
+describe('FlipController 书脊弯折（边缘悬停）', () => {
+  const VIEW: PageSize = { width: 500, height: 700 };
+
+  function createController(options?: { providerOptions?: Parameters<typeof createStubProvider>[0] }) {
+    const { fakeCanvas, adapter } = createStubs();
+    const controller = new FlipController(fakeCanvas, { renderer: adapter });
+    controller.setViewport(VIEW.width, VIEW.height, 1);
+    const provider: PageProvider = createStubProvider(options?.providerOptions);
+    controller.setProvider(provider);
+    return { controller, adapter, provider };
+  }
+
+  it('双页边缘悬停：弯折渐入至 1，离开后渐出归零', () => {
+    const { controller, adapter } = createController({ providerOptions: { pageCount: 6 } });
+    controller.setViewMode('spread');
+    controller['handleHover'](470, 350); // 右面右缘中部 → 边缘弯折
+    expect(controller['flexTarget']).toBe(1);
+    expect(controller['hover']).toBeNull(); // 不掀页
+    advance(controller, 32);
+    expect(adapter.lastState?.gutterFlex).toBeGreaterThan(0.2);
+    for (let i = 0; i < 30; i++) advance(controller, 16); // 渐入完成（指数收敛吸附）
+    expect(controller['flexK']).toBe(1);
+    expect(adapter.lastState?.gutterFlex).toBe(1);
+    // 离开热区 → 渐出归零
+    controller['handleHover'](60, 350); // 左面自由边缘（边缘热区，弯折保持）
+    expect(controller['flexTarget']).toBe(1);
+    controller['handleHover'](250, 350); // 页面中部 → 渐出
+    expect(controller['flexTarget']).toBe(0);
+    for (let i = 0; i < 30; i++) advance(controller, 16);
+    expect(controller['flexK']).toBe(0);
+    expect(adapter.lastState?.gutterFlex).toBe(0);
+    controller.destroy();
+  });
+
+  it('单页模式边缘悬停无书脊弯折（中缝不存在）', () => {
+    const { controller, adapter } = createController({ providerOptions: { pageCount: 6 } });
+    controller['handleHover'](462, 350); // 右缘（边缘热区）
+    expect(controller['flexTarget']).toBe(0); // 单页无中缝：弯折不启动
+    advance(controller, 32);
+    expect(adapter.lastState?.gutterFlex).toBe(0); // 单页不呈现弯折
     controller.destroy();
   });
 });

@@ -123,6 +123,8 @@ export interface FlipSceneState {
   shading: ShadingOptions;
   /** 调试视图（法线 / 网格着色）。 */
   debug: boolean;
+  /** 书脊弯折强度 0..1（边缘悬停时两侧页面近缝向沟内微凹；非悬停为 0）。 */
+  gutterFlex: number;
 }
 
 /** 渲染适配器：控制器与 GL 渲染器之间的接缝（测试可注入桩实现）。 */
@@ -245,6 +247,8 @@ export interface ShadingOptions {
   gutterCreaseWidthRatio: number;
   /** 双页书沟：坡面光泽高光幅度（缝影外侧窄带）。 */
   gutterRiseStrength: number;
+  /** 双页书沟：边缘悬停书脊弯折深度（相对页高）。 */
+  gutterFlexDepthRatio: number;
   /** 书口页叠边层数。 */
   stackLayers: number;
   /** 叠边层深（每层明度递减）。 */
@@ -385,6 +389,7 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     gutterCreaseDepth: 0.42,
     gutterCreaseWidthRatio: 0.006,
     gutterRiseStrength: 0.1,
+    gutterFlexDepthRatio: 0.05,
     stackLayers: 5,
     stackLayerDepth: 0.06,
     stackLayerCrease: 0.22,

@@ -508,7 +508,15 @@ export class FlipController {
     // 双页：折痕数学恒 forward；语义动作由翻动侧决定
     const foldAction: FlipAction = spread ? 'forward' : zone.action;
     const semanticAction: FlipAction = spread ? (side === 'right' ? 'forward' : 'backward') : zone.action;
-    const foldSession = createFoldSession(zone.grab, touch, zone.mode, foldAction, this.page, this.config);
+    // 后翻边缘会话：抓取点=自由边，触点=手指关于页面中线的镜像——
+    // 折叠区从自由边长出，随手指向自由边方向拖动加深（越过书脊完成）
+    if (zone.mode === 'edge' && foldAction === 'backward') {
+      touch.x = this.page.width - touch.x;
+    }
+    // 折叠抓取点恒在自由边（canonical x=W）：后翻边缘会话的书脊侧触点
+    // 改锚自由边（折叠从自由边长出，越过书脊完成）；角部会话抓取角不变
+    const grab: Point = zone.mode === 'edge' ? { x: this.page.width, y: zone.grab.y } : zone.grab;
+    const foldSession = createFoldSession(grab, touch, zone.mode, foldAction, this.page, this.config);
     this.phase = 'drag';
     this.pendingSwipe = null;
     this.session = {
@@ -516,7 +524,7 @@ export class FlipController {
       semanticAction,
       side,
       mode: zone.mode,
-      grab: zone.grab,
+      grab,
       session: foldSession,
       // 对称语义：翻动的始终是当前 spread / 当前页（fromPage），下层揭示目标
       fromPage: this.currentPage,
@@ -566,12 +574,18 @@ export class FlipController {
       };
       this.samples.push({ time: event.time, dist: travel });
     } else {
-      const touch = clampTouch(
-        this.canonicalAt(event.x, event.y, this.session.side),
+      let touch = this.canonicalAt(event.x, event.y, this.session.side);
+      if (this.session.action === 'backward' && this.session.mode === 'edge') {
+        // 后翻边缘会话：抓取点=自由边，触点=手指关于页面中线的镜像——
+        // 折叠区从自由边长出，随手指向自由边方向拖动加深（越过书脊完成）
+        touch.x = this.page.width - touch.x;
+      }
+      const touchClamped = clampTouch(
+        touch,
         this.page,
         this.page.width * this.config.geometry.dragMarginRatio
       );
-      this.rawTouch = touch;
+      this.rawTouch = touchClamped;
       // 甩动采样仅对可完成会话有意义（边界橡皮筋松手恒回弹）
       if (this.session.progressCap >= 1) {
         const dist = Math.min(this.axisDist(touch), this.session.session.distEnd);
@@ -1262,7 +1276,8 @@ export class FlipController {
     );
   }
 
-  /** 交互有效的抓取区：应用行为开关 + 双页只允许折痕数学 forward。 */
+  /** 交互有效的抓取区：应用行为开关 + 双页只允许折痕数学 forward +
+   *  装订侧角部不可抓（书脊上的角是装订死点，翻折会撕裂装订）。 */
   private resolveInteractiveZone(touch: Point): GrabZone | null {
     let zone = this.resolveGrabZone(touch);
     if (zone?.mode === 'corner' && !this.config.behavior.enableCornerGrab) {
@@ -1270,6 +1285,9 @@ export class FlipController {
     }
     if (zone?.mode === 'edge' && !this.config.behavior.enableEdgeGrab) {
       zone = null;
+    }
+    if (zone?.mode === 'corner' && zone.grab.x === 0) {
+      zone = null; // 装订侧角部（书脊上）：不可抓取
     }
     if (zone && this.effectiveViewMode() === 'spread' && zone.action !== 'forward') {
       // 双页：面贴书脊侧的热区无效（已装订），只允许自由边侧掀起

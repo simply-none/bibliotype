@@ -127,7 +127,7 @@ new FlipController(canvas, { config });
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
 | `backPaperTint` | (0.97, 0.945, 0.9) | 折页纸背色 |
-| `backPaperWash` / `backPaperShade` | 0.82 / 0.94 | 纸背混色比（透字 = 1−wash）/ 明度 |
+| `backPaperWash` / `backPaperShade` | 0.6 / 0.94 | 纸背混色比（透字 = 1−wash = 40%）/ 明度 |
 | `frontCurlDark` | 0.06 | 正面卷曲段渐暗 |
 | `rootAoStrength` / `rootAoWidthRatio` | 0.18 / 0.22 | 折痕根部 AO |
 | `shadowStrength` | 0.3 | 接触投影强度上限 |

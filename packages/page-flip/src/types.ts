@@ -166,11 +166,6 @@ export interface GeometryOptions {
    * 前冲弧线），拱高 = 此值 × 斜披段材料长。
    */
   drapeArcRatio: number;
-  /**
-   * 角部折痕的书脊锚定上限（相对页高）：折痕与枢轴侧边缘（书脊/自由缘）
-   * 的交点最深只到页高上部此比例处，防止折痕横在页中（撕纸观感）。
-   */
-  creaseAnchorRatio: number;
   /** edge 模式折痕中点随触点的纵向跟随比。 */
   creaseFollowRatio: number;
   /** 落页压平起点（progress，0.86 = 尾段 14% 收拢卷筒）。 */
@@ -348,7 +343,6 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     taperSpreadRatio: 0.5,
     flightRadiusRatio: 0.13,
     drapeArcRatio: 0.15,
-    creaseAnchorRatio: 0.3,
     creaseFollowRatio: 0.25,
     flattenStart: 0.86,
     dragMarginRatio: 0.3,

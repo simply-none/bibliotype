@@ -620,7 +620,9 @@ export class FlipController {
     const { width: w, height: h } = this.page;
     const edgeClamp = h * this.config.interaction.edgePressClampRatio;
     const pressCanonicalV = clamp(pointerC.y, edgeClamp, h - edgeClamp);
-    const grab: Point = foldForward ? { x: w, y: pressCanonicalV } : { x: 0, y: pressCanonicalV };
+    // 折叠抓取点恒在自由边（canonical x=W）——后翻同前翻几何（折痕从
+    // 自由边扫向书脊，整页越过书脊），仅语义记账不同
+    const grab: Point = { x: w, y: pressCanonicalV };
     const foldSession = createFoldSession(grab, grab, 'edge', action, this.page, this.config);
     this.phase = 'drag';
     this.session = {
@@ -776,13 +778,14 @@ export class FlipController {
       this.emitFlipStart(action, this.currentPage);
       return;
     }
-    // 双页：折痕数学恒 forward——forward 折右面（frame left）、
-    // backward 折左面（frame right，书脊居中）；抓取点 = 该侧自由边中点
+    // 折叠抓取点恒在自由边（canonical x=W）——前翻向后翻同几何，
+    // 仅语义记账（fromPage/underPage）不同；双页下折痕数学恒 forward
+    //（forward 折右面、backward 折左面越过书脊）
     const spread = this.effectiveViewMode() === 'spread';
     const side: SpreadSide = spread ? (action === 'forward' ? 'right' : 'left') : 'right';
     const foldAction: FlipAction = spread ? 'forward' : action;
     const h = this.page.height;
-    const grab: Point = foldAction === 'forward' ? { x: this.page.width, y: h / 2 } : { x: 0, y: h / 2 };
+    const grab: Point = { x: this.page.width, y: h / 2 };
     const mode: GrabMode = 'edge';
     const foldSession = createFoldSession(grab, grab, mode, foldAction, this.page, this.config);
     this.phase = 'snap';
@@ -818,7 +821,8 @@ export class FlipController {
     const side: SpreadSide = spread ? (action === 'forward' ? 'right' : 'left') : 'right';
     const foldAction: FlipAction = spread ? 'forward' : action;
     const h = this.page.height;
-    const grab: Point = foldAction === 'forward' ? { x: this.page.width, y: h / 2 } : { x: 0, y: h / 2 };
+    // 折叠抓取点恒在自由边（canonical x=W）——前翻向后翻同几何
+    const grab: Point = { x: this.page.width, y: h / 2 };
     const foldSession = createFoldSession(grab, grab, 'edge', foldAction, this.page, this.config);
     this.phase = 'snap';
     this.session = {
@@ -864,13 +868,17 @@ export class FlipController {
     this.phase = 'snap';
   }
 
-  /** 完成态触点：抓取点跨装订侧边缘的镜像位（中垂线折痕恰落在装订侧上）。 */
-  private mirrorTouch(grab: Point, action: FlipAction): Point {
-    const w = this.page.width;
-    return {
-      x: action === 'forward' ? -grab.x : 2 * w - grab.x,
-      y: grab.y,
-    };
+  /** 折叠完成态触点：抓取点越过书脊的镜像位（折痕落到书脊，整页翻过）。
+   *  抓取点恒在自由边（canonical x=W），规范空间书脊恒 x=0——前翻后翻
+   *  同构；上/下装订沿 y 镜像。 */
+  private mirrorTouch(grab: Point, _action: FlipAction): Point {
+    if (this.bindEdge === 'top') {
+      return { x: grab.x, y: -grab.y };
+    }
+    if (this.bindEdge === 'bottom') {
+      return { x: grab.x, y: 2 * this.page.height - grab.y };
+    }
+    return { x: -grab.x, y: grab.y };
   }
 
   // ---------- 帧循环 ----------

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clampCornerTouch,
   clampTouch,
+  cornerPivot,
   createFoldSession,
   solveFoldPose,
   solveFoldPoseAtProgress,
@@ -11,8 +11,6 @@ import { DEFAULT_FLIP_CONFIG, type PageSize, type Point } from '../types';
 
 const SIZE: PageSize = { width: 400, height: 600 };
 const CFG = DEFAULT_FLIP_CONFIG;
-/** 折痕锚定上限（页高 30%）。 */
-const ANCHOR = 0.3 * 600;
 
 describe('solveFoldPose · forward 边缘拖拽', () => {
   const grab: Point = { x: 400, y: 300 };
@@ -60,45 +58,52 @@ describe('solveFoldPose · forward 边缘拖拽', () => {
   });
 });
 
-describe('solveFoldPose · backward 掀回（与 forward 镜像对称）', () => {
-  const grab: Point = { x: 0, y: 300 };
+describe('solveFoldPose · backward 掀回（与前翻同几何，抓取点=自由边）', () => {
+  const grab: Point = { x: 400, y: 300 };
 
   it('p=0（触点未拉动）时全页平贴', () => {
-    const pose = solveFoldPose({ grab, touch: { x: 0, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    const pose = solveFoldPose({ grab, touch: { x: 400, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
     expect(pose.progress).toBe(0);
     for (const x of [0, 100, 200, 399]) {
       expect(deformPoint({ x, y: 300 }, pose, SIZE).z).toBe(0);
     }
   });
 
-  it('折痕自书脊扫向自由边：触点右移 → 折痕右移、进度增长', () => {
-    const pose = solveFoldPose({ grab, touch: { x: 100, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+  it('折痕自自由边扫向书脊：触点左移 → 折痕左移、进度增长', () => {
+    const pose = solveFoldPose({ grab, touch: { x: 300, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
     expect(pose.progress).toBeCloseTo(0.125, 5); // 100 / (2×400)
-    expect(pose.creaseOrigin.x).toBeCloseTo(50, 5); // 中垂线：推进 = 行程/2
+    expect(pose.creaseOrigin.x).toBeCloseTo(350, 5); // 中垂线：推进 = 行程/2
     const natural = CFG.geometry.radiusBaseRatio * 400 + 0.05 * 50;
     const flight = 400 * CFG.geometry.flightRadiusRatio * Math.sin(Math.PI * 0.125) ** 2;
     expect(pose.radius).toBeCloseTo(Math.max(natural, flight), 3);
   });
 
-  it('掀起材料翻折叠到折痕另一侧（镜像 forward 越中线）', () => {
-    // 深拉：折痕接近自由边，掀起材料（书脊侧）翻过折痕落到另一侧
-    const pose = solveFoldPose({ grab, touch: { x: 400, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
-    expect(pose.creaseOrigin.x).toBeCloseTo(200, 5);
+  it('触点到书脊（x=0）时折痕到页中——其余由完成补间越过书脊', () => {
+    const pose = solveFoldPose({ grab, touch: { x: 0, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(pose.creaseOrigin.x).toBeCloseTo(200, 5); // 中垂线：推进 = 行程/2
     expect(pose.progress).toBeCloseTo(0.5, 5);
-    // 书脊侧材料（x < 200）已掀起：其背面斜披段落到折痕右侧（页内/页外）
-    const d = deformPoint({ x: 0, y: 300 }, pose, SIZE);
+    // 自由侧材料已掀起翻折（部分翻过折痕）
+    const d = deformPoint({ x: 399, y: 300 }, pose, SIZE);
     expect(d.face).not.toBe('flat');
-    expect(d.x).toBeGreaterThan(200); // 翻到折痕另一侧
+  });
+
+  it('完成补间：触点越到书脊对侧（x=−400）时折痕达书脊，整页翻落对侧', () => {
+    const pose = solveFoldPose({ grab, touch: { x: -400, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(pose.creaseOrigin.x).toBeCloseTo(0, 5); // 折痕到达书脊
+    // 自由侧材料翻过书脊落到对侧（x < 0）
+    const d = deformPoint({ x: 399, y: 300 }, pose, SIZE);
+    expect(d.face).not.toBe('flat');
+    expect(d.x).toBeLessThan(0); // 越过书脊
   });
 
   it('快甩语义与 forward 一致：进度阈值 / 甩速判定可完成翻页', () => {
-    // 手指拖到 clampTouch 上限（1.3W）时进度 ≈ 0.65 > completeProgress
-    const pose = solveFoldPose({ grab, touch: { x: 520, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    // 触点越到书脊对侧（x = −120）时进度 ≈ 0.65 > completeProgress
+    const pose = solveFoldPose({ grab, touch: { x: -120, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
     expect(pose.progress).toBeGreaterThan(0.25);
   });
 });
 
-describe('solveFoldPose · 角部捏角斜翻', () => {
+describe('solveFoldPose · 角部捏角斜翻（折角模型：折痕锚定书脊枢轴）', () => {
   it('折痕方向垂直于拉扯方向（斜折痕）', () => {
     const pose = solveFoldPose({
       grab: { x: 400, y: 0 },
@@ -113,8 +118,34 @@ describe('solveFoldPose · 角部捏角斜翻', () => {
     expect(pose.creaseDir.y).toBeGreaterThanOrEqual(0);
   });
 
+  it('折痕锚定书脊枢轴：折痕原点恒为装订边同端角', () => {
+    for (const touch of [{ x: 200, y: 100 }, { x: 120, y: 480 }, { x: 130, y: 700 }] as Point[]) {
+      const pose = solveFoldPose({
+        grab: { x: 400, y: 0 },
+        touch,
+        mode: 'corner',
+        action: 'forward',
+        size: SIZE,
+        config: CFG,
+      });
+      expect(pose.creaseOrigin.x).toBe(0);
+      expect(pose.creaseOrigin.y).toBe(0);
+    }
+    // 底角抓取：枢轴 = 装订边底角
+    const poseBottom = solveFoldPose({
+      grab: { x: 400, y: 600 },
+      touch: { x: 130, y: -100 },
+      mode: 'corner',
+      action: 'forward',
+      size: SIZE,
+      config: CFG,
+    });
+    expect(poseBottom.creaseOrigin.x).toBe(0);
+    expect(poseBottom.creaseOrigin.y).toBe(600);
+  });
+
   it('推进终点：手指拖到抓取角镜像位（2×页宽）时整页翻过', () => {
-    // 抓右上角、水平左拉到镜像位（−400）：行程 = 2×页宽 → progress = 1
+    // 抓右上角、水平左拉到镜像位（−400）：触点落在枢轴圆对侧 = 全折态
     const pose = solveFoldPose({
       grab: { x: 400, y: 0 },
       touch: { x: -400, y: 0 },
@@ -124,6 +155,7 @@ describe('solveFoldPose · 角部捏角斜翻', () => {
       config: CFG,
     });
     expect(pose.progress).toBe(1);
+    expect(pose.creaseDir.x).toBeCloseTo(0, 5); // 折痕落到书脊缘方向
   });
 
   it('角部模式产生锥化（taper 非零，抓取角一侧更紧）', () => {
@@ -137,86 +169,49 @@ describe('solveFoldPose · 角部捏角斜翻', () => {
     });
     expect(pose.taper).toBeGreaterThan(0);
   });
+
+  it('折叠深度随拖拽增长、封顶于全折（触点钳制在枢轴圆内）', () => {
+    const grab: Point = { x: 400, y: 0 };
+    const p1 = solveFoldPose({ grab, touch: { x: 200, y: 100 }, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
+    const p2 = solveFoldPose({ grab, touch: { x: 130, y: 700 }, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
+    expect(p2.progress).toBeGreaterThan(p1.progress);
+    const pMax = solveFoldPose({ grab, touch: { x: -400, y: 0 }, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
+    expect(pMax.progress).toBe(1);
+  });
+
+  it('装订边不参与折叠：抓取边同侧的装订缘材料保持平贴', () => {
+    const grab: Point = { x: 400, y: 0 }; // 右上角，pivot = (0,0)
+    const pose = solveFoldPose({ grab, touch: { x: 130, y: 700 }, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
+    // 装订边（x=0）上的材料在折痕靠书脊一侧：平贴不动
+    for (const y of [50, 200, 400]) {
+      const d = deformPoint({ x: 0, y }, pose, SIZE);
+      expect(d.z).toBe(0);
+      expect(d.face).toBe('flat');
+    }
+  });
 });
 
 describe('会话补间一致性', () => {
-  it('按进度求解与轴上触点实时求解结果一致', () => {
+  it('角部会话：按进度求解 = 触点绕枢轴转动的实时求解', () => {
     const grab: Point = { x: 400, y: 90 };
     const touch: Point = { x: 160, y: 240 };
     const session = createFoldSession(grab, touch, 'corner', 'forward', SIZE, CFG);
-    // 轴上虚拟触点：抓取点沿 −axisNormal 推进 2·distEnd·p（中垂线行程）
     const p = 0.42;
-    const virtualTouch: Point = {
-      x: grab.x - session.axisNormal.x * session.distEnd * 2 * p,
-      y: grab.y - session.axisNormal.y * session.distEnd * 2 * p,
+    // AtProgress 内部触点：绕枢轴转动 2×asin(p)（沿会话记录的转向）
+    const pivot = session.pivot!;
+    const v1 = { x: grab.x - pivot.x, y: grab.y - pivot.y };
+    const v1Len = Math.hypot(v1.x, v1.y);
+    const angle = 2 * Math.asin(p) * (session.cornerSpin ?? 1);
+    const touchP: Point = {
+      x: pivot.x + (v1.x * Math.cos(angle) - v1.y * Math.sin(angle)) * v1Len,
+      y: pivot.y + (v1.x * Math.sin(angle) + v1.y * Math.cos(angle)) * v1Len,
     };
-    // 拖拽中折痕 y 跟随实时触点（控制器每帧同步会话偏移）
-    session.touchYOffset = virtualTouch.y - grab.y;
-    const live = solveFoldPose({ grab, touch: virtualTouch, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
     const byProgress = solveFoldPoseAtProgress(session, p);
+    const live = solveFoldPose({ grab, touch: touchP, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
     expect(byProgress.creaseOrigin.x).toBeCloseTo(live.creaseOrigin.x, 6);
     expect(byProgress.creaseOrigin.y).toBeCloseTo(live.creaseOrigin.y, 6);
     expect(byProgress.radius).toBeCloseTo(live.radius, 6);
-  });
-});
-
-describe('clampCornerTouch · 角部折痕书脊锚定', () => {
-  /** 折痕与书脊（x=0）交点的 y（由姿态反推）。 */
-  function spineCrossY(grab: Point, touch: Point): number {
-    const pose = solveFoldPose({ grab, touch, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
-    // 折痕：过 creaseOrigin、方向 creaseDir；与 x=0 交点
-    const k = -pose.creaseOrigin.x / (pose.creaseDir.x || 1e-9);
-    return pose.creaseOrigin.y + pose.creaseDir.y * k;
-  }
-
-  it('捏角小折（触点在枢轴圆内）：不约束，保持自然起翻态', () => {
-    const grab: Point = { x: 400, y: 0 };
-    const touch: Point = { x: 200, y: 100 };
-    expect(clampCornerTouch(touch, grab, 'forward', SIZE, 0.3)).toEqual(touch);
-  });
-
-  it('折痕锚定在书脊上角附近（crossY ≤ 30%H）：不约束', () => {
-    const grab: Point = { x: 400, y: 0 };
-    const touch: Point = { x: 120, y: 480 }; // crossY ≈ 88 < 180
-    expect(clampCornerTouch(touch, grab, 'forward', SIZE, 0.3)).toEqual(touch);
-  });
-
-  it('深拉导致折痕锚点滑到页中（crossY > 30%H）：钳回锚定圆', () => {
-    const grab: Point = { x: 400, y: 0 };
-    const touch: Point = { x: 130, y: 700 }; // crossY ≈ 248 > 180
-    const clamped = clampCornerTouch(touch, grab, 'forward', SIZE, 0.3);
-    expect(clamped).not.toEqual(touch);
-    // 锚定圆：圆心 (0, 180)，半径 √(W²+anchor²)
-    const dx = clamped.x;
-    const u = clamped.y - 180;
-    expect(Math.hypot(dx, u)).toBeCloseTo(Math.hypot(400, ANCHOR), 1);
-  });
-
-  it('整页翻起的完成态（crossY ≥ H）与掀角上扬态（u ≤ 0）不约束', () => {
-    const grab: Point = { x: 400, y: 0 };
-    expect(clampCornerTouch({ x: -600, y: 200 }, grab, 'forward', SIZE, 0.3)).toEqual({ x: -600, y: 200 });
-    expect(clampCornerTouch({ x: 300, y: -50 }, grab, 'forward', SIZE, 0.3)).toEqual({ x: 300, y: -50 });
-  });
-
-  it('backward 镜像对称：枢轴 = 同端自由边角', () => {
-    const grab: Point = { x: 0, y: 0 };
-    const touch: Point = { x: 250, y: 700 };
-    const clamped = clampCornerTouch(touch, grab, 'backward', SIZE, 0.3);
-    const dx = clamped.x - 400;
-    const u = clamped.y - 180;
-    expect(Math.hypot(dx, u)).toBeCloseTo(Math.hypot(400, ANCHOR), 1);
-  });
-
-  it('约束后折痕与书脊交点不超过锚定上限（撕纸观感消除）', () => {
-    const grab: Point = { x: 400, y: 0 };
-    expect(spineCrossY(grab, { x: 130, y: 700 })).toBeLessThanOrEqual(ANCHOR + 1);
-    expect(spineCrossY(grab, { x: 60, y: 640 })).toBeLessThanOrEqual(ANCHOR + 1);
-    // 底角抓取镜像同样成立
-    const grabBottom: Point = { x: 400, y: 600 };
-    const pose = solveFoldPose({ grab: grabBottom, touch: { x: 130, y: -100 }, mode: 'corner', action: 'forward', size: SIZE, config: CFG });
-    const k = -pose.creaseOrigin.x / (pose.creaseDir.x || 1e-9);
-    const crossFromBottom = 600 - (pose.creaseOrigin.y + pose.creaseDir.y * k);
-    expect(crossFromBottom).toBeLessThanOrEqual(ANCHOR + 1);
+    expect(byProgress.progress).toBeCloseTo(p, 5);
   });
 });
 
@@ -245,13 +240,13 @@ describe('solveFoldPose · 页缘外抓取（beyondAxis 余量）', () => {
     expect(inward.creaseOrigin.x).toBeCloseTo(300, 5);
   });
 
-  it('backward 书脊侧页外抓取同理不反转', () => {
-    const spineGrab = { x: 0, y: 300 };
-    const outside = solveFoldPose({ grab: spineGrab, touch: { x: -60, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
-    expect(outside.wrapNormal).toEqual({ x: -1, y: 0 });
+  it('backward 自由边页外触点同理不反转', () => {
+    // 抓取点恒在自由边（x=400）：触点越出自由边（页缘余量内）时轴向回退 +x
+    const outside = solveFoldPose({ grab, touch: { x: 460, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(outside.wrapNormal).toEqual({ x: 1, y: 0 });
     expect(outside.progress).toBe(0);
-    const inward = solveFoldPose({ grab: spineGrab, touch: { x: 200, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
-    expect(inward.wrapNormal).toEqual({ x: -1, y: 0 });
+    const inward = solveFoldPose({ grab, touch: { x: 200, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(inward.wrapNormal).toEqual({ x: 1, y: 0 });
     expect(inward.progress).toBeCloseTo(0.25, 5);
   });
 });

@@ -28,8 +28,8 @@ export type { CurlFace, DeformedPoint } from './deform.js';
 
 export {
   clamp,
-  clampCornerTouch,
   clampTouch,
+  cornerPivot,
   createFoldSession,
   lerp,
   solveFoldPose,

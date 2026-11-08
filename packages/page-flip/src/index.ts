@@ -13,7 +13,7 @@
  * - page-provider + TextureStore：页面位图源与纹理 LRU。
  */
 export { FlipController } from './flip-controller.js';
-export type { FlipControllerOptions } from './flip-controller.js';
+export type { FlipControllerOptions, FlipEventInfo } from './flip-controller.js';
 
 export { GlRenderer } from './gl-renderer.js';
 

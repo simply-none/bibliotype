@@ -31,8 +31,8 @@ describe('solveFoldPose · forward 边缘拖拽', () => {
     expect(pose.progress).toBeCloseTo(0.25, 5);
     // 中垂线：折痕 = 抓取点与触点的中点
     expect(pose.creaseOrigin.x).toBeCloseTo(300, 5);
-    // r = max(0.03W + 0.05·dist, flight)——飞行抬升按 sin²(π·0.25)=0.5 起拱
-    const natural = 0.03 * 400 + 0.05 * 100;
+    // r = max(radiusBaseRatio·W + 0.05·dist, flight)——飞行抬升按 sin²(π·0.25)=0.5 起拱
+    const natural = CFG.geometry.radiusBaseRatio * 400 + 0.05 * 100;
     const flight = 400 * CFG.geometry.flightRadiusRatio * Math.sin(Math.PI * 0.25) ** 2;
     expect(pose.radius).toBeCloseTo(Math.max(natural, flight), 3);
     expect(pose.flatten).toBe(0);
@@ -75,7 +75,7 @@ describe('solveFoldPose · backward 掀回（与 forward 镜像对称）', () =>
     const pose = solveFoldPose({ grab, touch: { x: 100, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
     expect(pose.progress).toBeCloseTo(0.125, 5); // 100 / (2×400)
     expect(pose.creaseOrigin.x).toBeCloseTo(50, 5); // 中垂线：推进 = 行程/2
-    const natural = 0.03 * 400 + 0.05 * 50;
+    const natural = CFG.geometry.radiusBaseRatio * 400 + 0.05 * 50;
     const flight = 400 * CFG.geometry.flightRadiusRatio * Math.sin(Math.PI * 0.125) ** 2;
     expect(pose.radius).toBeCloseTo(Math.max(natural, flight), 3);
   });
@@ -225,5 +225,33 @@ describe('clampTouch', () => {
     const t = clampTouch({ x: -50, y: 999 }, SIZE, 40);
     expect(t.x).toBe(-40);
     expect(t.y).toBe(640);
+  });
+});
+
+describe('solveFoldPose · 页缘外抓取（beyondAxis 余量）', () => {
+  const SIZE = { width: 400, height: 600 };
+  const grab = { x: 400, y: 300 };
+
+  it('触点越出自由边时轴向不反转：法向恒 (+1,0)、行程不取反', () => {
+    // 页外按下（x = 460 > w）：旧实现 grab−touch 反向 → 轴 (−1,0)，
+    // 行程取反、初始姿态反向卷曲
+    const outside = solveFoldPose({ grab, touch: { x: 460, y: 300 }, mode: 'edge', action: 'forward', size: SIZE, config: CFG });
+    expect(outside.wrapNormal).toEqual({ x: 1, y: 0 });
+    expect(outside.progress).toBe(0); // 页外无行程，页面保持平贴
+    // 随后移入页内：行程按自由边起算，方向为正
+    const inward = solveFoldPose({ grab, touch: { x: 200, y: 300 }, mode: 'edge', action: 'forward', size: SIZE, config: CFG });
+    expect(inward.wrapNormal).toEqual({ x: 1, y: 0 });
+    expect(inward.progress).toBeCloseTo(0.25, 5); // 200 / (2×400)
+    expect(inward.creaseOrigin.x).toBeCloseTo(300, 5);
+  });
+
+  it('backward 书脊侧页外抓取同理不反转', () => {
+    const spineGrab = { x: 0, y: 300 };
+    const outside = solveFoldPose({ grab: spineGrab, touch: { x: -60, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(outside.wrapNormal).toEqual({ x: -1, y: 0 });
+    expect(outside.progress).toBe(0);
+    const inward = solveFoldPose({ grab: spineGrab, touch: { x: 200, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
+    expect(inward.wrapNormal).toEqual({ x: -1, y: 0 });
+    expect(inward.progress).toBeCloseTo(0.25, 5);
   });
 });

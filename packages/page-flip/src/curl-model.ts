@@ -145,15 +145,22 @@ export function createFoldSession(
 
 /** 卷起侧法向：从触点指向抓取点；边缘模式锁水平（折痕平行书脊）。 */
 function axisNormalFor(grab: Point, touch: Point, mode: GrabMode, action: FlipAction): Point {
+  const fallback = action === 'forward' ? { x: 1, y: 0 } : { x: -1, y: 0 };
   let nx = grab.x - touch.x;
   let ny = mode === 'edge' ? 0 : grab.y - touch.y;
   const len = Math.sqrt(nx * nx + ny * ny);
   if (len < EPSILON) {
     // 触点与抓取点重合（自动翻页起点 / swipe 提交瞬间）：
     // 按动作方向给默认轴向——forward 抓自由边（+x），backward 抓书脊（-x）
-    return action === 'forward' ? { x: 1, y: 0 } : { x: -1, y: 0 };
+    return fallback;
   }
-  return { x: nx / len, y: ny / len };
+  const normal = { x: nx / len, y: ny / len };
+  // 触点越出自由边（页缘判定余量内按下）时 grab−touch 指向页外，
+  // 轴向反转：行程取反、初始姿态反向卷曲、甩动速度反号——回退动作默认轴
+  if (action === 'forward' ? normal.x <= 0 : normal.x >= 0) {
+    return fallback;
+  }
+  return normal;
 }
 
 /** 推进终点：页面四角在 −n̂ 方向上距抓取点的最远射影。 */

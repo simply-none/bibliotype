@@ -239,6 +239,12 @@ export interface ShadingOptions {
   spineAoStrength: number;
   /** 书脊常驻 AO 宽度（相对页宽 UV）。 */
   spineAoWidth: number;
+  /** 双页书沟：窄缝谷阴影深度（0 关闭书沟着色）。 */
+  gutterCreaseDepth: number;
+  /** 双页书沟：窄缝特征宽度（相对页宽）。 */
+  gutterCreaseWidthRatio: number;
+  /** 双页书沟：坡面光泽高光幅度（缝影外侧窄带）。 */
+  gutterRiseStrength: number;
   /** 书口页叠边层数。 */
   stackLayers: number;
   /** 叠边层深（每层明度递减）。 */
@@ -329,7 +335,7 @@ export type DeepPartialFlipConfig = {
 
 export const DEFAULT_FLIP_CONFIG: FlipConfig = {
   geometry: {
-    radiusBaseRatio: 0.03,
+    radiusBaseRatio: 0.035,
     radiusGrowRatio: 0.05,
     radiusMin: 0.035,
     radiusMax: 0.11,
@@ -376,6 +382,9 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     shadowFlattenFade: 0.7,
     spineAoStrength: 0.16,
     spineAoWidth: 0.085,
+    gutterCreaseDepth: 0.42,
+    gutterCreaseWidthRatio: 0.006,
+    gutterRiseStrength: 0.1,
     stackLayers: 5,
     stackLayerDepth: 0.06,
     stackLayerCrease: 0.22,
@@ -401,7 +410,7 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     meshSegmentsY: 88,
     cameraDistFactor: 3.2,
     dprCap: 2,
-    textureCacheSize: 5,
+    textureCacheSize: 8,
     textureUploadsPerFrame: 1,
     layoutWidthRatio: 0.94,
     layoutHeightRatio: 0.92,

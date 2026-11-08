@@ -433,16 +433,41 @@ describe('FlipController 双页模式（spread）', () => {
     controller.destroy();
   });
 
-  it('spread 末页 forward → 橡皮筋回弹', () => {
-    const { controller } = createSpreadController(4); // 4 面 = 2 spread
+  it('spread 末页 forward → 橡皮筋回弹（偶数面数末 spread 左侧孤页可达）', () => {
+    const { controller, adapter } = createSpreadController(4); // 4 面 → spreadCount 3（末 spread = [面 3, null]）
     controller.autoFlip('forward');
     advance(controller, 1000);
     expect(controller.currentPage).toBe(1);
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    // 末 spread：左侧孤页 = 面 3，右面为空
+    expect(controller.currentPage).toBe(2);
+    expect(adapter.lastState?.spread?.leftPage).toBe(3);
+    expect(adapter.lastState?.spread?.rightPage).toBeNull();
     controller.autoFlip('forward'); // 已是末 spread → 回弹
     expect(controller['session']?.pendingReturn).toBe(true);
     advance(controller, 500);
     advance(controller, 600);
-    expect(controller.currentPage).toBe(1);
+    expect(controller.currentPage).toBe(2);
+    controller.destroy();
+  });
+
+  it('偶数面数（6 面）末面可达：3 次 forward 到末 spread，backward 可翻回', () => {
+    const { controller, adapter } = createSpreadController(6);
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    expect(controller.currentPage).toBe(3);
+    expect(adapter.lastState?.spread?.leftPage).toBe(5);
+    expect(adapter.lastState?.spread?.rightPage).toBeNull();
+    controller.autoFlip('backward');
+    advance(controller, 1000);
+    expect(controller.currentPage).toBe(2);
+    expect(adapter.lastState?.spread?.leftPage).toBe(3);
+    expect(adapter.lastState?.spread?.rightPage).toBe(4);
     controller.destroy();
   });
 
@@ -493,6 +518,190 @@ describe('FlipController 双页模式（spread）', () => {
     expect(controller['session']?.semanticAction).toBe('backward');
     advance(controller, 1000);
     expect(controller.currentPage).toBe(0);
+    controller.destroy();
+  });
+});
+
+describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
+  const VIEW: PageSize = { width: 500, height: 700 };
+
+  function createController(options?: {
+    providerOptions?: Parameters<typeof createStubProvider>[0];
+    spread?: boolean;
+    onFlipStart?: (info: unknown) => void;
+    onFlipEnd?: (info: unknown) => void;
+  }) {
+    const { fakeCanvas, adapter } = createStubs();
+    const controller = new FlipController(fakeCanvas, {
+      renderer: adapter,
+      onFlipStart: options?.onFlipStart as never,
+      onFlipEnd: options?.onFlipEnd as never,
+    });
+    controller.setViewport(VIEW.width, VIEW.height, 1);
+    const provider: PageProvider = createStubProvider(options?.providerOptions);
+    controller.setProvider(provider);
+    if (options?.spread) {
+      controller.setViewMode('spread');
+    }
+    return { controller, adapter, provider };
+  }
+
+  it('goToPage：单页跳页 + 越界钳制', () => {
+    const { controller } = createController({ providerOptions: { pageCount: 8 } });
+    controller.goToPage(4);
+    expect(controller.currentPage).toBe(4);
+    expect(controller['pose']).toBeNull();
+    expect(controller['phase']).toBe('idle');
+    controller.goToPage(99);
+    expect(controller.currentPage).toBe(7);
+    controller.goToPage(-3);
+    expect(controller.currentPage).toBe(0);
+    controller.destroy();
+  });
+
+  it('goToPage：双页跳 spread，中断中的翻页被丢弃', () => {
+    const { controller, adapter } = createController({ providerOptions: { pageCount: 8 }, spread: true });
+    controller.autoFlip('forward');
+    advance(controller, 200); // snap 进行中
+    controller.goToPage(3); // spreadCount = 5 → s=3 = [面 5, 面 6]
+    expect(controller.currentPage).toBe(3);
+    expect(controller['session']).toBeNull();
+    advance(controller, 32);
+    expect(adapter.lastState?.spread?.leftPage).toBe(5);
+    expect(adapter.lastState?.spread?.rightPage).toBe(6);
+    controller.destroy();
+  });
+
+  it('next / prev 语义化别名', () => {
+    const { controller } = createController();
+    controller.next();
+    advance(controller, 900);
+    expect(controller.currentPage).toBe(1);
+    controller.prev();
+    advance(controller, 900);
+    expect(controller.currentPage).toBe(0);
+    controller.destroy();
+  });
+
+  it('onFlipStart / onFlipEnd：完成翻页与回弹分别上报', () => {
+    const starts: Array<{ action: string; fromPage: number; toPage: number }> = [];
+    const ends: Array<{ action: string; fromPage: number; toPage: number; completed: boolean }> = [];
+    const { controller } = createController({
+      onFlipStart: (info) => starts.push(info as { action: string; fromPage: number; toPage: number }),
+      onFlipEnd: (info) => ends.push(info as { action: string; completed: boolean; fromPage: number; toPage: number }),
+    });
+    // 快甩完成
+    pointer(controller, 'down', 462, 350, 1000);
+    pointer(controller, 'move', 362, 350, 1060);
+    pointer(controller, 'up', 352, 350, 1110);
+    advance(controller, 900);
+    expect(starts.length).toBe(1);
+    expect(ends.length).toBe(1);
+    expect(ends[0]).toMatchObject({ action: 'forward', fromPage: 0, toPage: 1, completed: true });
+    // 边界回弹
+    controller.goToPage(5); // 6 页 → 末页
+    controller.autoFlip('forward');
+    advance(controller, 400);
+    advance(controller, 900); // 去程段完成 → 转入回程段
+    advance(controller, 900); // 回程段完成 → end 上报
+    expect(starts.length).toBe(2);
+    expect(ends[1]).toMatchObject({ action: 'forward', fromPage: 5, toPage: 5, completed: false });
+    controller.destroy();
+  });
+
+  it('tap 打断会话 → 上报未完成 end，再由 autoFlip 发起新 start', () => {
+    const starts: unknown[] = [];
+    const ends: Array<{ completed: boolean }> = [];
+    const { controller } = createController({
+      onFlipStart: (info) => starts.push(info),
+      onFlipEnd: (info) => ends.push(info as { completed: boolean }),
+    });
+    pointer(controller, 'down', 462, 350, 1000);
+    pointer(controller, 'up', 464, 350, 1060); // 无位移短按 → tap → autoFlip
+    advance(controller, 900);
+    expect(ends[0]).toMatchObject({ completed: false });
+    expect(ends[1]).toMatchObject({ completed: true });
+    expect(starts.length).toBe(2);
+    expect(controller.currentPage).toBe(1);
+    controller.destroy();
+  });
+
+  it('悬停预览：接近角部出现轻量预览姿态，离开热区清除；边缘悬停不预览', () => {
+    const { controller, adapter } = createController({ providerOptions: { pageCount: 6 } });
+    // 角部热区（右上角）→ 预览
+    controller['handleHover'](455, 45);
+    advance(controller, 32);
+    expect(adapter.lastState?.pose).not.toBeNull();
+    expect(adapter.lastState?.flippingPage).toBe(0);
+    expect(adapter.lastState?.underPage).toBe(1);
+    expect(adapter.lastState?.pose?.progress ?? 1).toBeLessThan(0.2);
+    // 边缘热区（右缘中部）→ 不预览（真实书上悬停不会掀页）
+    controller['handleHover'](462, 350);
+    advance(controller, 32);
+    expect(adapter.lastState?.pose).toBeNull();
+    expect(controller['hover']).toBeNull();
+    // 离开热区（页面中部）
+    controller['handleHover'](250, 350);
+    advance(controller, 32);
+    expect(adapter.lastState?.pose).toBeNull();
+    expect(controller['hover']).toBeNull();
+    // 拖拽会话中悬停被忽略
+    controller['handleHover'](455, 45);
+    pointer(controller, 'down', 455, 45, 1300);
+    controller['handleHover'](450, 45);
+    expect(controller['phase']).toBe('drag');
+    expect(controller['hover']).toBeNull();
+    controller.destroy();
+  });
+
+  it('双页悬停预览：左面悬停 = 语义 backward 的预览（折痕数学 forward）', () => {
+    const { controller, adapter } = createController({ providerOptions: { pageCount: 6 }, spread: true });
+    controller.autoFlip('forward');
+    advance(controller, 1000); // spread 1
+    controller['handleHover'](22, 515); // 左面左下角（frame right 的自由边）
+    advance(controller, 32);
+    expect(adapter.lastState?.spread?.flipping).toEqual({ page: 1, side: 'left' });
+    // 预览不提前揭示其他页内容：另一侧保持当前面（面 2），无淡出层
+    expect(adapter.lastState?.spread?.rightPage).toBe(2);
+    expect(adapter.lastState?.spread?.fadingFace).toBeNull();
+    expect(adapter.lastState?.pose?.progress ?? 1).toBeLessThan(0.2);
+    controller.destroy();
+  });
+
+  it('双页悬停预览：封面 spread 左侧保持为空（不提前揭示面 1）', () => {
+    const { controller, adapter } = createController({ providerOptions: { pageCount: 6 }, spread: true });
+    controller['handleHover'](470, 195); // 右面右上角悬停（s=0 封面 spread，角部热区）
+    advance(controller, 32);
+    expect(adapter.lastState?.spread?.flipping).toEqual({ page: 0, side: 'right' });
+    expect(adapter.lastState?.spread?.leftPage).toBeNull(); // 左侧为空——目标面不提前出现
+    expect(adapter.lastState?.spread?.rightPage).toBe(2); // 翻动侧下方揭示目标右面
+    controller.destroy();
+  });
+
+  it('双页纹理预取：wanted 不超缓存容量，连续帧后 wanted 全部就位（LRU 抖动回归）', () => {
+    const { controller } = createController({ providerOptions: { pageCount: 10 }, spread: true });
+    controller.goToPage(2); // spread 2：wanted = 面 3,4,5,6,1,2（6 面）< 容量 8
+    for (let i = 0; i < 16; i++) {
+      advance(controller, 16); // 回填排空
+    }
+    const cache = controller['textures']!;
+    const cached = new Set([...cache['cache'].keys()]);
+    for (const index of [1, 2, 3, 4, 5, 6]) {
+      expect(cached.has(index)).toBe(true);
+    }
+    expect(cache['cache'].size).toBeLessThanOrEqual(8);
+    controller.destroy();
+  });
+
+  it('空闲停帧：干净且静止时帧循环不再自续（rafActive 复位）', () => {
+    const { controller } = createController();
+    advance(controller, 32);
+    expect(controller['rafActive']).toBe(false);
+    controller.autoFlip('forward');
+    expect(controller['rafActive']).toBe(true); // 会话启动唤醒
+    advance(controller, 1000);
+    advance(controller, 16);
+    expect(controller['rafActive']).toBe(false);
     controller.destroy();
   });
 });

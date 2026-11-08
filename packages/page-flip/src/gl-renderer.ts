@@ -22,6 +22,8 @@ const DEFAULT_RENDER_OPTIONS: RenderOptions = {
 };
 
 interface MeshBuffers {
+  /** WebGL2 顶点数组对象（记录 attrib 绑定，省去每帧重设）；WebGL1 为 null。 */
+  vao: WebGLVertexArrayObject | null;
   vbo: WebGLBuffer;
   ibo: WebGLBuffer;
   indexCount: number;
@@ -131,6 +133,11 @@ export class GlRenderer {
     gl.uniform1f(u.get('uFrontDark')!, shading.frontCurlDark);
     gl.uniform2f(u.get('uRootAo')!, shading.rootAoStrength, shading.rootAoWidthRatio);
     gl.uniform2f(u.get('uSpineAo')!, shading.spineAoStrength, shading.spineAoWidth);
+    // 书沟着色参数（几何保持平铺桌面——书沟立体感仅由片元着色的
+    // 缝谷阴影 + 光泽表达，uGutter 按绘制对象逐次开关）
+    const creaseW = Math.max(shading.gutterCreaseWidthRatio * this.pageSize.width, 1);
+    gl.uniform2f(u.get('uGutterCrease')!, shading.gutterCreaseDepth, creaseW);
+    gl.uniform3f(u.get('uGutterRise')!, shading.gutterRiseStrength, this.pageSize.width * 0.06, this.pageSize.width * 0.05);
     gl.uniform1f(u.get('uStackLayers')!, shading.stackLayers);
     gl.uniform1f(u.get('uStackLayerDepth')!, shading.stackLayerDepth);
     gl.uniform1f(u.get('uStackLayerCrease')!, shading.stackLayerCrease);
@@ -172,6 +179,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uTuvFrame')!, frameIndex(this.bindEdge));
     gl.uniform1f(u.get('uOffsetX')!, 0);
     gl.uniform1f(u.get('uAlpha')!, 1);
+    gl.uniform1f(u.get('uGutter')!, 0);
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
     this.applyPose(pose);
@@ -211,6 +219,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uOffsetX')!, offsetX);
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
+    gl.uniform1f(u.get('uGutter')!, 1); // 双页下层页（含淡出层）启用书沟
     gl.uniform1f(u.get('uAlpha')!, alpha);
     this.applyPose(null);
     gl.bindTexture(gl.TEXTURE_2D, resolveTexture(page));
@@ -232,6 +241,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uOffsetX')!, offsetX);
     gl.uniform1f(u.get('uFlat')!, 0);
     gl.uniform1f(u.get('uIsUnder')!, 0);
+    gl.uniform1f(u.get('uGutter')!, 0);
     gl.uniform1f(u.get('uShadowStrength')!, 0);
     gl.uniform1f(u.get('uAlpha')!, 1);
     this.applyPose(pose);
@@ -265,6 +275,7 @@ export class GlRenderer {
       'uVP', 'uSize', 'uCreaseOrigin', 'uCreaseDir', 'uWrapNormal', 'uRadius', 'uTaper',
       'uFlat', 'uFrame', 'uTuvFrame', 'uOffsetX', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
       'uBackTint', 'uBackWash', 'uBackShade', 'uFrontDark', 'uRootAo', 'uSpineAo',
+      'uGutter', 'uGutterCrease', 'uGutterRise',
       'uStackLayers', 'uStackLayerDepth', 'uStackLayerCrease', 'uStackTopLight', 'uStackHtRatio',
       'uLift', 'uDrapeBulge', 'uLandFade', 'uPaperT', 'uTex', 'uDebug', 'uAlpha',
     ];
@@ -333,7 +344,21 @@ export class GlRenderer {
     const ibo = gl.createBuffer()!;
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-    return { vbo, ibo, indexCount: indices.length };
+    // WebGL2：VAO 记录 attrib 绑定（attrib location 已 bindAttribLocation 固定）
+    let vao: WebGLVertexArrayObject | null = null;
+    if (this.isWebGL2) {
+      const gl2 = this.gl as WebGL2RenderingContext;
+      vao = gl2.createVertexArray();
+      gl2.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
+      gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
+      gl.enableVertexAttribArray(0);
+      gl.enableVertexAttribArray(1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl2.bindVertexArray(null);
+    }
+    return { vao, vbo, ibo, indexCount: indices.length };
   }
 
   private drawMesh(mesh: MeshBuffers | null): void {
@@ -341,13 +366,20 @@ export class GlRenderer {
       return;
     }
     const gl = this.gl;
-    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
-    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
-    gl.enableVertexAttribArray(0);
-    gl.enableVertexAttribArray(1);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ibo);
+    if (mesh.vao) {
+      (gl as WebGL2RenderingContext).bindVertexArray(mesh.vao);
+    } else {
+      gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vbo);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
+      gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
+      gl.enableVertexAttribArray(0);
+      gl.enableVertexAttribArray(1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.ibo);
+    }
     gl.drawElements(gl.TRIANGLES, mesh.indexCount, gl.UNSIGNED_SHORT, 0);
+    if (mesh.vao) {
+      (gl as WebGL2RenderingContext).bindVertexArray(null);
+    }
   }
 
   private applyPose(pose: FlipSceneState['pose']): void {

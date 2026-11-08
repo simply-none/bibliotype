@@ -69,7 +69,7 @@ export function usePageflip(
 
     const entry = providers.find((item) => item.key === providerKey.value) ?? providers[0];
     controller.setProvider(entry.provider);
-    pageCount.value = entry.provider.pageCount;
+    syncEngineState();
 
     fpsTimer = window.setInterval(() => {
       fps.value = controller?.fps ?? 0;
@@ -97,10 +97,21 @@ export function usePageflip(
     }
     providerKey.value = key;
     controller.setProvider(entry.provider);
-    // 双页模式：页数按 spread 口径（⌈面数/2⌉）， currentPage 为 spread 索引
+    syncEngineState();
+  }
+
+  /** 以引擎生效口径同步视图状态：viewMode 用引擎回退后的实际值（非 left
+   *  装订自动回退单页）；双页 pageCount = ⌊面数/2⌋+1（末 spread 左侧孤页，
+   *  与引擎 spreadCount 一致）。不再由组合式自行推算。 */
+  function syncEngineState(): void {
+    if (!controller) {
+      return;
+    }
+    viewMode.value = controller.viewMode;
+    const entry = providers.find((item) => item.key === providerKey.value) ?? providers[0];
     pageCount.value =
-      viewMode.value === 'spread' ? Math.ceil(entry.provider.pageCount / 2) : entry.provider.pageCount;
-    currentPage.value = 0;
+      controller.viewMode === 'spread' ? Math.floor(entry.provider.pageCount / 2) + 1 : entry.provider.pageCount;
+    currentPage.value = controller.currentPage;
   }
 
   function toggleDebug(): void {
@@ -140,16 +151,12 @@ export function usePageflip(
   const viewMode = ref<'single' | 'spread'>('single');
 
   function toggleViewMode(): void {
-    viewMode.value = viewMode.value === 'single' ? 'spread' : 'single';
-    if (controller) {
-      controller.setViewMode(viewMode.value);
-      // 双页：currentPage 变为 spread 索引，总单位数 = ⌈面数/2⌉
-      pageCount.value =
-        viewMode.value === 'spread'
-          ? Math.ceil((providers[0]?.provider.pageCount ?? 0) / 2)
-          : (providers[0]?.provider.pageCount ?? 0);
-      currentPage.value = 0;
+    if (!controller) {
+      return;
     }
+    controller.setViewMode(viewMode.value === 'single' ? 'spread' : 'single');
+    // 生效口径由引擎回传：非 left 装订回退单页；双页总数 = ⌊面数/2⌋+1
+    syncEngineState();
   }
 
   return {

@@ -20,6 +20,10 @@ export interface InputSourceHandlers {
   onWheelPulse(direction: number): void;
   /** 键盘翻页：+1 向前翻，-1 向后翻。 */
   onKeyPulse(direction: number): void;
+  /** 悬停移动（未按下时的 pointermove；鼠标 / 笔悬停，触摸设备不会触发）。 */
+  onHover?(x: number, y: number, time: number): void;
+  /** 指针离开元素（未按下时），悬停预览应清除。 */
+  onHoverEnd?(): void;
 }
 
 /** 输入阈值（interaction 组透传；缺省 = 引擎默认值）。 */
@@ -60,6 +64,7 @@ export class InputSource {
     element.addEventListener('pointermove', this.onMove, opts);
     element.addEventListener('pointerup', this.onUp, opts);
     element.addEventListener('pointercancel', this.onCancel, opts);
+    element.addEventListener('pointerleave', this.onLeave, opts);
     // 阻止长按菜单 / 选中，移动端手势完全接管
     element.addEventListener('contextmenu', this.prevent, opts);
     element.addEventListener('wheel', this.onWheel, opts);
@@ -114,7 +119,13 @@ export class InputSource {
   };
 
   private onMove = (event: PointerEvent): void => {
-    if (!this.active || !event.isPrimary) {
+    if (!event.isPrimary) {
+      return;
+    }
+    if (!this.active) {
+      // 悬停（未按下）：转发给预览层。触摸设备按下才有 move，天然不触发。
+      const rect = this.element.getBoundingClientRect();
+      this.handlers.onHover?.(event.clientX - rect.left, event.clientY - rect.top, event.timeStamp);
       return;
     }
     event.preventDefault();
@@ -122,6 +133,12 @@ export class InputSource {
       this.moved = true;
     }
     this.emit('move', event);
+  };
+
+  private onLeave = (): void => {
+    if (!this.active) {
+      this.handlers.onHoverEnd?.();
+    }
   };
 
   private onUp = (event: PointerEvent): void => {
@@ -143,8 +160,10 @@ export class InputSource {
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
-    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    this.wheelAcc += delta;
+    const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    // deltaMode 归一化到像素：Firefox 行模式（1，一格 ≈ 3 行×16px）、页模式（2）
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1;
+    this.wheelAcc += raw * unit;
     const now = event.timeStamp;
     if (Math.abs(this.wheelAcc) >= this.wheelThreshold && now - this.lastWheelFire > this.wheelCooldownMs) {
       const direction = this.wheelAcc > 0 ? 1 : -1;

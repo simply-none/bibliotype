@@ -15,10 +15,18 @@ interface CacheEntry {
   stamp: number;
 }
 
+/** 各向异性过滤扩展的最小类型面。 */
+interface AnisotropyExtension {
+  readonly TEXTURE_MAX_ANISOTROPY_EXT: number;
+  readonly MAX_TEXTURE_MAX_ANISOTROPY_EXT: number;
+}
+
 export class TextureStore {
   private readonly maxEntries: number;
   private readonly cache = new Map<number, CacheEntry>();
   private stamp = 0;
+  /** 各向异性过滤扩展（WebGL2 mipmap 路径下可用；缺省 null）。 */
+  private readonly anisotropy: AnisotropyExtension | null;
 
   constructor(
     private readonly gl: WebGLRenderingContext,
@@ -26,6 +34,10 @@ export class TextureStore {
     options: TextureStoreOptions = {}
   ) {
     this.maxEntries = options.maxEntries ?? 5;
+    this.anisotropy = this.mipmaps
+      ? (gl.getExtension('EXT_texture_filter_anisotropic') ??
+        gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')) as AnisotropyExtension | null
+      : null;
   }
 
   /** 取纹理；未命中返回 null（由 ensure 异步补齐）。 */
@@ -98,6 +110,11 @@ export class TextureStore {
     if (this.mipmaps) {
       gl.generateMipmap(gl.TEXTURE_2D);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      // 各向异性过滤：卷曲曲面斜视角的远端纹理更清晰（上限 4，兼顾性能）
+      if (this.anisotropy) {
+        const max = gl.getParameter(this.anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number;
+        gl.texParameterf(gl.TEXTURE_2D, this.anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, max ?? 1));
+      }
     } else {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     }

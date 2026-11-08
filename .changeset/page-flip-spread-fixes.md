@@ -1,0 +1,59 @@
+---
+'@bibliotype/page-flip': patch
+'@bibliotype/vue': patch
+---
+
+仿真翻页引擎审查修复（双页 P0 × 2 + 交互 / 渲染 / 打包完善）：
+
+- **双页纹理 LRU 抖动（黑块闪烁）**：双页预取共 6 面超出默认缓存 5 张 →
+  每帧整页重绘 + 逐出循环，动画期 32% 帧可见面缺纹理（实测黑块）。
+  修复：`textureCacheSize` 默认 5→8；`prefetchTextures` 按优先级排序
+  （翻动/淡出面 → 目标面 → 邻居预取）并裁剪到缓存容量以内，预取永不
+  超容量；换源 / 失效时突发回填（burst）消除数帧缺页；`goToPage` 跳页
+  与 `provider.ready`（异步图片解码完成）均触发突发回填（后者带身份
+  守卫，content 就绪后重灌占位纹理）；`prefetchTextures` 返回欠账状态
+  供帧循环续帧——修复空闲停帧与预算回填叠加时，dirty 同帧被渲染消费
+  导致每次唤醒只上传 1 张即停（瞬时跳页出现数帧黑块）；
+- **偶数面数书末面不可达**：`spreadCount` ⌈n/2⌉→⌊n/2⌋+1，偶数面数时末
+  spread 为左侧孤页（右面空），最后一面可达（对齐 StPageFlip showCover 约定）；
+- **usePageflip 页码口径**：`toggleViewMode` / `switchProvider` 改由引擎
+  生效口径回传（非 left 装订回退单页、双页 ⌊n/2⌋+1），不再用
+  `providers[0]` 推算（修复 10 页画册双页显示「3 / 3」）；
+- **新 API**：`goToPage()`（跳页，越界钳制，目录 / 进度条场景）、
+  `next()` / `prev()` 语义化别名、`isFlipping` 只读、事件回调
+  `onFlipStart` / `onFlipEnd`（`FlipEventInfo`：action/fromPage/toPage，
+  end 含 completed——回弹 / 取消 / 被打断为 false）；
+- **滚轮 deltaMode 归一化**：行模式（Firefox）×16、页模式 ×100，修复
+  Firefox 滚动数十格才有响应；
+- **页缘外抓取轴向反转修复**：在自由边外侧（beyondAxis 判定余量内）按下
+  时 `axisNormalFor` 的 grab−touch 指向页外 → 折痕轴反向（行程取反、
+  初始姿态反向卷曲、甩动速度反号、快甩完成失效）；修复为越界时回退
+  动作默认轴（forward +x / backward −x）；
+- **resize 防抖失效**：连续视口变化期间保留旧纹理（拉伸显示、无缺页
+  黑洞），停稳 160ms 后统一清空 + 突发回填（此前每次 >0.5px 变化即清空
+  全部纹理 + 1 张/帧回填 → 拖拽窗口时持续闪黑）；
+- **桌面 hover 卷角预览**：idle 态指针悬于角 / 边热区显示轻量预览姿态
+  （不建会话、不改页码；触摸设备无 hover 天然不触发）；
+- **帧循环空闲停帧**：静止且干净时停止 rAF（省电），输入 / 跳页 / 换源 /
+  视口变化自动唤醒；
+- **渲染细节**：WebGL2 启用 VAO（免每帧重设 attrib）；纹理启用各向异性
+  过滤（卷曲斜视角更清晰，上限 4）；清理 shader 死代码（片元未用的
+  `uDrapeBulge` / `uLift` uniform 与 `seeBack` 死变量）；
+  `radiusBaseRatio` 默认 0.03→0.035 与 `radiusMin` 对齐（原值恒被钳制，
+  行为不变）；
+- **双页书沟立体化（平铺几何 + 着色书沟，无厚度层线）**：中缝不再是两张
+  平面的硬拼接——书页几何保持平铺桌面（页块上下缘平直，无隆起与倾斜，
+  贴真实平放的书），书沟立体感完全由着色表达：所有下层页（含翻动页
+  下方）叠加 `gutterCreaseDepth`（0.42）窄缝谷阴影与 `gutterRiseStrength`
+  （0.1）坡面光泽高光，形成真实摊开书的暗-亮-暗光滑书沟；双页模式下
+  装订侧厚度层线（bindStrip）不再绘制（单页模式保留），参数见 shading
+  组 `gutter*`；
+- **悬停预览仅限角部**：边缘热区悬停不再触发卷曲预览（真实书上悬停不会
+  掀页，且边缘带宽误触率高；真实掀页仍从边缘拖拽 / 点击触发）；
+- **悬停预览不再提前揭示其他页**：预览场景仅翻动侧下方揭示目标面，
+  另一侧维持当前面——修复封面 spread（左侧为空）悬停时左侧错误
+  显示下一 spread 页面内容；
+- **README**：新增「接入约束」（touch-action: none、WebGL try/catch 降级、
+  尺寸管理、空闲停帧）；双页契约与 API 表更新；
+- 测试：95 例（+17）——覆盖 spread 末页契约、goToPage、事件、hover 预览、
+  纹理容量回归（LRU 抖动）、空闲停帧、滚轮 deltaMode、页缘外抓取轴向。

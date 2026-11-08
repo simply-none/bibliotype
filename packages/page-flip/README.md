@@ -26,6 +26,21 @@ controller.setProvider(myPageProvider); // 实现 PageProvider：把每页画到
 手势：拖拽角 / 边翻页（捏角斜折痕带书脊锚定约束、捏边平行书脊）、快甩
 完成、点击边/角自动翻页、方向键 / PageUp·Down / 滚轮；松手按「进度阈值
 OR 甩动速度」判定完成或回弹；边界橡皮筋；snap 补间可被新手势随时接管。
+桌面端鼠标悬停在**角部**热区时显示卷角预览（边缘热区不预览——真实书上
+悬停不会掀页；触摸设备无 hover，不触发）。
+
+### 接入约束
+
+- **`touch-action: none`**：画布 CSS 必须加 `touch-action: none`（并建议
+  `user-select: none`），否则移动端浏览器手势（滚动/缩放）会与翻页拖拽
+  冲突——引擎内部 `preventDefault` 不能替代该 CSS；
+- **WebGL 不可用**：`new FlipController()` 在无 WebGL 环境会抛错，调用方
+  应 try/catch 并降级（如回退到普通分页视图）；
+- **尺寸管理**：视口尺寸变化时由调用方调用 `setViewport(w, h, dpr)`
+  （配合 `ResizeObserver`；`@bibliotype/vue` 的 `usePageflip` 已封装）；
+  引擎不读取容器尺寸，canvas 本身的 CSS 布局由调用方负责；
+- **帧循环空闲停帧**：静止且干净时引擎自动停止 rAF（省电），任何输入、
+  跳页、换源、视口变化都会自动唤醒。
 
 ## 四向装订（bindEdge）
 
@@ -48,12 +63,17 @@ OR 甩动速度」判定完成或回弹；边界橡皮筋；snap 补间可被新
 切换左右对开视图，与单页互斥：
 
 - 分页契约：spread s 显示面 `[2s−1, 2s]`（s=0 封面在右、左面空），
-  spread 总数 = ⌈面数/2⌉；`currentPage` 在双页下为 spread 索引；
+  spread 总数 = ⌊面数/2⌋+1——**偶数面数时末 spread 为左侧孤页**
+  （右面为空），保证最后一面可达；`currentPage` 在双页下为 spread 索引；
 - forward 折**右面**越书脊落到左面；backward 折**左面**右翻——折痕数学
   恒 forward，两侧各自在自己的规范空间求解（复用帧系统）；
 - 面贴书脊侧的热区无效（已装订）；手势映射：右面拖左 / 左面拖右 /
   点击对侧缘 / ← → 键 / 滚轮；
 - 非 left 装订下 spread 自动回退单页（上下装订的对开视图暂不支持）；
+- **书沟（中缝立体感）**：书页几何保持平铺桌面（页块上下缘平直，无隆起
+  与倾斜——贴真实平放的书）；书沟立体感完全由着色表达——窄缝谷阴影 +
+  坡面光泽高光（暗-亮-暗节奏）；参数见 shading 组 `gutter*`（双页模式
+  生效，单页模式书沟着色不启用）；
 - `usePageflip`（@bibliotype/vue/pageflip）暴露 `viewMode` / `toggleViewMode`，
   `pageCount` 随模式切换为 spread 口径。
 
@@ -79,7 +99,7 @@ new FlipController(canvas, { config });
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `radiusBaseRatio` / `radiusGrowRatio` | 0.03 / 0.05 | 卷曲半径 r = base·W + grow·dist |
+| `radiusBaseRatio` / `radiusGrowRatio` | 0.035 / 0.05 | 卷曲半径 r = base·W + grow·dist |
 | `radiusMin` / `radiusMax` | 0.035 / 0.11 | 半径上下限（相对页宽） |
 | `landRadius` | 1.8 | 落定纸厚半径（px） |
 | `taperStrength` / `taperSpreadRatio` | 0.45 / 0.5 | 角部锥化幅度 / 展幅 |
@@ -114,6 +134,8 @@ new FlipController(canvas, { config });
 | `shadowWidthA/B/C` | 0.16 / 0.3 / 12 | 带宽 = A·掀起量 + B·半径 + C |
 | `shadowBaseSpan` / `shadowFlattenFade` | 0.75 / 0.7 | 强度起坡 / 压平消退 |
 | `spineAoStrength` / `spineAoWidth` | 0.16 / 0.085 | 书脊常驻 AO |
+| `gutterCreaseDepth` / `gutterCreaseWidthRatio` | 0.42 / 0.006 | 双页书沟窄缝谷阴影（深度 / 缝宽比） |
+| `gutterRiseStrength` | 0.1 | 书沟坡面光泽高光幅度 |
 | `stackLayers` | 5 | 书口叠边层数 |
 | `stackLayerDepth` / `stackLayerCrease` | 0.06 / 0.22 | 层深 / 层缝 |
 | `stackTopEdgeLight` / `stackHeadTailRatio` | 0.2 / 0.55 | 亮边 / 天头地脚带宽比 |
@@ -164,7 +186,7 @@ new FlipController(canvas, { config });
 
 | 导出 | 说明 |
 | --- | --- |
-| `FlipController` | 翻页状态机：`setProvider` / `setViewport` / `autoFlip` / `debug` / `fps` |
+| `FlipController` | 翻页状态机：`setProvider` / `setViewport` / `autoFlip` / `goToPage` / `next` / `prev` / `setViewMode`；`isFlipping` / `viewMode` / `debug` / `fps`；选项回调 `onStateChange` / `onFlipStart` / `onFlipEnd`（`FlipEventInfo`：action / fromPage / toPage，end 含 completed） |
 | `GlRenderer` | WebGL 渲染适配器（默认注入；上下文丢失自动恢复；`setRenderOptions` 收渲染质量参数） |
 | `PageBitmapSource` / `TextureStore` | 页面位图源（dpr 感知）与纹理 LRU（预算式上传） |
 | `solveFoldPose` / `solveFoldPoseAtProgress` / `createFoldSession` / `clampCornerTouch` | 折痕姿态纯函数（可单测 / 复用） |

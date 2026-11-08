@@ -98,6 +98,8 @@ void main() {
     world = vec2(pos2.y - uSize.y * 0.5, pos2.x - uSize.x * 0.5);
   }
   world.x += uOffsetX;
+  // 书沟立体感仅由片元着色表达（缝谷阴影 + 光泽）——几何保持平铺桌面：
+  // 页块上下缘平直，无隆起/倾斜
   gl_Position = uVP * vec4(world, zLift, 1.0);
 }
 `;
@@ -117,8 +119,6 @@ uniform float uShadowWidth;   // 投影带宽
 uniform float uShadowStrength;
 uniform float uRadius;        // 卷曲半径
 uniform float uTaper;         // 轴向锥化
-uniform float uDrapeBulge;   // 背面斜披段弧拱高度（px）
-uniform float uLift;          // 掀起材料全长（自由端高光定位）
 uniform float uLandFade;      // 落定淡出系数（0=不透明，1=背面平铺段全透明）
 uniform float uPaperT;        // 每页纸厚（px）——书口页叠边纹理的层距
 uniform vec3 uBackTint;       // 折页纸背色（暖调纸色）
@@ -127,6 +127,9 @@ uniform float uBackShade;     // 折页均一明度
 uniform float uFrontDark;     // 正面卷曲段渐暗幅度
 uniform vec2 uRootAo;         // 折痕根部 AO（强度, 宽度比）
 uniform vec2 uSpineAo;        // 书脊常驻 AO（强度, 宽度）
+uniform float uGutter;        // 1 = 双页书沟着色生效
+uniform vec2 uGutterCrease;   // 书沟窄缝谷阴影（强度, 特征宽度 px）
+uniform vec3 uGutterRise;     // 峰肩光泽高光（幅度, 中心距 px, 带宽 px）
 uniform float uStackLayers;   // 书口页叠边层数
 uniform float uStackLayerDepth;  // 叠边层深
 uniform float uStackLayerCrease; // 叠边层缝对比
@@ -157,10 +160,6 @@ void main() {
     tuv = vec2(vUv.y, vUv.x);
   }
   bool isFlip = uIsUnder < 0.5;             // 翻动页才参与分段着色与背面透视
-  // 纸张背面（反字）：折痕几何在折叠时已完成镜像反射，背面直接采样
-  // 材料点自身纹素——正面内容从纸背看即为左右反字（不再额外翻转 UV，
-  // 否则会把镜像抵消、背面显示正字）
-  bool seeBack = isFlip && vS > foldW * 0.5; // θ > π/2：背面朝上
 
   vec4 base = texture2D(uTex, tuv);
   vec3 col = base.rgb;
@@ -188,19 +187,32 @@ void main() {
     float spineAo = 1.0 - uSpineAo.x * smoothstep(uSpineAo.y, 0.0, vUv.x);
     col *= spineAo;
 
+    // 书沟（双页对开中缝）：窄缝谷阴影（缝口最深的物理暗线）+
+    // 坡面光泽高光（曲面折向光源的窄亮带 = 暗-亮-暗节奏，光滑弯曲的书沟）
+    if (uGutter > 0.5) {
+      float dSpinePx = vUv.x * uSize.x;
+      float gutterCrease = exp(-dSpinePx / max(uGutterCrease.y, 1.0));
+      col *= 1.0 - uGutterCrease.x * gutterCrease;
+      float sheenT = (dSpinePx - uGutterRise.y) / max(uGutterRise.z, 1.0);
+      float gutterSheen = exp(-sheenT * sheenT);
+      col *= 1.0 + uGutterRise.x * gutterSheen;
+    }
+
     // 书口页叠边（纸厚暗示）：自由边 + 天头地脚露出薄层页缘
     float dFore = (1.0 - vUv.x) * uSize.x;   // 距自由边（规范空间恒 uv.x = 1）
     float dHead = vUv.y * uSize.y;           // 距天头
     float dTail = (1.0 - vUv.y) * uSize.y;   // 距地脚
     float stackW = uPaperT * uStackLayers;   // 叠边露出层数由 shading 配置
 
-    // 装订侧书页叠边：左缘薄层纸缘（书厚在装订侧同样可见）
-    float dBind = vUv.x * uSize.x;           // 距装订边（规范空间恒 uv.x = 0）
-    float bindStrip = 1.0 - smoothstep(stackW * 0.7 - uPaperT * 0.5, stackW * 0.7, dBind);
-    if (bindStrip > 0.003) {
-      float bindShade = 1.0 - uStackLayerDepth * floor(dBind / uPaperT)
-          - uStackLayerCrease * smoothstep(0.3, 0.5, abs(fract(dBind / uPaperT) - 0.5));
-      col *= mix(1.0, bindShade, bindStrip);
+    // 装订侧书页叠边（单页模式显示书厚；双页书沟为光滑曲面，不显示层线）
+    if (uGutter < 0.5) {
+      float dBind = vUv.x * uSize.x;           // 距装订边（规范空间恒 uv.x = 0）
+      float bindStrip = 1.0 - smoothstep(stackW * 0.7 - uPaperT * 0.5, stackW * 0.7, dBind);
+      if (bindStrip > 0.003) {
+        float bindShade = 1.0 - uStackLayerDepth * floor(dBind / uPaperT)
+            - uStackLayerCrease * smoothstep(0.3, 0.5, abs(fract(dBind / uPaperT) - 0.5));
+        col *= mix(1.0, bindShade, bindStrip);
+      }
     }
 
     float foreStrip = 1.0 - smoothstep(stackW - uPaperT * 0.5, stackW, dFore);

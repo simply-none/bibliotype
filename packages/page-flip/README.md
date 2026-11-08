@@ -42,6 +42,21 @@ OR 甩动速度」判定完成或回弹；边界橡皮筋；snap 补间可被新
 四向共享同一套折痕数学（规范空间书脊恒 x=0，上下装订经转置映射）；
 内容正立显示、书口叠边 / 接触投影 / 落定淡出全部随装订侧自动朝向。
 
+## 双页模式（spread）
+
+`behavior.viewMode: 'spread'`（或运行时 `controller.setViewMode('spread')`）
+切换左右对开视图，与单页互斥：
+
+- 分页契约：spread s 显示面 `[2s−1, 2s]`（s=0 封面在右、左面空），
+  spread 总数 = ⌈面数/2⌉；`currentPage` 在双页下为 spread 索引；
+- forward 折**右面**越书脊落到左面；backward 折**左面**右翻——折痕数学
+  恒 forward，两侧各自在自己的规范空间求解（复用帧系统）；
+- 面贴书脊侧的热区无效（已装订）；手势映射：右面拖左 / 左面拖右 /
+  点击对侧缘 / ← → 键 / 滚轮；
+- 非 left 装订下 spread 自动回退单页（上下装订的对开视图暂不支持）；
+- `usePageflip`（@bibliotype/vue/pageflip）暴露 `viewMode` / `toggleViewMode`，
+  `pageCount` 随模式切换为 spread 口径。
+
 ## 参数自定义（FlipConfig）
 
 `new FlipController(canvas, { config })` 传**部分配置**即可（六组深合并，

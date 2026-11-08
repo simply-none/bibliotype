@@ -1,9 +1,10 @@
-# @bibliotype/page-flip · 仿真翻页（Page Curl）引擎
+# @bibliotype/page-flip · 仿真翻页引擎
 
-微信读书 / iBooks 级别的**完全仿真翻页**引擎：WebGL 圆柱卷曲模型 + 内容沿
-曲面真实透视变形 + 实时光照与接触投影。框架无关、**零运行时依赖**，
-支持 PC 鼠标与移动端触摸手势。Vue 组合式见 `@bibliotype/vue` 的
-`pageflip` 子入口。
+微信读书 / iBooks 级别的**完全仿真翻页**引擎：捏边/自动翻页走**刚体旋转
+模型**（整页绕书脊翻转 + 自由边卷筒 + 飞行拱，真实书本硬页观感），捏角
+拖拽走**圆柱卷折模型**（折角翻页）；内容沿曲面真实透视变形 + 实时光照
+与接触投影。框架无关、**零运行时依赖**，支持 PC 鼠标与移动端触摸手势。
+Vue 组合式见 `@bibliotype/vue` 的 `pageflip` 子入口。
 
 ## 引入
 
@@ -100,12 +101,17 @@ new FlipController(canvas, { config });
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `radiusBaseRatio` / `radiusGrowRatio` | 0.035 / 0.05 | 卷曲半径 r = base·W + grow·dist |
-| `radiusMin` / `radiusMax` | 0.035 / 0.11 | 半径上下限（相对页宽） |
+| `radiusBaseRatio` / `radiusGrowRatio` | 0.035 / 0.05 | 卷曲半径 r = base·W + grow·dist（fold 折角模型） |
+| `radiusMin` / `radiusMax` | 0.035 / 0.11 | 半径上下限（相对页宽，fold） |
 | `landRadius` | 1.8 | 落定纸厚半径（px） |
-| `taperStrength` / `taperSpreadRatio` | 0.45 / 0.5 | 角部锥化幅度 / 展幅 |
-| `creaseFollowRatio` | 0.25 | edge 折痕随触点跟随比 |
+| `taperStrength` / `taperSpreadRatio` | 0.45 / 0.5 | 角部锥化幅度 / 展幅（fold） |
+| `creaseFollowRatio` | 0.25 | 折痕锚点随触点跟随比 |
+| `flipBowRatio` | 0.085 | 旋转模型飞行拱高比（相对页宽，中段页面向翻越方向弓出） |
+| `curlLiftAngle` / `curlFlightAngle` | 2.1 / 0.55 | 旋转模型卷筒包角：起翻掀角 / 飞行前缘卷角（rad） |
+| `curlRadiusLift` / `curlRadiusFlight` | 0.045 / 0.085 | 旋转模型卷筒半径（相对页宽：起翻紧 / 飞行松） |
+| `flipAngleLag` | 0.32 | 翻页角迟滞 k：φ=π·(p−k·sin2πp/2π)，两端减速、中段加速 |
 | `flattenStart` | 0.86 | 落页压平起点（progress） |
+| `flightRadiusRatio` / `drapeArcRatio` | 0.13 / 0.15 | fold 折角模型飞行抬升 / 斜披弧拱 |
 | `dragMarginRatio` | 0.3 | 拖拽可越出页缘幅度 |
 | `cornerRadiusRatio` / `edgeZoneRatio` | 0.3 / 0.25 | 角部 / 边缘热区 |
 | `bounceProgress` | 0.1 | 边界橡皮筋幅度 |
@@ -115,12 +121,12 @@ new FlipController(canvas, { config });
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `autoFlipMs` | 850 | 自动翻页补间时长 |
+| `autoFlipMs` | 1150 | 自动翻页补间时长 |
 | `snapBaseMs` / `snapSlopeMs` | 380 / 540 | 释放补间 = base + slope·剩余 |
-| `snapMinMs` / `snapMaxMs` | 360 / 920 | 补间上下限 |
+| `snapMinMs` / `snapMaxMs` | 360 / 980 | 补间上下限 |
 | `bounceOutMs` / `bounceBackMs` | 460 / 420 | 橡皮筋去 / 回程 |
-| `wobbleStart` / `wobbleCycles` / `wobbleAmp` | 0.6 / 2.5 / 0.05 | 落定微颤 |
-| `fadeStart` | 0.85 | 落定淡出起点 |
+| `wobbleStart` / `wobbleCycles` / `wobbleAmp` | 0.82 / 2.5 / 0.05 | 落定微颤（扰动卷筒半径 = 页缘颤动） |
+| `fadeStart` | 0.88 | 落定淡出起点 |
 
 **shading · 着色**（运行时 uniform，可动态改观感）
 
@@ -175,16 +181,23 @@ new FlipController(canvas, { config });
 - 「规范空间」：页面矩形 [0,W]×[0,H]，y 向下；书脊（装订边）恒在 x=0，
   自由边在 x=W；实际装订侧（bindEdge）由页面帧映射承接（恒等 / X 镜像 /
   转置 / 转置+镜像），几何统一在规范空间求解；
-- 折叠抓取点**恒在自由边**（canonical x=W）——前翻向后翻同几何（折痕
-  从自由边扫向书脊、整页越过书脊），仅语义记账不同；
-- 角部拖拽为**折角模型**：折痕锚定书脊枢轴（装订边与抓取边同端的角）、
-  随拖拽转动；转角 φ 封顶于 atan(H/W)——折痕恰与自由缘下端相交、
-  不切底缘：折叠区恒为「枢轴→角」一侧的角部三角，装订缘/底缘不撕裂
-  （完成补间不封顶，自然过渡到整页翻过）；
-- snap 补间为触点直线路径补间（终点 = 抓取点跨书脊的镜像位），折痕
-  全程连续、最终落在装订侧上（整页翻过）；
-- 立体感来自几何抬升（z 经透视相机）+ 单调连续渐变；折回的纸背为单一
-  暖调纸色（透字强度 = 1−`backPaperWash`，反字透视）。
+- 两种形变模型（`FoldModel`）：
+  - **rotation（刚体旋转）**——捏边 / 中部滑动 / 自动翻页：整页绕书脊
+    刚体旋转 φ=π·R(p)（R 为两端减速的角度迟滞），自由边带卷筒（起翻
+    掀角大、飞行中为前缘小卷角、落定收拢），中段 sin^1.5 飞行拱；
+    真实书本硬页翻转的观感（页面立起、透视缩短、自由边最高点最后落桌）。
+    双页模式翻动叶的纸背贴**真实目标面纹理**（落地与下层逐像素对齐），
+    单页模式用暖调纸色 + 透字近似；
+  - **fold（折痕卷折）**——角部捏角拖拽（折角模型）：折痕锚定书脊枢轴
+    （装订边与抓取边同端的角）、随拖拽转动；转角封顶于 atan(H/W)——
+    折痕恰与自由缘下端相交、不切底缘：折叠区恒为「枢轴→角」一侧的
+    角部三角，装订缘/底缘不撕裂（完成补间不封顶，自然过渡到整页翻过）；
+- 折叠抓取点**恒在自由边**（canonical x=W）——前翻向后翻同几何，仅
+  语义记账不同；progress 语义两模型统一（0 全平、1 整页翻过），拖拽
+  progress = 行程/(2×推进终点)，与触点线性对应；
+- snap 补间按进度驱动（终点 = 抓取点跨书脊的镜像位），姿态全程连续；
+- 立体感来自几何抬升（z 经透视相机）+ 单调连续渐变；旋转模型正反面按
+  局部表面角判定（过 90° 侧逐渐显背），下层页投影随翻越范围移动。
 
 ## API 摘要
 

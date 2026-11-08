@@ -50,7 +50,7 @@ describe('solveFoldPose · forward 边缘拖拽', () => {
     const pose = solveFoldPose({ grab, touch: { x: -400, y: 300 }, mode: 'edge', action: 'forward', size: SIZE, config: CFG });
     expect(pose.progress).toBe(1);
     expect(pose.creaseOrigin.x).toBeCloseTo(0, 5);
-    expect(pose.radius).toBeCloseTo(CFG.landRadius, 5);
+    expect(pose.radius).toBeCloseTo(CFG.geometry.landRadius, 5);
     // 背面平铺段：材料翻到折痕另一侧（镜像）
     const d = deformPoint({ x: 120, y: 300 }, pose, SIZE);
     expect(d.x).toBeLessThan(0);

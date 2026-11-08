@@ -2,7 +2,7 @@
  * 翻页决策纯函数：抓取区判定与松手决策。
  * 从控制器中抽出，便于单元测试与后续调参。
  */
-import type { FlipAction, FlipConfig, GrabMode, PageSize, Point } from './types';
+import type { FlipAction, GrabMode, InteractionOptions, PageSize, Point, TimingOptions } from './types';
 
 /** 数值钳制。 */
 function clamp(value: number, min: number, max: number): number {
@@ -59,11 +59,11 @@ export function resolveGrabZone(touch: Point, size: PageSize, options: GrabZoneO
   return null;
 }
 
-/** 松手决策：进度越过阈值或甩动速度达标 → 完成翻页；否则回弹。 */
+/** 松手决策：进度阈值 OR 甩动速度达标 → 完成翻页；否则回弹。 */
 export function decideRelease(
   progress: number,
   axisVelocity: number,
-  config: Pick<FlipConfig, 'completeProgress' | 'flickVelocity'>
+  config: Pick<InteractionOptions, 'completeProgress' | 'flickVelocity'>
 ): 'complete' | 'cancel' {
   if (progress >= 1) {
     return 'complete';
@@ -74,7 +74,10 @@ export function decideRelease(
   return 'cancel';
 }
 
-/** snap 补间时长：随剩余距离缩放（整体放慢后的节奏）。 */
-export function snapDurationFor(remaining: number): number {
-  return Math.min(Math.max(380 + 540 * remaining, 360), 920);
+/** snap 补间时长：随剩余距离缩放（节奏由 timing 组配置）。 */
+export function snapDurationFor(remaining: number, timing: TimingOptions): number {
+  return Math.min(
+    Math.max(timing.snapBaseMs + timing.snapSlopeMs * remaining, timing.snapMinMs),
+    timing.snapMaxMs
+  );
 }

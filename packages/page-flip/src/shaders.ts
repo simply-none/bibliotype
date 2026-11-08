@@ -109,6 +109,17 @@ uniform float uTaper;         // 轴向锥化
 uniform float uLift;          // 掀起材料全长（自由端高光定位）
 uniform float uLandFade;      // 落定淡出系数（0=不透明，1=背面平铺段全透明）
 uniform float uPaperT;        // 每页纸厚（px）——书口页叠边纹理的层距
+uniform vec3 uBackTint;       // 折页纸背色（暖调纸色）
+uniform float uBackWash;      // 折页纸背混色比（1−wash = 正面内容透出/反字强度）
+uniform float uBackShade;     // 折页均一明度
+uniform float uFrontDark;     // 正面卷曲段渐暗幅度
+uniform vec2 uRootAo;         // 折痕根部 AO（强度, 宽度比）
+uniform vec2 uSpineAo;        // 书脊常驻 AO（强度, 宽度）
+uniform float uStackLayers;   // 书口页叠边层数
+uniform float uStackLayerDepth;  // 叠边层深
+uniform float uStackLayerCrease; // 叠边层缝对比
+uniform float uStackTopLight;    // 顶层页缘亮边强度
+uniform float uStackHtRatio;     // 天头地脚带宽比
 uniform float uDebug;
 
 varying vec2 vUv;
@@ -146,57 +157,57 @@ void main() {
       // 背面（折回平铺的纸背）：单一暖调纸色，贴近真实纸张——
       // 大比例混入纸色、保留约 18% 正面内容透出（隐约反字），均一
       // 明度略暗于下层页（压在上面的那张纸）
-      col = mix(col, vec3(0.97, 0.945, 0.9), 0.82);
-      shade = 0.94;
+      col = mix(col, uBackTint, uBackWash);
+      shade = uBackShade;
     } else if (vS > 0.0) {
       // 正面卷曲段：由桌面亮连续渐入纸背明度（终点 = 背面均色，无断差）
-      shade = 1.0 - 0.06 * smoothstep(0.0, foldW * 0.5, vS);
+      shade = 1.0 - uFrontDark * smoothstep(0.0, foldW * 0.5, vS);
     }
   }
   col *= shade;
 
   // 折痕根部 AO（卷曲圆柱自身投影）
-  col *= 1.0 - 0.18 * exp(-abs(vS) / (rL * 0.22 + 2.0));
+  col *= 1.0 - uRootAo.x * exp(-abs(vS) / (rL * uRootAo.y + 2.0));
 
   if (uIsUnder > 0.5) {
     // 书脊常驻 AO：规范空间书脊恒在 uv.x = 0（与行款镜像无关）
-    float spineAo = 1.0 - 0.16 * smoothstep(0.085, 0.0, vUv.x);
+    float spineAo = 1.0 - uSpineAo.x * smoothstep(uSpineAo.y, 0.0, vUv.x);
     col *= spineAo;
 
     // 书口页叠边（纸厚暗示）：自由边 + 天头地脚露出薄层页缘
     float dFore = (1.0 - vUv.x) * uSize.x;   // 距自由边（规范空间恒 uv.x = 1）
     float dHead = vUv.y * uSize.y;           // 距天头
     float dTail = (1.0 - vUv.y) * uSize.y;   // 距地脚
-    float stackW = uPaperT * 5.0;            // 叠边露出约 5 层
+    float stackW = uPaperT * uStackLayers;   // 叠边露出层数由 shading 配置
 
     // 装订侧书页叠边：左缘薄层纸缘（书厚在装订侧同样可见）
     float dBind = vUv.x * uSize.x;           // 距装订边（规范空间恒 uv.x = 0）
     float bindStrip = 1.0 - smoothstep(stackW * 0.7 - uPaperT * 0.5, stackW * 0.7, dBind);
     if (bindStrip > 0.003) {
-      float bindShade = 1.0 - 0.06 * floor(dBind / uPaperT)
-          - 0.22 * smoothstep(0.3, 0.5, abs(fract(dBind / uPaperT) - 0.5));
+      float bindShade = 1.0 - uStackLayerDepth * floor(dBind / uPaperT)
+          - uStackLayerCrease * smoothstep(0.3, 0.5, abs(fract(dBind / uPaperT) - 0.5));
       col *= mix(1.0, bindShade, bindStrip);
     }
 
     float foreStrip = 1.0 - smoothstep(stackW - uPaperT * 0.5, stackW, dFore);
     if (foreStrip > 0.003) {
-      float sheetShade = 1.0 - 0.06 * floor(dFore / uPaperT)
-          - 0.22 * smoothstep(0.3, 0.5, abs(fract(dFore / uPaperT) - 0.5));
+      float sheetShade = 1.0 - uStackLayerDepth * floor(dFore / uPaperT)
+          - uStackLayerCrease * smoothstep(0.3, 0.5, abs(fract(dFore / uPaperT) - 0.5));
       col *= mix(1.0, sheetShade, foreStrip);
       // 顶层页缘受光亮边
-      col = mix(col, vec3(1.0), 0.2 * (1.0 - smoothstep(0.0, 0.8, dFore)));
+      col = mix(col, vec3(1.0), uStackTopLight * (1.0 - smoothstep(0.0, 0.8, dFore)));
     }
-    float htW = stackW * 0.55;
+    float htW = stackW * uStackHtRatio;
     float headStrip = 1.0 - smoothstep(htW - uPaperT * 0.5, htW, dHead);
     float tailStrip = 1.0 - smoothstep(htW - uPaperT * 0.5, htW, dTail);
     if (headStrip > 0.003) {
-      float shadeH = 1.0 - 0.06 * floor(dHead / uPaperT)
-          - 0.22 * smoothstep(0.3, 0.5, abs(fract(dHead / uPaperT) - 0.5));
+      float shadeH = 1.0 - uStackLayerDepth * floor(dHead / uPaperT)
+          - uStackLayerCrease * smoothstep(0.3, 0.5, abs(fract(dHead / uPaperT) - 0.5));
       col *= mix(1.0, shadeH, headStrip);
     }
     if (tailStrip > 0.003) {
-      float shadeT = 1.0 - 0.06 * floor(dTail / uPaperT)
-          - 0.22 * smoothstep(0.3, 0.5, abs(fract(dTail / uPaperT) - 0.5));
+      float shadeT = 1.0 - uStackLayerDepth * floor(dTail / uPaperT)
+          - uStackLayerCrease * smoothstep(0.3, 0.5, abs(fract(dTail / uPaperT) - 0.5));
       col *= mix(1.0, shadeT, tailStrip);
     }
 

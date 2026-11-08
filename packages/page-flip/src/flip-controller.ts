@@ -26,7 +26,7 @@ import { canonicalSize, resolveBindEdge, screenToCanonical } from './page-frame'
 import { PageBitmapSource } from './page-provider';
 import { TextureStore } from './texture-store';
 import {
-  DEFAULT_FLIP_CONFIG,
+  resolveFlipConfig,
   type BindEdge,
   type FlipAction,
   type FlipConfig,
@@ -70,12 +70,6 @@ interface FlipSessionState {
   lastTouch: Point;
 }
 
-const TAP_ZONE_RATIO = 0.25;
-const CORNER_RADIUS_RATIO = 0.3;
-const BOUNCE_PROGRESS = 0.1;
-/** 中部滑动提交阈值（元素 px）：超过才判定方向并开始卷曲。 */
-const SWIPE_COMMIT_DIST = 14;
-
 export interface FlipControllerOptions {
   config?: FlipConfig;
   onStateChange?: (currentPage: number) => void;
@@ -105,7 +99,7 @@ export class FlipController {
   private pose: FoldPose | null = null;
   private downTime = 0;
   private downScreen: Point = { x: 0, y: 0 };
-  /** 中部滑动的待判定起点（位移超过阈值后按方向提交为 swipe 会话）。 */
+  /** 中部滑动的待判定起点（屏幕坐标；提交判定在规范空间进行）。 */
   private pendingSwipe: { x: number; y: number } | null = null;
   /** snap 期间收到的最后一条翻页脉冲（键盘/滚轮），补间结束后接续执行。 */
   private queuedPulse: FlipAction | null = null;
@@ -128,15 +122,35 @@ export class FlipController {
   private readonly renderer: FlipRenderAdapter;
 
   constructor(private readonly canvas: HTMLCanvasElement, options: FlipControllerOptions = {}) {
-    this.config = options.config ?? DEFAULT_FLIP_CONFIG;
+    this.config = resolveFlipConfig(options.config);
     this.onStateChange = options.onStateChange;
     this.renderer = options.renderer ?? new GlRenderer(canvas, () => this.textures?.clear());
-    this.textures = new TextureStore(this.renderer.gl, this.renderer.isWebGL2);
-    this.input = new InputSource(canvas, {
-      onPointer: (event) => this.onPointer(event),
-      onWheelPulse: (direction) => this.autoFlip(direction > 0 ? 'forward' : 'backward'),
-      onKeyPulse: (direction) => this.autoFlip(direction > 0 ? 'forward' : 'backward'),
+    this.renderer.setRenderOptions?.(this.config.render);
+    this.textures = new TextureStore(this.renderer.gl, this.renderer.isWebGL2, {
+      maxEntries: this.config.render.textureCacheSize,
     });
+    this.input = new InputSource(
+      canvas,
+      {
+        onPointer: (event) => this.onPointer(event),
+        onWheelPulse: (direction) => {
+          if (this.config.behavior.enableWheel) {
+            this.autoFlip(direction > 0 ? 'forward' : 'backward');
+          }
+        },
+        onKeyPulse: (direction) => {
+          if (this.config.behavior.enableKeyboard) {
+            this.autoFlip(direction > 0 ? 'forward' : 'backward');
+          }
+        },
+      },
+      {
+        tapMaxMs: this.config.interaction.tapMaxMs,
+        tapMaxDist: this.config.interaction.tapMaxDist,
+        wheelThreshold: this.config.interaction.wheelThreshold,
+        wheelCooldownMs: this.config.interaction.wheelCooldownMs,
+      }
+    );
     this.schedule();
   }
 
@@ -162,9 +176,9 @@ export class FlipController {
   /** 视口尺寸变化：重排页面矩形并适配渲染分辨率。 */
   setViewport(cssWidth: number, cssHeight: number, dpr: number): void {
     this.viewSize = { width: cssWidth, height: cssHeight };
-    const dprChanged = Math.min(dpr, 2) !== this.dpr;
+    const dprChanged = Math.min(dpr, this.config.render.dprCap) !== this.dpr;
     const oldScreen = this.screenPage;
-    this.dpr = Math.min(dpr, 2);
+    this.dpr = Math.min(dpr, this.config.render.dprCap);
     this.layout();
     this.renderer.resize(cssWidth, cssHeight, this.dpr);
     const pageChanged =
@@ -217,8 +231,8 @@ export class FlipController {
 
   private pageSize(): PageSize {
     const aspect = this.provider?.aspect ?? 0.68;
-    const maxW = this.viewSize.width * 0.94;
-    const maxH = this.viewSize.height * 0.92;
+    const maxW = this.viewSize.width * this.config.render.layoutWidthRatio;
+    const maxH = this.viewSize.height * this.config.render.layoutHeightRatio;
     let height = maxH;
     let width = height * aspect;
     if (width > maxW) {
@@ -311,15 +325,28 @@ export class FlipController {
     const touch = this.toCanonical(event.x, event.y);
     const cw = this.page.width;
     const ch = this.page.height;
-    if (touch.x < -cw * 0.2 || touch.x > cw * 1.2 || touch.y < -80 || touch.y > ch + 80) {
+    const beyondAxis = cw * this.config.geometry.touchBeyondAxisRatio;
+    const beyondSpine = this.config.geometry.touchBeyondSpinePx;
+    if (
+      touch.x < -beyondAxis ||
+      touch.x > cw + beyondAxis ||
+      touch.y < -beyondSpine ||
+      touch.y > ch + beyondSpine
+    ) {
       return;
     }
-    const zone = this.resolveGrabZone(touch);
+    let zone = this.resolveGrabZone(touch);
+    if (zone && zone.mode === 'corner' && !this.config.behavior.enableCornerGrab) {
+      zone = null;
+    }
+    if (zone && zone.mode === 'edge' && !this.config.behavior.enableEdgeGrab) {
+      zone = null;
+    }
     this.downTime = event.time;
     this.downScreen = { x: event.x, y: event.y };
     if (!zone) {
       // 页面中部：待定滑动（位移超过阈值后按方向提交为 swipe 会话）
-      this.pendingSwipe = { x: event.x, y: event.y };
+      this.pendingSwipe = this.config.behavior.enableSwipe ? { x: event.x, y: event.y } : null;
       return;
     }
     const foldSession = createFoldSession(zone.grab, touch, zone.mode, zone.action, this.page, this.config);
@@ -372,11 +399,15 @@ export class FlipController {
       const n = swipeState.session.axisNormal;
       this.rawTouch = {
         x: grab.x - n.x * travel,
-        y: grab.y + (pointer.y - swipeState.swipeOrigin.y) * 0.5,
+        y: grab.y + (pointer.y - swipeState.swipeOrigin.y) * this.config.interaction.swipeVerticalFollow,
       };
       this.samples.push({ time: event.time, dist: travel });
     } else {
-      const touch = clampTouch(this.toCanonical(event.x, event.y), this.page, this.page.width * 0.3);
+      const touch = clampTouch(
+        this.toCanonical(event.x, event.y),
+        this.page,
+        this.page.width * this.config.geometry.dragMarginRatio
+      );
       this.rawTouch = touch;
       // 甩动采样仅对可完成会话有意义（边界橡皮筋松手恒回弹）
       if (this.session.progressCap >= 1) {
@@ -403,7 +434,10 @@ export class FlipController {
     const pointerC = this.toCanonical(x, y);
     const dcx = pointerC.x - originC.x;
     const dcy = pointerC.y - originC.y;
-    if (Math.hypot(dcx, dcy) < SWIPE_COMMIT_DIST || Math.abs(dcx) < Math.abs(dcy) * 0.9) {
+    if (
+      Math.hypot(dcx, dcy) < this.config.interaction.swipeCommitDist ||
+      Math.abs(dcx) < Math.abs(dcy) * this.config.interaction.swipeCommitOrthoRatio
+    ) {
       return; // 位移不足或不沿装订轴：继续等待
     }
     const forward = dcx < 0;
@@ -413,7 +447,8 @@ export class FlipController {
       return; // 该方向到边界：忽略（回弹仅由点击/键盘触发）
     }
     const { width: w, height: h } = this.page;
-    const pressCanonicalV = clamp(pointerC.y, h * 0.15, h * 0.85);
+    const edgeClamp = h * this.config.interaction.edgePressClampRatio;
+    const pressCanonicalV = clamp(pointerC.y, edgeClamp, h - edgeClamp);
     const grab: Point = forward ? { x: w, y: pressCanonicalV } : { x: 0, y: pressCanonicalV };
     const foldSession = createFoldSession(grab, grab, 'edge', action, this.page, this.config);
     this.phase = 'drag';
@@ -446,8 +481,10 @@ export class FlipController {
 
   private onUp(event: { x: number; y: number; time: number }): void {
     if (this.phase === 'drag' && this.session) {
-      const moved = Math.hypot(event.x - this.downScreen.x, event.y - this.downScreen.y) > 8;
-      if (isTap(this.downTime, event.time, moved)) {
+      const moved =
+        Math.hypot(event.x - this.downScreen.x, event.y - this.downScreen.y) >
+        this.config.interaction.tapMaxDist;
+      if (isTap(this.downTime, event.time, moved, this.config.interaction.tapMaxMs)) {
         // 点击边/角 → 自动翻页（边界则回弹）
         const action = this.session.action;
         this.session = null;
@@ -464,7 +501,7 @@ export class FlipController {
   private onCancel(): void {
     this.pendingSwipe = null;
     if (this.phase === 'drag' && this.session) {
-      this.startSnap({ ...this.session.grab }, 460, false);
+      this.startSnap({ ...this.session.grab }, this.config.timing.bounceOutMs, false);
     }
   }
 
@@ -475,12 +512,12 @@ export class FlipController {
       return;
     }
     const progress = Math.min(this.pose.progress, state.progressCap);
-    const decision = decideRelease(progress, this.recentVelocity(), this.config);
+    const decision = decideRelease(progress, this.recentVelocity(), this.config.interaction);
     // 边界橡皮筋会话（cap < 1）不因快甩误判为完成——只能回弹
     const complete = decision === 'complete' && state.progressCap >= 1;
     this.startSnap(
       complete ? this.mirrorTouch(state.grab, state.action) : { ...state.grab },
-      snapDurationFor(complete ? 1 - progress : progress),
+      snapDurationFor(complete ? 1 - progress : progress, this.config.timing),
       complete
     );
   }
@@ -522,8 +559,8 @@ export class FlipController {
     const { width: w, height: h } = this.page;
     // 纯几何判定：边界方向由 progressCapFor 给出橡皮筋上限（拖拽回弹 / 点击回弹）
     return resolveGrabZone(touch, this.page, {
-      cornerRadius: Math.min(w, h) * CORNER_RADIUS_RATIO,
-      edgeRatio: TAP_ZONE_RATIO,
+      cornerRadius: Math.min(w, h) * this.config.geometry.cornerRadiusRatio,
+      edgeRatio: this.config.geometry.edgeZoneRatio,
     });
   }
 
@@ -531,7 +568,7 @@ export class FlipController {
     const canForward = this.currentPage < this.pageCount() - 1;
     const canBackward = this.currentPage > 0;
     const allowed = action === 'forward' ? canForward : canBackward;
-    return allowed ? 1 : BOUNCE_PROGRESS;
+    return allowed ? 1 : this.config.geometry.bounceProgress;
   }
 
   private pageCount(): number {
@@ -577,7 +614,7 @@ export class FlipController {
       snapTouchTo: this.mirrorTouch(grab, action),
       snapCompletes: true,
       snapStart: performance.now(),
-      snapDuration: 850,
+      snapDuration: this.config.timing.autoFlipMs,
       pendingReturn: false,
       lastTouch: { ...grab },
     };
@@ -597,14 +634,14 @@ export class FlipController {
       session: foldSession,
       fromPage: this.currentPage,
       underPage: action === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
-      progressCap: BOUNCE_PROGRESS,
+      progressCap: this.config.geometry.bounceProgress,
       inputMode: 'grab',
       swipeOrigin: { x: 0, y: 0 },
       snapTouchFrom: { ...grab },
-      snapTouchTo: this.virtualTouchAt(grab, foldSession, BOUNCE_PROGRESS),
+      snapTouchTo: this.virtualTouchAt(grab, foldSession, this.config.geometry.bounceProgress),
       snapCompletes: false,
       snapStart: performance.now(),
-      snapDuration: 460,
+      snapDuration: this.config.timing.bounceOutMs,
       pendingReturn: true,
       lastTouch: { ...grab },
     };
@@ -650,7 +687,7 @@ export class FlipController {
     const state = this.session;
     if (this.phase === 'drag' && state) {
       // 触点低通滤波（与帧率无关），随后实时求解
-      const k = 1 - Math.exp(-dt / this.config.dragSmoothingTau);
+      const k = 1 - Math.exp(-dt / this.config.interaction.dragSmoothingTau);
       this.filteredTouch.x += (this.rawTouch.x - this.filteredTouch.x) * k;
       this.filteredTouch.y += (this.rawTouch.y - this.filteredTouch.y) * k;
       const capped = this.capTouch(this.filteredTouch);
@@ -684,9 +721,12 @@ export class FlipController {
         config: this.config,
       });
       // 纸张落定微颤（仅完成方向，衰减正弦）
-      if (t > 0.6 && state.snapCompletes) {
-        const k = (t - 0.6) / 0.4;
-        const wobble = Math.sin(k * Math.PI * 2.5) * 0.05 * (1 - k);
+      if (t > this.config.timing.wobbleStart && state.snapCompletes) {
+        const k = (t - this.config.timing.wobbleStart) / (1 - this.config.timing.wobbleStart);
+        const wobble =
+          Math.sin(k * Math.PI * this.config.timing.wobbleCycles) *
+          this.config.timing.wobbleAmp *
+          (1 - k);
         this.pose = { ...this.pose, radius: Math.max(this.pose.radius * (1 + wobble), 0.3) };
       }
       this.dirty = true;
@@ -730,7 +770,7 @@ export class FlipController {
     }
     if (state.pendingReturn) {
       state.pendingReturn = false;
-      this.startSnap({ ...state.grab }, 420, false);
+      this.startSnap({ ...state.grab }, this.config.timing.bounceBackMs, false);
       return;
     }
     const forward = state.action === 'forward';
@@ -787,7 +827,7 @@ export class FlipController {
     // 避免"悬空整页 → 完成瞬间硬切消失"；forward/backward 对称。
     let flipFade = 0;
     if (state && this.pose) {
-      flipFade = smoothstep(0.85, 1, this.pose.progress);
+      flipFade = smoothstep(this.config.timing.fadeStart, 1, this.pose.progress);
     }
     this.renderer.render(
       {
@@ -795,7 +835,8 @@ export class FlipController {
         underPage: underIndex,
         pose: this.pose,
         flipFade,
-        paperT: this.config.landRadius * 2,
+        paperT: this.config.geometry.landRadius * 2,
+        shading: this.config.shading,
         debug: this.debugFlag,
       },
       underTex,

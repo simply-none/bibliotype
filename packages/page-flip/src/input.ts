@@ -22,12 +22,13 @@ export interface InputSourceHandlers {
   onKeyPulse(direction: number): void;
 }
 
-const TAP_MAX_MS = 280;
-const TAP_MAX_DIST = 8;
-/** 滚轮累计触发阈值（归一化 delta）。 */
-const WHEEL_THRESHOLD = 90;
-/** 滚轮触发冷却（毫秒）。 */
-const WHEEL_COOLDOWN = 380;
+/** 输入阈值（interaction 组透传；缺省 = 引擎默认值）。 */
+export interface InputSourceOptions {
+  tapMaxMs?: number;
+  tapMaxDist?: number;
+  wheelThreshold?: number;
+  wheelCooldownMs?: number;
+}
 
 export class InputSource {
   private active = false;
@@ -37,14 +38,23 @@ export class InputSource {
   private moved = false;
   private wheelAcc = 0;
   private lastWheelFire = 0;
+  private readonly tapMaxMs: number;
+  private readonly tapMaxDist: number;
+  private readonly wheelThreshold: number;
+  private readonly wheelCooldownMs: number;
   /** 键盘方向轴（随装订侧）：左右装订 x（→=下一页）；上装订 y（↑=下一页）；下装订 y（↓=下一页）。 */
   private keyAxis: { dir: 'x' | 'y'; sign: 1 | -1 } = { dir: 'x', sign: 1 };
   private readonly controller = new AbortController();
 
   constructor(
     private readonly element: HTMLElement,
-    private readonly handlers: InputSourceHandlers
+    private readonly handlers: InputSourceHandlers,
+    options: InputSourceOptions = {}
   ) {
+    this.tapMaxMs = options.tapMaxMs ?? 280;
+    this.tapMaxDist = options.tapMaxDist ?? 8;
+    this.wheelThreshold = options.wheelThreshold ?? 90;
+    this.wheelCooldownMs = options.wheelCooldownMs ?? 380;
     const opts: AddEventListenerOptions = { signal: this.controller.signal, passive: false };
     element.addEventListener('pointerdown', this.onDown, opts);
     element.addEventListener('pointermove', this.onMove, opts);
@@ -108,7 +118,7 @@ export class InputSource {
       return;
     }
     event.preventDefault();
-    if (Math.hypot(event.clientX - this.downX, event.clientY - this.downY) > TAP_MAX_DIST) {
+    if (Math.hypot(event.clientX - this.downX, event.clientY - this.downY) > this.tapMaxDist) {
       this.moved = true;
     }
     this.emit('move', event);
@@ -136,7 +146,7 @@ export class InputSource {
     const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
     this.wheelAcc += delta;
     const now = event.timeStamp;
-    if (Math.abs(this.wheelAcc) >= WHEEL_THRESHOLD && now - this.lastWheelFire > WHEEL_COOLDOWN) {
+    if (Math.abs(this.wheelAcc) >= this.wheelThreshold && now - this.lastWheelFire > this.wheelCooldownMs) {
       const direction = this.wheelAcc > 0 ? 1 : -1;
       this.wheelAcc = 0;
       this.lastWheelFire = now;
@@ -171,6 +181,6 @@ export class InputSource {
 }
 
 /** 是否构成一次点击（位移与时长均在阈值内）。 */
-export function isTap(downTime: number, upTime: number, moved: boolean): boolean {
-  return !moved && upTime - downTime <= TAP_MAX_MS;
+export function isTap(downTime: number, upTime: number, moved: boolean, maxMs = 280): boolean {
+  return !moved && upTime - downTime <= maxMs;
 }

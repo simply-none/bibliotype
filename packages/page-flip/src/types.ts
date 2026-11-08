@@ -97,6 +97,8 @@ export interface FlipSceneState {
   flipFade: number;
   /** 每页纸厚（px，= 2×landRadius）——书口页叠边纹理的层距依据。 */
   paperT: number;
+  /** 着色参数（shading 组透传，渲染器每帧上 uniform）。 */
+  shading: ShadingOptions;
   /** 调试视图（法线 / 网格着色）。 */
   debug: boolean;
 }
@@ -107,13 +109,19 @@ export interface FlipRenderAdapter {
   isWebGL2: boolean;
   /** size = 规范空间页面尺寸（随装订侧可能与屏幕互为转置）。 */
   updateLayout(size: PageSize, bindEdge: BindEdge): void;
+  /** 渲染质量参数（网格分段 / 相机距离系数）；可选——桩适配器可忽略。 */
+  setRenderOptions?(render: RenderOptions): void;
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
   render(state: FlipSceneState, underTex: WebGLTexture | null, flipTex: WebGLTexture | null): void;
   dispose(): void;
 }
 
-/** 翻页引擎可调参数。 */
-export interface FlipConfig {
+/** 翻页引擎可调参数（六组，深合并——只需覆盖关心的叶子）。 */
+export interface GeometryOptions {
+  /** 卷曲半径基准：r = radiusBaseRatio·W + radiusGrowRatio·dist。 */
+  radiusBaseRatio: number;
+  /** 卷曲半径随掀起量的增长系数。 */
+  radiusGrowRatio: number;
   /** 最紧卷曲半径（相对页宽）。 */
   radiusMin: number;
   /** 最松卷曲半径（相对页宽，起止端的“平”态）。 */
@@ -122,11 +130,112 @@ export interface FlipConfig {
   landRadius: number;
   /** 折痕轴向锥化幅度上限（角部抓取的圆锥感，0 关闭）。 */
   taperStrength: number;
+  /** 锥化随触点纵向偏移的展幅（相对页高）。 */
+  taperSpreadRatio: number;
   /**
    * 角部折痕的书脊锚定上限（相对页高）：折痕与枢轴侧边缘（书脊/自由缘）
    * 的交点最深只到页高上部此比例处，防止折痕横在页中（撕纸观感）。
    */
   creaseAnchorRatio: number;
+  /** edge 模式折痕中点随触点的纵向跟随比。 */
+  creaseFollowRatio: number;
+  /** 落页压平起点（progress，0.86 = 尾段 14% 收拢卷筒）。 */
+  flattenStart: number;
+  /** 拖拽触点可越出页缘的幅度（相对页宽）。 */
+  dragMarginRatio: number;
+  /** 角部热区半径（相对 min(W,H)）。 */
+  cornerRadiusRatio: number;
+  /** 边缘热区带宽（相对页宽）。 */
+  edgeZoneRatio: number;
+  /** 边界橡皮筋回弹幅度（progress 上限）。 */
+  bounceProgress: number;
+  /** 触点判定区沿装订轴可越出页缘的比例（onDown 热区外沿）。 */
+  touchBeyondAxisRatio: number;
+  /** 触点判定区沿书脊轴越出页缘的像素余量。 */
+  touchBeyondSpinePx: number;
+}
+
+export interface TimingOptions {
+  /** 自动翻页（点击/键盘/滚轮）补间时长（毫秒）。 */
+  autoFlipMs: number;
+  /** 释放补间时长 = snapBaseMs + snapSlopeMs·剩余进度。 */
+  snapBaseMs: number;
+  /** 释放补间随剩余进度的斜率（毫秒）。 */
+  snapSlopeMs: number;
+  /** 释放补间下限（毫秒，快甩尾段仍干脆）。 */
+  snapMinMs: number;
+  /** 释放补间上限（毫秒）。 */
+  snapMaxMs: number;
+  /** 边界橡皮筋去程时长（毫秒）。 */
+  bounceOutMs: number;
+  /** 边界橡皮筋回程时长（毫秒）。 */
+  bounceBackMs: number;
+  /** 落定微颤起点（补间进度 t）。 */
+  wobbleStart: number;
+  /** 落定微颤周期数。 */
+  wobbleCycles: number;
+  /** 落定微颤幅度（卷曲半径扰动比）。 */
+  wobbleAmp: number;
+  /** 落定淡出起点（progress，背面平铺段开始消隐）。 */
+  fadeStart: number;
+}
+
+export interface ShadingOptions {
+  /** 折页纸背色（RGB 0..1，暖调纸色）。 */
+  backPaperTint: [number, number, number];
+  /** 折页纸背混色比（1−wash = 正面内容透出/反字强度）。 */
+  backPaperWash: number;
+  /** 折页均一明度（略暗于下层页）。 */
+  backPaperShade: number;
+  /** 正面卷曲段渐暗幅度。 */
+  frontCurlDark: number;
+  /** 折痕根部 AO 强度。 */
+  rootAoStrength: number;
+  /** 折痕根部 AO 宽度比（相对卷曲半径）。 */
+  rootAoWidthRatio: number;
+  /** 接触投影强度上限。 */
+  shadowStrength: number;
+  /** 接触投影带宽 = shadowWidthA·掀起量 + shadowWidthB·半径 + shadowWidthC。 */
+  shadowWidthA: number;
+  shadowWidthB: number;
+  shadowWidthC: number;
+  /** 投影强度起坡（掀起量相对页宽的比例）。 */
+  shadowBaseSpan: number;
+  /** 投影随落页压平的消退比。 */
+  shadowFlattenFade: number;
+  /** 书脊常驻 AO 强度。 */
+  spineAoStrength: number;
+  /** 书脊常驻 AO 宽度（相对页宽 UV）。 */
+  spineAoWidth: number;
+  /** 书口页叠边层数。 */
+  stackLayers: number;
+  /** 叠边层深（每层明度递减）。 */
+  stackLayerDepth: number;
+  /** 叠边层缝对比。 */
+  stackLayerCrease: number;
+  /** 顶层页缘受光亮边强度。 */
+  stackTopEdgeLight: number;
+  /** 天头地脚带宽比（相对书口带宽）。 */
+  stackHeadTailRatio: number;
+}
+
+export interface InteractionOptions {
+  /** 点击判定时长上限（毫秒）。 */
+  tapMaxMs: number;
+  /** 点击判定位移上限（像素）。 */
+  tapMaxDist: number;
+  /** 滚轮累计触发阈值（归一化 delta）。 */
+  wheelThreshold: number;
+  /** 滚轮触发冷却（毫秒）。 */
+  wheelCooldownMs: number;
+  /** 中部滑动提交阈值（规范 px）。 */
+  swipeCommitDist: number;
+  /** 滑动提交正交比（|主轴| ≥ ortho·|横轴|）。 */
+  swipeCommitOrthoRatio: number;
+  /** swipe 行进中沿书脊轴的跟随比。 */
+  swipeVerticalFollow: number;
+  /** edge 抓取沿书脊轴的按压钳制（0.15 = 钳在 0.15H..0.85H）。 */
+  edgePressClampRatio: number;
   /** 松手后继续翻页的进度阈值。 */
   completeProgress: number;
   /** 松手后继续翻页的速度阈值（像素/毫秒）。 */
@@ -135,13 +244,148 @@ export interface FlipConfig {
   dragSmoothingTau: number;
 }
 
-export const DEFAULT_FLIP_CONFIG: FlipConfig = {
-  radiusMin: 0.035,
-  radiusMax: 0.11,
-  landRadius: 1.8,
-  taperStrength: 0.45,
-  creaseAnchorRatio: 0.3,
-  completeProgress: 0.25,
-  flickVelocity: 0.5,
-  dragSmoothingTau: 26,
+export interface RenderOptions {
+  /** 翻动页网格分段（X 方向，沿装订轴）。 */
+  meshSegmentsX: number;
+  /** 翻动页网格分段（Y 方向，沿书脊轴）。 */
+  meshSegmentsY: number;
+  /** 透视相机距离系数（越大透视越弱）。 */
+  cameraDistFactor: number;
+  /** 渲染分辨率 dpr 上限。 */
+  dprCap: number;
+  /** 纹理缓存上限（张）。 */
+  textureCacheSize: number;
+  /** 每帧纹理上传预算（张）。 */
+  textureUploadsPerFrame: number;
+  /** 页面排版宽度占舞台比例。 */
+  layoutWidthRatio: number;
+  /** 页面排版高度占舞台比例。 */
+  layoutHeightRatio: number;
+}
+
+export interface BehaviorOptions {
+  /** 启用捏角斜翻热区。 */
+  enableCornerGrab: boolean;
+  /** 启用捏边翻页热区。 */
+  enableEdgeGrab: boolean;
+  /** 启用中部滑动手势。 */
+  enableSwipe: boolean;
+  /** 启用滚轮翻页。 */
+  enableWheel: boolean;
+  /** 启用键盘翻页。 */
+  enableKeyboard: boolean;
+}
+
+/** 翻页引擎可调参数（六组）。 */
+export interface FlipConfig {
+  geometry: GeometryOptions;
+  timing: TimingOptions;
+  shading: ShadingOptions;
+  interaction: InteractionOptions;
+  render: RenderOptions;
+  behavior: BehaviorOptions;
+}
+
+/** 部分配置：各组均可只覆盖关心的叶子。 */
+export type DeepPartialFlipConfig = {
+  [K in keyof FlipConfig]?: Partial<FlipConfig[K]>;
 };
+
+export const DEFAULT_FLIP_CONFIG: FlipConfig = {
+  geometry: {
+    radiusBaseRatio: 0.03,
+    radiusGrowRatio: 0.05,
+    radiusMin: 0.035,
+    radiusMax: 0.11,
+    landRadius: 1.8,
+    taperStrength: 0.45,
+    taperSpreadRatio: 0.5,
+    creaseAnchorRatio: 0.3,
+    creaseFollowRatio: 0.25,
+    flattenStart: 0.86,
+    dragMarginRatio: 0.3,
+    cornerRadiusRatio: 0.3,
+    edgeZoneRatio: 0.25,
+    bounceProgress: 0.1,
+    touchBeyondAxisRatio: 0.2,
+    touchBeyondSpinePx: 80,
+  },
+  timing: {
+    autoFlipMs: 850,
+    snapBaseMs: 380,
+    snapSlopeMs: 540,
+    snapMinMs: 360,
+    snapMaxMs: 920,
+    bounceOutMs: 460,
+    bounceBackMs: 420,
+    wobbleStart: 0.6,
+    wobbleCycles: 2.5,
+    wobbleAmp: 0.05,
+    fadeStart: 0.85,
+  },
+  shading: {
+    backPaperTint: [0.97, 0.945, 0.9],
+    backPaperWash: 0.82,
+    backPaperShade: 0.94,
+    frontCurlDark: 0.06,
+    rootAoStrength: 0.18,
+    rootAoWidthRatio: 0.22,
+    shadowStrength: 0.3,
+    shadowWidthA: 0.16,
+    shadowWidthB: 0.3,
+    shadowWidthC: 12,
+    shadowBaseSpan: 0.75,
+    shadowFlattenFade: 0.7,
+    spineAoStrength: 0.16,
+    spineAoWidth: 0.085,
+    stackLayers: 5,
+    stackLayerDepth: 0.06,
+    stackLayerCrease: 0.22,
+    stackTopEdgeLight: 0.2,
+    stackHeadTailRatio: 0.55,
+  },
+  interaction: {
+    tapMaxMs: 280,
+    tapMaxDist: 8,
+    wheelThreshold: 90,
+    wheelCooldownMs: 380,
+    swipeCommitDist: 14,
+    swipeCommitOrthoRatio: 0.9,
+    swipeVerticalFollow: 0.5,
+    edgePressClampRatio: 0.15,
+    completeProgress: 0.25,
+    flickVelocity: 0.5,
+    dragSmoothingTau: 26,
+  },
+  render: {
+    meshSegmentsX: 64,
+    meshSegmentsY: 88,
+    cameraDistFactor: 3.2,
+    dprCap: 2,
+    textureCacheSize: 5,
+    textureUploadsPerFrame: 1,
+    layoutWidthRatio: 0.94,
+    layoutHeightRatio: 0.92,
+  },
+  behavior: {
+    enableCornerGrab: true,
+    enableEdgeGrab: true,
+    enableSwipe: true,
+    enableWheel: true,
+    enableKeyboard: true,
+  },
+};
+
+/** 深合并部分配置到默认配置（浅层组内合并，不做递归数组合并）。 */
+export function resolveFlipConfig(partial?: DeepPartialFlipConfig): FlipConfig {
+  const d = DEFAULT_FLIP_CONFIG;
+  const p = partial ?? {};
+  return {
+    geometry: { ...d.geometry, ...p.geometry },
+    timing: { ...d.timing, ...p.timing },
+    shading: { ...d.shading, ...p.shading },
+    interaction: { ...d.interaction, ...p.interaction },
+    render: { ...d.render, ...p.render },
+    behavior: { ...d.behavior, ...p.behavior },
+  };
+}

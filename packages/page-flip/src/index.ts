@@ -51,17 +51,25 @@ export {
 
 export {
   DEFAULT_FLIP_CONFIG,
+  resolveFlipConfig,
+  type BehaviorOptions,
   type BindEdge,
+  type DeepPartialFlipConfig,
   type FlipAction,
   type FlipConfig,
   type FlipOrientation,
   type FlipRenderAdapter,
   type FlipSceneState,
   type FoldPose,
+  type GeometryOptions,
   type GrabMode,
+  type InteractionOptions,
   type PageProvider,
   type PageSize,
   type Point,
+  type RenderOptions,
+  type ShadingOptions,
+  type TimingOptions,
 } from './types.js';
 
 export { multiply, perspective, translateZ } from './mat4.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decideRelease, resolveGrabZone, snapDurationFor } from '../flip-decisions';
-import { DEFAULT_FLIP_CONFIG, type PageSize } from '../types';
+import { DEFAULT_FLIP_CONFIG, type InteractionOptions, type TimingOptions, type PageSize } from '../types';
 
 const SIZE: PageSize = { width: 400, height: 600 };
 const ZONE_OPTS = {
@@ -51,10 +51,8 @@ describe('resolveGrabZone', () => {
 });
 
 describe('decideRelease', () => {
-  const config = Pick_CONFIG();
-  function Pick_CONFIG() {
-    return { completeProgress: DEFAULT_FLIP_CONFIG.completeProgress, flickVelocity: DEFAULT_FLIP_CONFIG.flickVelocity };
-  }
+  const config: Pick<InteractionOptions, 'completeProgress' | 'flickVelocity'> =
+    DEFAULT_FLIP_CONFIG.interaction;
 
   it('进度过阈值 → complete', () => {
     expect(decideRelease(0.5, 0, config)).toBe('complete');
@@ -74,11 +72,13 @@ describe('decideRelease', () => {
   });
 });
 
+const TIMING: TimingOptions = DEFAULT_FLIP_CONFIG.timing;
+
 describe('snapDurationFor', () => {
   it('随剩余距离缩放且有上下限（放慢后的节奏）', () => {
-    expect(snapDurationFor(0)).toBe(380);
-    expect(snapDurationFor(1)).toBe(920);
-    expect(snapDurationFor(-5)).toBe(360); // 下限
-    expect(snapDurationFor(9)).toBe(920); // 上限
+    expect(snapDurationFor(0, TIMING)).toBe(380);
+    expect(snapDurationFor(1, TIMING)).toBe(920);
+    expect(snapDurationFor(-5, TIMING)).toBe(360); // 下限
+    expect(snapDurationFor(9, TIMING)).toBe(920); // 上限
   });
 });

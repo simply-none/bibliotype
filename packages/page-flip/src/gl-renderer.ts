@@ -8,11 +8,18 @@
 import { multiply, perspective, translateZ, type Mat4 } from './mat4';
 import { FRAGMENT_SHADER, VERTEX_SHADER } from './shaders';
 import { frameIndex } from './page-frame';
-import type { BindEdge, FlipSceneState, PageSize } from './types';
+import type { BindEdge, FlipSceneState, PageSize, RenderOptions } from './types';
 
-const FLIP_SEG_X = 64;
-const FLIP_SEG_Y = 88;
-const CAMERA_DIST_FACTOR = 3.2;
+const DEFAULT_RENDER_OPTIONS: RenderOptions = {
+  meshSegmentsX: 64,
+  meshSegmentsY: 88,
+  cameraDistFactor: 3.2,
+  dprCap: 2,
+  textureCacheSize: 5,
+  textureUploadsPerFrame: 1,
+  layoutWidthRatio: 0.94,
+  layoutHeightRatio: 0.92,
+};
 
 interface MeshBuffers {
   vbo: WebGLBuffer;
@@ -31,6 +38,7 @@ export class GlRenderer {
   private vp: Mat4 = new Float32Array(16);
   private pageSize: PageSize = { width: 1, height: 1 };
   private bindEdge: BindEdge = 'left';
+  private renderOptions: RenderOptions = { ...DEFAULT_RENDER_OPTIONS };
   private lost = false;
 
   constructor(
@@ -53,6 +61,16 @@ export class GlRenderer {
     return this.isWebGL2;
   }
 
+  setRenderOptions(render: RenderOptions): void {
+    const segmentsChanged =
+      render.meshSegmentsX !== this.renderOptions.meshSegmentsX ||
+      render.meshSegmentsY !== this.renderOptions.meshSegmentsY;
+    this.renderOptions = { ...render };
+    if (segmentsChanged) {
+      this.buildMeshes();
+    }
+  }
+
   /** 更新版面（规范空间页面尺寸 / 装订侧），网格与缓存随尺寸变化重建。 */
   updateLayout(size: PageSize, bindEdge: BindEdge): void {
     const sizeChanged = size.width !== this.pageSize.width || size.height !== this.pageSize.height;
@@ -72,7 +90,7 @@ export class GlRenderer {
       this.canvas.width = w;
       this.canvas.height = h;
     }
-    const d = CAMERA_DIST_FACTOR * Math.max(this.pageSize.width, this.pageSize.height);
+    const d = this.renderOptions.cameraDistFactor * Math.max(this.pageSize.width, this.pageSize.height);
     const fovY = 2 * Math.atan(cssHeight / 2 / d);
     this.vp = multiply(
       perspective(fovY, cssWidth / cssHeight, d / 3, 3 * d),
@@ -109,8 +127,23 @@ export class GlRenderer {
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
     this.applyPose(pose);
-    gl.uniform1f(u.get('uShadowStrength')!, pose ? this.shadowStrength(pose) : 0);
-    gl.uniform1f(u.get('uShadowWidth')!, pose ? 0.16 * pose.strength + 0.3 * pose.radius + 12 : 1);
+    const shading = state.shading;
+    gl.uniform3f(u.get('uBackTint')!, shading.backPaperTint[0], shading.backPaperTint[1], shading.backPaperTint[2]);
+    gl.uniform1f(u.get('uBackWash')!, shading.backPaperWash);
+    gl.uniform1f(u.get('uBackShade')!, shading.backPaperShade);
+    gl.uniform1f(u.get('uFrontDark')!, shading.frontCurlDark);
+    gl.uniform2f(u.get('uRootAo')!, shading.rootAoStrength, shading.rootAoWidthRatio);
+    gl.uniform2f(u.get('uSpineAo')!, shading.spineAoStrength, shading.spineAoWidth);
+    gl.uniform1f(u.get('uStackLayers')!, shading.stackLayers);
+    gl.uniform1f(u.get('uStackLayerDepth')!, shading.stackLayerDepth);
+    gl.uniform1f(u.get('uStackLayerCrease')!, shading.stackLayerCrease);
+    gl.uniform1f(u.get('uStackTopLight')!, shading.stackTopEdgeLight);
+    gl.uniform1f(u.get('uStackHtRatio')!, shading.stackHeadTailRatio);
+    gl.uniform1f(u.get('uShadowStrength')!, pose ? this.shadowStrength(pose, shading) : 0);
+    gl.uniform1f(
+      u.get('uShadowWidth')!,
+      pose ? shading.shadowWidthA * pose.strength + shading.shadowWidthB * pose.radius + shading.shadowWidthC : 1
+    );
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, underTex);
     gl.uniform1i(u.get('uTex')!, 0);
@@ -154,6 +187,8 @@ export class GlRenderer {
     const names = [
       'uVP', 'uSize', 'uCreaseOrigin', 'uCreaseDir', 'uWrapNormal', 'uRadius', 'uTaper',
       'uFlat', 'uFrame', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
+      'uBackTint', 'uBackWash', 'uBackShade', 'uFrontDark', 'uRootAo', 'uSpineAo',
+      'uStackLayers', 'uStackLayerDepth', 'uStackLayerCrease', 'uStackTopLight', 'uStackHtRatio',
       'uLift', 'uLandFade', 'uPaperT', 'uTex', 'uDebug',
     ];
     this.uniforms = new Map(names.map((name) => [name, gl.getUniformLocation(this.program!, name)]));
@@ -183,7 +218,7 @@ export class GlRenderer {
   }
 
   private buildMeshes(): void {
-    this.flipMesh = this.createGridMesh(FLIP_SEG_X, FLIP_SEG_Y);
+    this.flipMesh = this.createGridMesh(this.renderOptions.meshSegmentsX, this.renderOptions.meshSegmentsY);
     this.underMesh = this.createGridMesh(1, 1);
   }
 
@@ -270,8 +305,8 @@ export class GlRenderer {
   }
 
   /** 接触投影强度：掀起范围越大越深，落页压平后自然消退。 */
-  private shadowStrength(pose: NonNullable<FlipSceneState['pose']>): number {
-    const base = Math.min(pose.strength / (0.75 * this.pageSize.width), 1);
-    return base * 0.3 * (1 - 0.7 * pose.flatten);
+  private shadowStrength(pose: NonNullable<FlipSceneState['pose']>, shading: FlipSceneState['shading']): number {
+    const base = Math.min(pose.strength / (shading.shadowBaseSpan * this.pageSize.width), 1);
+    return base * shading.shadowStrength * (1 - shading.shadowFlattenFade * pose.flatten);
   }
 }

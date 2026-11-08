@@ -184,7 +184,7 @@ export function solveFoldPose(input: FoldSolveInput): FoldPose {
   const { grab, mode, size, config } = input;
   const touch =
     mode === 'corner'
-      ? clampCornerTouch(input.touch, grab, input.action, size, config.creaseAnchorRatio)
+      ? clampCornerTouch(input.touch, grab, input.action, size, config.geometry.creaseAnchorRatio)
       : input.touch;
   const normal = axisNormalFor(grab, touch, mode, input.action);
   const distEnd = distEndFor(grab, normal, size);
@@ -237,7 +237,7 @@ function buildPose(
   let px = grab.x - normal.x * dist;
   let py = grab.y - normal.y * dist;
   if (mode === 'edge') {
-    py = grab.y + touchYOffset * 0.25;
+    py = grab.y + touchYOffset * config.geometry.creaseFollowRatio;
   }
 
   // 折痕方向：垂直于 n̂，约定 y 分量 ≥ 0（边缘模式恒平行书脊）
@@ -249,19 +249,23 @@ function buildPose(
   }
 
   // 落页压平系数（folded 端把 z 压向纸厚）
-  const flatten = smoothstep(0.86, 1, p);
+  const flatten = smoothstep(config.geometry.flattenStart, 1, p);
   // 紧卷筒 + 大斜披背面（真实书本形态）：卷筒保持细小（纸卷得紧），
   // 掀起材料的大部分以背面斜披段展现——背面内容清晰可见。
   // 若卷筒过大（rπ ≈ 掀起长度），筒上只会缠着页面边距的空白纸，背面消失。
-  const rNatural = clamp(0.03 * w + 0.05 * dist, w * config.radiusMin, w * config.radiusMax);
-  const radius = lerp(rNatural, config.landRadius, flatten);
+  const rNatural = clamp(
+    config.geometry.radiusBaseRatio * w + config.geometry.radiusGrowRatio * dist,
+    w * config.geometry.radiusMin,
+    w * config.geometry.radiusMax
+  );
+  const radius = lerp(rNatural, config.geometry.landRadius, flatten);
 
   // 圆锥锥化：仅角部模式；触点竖向偏移越大、抓取角越靠边越明显，
   // 锥顶在抓取角一侧（抓得近的一端卷得紧）。
   let taper = 0;
   if (mode === 'corner') {
-    const spread = clamp(Math.abs(touchYOffset) / (h * 0.5), 0, 1);
-    taper = config.taperStrength * spread * ((grab.y / h - 0.5) * 2);
+    const spread = clamp(Math.abs(touchYOffset) / (h * config.geometry.taperSpreadRatio), 0, 1);
+    taper = config.geometry.taperStrength * spread * ((grab.y / h - 0.5) * 2);
   }
 
   return {

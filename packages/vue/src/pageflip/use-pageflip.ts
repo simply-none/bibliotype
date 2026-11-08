@@ -97,7 +97,9 @@ export function usePageflip(
     }
     providerKey.value = key;
     controller.setProvider(entry.provider);
-    pageCount.value = entry.provider.pageCount;
+    // 双页模式：页数按 spread 口径（⌈面数/2⌉）， currentPage 为 spread 索引
+    pageCount.value =
+      viewMode.value === 'spread' ? Math.ceil(entry.provider.pageCount / 2) : entry.provider.pageCount;
     currentPage.value = 0;
   }
 
@@ -133,17 +135,36 @@ export function usePageflip(
     window.clearInterval(autoTimer);
   }
 
+  /** 视图模式（单页 / 双页对开）：双页下 currentPage 为 spread 索引、
+   *  pageCount 为 spread 总数（引擎内 ceil(面数/2)）。 */
+  const viewMode = ref<'single' | 'spread'>('single');
+
+  function toggleViewMode(): void {
+    viewMode.value = viewMode.value === 'single' ? 'spread' : 'single';
+    if (controller) {
+      controller.setViewMode(viewMode.value);
+      // 双页：currentPage 变为 spread 索引，总单位数 = ⌈面数/2⌉
+      pageCount.value =
+        viewMode.value === 'spread'
+          ? Math.ceil((providers[0]?.provider.pageCount ?? 0) / 2)
+          : (providers[0]?.provider.pageCount ?? 0);
+      currentPage.value = 0;
+    }
+  }
+
   return {
     providers,
     providerKey,
     currentPage,
     pageCount,
+    viewMode,
     debug,
     fps,
     error,
     initialized,
     autoPlaying,
     switchProvider,
+    toggleViewMode,
     toggleDebug,
     prev: () => controller?.autoFlip('backward'),
     next: () => controller?.autoFlip('forward'),

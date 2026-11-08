@@ -98,7 +98,7 @@ export class GlRenderer {
     );
   }
 
-  render(state: FlipSceneState, underTex: WebGLTexture | null, flipTex: WebGLTexture | null): void {
+  render(state: FlipSceneState, resolveTexture: (pageIndex: number) => WebGLTexture | null): void {
     if (this.lost || !this.program) {
       return;
     }
@@ -119,14 +119,10 @@ export class GlRenderer {
 
     gl.uniformMatrix4fv(u.get('uVP')!, false, this.vp);
     gl.uniform2f(u.get('uSize')!, this.pageSize.width, this.pageSize.height);
-    gl.uniform1f(u.get('uFrame')!, frameIndex(this.bindEdge));
     gl.uniform1f(u.get('uDebug')!, state.debug ? 1 : 0);
     gl.uniform1f(u.get('uLift')!, pose ? pose.strength : 0);
     gl.uniform1f(u.get('uLandFade')!, state.flipFade);
     gl.uniform1f(u.get('uPaperT')!, state.paperT);
-    gl.uniform1f(u.get('uFlat')!, 1);
-    gl.uniform1f(u.get('uIsUnder')!, 1);
-    this.applyPose(pose);
     const shading = state.shading;
     gl.uniform3f(u.get('uBackTint')!, shading.backPaperTint[0], shading.backPaperTint[1], shading.backPaperTint[2]);
     gl.uniform1f(u.get('uBackWash')!, shading.backPaperWash);
@@ -145,13 +141,37 @@ export class GlRenderer {
       pose ? shading.shadowWidthA * pose.strength + shading.shadowWidthB * pose.radius + shading.shadowWidthC : 1
     );
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, underTex);
     gl.uniform1i(u.get('uTex')!, 0);
+
+    if (state.spread) {
+      // 双页模式：左面（几何帧 right / 纹理帧 left）+ 右面（几何帧 left），
+      // 书脊居中（世界 x=0），两侧各偏移 ±W_c/2
+      const half = this.pageSize.width / 2;
+      this.drawUnderSide(1, -half, state.spread.leftPage, resolveTexture);
+      this.drawUnderSide(0, half, state.spread.rightPage, resolveTexture);
+      const flip = state.spread.flipping;
+      if (pose && flip) {
+        const frame = flip.side === 'left' ? 1 : 0;
+        const offsetX = flip.side === 'left' ? -half : half;
+        this.drawFlipSide(pose, frame, offsetX, flip.page, resolveTexture);
+      }
+      return;
+    }
+
+    // 单页模式：几何帧与纹理帧均随装订侧
+    gl.uniform1f(u.get('uFrame')!, frameIndex(this.bindEdge));
+    gl.uniform1f(u.get('uTuvFrame')!, frameIndex(this.bindEdge));
+    gl.uniform1f(u.get('uOffsetX')!, 0);
+    gl.uniform1f(u.get('uFlat')!, 1);
+    gl.uniform1f(u.get('uIsUnder')!, 1);
+    this.applyPose(pose);
+    gl.bindTexture(gl.TEXTURE_2D, resolveTexture(state.underPage));
 
     // 下层页（平面 + 书脊 AO + 接触投影）
     this.drawMesh(this.underMesh);
 
     // 翻动页（卷曲形变）
+    const flipTex = state.flippingPage !== null ? resolveTexture(state.flippingPage) : null;
     if (pose && flipTex) {
       gl.uniform1f(u.get('uFlat')!, 0);
       gl.uniform1f(u.get('uIsUnder')!, 0);
@@ -160,6 +180,49 @@ export class GlRenderer {
       gl.bindTexture(gl.TEXTURE_2D, flipTex);
       this.drawMesh(this.flipMesh);
     }
+  }
+
+  /** 双页单侧下层页（几何帧与纹理帧一致——左面帧 right，内容正立）。 */
+  private drawUnderSide(
+    frame: number,
+    offsetX: number,
+    page: number | null,
+    resolveTexture: (pageIndex: number) => WebGLTexture | null
+  ): void {
+    if (page === null) {
+      return; // 封面 spread 的左侧 / 页数不足——不绘制（背景透出）
+    }
+    const gl = this.gl;
+    const u = this.uniforms;
+    gl.uniform1f(u.get('uFrame')!, frame);
+    gl.uniform1f(u.get('uTuvFrame')!, frame);
+    gl.uniform1f(u.get('uOffsetX')!, offsetX);
+    gl.uniform1f(u.get('uFlat')!, 1);
+    gl.uniform1f(u.get('uIsUnder')!, 1);
+    this.applyPose(null);
+    gl.bindTexture(gl.TEXTURE_2D, resolveTexture(page));
+    this.drawMesh(this.underMesh);
+  }
+
+  /** 双页翻动面（side left → 几何帧 right、书脊居中、向右翻越）。 */
+  private drawFlipSide(
+    pose: NonNullable<FlipSceneState['pose']>,
+    frame: number,
+    offsetX: number,
+    page: number,
+    resolveTexture: (pageIndex: number) => WebGLTexture | null
+  ): void {
+    const gl = this.gl;
+    const u = this.uniforms;
+    gl.uniform1f(u.get('uFrame')!, frame);
+    gl.uniform1f(u.get('uTuvFrame')!, frame);
+    gl.uniform1f(u.get('uOffsetX')!, offsetX);
+    gl.uniform1f(u.get('uFlat')!, 0);
+    gl.uniform1f(u.get('uIsUnder')!, 0);
+    gl.uniform1f(u.get('uShadowStrength')!, 0);
+    this.applyPose(pose);
+    gl.bindTexture(gl.TEXTURE_2D, resolveTexture(page));
+    this.drawMesh(this.flipMesh);
   }
 
   dispose(): void {
@@ -186,7 +249,7 @@ export class GlRenderer {
     this.program = this.compileProgram();
     const names = [
       'uVP', 'uSize', 'uCreaseOrigin', 'uCreaseDir', 'uWrapNormal', 'uRadius', 'uTaper',
-      'uFlat', 'uFrame', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
+      'uFlat', 'uFrame', 'uTuvFrame', 'uOffsetX', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
       'uBackTint', 'uBackWash', 'uBackShade', 'uFrontDark', 'uRootAo', 'uSpineAo',
       'uStackLayers', 'uStackLayerDepth', 'uStackLayerCrease', 'uStackTopLight', 'uStackHtRatio',
       'uLift', 'uLandFade', 'uPaperT', 'uTex', 'uDebug',

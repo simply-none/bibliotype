@@ -70,6 +70,7 @@ export {
   type RenderOptions,
   type ShadingOptions,
   type TimingOptions,
+  type ViewMode,
 } from './types.js';
 
 export { multiply, perspective, translateZ } from './mat4.js';

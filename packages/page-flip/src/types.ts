@@ -82,12 +82,27 @@ export interface PageProvider {
   renderPage(ctx: CanvasRenderingContext2D, pageIndex: number, width: number, height: number): void;
 }
 
+/** 视图模式：单页（居中一页）或双页（左右对开、书脊居中）。 */
+export type ViewMode = 'single' | 'spread';
+
+/** 双页场景：两侧面索引 + 翻动侧（null = 无翻动）。 */
+export interface SpreadSceneState {
+  /** 左侧面（spread s = 面 2s−1；封面 spread s=0 时为 null——不绘制）。 */
+  leftPage: number | null;
+  /** 右侧面（spread s = 面 2s）。 */
+  rightPage: number | null;
+  /** 翻动面及其所在侧（left 侧翻动 = 语义 backward）。 */
+  flipping: { page: number; side: 'left' | 'right' } | null;
+}
+
 /** 供渲染层的完整场景状态（每帧由控制器产出）。 */
 export interface FlipSceneState {
-  /** 正在翻动的页（无翻页时为 null）。 */
+  /** 正在翻动的页（无翻页时为 null；双页模式下为翻动面索引，见 spread）。 */
   flippingPage: number | null;
-  /** 压在下层的页（翻页时 = 目标页；静止时 = 当前页）。 */
+  /** 压在下层的页（单页：翻页时 = 目标页；静止时 = 当前页；双页 = 右侧面）。 */
   underPage: number;
+  /** 双页模式场景（单页模式恒 null）。 */
+  spread: SpreadSceneState | null;
   /** 折痕姿态；无翻页时为 null。 */
   pose: FoldPose | null;
   /**
@@ -112,7 +127,7 @@ export interface FlipRenderAdapter {
   /** 渲染质量参数（网格分段 / 相机距离系数）；可选——桩适配器可忽略。 */
   setRenderOptions?(render: RenderOptions): void;
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
-  render(state: FlipSceneState, underTex: WebGLTexture | null, flipTex: WebGLTexture | null): void;
+  render(state: FlipSceneState, resolveTexture: (pageIndex: number) => WebGLTexture | null): void;
   dispose(): void;
 }
 
@@ -274,6 +289,8 @@ export interface BehaviorOptions {
   enableWheel: boolean;
   /** 启用键盘翻页。 */
   enableKeyboard: boolean;
+  /** 视图模式：单页（默认）或双页对开（仅 left 装订生效，其余装订侧自动回退单页）。 */
+  viewMode: ViewMode;
 }
 
 /** 翻页引擎可调参数（六组）。 */
@@ -373,6 +390,7 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     enableSwipe: true,
     enableWheel: true,
     enableKeyboard: true,
+    viewMode: 'single',
   },
 };
 

@@ -20,7 +20,9 @@ const {
   fps,
   error,
   autoPlaying,
+  viewMode,
   switchProvider,
+  toggleViewMode,
   toggleDebug,
   prev,
   next,
@@ -63,6 +65,14 @@ const {
           {{ autoPlaying ? '停止' : '演示' }}
         </button>
         <button class="pf-btn" type="button" title="下一页" @click="next">›</button>
+        <button
+          class="pf-btn"
+          type="button"
+          :class="{ 'pf-btn--active': viewMode === 'spread' }"
+          @click="toggleViewMode"
+        >
+          {{ viewMode === 'spread' ? '双页' : '单页' }}
+        </button>
         <button class="pf-btn" :class="{ 'pf-btn--active': debug }" type="button" @click="toggleDebug">网格</button>
         <span class="pf-fps">{{ fps }} fps</span>
       </div>

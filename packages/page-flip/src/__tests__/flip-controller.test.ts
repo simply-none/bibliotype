@@ -369,3 +369,92 @@ describe('FlipController 四向装订（bindEdge）', () => {
     controller.destroy();
   });
 });
+
+describe('FlipController 双页模式（spread）', () => {
+  const VIEW: PageSize = { width: 500, height: 700 };
+
+  function createSpreadController(pageCount = 6) {
+    const { fakeCanvas, adapter } = createStubs();
+    const controller = new FlipController(fakeCanvas, { renderer: adapter });
+    controller.setViewport(VIEW.width, VIEW.height, 1);
+    const provider: PageProvider = createStubProvider({ bindEdge: 'left', pageCount });
+    controller.setProvider(provider);
+    controller.setViewMode('spread');
+    // 双页布局：aspect 0.68 → 每面 235×345.6，书脊 x=250，右面 x∈[250,485]
+    return { controller, adapter };
+  }
+
+  it('分页契约：spread s = [面 2s−1, 面 2s]，封面 spread 左面为空', () => {
+    const { controller, adapter } = createSpreadController();
+    expect(controller.viewMode).toBe('spread');
+    advance(controller, 32);
+    expect(adapter.lastState?.spread?.leftPage).toBeNull();
+    expect(adapter.lastState?.spread?.rightPage).toBe(0);
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    expect(controller.currentPage).toBe(1);
+    advance(controller, 32);
+    expect(adapter.lastState?.spread?.leftPage).toBe(1);
+    expect(adapter.lastState?.spread?.rightPage).toBe(2);
+    controller.destroy();
+  });
+
+  it('右面捏角抓取 = 语义 forward（side right，折痕数学 forward）', () => {
+    const { controller } = createSpreadController();
+    pointer(controller, 'down', 478, 515, 1000); // 右面右下角
+    expect(controller['session']?.side).toBe('right');
+    expect(controller['session']?.semanticAction).toBe('forward');
+    expect(controller['session']?.action).toBe('forward');
+    controller.destroy();
+  });
+
+  it('左面捏角抓取 = 语义 backward（side left，折痕数学 forward——书脊居中右翻）', () => {
+    const { controller } = createSpreadController();
+    controller.autoFlip('forward');
+    advance(controller, 1000); // 先到 spread 1（有左面）
+    pointer(controller, 'down', 22, 515, 2000); // 左面左下角
+    expect(controller['session']?.side).toBe('left');
+    expect(controller['session']?.semanticAction).toBe('backward');
+    expect(controller['session']?.action).toBe('forward');
+    controller.destroy();
+  });
+
+  it('左面中部右拖 → backward swipe；右面中部左拖 → forward swipe', () => {
+    const { controller } = createSpreadController();
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    pointer(controller, 'down', 130, 350, 2000); // 左面中部
+    pointer(controller, 'move', 150, 350, 2100); // 右拖
+    expect(controller['session']?.inputMode).toBe('swipe');
+    expect(controller['session']?.semanticAction).toBe('backward');
+    pointer(controller, 'move', 300, 350, 2150); // drag past spine
+    pointer(controller, 'up', 302, 350, 2200);
+    advance(controller, 1000);
+    expect(controller.currentPage).toBe(0);
+    controller.destroy();
+  });
+
+  it('spread 末页 forward → 橡皮筋回弹', () => {
+    const { controller } = createSpreadController(4); // 4 面 = 2 spread
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    expect(controller.currentPage).toBe(1);
+    controller.autoFlip('forward'); // 已是末 spread → 回弹
+    expect(controller['session']?.pendingReturn).toBe(true);
+    advance(controller, 500);
+    advance(controller, 600);
+    expect(controller.currentPage).toBe(1);
+    controller.destroy();
+  });
+
+  it('非 left 装订回退单页（双页仅支持左右对开 LTR）', () => {
+    const { fakeCanvas, adapter } = createStubs();
+    const controller = new FlipController(fakeCanvas, { renderer: adapter });
+    controller.setViewport(VIEW.width, VIEW.height, 1);
+    const provider: PageProvider = createStubProvider({ orientation: 'rtl' });
+    controller.setProvider(provider);
+    controller.setViewMode('spread');
+    expect(controller.viewMode).toBe('single');
+    controller.destroy();
+  });
+});

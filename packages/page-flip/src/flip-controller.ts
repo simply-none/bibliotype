@@ -31,17 +31,29 @@ import {
   type FlipAction,
   type FlipConfig,
   type FlipRenderAdapter,
+  type FlipSceneState,
   type FoldPose,
   type GrabMode,
   type PageProvider,
   type PageSize,
   type Point,
+  type ViewMode,
 } from './types';
 
 type Phase = 'idle' | 'drag' | 'snap';
 
+/** 双页模式的翻动侧。 */
+type SpreadSide = 'left' | 'right';
+
 interface FlipSessionState {
   action: FlipAction;
+  /**
+   * 语义动作（页码记账依据）：单页 = action；双页 = 右侧翻动为 forward、
+   * 左侧翻动为 backward——折痕数学（action）在双页下恒为 forward。
+   */
+  semanticAction: FlipAction;
+  /** 双页翻动侧（单页恒 'right'，不参与逻辑）。 */
+  side: SpreadSide;
   mode: GrabMode;
   grab: Point;
   session: FoldSession;
@@ -107,10 +119,14 @@ export class FlipController {
   private provider: PageProvider | null = null;
   private bitmapSource: PageBitmapSource | null = null;
   private textures: TextureStore | null = null;
-  /** 屏幕页面矩形（舞台内，CSS px）。 */
+  /** 屏幕页面矩形（舞台内，CSS px）。单页 = 整页；双页 = 右侧面矩形。 */
   private pageRect = { x: 0, y: 0, width: 0, height: 0 };
+  /** 双页模式左侧面矩形（书脊 = pageRect 左缘；单页恒 null）。 */
+  private leftRect = { x: 0, y: 0, width: 0, height: 0 };
   /** 装订侧（粘胶侧）：left/right/top/bottom。 */
   private bindEdge: BindEdge = 'left';
+  /** 视图模式（单页 / 双页对开；双页仅 left 装订生效）。 */
+  private viewModeFlag: ViewMode;
   private viewSize: PageSize = { width: 0, height: 0 };
   private dpr = 1;
   private rafId = 0;
@@ -123,6 +139,7 @@ export class FlipController {
 
   constructor(private readonly canvas: HTMLCanvasElement, options: FlipControllerOptions = {}) {
     this.config = resolveFlipConfig(options.config);
+    this.viewModeFlag = this.config.behavior.viewMode;
     this.onStateChange = options.onStateChange;
     this.renderer = options.renderer ?? new GlRenderer(canvas, () => this.textures?.clear());
     this.renderer.setRenderOptions?.(this.config.render);
@@ -219,19 +236,53 @@ export class FlipController {
 
   private dirty = false;
 
+  /** 视图模式（单页 / 双页对开）。双页仅 left 装订生效，其余装订侧自动回退单页。 */
+  get viewMode(): ViewMode {
+    return this.effectiveViewMode();
+  }
+
+  /** 切换视图模式（重排并回到首个 spread / 第 0 页）。 */
+  setViewMode(mode: ViewMode): void {
+    if (this.viewModeFlag === mode) {
+      return;
+    }
+    this.viewModeFlag = mode;
+    this.currentPage = 0;
+    this.phase = 'idle';
+    this.pose = null;
+    this.session = null;
+    this.queuedPulse = null;
+    this.textures?.clear();
+    this.layout();
+    this.emitState();
+    this.dirty = true;
+  }
+
+  /** 生效视图模式：双页要求 left 装订（上下装订 / right 装订自动回退单页）。 */
+  private effectiveViewMode(): ViewMode {
+    return this.viewModeFlag === 'spread' && this.bindEdge === 'left' ? 'spread' : 'single';
+  }
+
+  /** 双页总数 = ⌈面数 / 2⌉（spread s：右面 2s、左面 2s−1）。 */
+  private spreadCount(): number {
+    return Math.ceil(this.pageCount() / 2);
+  }
+
   /** 屏幕页面尺寸（舞台内矩形，位图 / 排版依据）。 */
   private get screenPage(): PageSize {
     return { width: this.pageRect.width, height: this.pageRect.height };
   }
 
-  /** 页面尺寸（规范空间 = CSS 像素）：几何求解统一依据。 */
+  /** 页面尺寸（规范空间 = CSS 像素）：几何求解统一依据（单页 = 整页，双页 = 单侧面）。 */
   private get page(): PageSize {
     return canonicalSize(this.screenPage, this.bindEdge);
   }
 
   private pageSize(): PageSize {
     const aspect = this.provider?.aspect ?? 0.68;
-    const maxW = this.viewSize.width * this.config.render.layoutWidthRatio;
+    const spread = this.effectiveViewMode() === 'spread';
+    const shareW = spread ? 0.5 : 1;
+    const maxW = this.viewSize.width * this.config.render.layoutWidthRatio * shareW;
     const maxH = this.viewSize.height * this.config.render.layoutHeightRatio;
     let height = maxH;
     let width = height * aspect;
@@ -244,9 +295,18 @@ export class FlipController {
 
   private layout(): void {
     const size = this.pageSize();
+    const spread = this.effectiveViewMode() === 'spread';
+    // 双页：书脊居中，右面矩形在右、左面镜像；单页：整页居中
+    const blockLeft = (this.viewSize.width - (spread ? size.width * 2 : size.width)) / 2;
     this.pageRect = {
-      x: (this.viewSize.width - size.width) / 2,
+      x: blockLeft + (spread ? size.width : 0),
       y: (this.viewSize.height - size.height) / 2,
+      width: size.width,
+      height: size.height,
+    };
+    this.leftRect = {
+      x: blockLeft,
+      y: this.pageRect.y,
       width: size.width,
       height: size.height,
     };
@@ -278,6 +338,20 @@ export class FlipController {
     );
   }
 
+  /** 双页：屏幕坐标 → 所在侧的规范空间（左面帧 right、右面帧 left）。 */
+  private toSideCanonical(x: number, y: number, side: SpreadSide): Point {
+    const rect = side === 'left' ? this.leftRect : this.pageRect;
+    const local = { x: x - rect.x, y: y - rect.y };
+    return side === 'left'
+      ? screenToCanonical(local, this.screenPage, 'right')
+      : screenToCanonical(local, this.screenPage, 'left');
+  }
+
+  /** 双页：屏幕点落在哪一侧面（书脊 = pageRect 左缘）。 */
+  private sideAt(x: number): SpreadSide {
+    return x < this.pageRect.x ? 'left' : 'right';
+  }
+
   private onPointer(event: { type: 'down' | 'move' | 'up' | 'cancel'; x: number; y: number; time: number }): void {
     if (event.type === 'down') {
       this.onDown(event);
@@ -304,8 +378,10 @@ export class FlipController {
       //（行程 = 原点.x − 触点.x，规范空间恒成立——见 commitSwipe）
       if (this.session.inputMode === 'swipe') {
         const travel = Math.max(this.axisDist(adopted), 0);
-        const adoptedScreen = event;
-        const adoptedCanonical = this.toCanonical(adoptedScreen.x, adoptedScreen.y);
+        const adoptedCanonical =
+          this.effectiveViewMode() === 'spread'
+            ? this.toSideCanonical(event.x, event.y, this.session.side)
+            : this.toCanonical(event.x, event.y);
         this.session.swipeOrigin = {
           x: adoptedCanonical.x + travel,
           y: adoptedCanonical.y,
@@ -322,7 +398,9 @@ export class FlipController {
     if (this.phase !== 'idle') {
       return;
     }
-    const touch = this.toCanonical(event.x, event.y);
+    const spread = this.effectiveViewMode() === 'spread';
+    const side: SpreadSide = spread ? this.sideAt(event.x) : 'right';
+    const touch = spread ? this.toSideCanonical(event.x, event.y, side) : this.toCanonical(event.x, event.y);
     const cw = this.page.width;
     const ch = this.page.height;
     const beyondAxis = cw * this.config.geometry.touchBeyondAxisRatio;
@@ -342,6 +420,11 @@ export class FlipController {
     if (zone && zone.mode === 'edge' && !this.config.behavior.enableEdgeGrab) {
       zone = null;
     }
+    if (zone && spread && zone.action !== 'forward') {
+      // 双页：只允许「折痕数学 forward」——右面（frame left）= 语义 forward，
+      // 左面（frame right）= 语义 backward；面贴书脊侧的热区无效（已装订）
+      zone = null;
+    }
     this.downTime = event.time;
     this.downScreen = { x: event.x, y: event.y };
     if (!zone) {
@@ -349,18 +432,23 @@ export class FlipController {
       this.pendingSwipe = this.config.behavior.enableSwipe ? { x: event.x, y: event.y } : null;
       return;
     }
-    const foldSession = createFoldSession(zone.grab, touch, zone.mode, zone.action, this.page, this.config);
+    // 双页：折痕数学恒 forward；语义动作由翻动侧决定
+    const foldAction: FlipAction = spread ? 'forward' : zone.action;
+    const semanticAction: FlipAction = spread ? (side === 'right' ? 'forward' : 'backward') : zone.action;
+    const foldSession = createFoldSession(zone.grab, touch, zone.mode, foldAction, this.page, this.config);
     this.phase = 'drag';
     this.pendingSwipe = null;
     this.session = {
-      action: zone.action,
+      action: foldAction,
+      semanticAction,
+      side,
       mode: zone.mode,
       grab: zone.grab,
       session: foldSession,
-      // 对称语义：翻动的始终是当前页（fromPage），下层揭示目标页
+      // 对称语义：翻动的始终是当前 spread / 当前页（fromPage），下层揭示目标
       fromPage: this.currentPage,
-      underPage: zone.action === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
-      progressCap: this.progressCapFor(zone.action),
+      underPage: semanticAction === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
+      progressCap: this.progressCapFor(semanticAction),
       inputMode: 'grab',
       swipeOrigin: { x: event.x, y: event.y },
       snapTouchFrom: { ...touch },
@@ -388,7 +476,10 @@ export class FlipController {
     }
     if (this.session.inputMode === 'swipe') {
       // swipe：行程 = 手指沿装订轴（规范 x）向会话方向的有效位移
-      const pointer = this.toCanonical(event.x, event.y);
+      const pointer =
+        this.effectiveViewMode() === 'spread'
+          ? this.toSideCanonical(event.x, event.y, this.session.side)
+          : this.toCanonical(event.x, event.y);
       const swipeState = this.session;
       const along = swipeState.swipeOrigin.x - pointer.x;
       const travel = Math.min(
@@ -404,7 +495,9 @@ export class FlipController {
       this.samples.push({ time: event.time, dist: travel });
     } else {
       const touch = clampTouch(
-        this.toCanonical(event.x, event.y),
+        this.effectiveViewMode() === 'spread'
+          ? this.toSideCanonical(event.x, event.y, this.session.side)
+          : this.toCanonical(event.x, event.y),
         this.page,
         this.page.width * this.config.geometry.dragMarginRatio
       );
@@ -421,17 +514,20 @@ export class FlipController {
   }
 
   /**
-   * 提交中部滑动（规范空间统一判定，四向装订共用）：
-   * 位移以装订轴（规范 x）为主且超过阈值才提交；**规范 x 减小 = forward**——
-   * left 拖左、right 拖右、top 上拖、bottom 下拖，全部自然成立。
+   * 提交中部滑动（规范空间统一判定，四向装订与双页共用）：
+   * 位移以装订轴（规范 x）为主且超过阈值才提交；**规范 x 减小 = 折痕 forward**——
+   * left 拖左、right 拖右、top 上拖、bottom 下拖、双页右面拖左 / 左面拖右，全部成立。
+   * 双页语义动作由翻动侧决定（右面 = forward、左面 = backward）。
    */
   private commitSwipe(x: number, y: number): void {
     const origin = this.pendingSwipe;
     if (!origin) {
       return;
     }
-    const originC = this.toCanonical(origin.x, origin.y);
-    const pointerC = this.toCanonical(x, y);
+    const spread = this.effectiveViewMode() === 'spread';
+    const side: SpreadSide = spread ? this.sideAt(origin.x) : 'right';
+    const originC = spread ? this.toSideCanonical(origin.x, origin.y, side) : this.toCanonical(origin.x, origin.y);
+    const pointerC = spread ? this.toSideCanonical(x, y, side) : this.toCanonical(x, y);
     const dcx = pointerC.x - originC.x;
     const dcy = pointerC.y - originC.y;
     if (
@@ -440,26 +536,32 @@ export class FlipController {
     ) {
       return; // 位移不足或不沿装订轴：继续等待
     }
-    const forward = dcx < 0;
-    const action: FlipAction = forward ? 'forward' : 'backward';
+    const foldForward = dcx < 0;
+    if (spread && !foldForward) {
+      return; // 左面反向拖拽 = 折痕 backward：双页无此手势（面贴书脊侧不可掀）
+    }
+    const action: FlipAction = foldForward ? 'forward' : 'backward';
+    const semanticAction: FlipAction = spread ? (side === 'right' ? 'forward' : 'backward') : action;
     this.pendingSwipe = null;
-    if (this.progressCapFor(action) < 1) {
+    if (this.progressCapFor(semanticAction) < 1) {
       return; // 该方向到边界：忽略（回弹仅由点击/键盘触发）
     }
     const { width: w, height: h } = this.page;
     const edgeClamp = h * this.config.interaction.edgePressClampRatio;
     const pressCanonicalV = clamp(pointerC.y, edgeClamp, h - edgeClamp);
-    const grab: Point = forward ? { x: w, y: pressCanonicalV } : { x: 0, y: pressCanonicalV };
+    const grab: Point = foldForward ? { x: w, y: pressCanonicalV } : { x: 0, y: pressCanonicalV };
     const foldSession = createFoldSession(grab, grab, 'edge', action, this.page, this.config);
     this.phase = 'drag';
     this.session = {
       action,
+      semanticAction,
+      side,
       mode: 'edge',
       grab,
       session: foldSession,
-      // 对称语义：翻动的始终是当前页
+      // 对称语义：翻动的始终是当前页 / 当前 spread
       fromPage: this.currentPage,
-      underPage: forward ? this.currentPage + 1 : this.currentPage - 1,
+      underPage: semanticAction === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
       progressCap: 1,
       inputMode: 'swipe',
       // 原点保持按下点（规范空间）：提交瞬间即继承从按下到现在的全部行程
@@ -565,6 +667,12 @@ export class FlipController {
   }
 
   private progressCapFor(action: FlipAction): number {
+    if (this.effectiveViewMode() === 'spread') {
+      // 双页：currentPage = spread 索引
+      const allowed =
+        action === 'forward' ? this.currentPage + 1 < this.spreadCount() : this.currentPage > 0;
+      return allowed ? 1 : this.config.geometry.bounceProgress;
+    }
     const canForward = this.currentPage < this.pageCount() - 1;
     const canBackward = this.currentPage > 0;
     const allowed = action === 'forward' ? canForward : canBackward;
@@ -594,41 +702,53 @@ export class FlipController {
       this.startBounce(action);
       return;
     }
+    // 双页：折痕数学恒 forward——forward 折右面（frame left）、
+    // backward 折左面（frame right，书脊居中）；抓取点 = 该侧自由边中点
+    const spread = this.effectiveViewMode() === 'spread';
+    const side: SpreadSide = spread ? (action === 'forward' ? 'right' : 'left') : 'right';
+    const foldAction: FlipAction = spread ? 'forward' : action;
     const h = this.page.height;
-    const grab: Point = action === 'forward' ? { x: this.page.width, y: h / 2 } : { x: 0, y: h / 2 };
+    const grab: Point = foldAction === 'forward' ? { x: this.page.width, y: h / 2 } : { x: 0, y: h / 2 };
     const mode: GrabMode = 'edge';
-    const foldSession = createFoldSession(grab, grab, mode, action, this.page, this.config);
+    const foldSession = createFoldSession(grab, grab, mode, foldAction, this.page, this.config);
     this.phase = 'snap';
     this.session = {
-      action,
+      action: foldAction,
+      semanticAction: action,
+      side,
       mode,
       grab,
       session: foldSession,
-      // 对称语义：翻动的始终是当前页
+      // 对称语义：翻动的始终是当前页 / 当前 spread
       fromPage: this.currentPage,
       underPage: action === 'forward' ? this.currentPage + 1 : this.currentPage - 1,
       progressCap: 1,
       inputMode: 'grab',
       swipeOrigin: { x: 0, y: 0 },
       snapTouchFrom: { ...grab },
-      snapTouchTo: this.mirrorTouch(grab, action),
+      snapTouchTo: this.mirrorTouch(grab, foldAction),
       snapCompletes: true,
       snapStart: performance.now(),
       snapDuration: this.config.timing.autoFlipMs,
       pendingReturn: false,
       lastTouch: { ...grab },
     };
-    this.pose = solveFoldPose({ grab, touch: grab, mode, action, size: this.page, config: this.config });
+    this.pose = solveFoldPose({ grab, touch: grab, mode, action: foldAction, size: this.page, config: this.config });
     this.dirty = true;
   }
 
   private startBounce(action: FlipAction): void {
+    const spread = this.effectiveViewMode() === 'spread';
+    const side: SpreadSide = spread ? (action === 'forward' ? 'right' : 'left') : 'right';
+    const foldAction: FlipAction = spread ? 'forward' : action;
     const h = this.page.height;
-    const grab: Point = action === 'forward' ? { x: this.page.width, y: h / 2 } : { x: 0, y: h / 2 };
-    const foldSession = createFoldSession(grab, grab, 'edge', action, this.page, this.config);
+    const grab: Point = foldAction === 'forward' ? { x: this.page.width, y: h / 2 } : { x: 0, y: h / 2 };
+    const foldSession = createFoldSession(grab, grab, 'edge', foldAction, this.page, this.config);
     this.phase = 'snap';
     this.session = {
-      action,
+      action: foldAction,
+      semanticAction: action,
+      side,
       mode: 'edge',
       grab,
       session: foldSession,
@@ -645,7 +765,7 @@ export class FlipController {
       pendingReturn: true,
       lastTouch: { ...grab },
     };
-    this.pose = solveFoldPose({ grab, touch: grab, mode: 'edge', action, size: this.page, config: this.config });
+    this.pose = solveFoldPose({ grab, touch: grab, mode: 'edge', action: foldAction, size: this.page, config: this.config });
     this.dirty = true;
   }
 
@@ -773,7 +893,7 @@ export class FlipController {
       this.startSnap({ ...state.grab }, this.config.timing.bounceBackMs, false);
       return;
     }
-    const forward = state.action === 'forward';
+    const forward = state.semanticAction === 'forward';
     if (state.snapCompletes) {
       this.currentPage = forward ? state.fromPage + 1 : state.fromPage - 1;
       this.emitState();
@@ -798,14 +918,32 @@ export class FlipController {
     }
     const count = this.provider.pageCount;
     const wanted: number[] = [];
-    if (this.phase === 'idle') {
+    const pushFace = (index: number): void => {
+      if (index >= 0 && index < count && !wanted.includes(index)) {
+        wanted.push(index);
+      }
+    };
+    if (this.effectiveViewMode() === 'spread') {
+      // 双页：当前 spread 两面 + 相邻 spread 四面（翻动面已含于其中）
+      const s = this.currentPage;
+      pushFace(2 * s - 1);
+      pushFace(2 * s);
+      pushFace(2 * s + 1);
+      pushFace(2 * s + 2);
+      pushFace(2 * s - 3);
+      pushFace(2 * s - 2);
+    } else if (this.phase === 'idle') {
       wanted.push(this.currentPage);
       if (this.currentPage + 1 < count) wanted.push(this.currentPage + 1);
       if (this.currentPage - 1 >= 0) wanted.push(this.currentPage - 1);
     } else if (this.session) {
       wanted.push(this.session.underPage, this.session.fromPage);
     }
-    const remain = store.ensure(wanted.filter((i) => i >= 0 && i < count), 1, (index) => source.drawPage(index));
+    const remain = store.ensure(
+      wanted.filter((i) => i >= 0 && i < count),
+      this.config.render.textureUploadsPerFrame,
+      (index) => source.drawPage(index)
+    );
     if (remain.length > 0) {
       this.dirty = true; // 还有待上传纹理，下一帧继续
     }
@@ -816,32 +954,57 @@ export class FlipController {
       return;
     }
     const state = this.session;
-    const underIndex = state ? state.underPage : this.currentPage;
-    const flipIndex = state && this.pose ? state.fromPage : null;
-    const underTex = this.textures.get(underIndex) ?? this.textures.get(this.currentPage);
-    const flipTex = flipIndex !== null ? this.textures.get(flipIndex) : null;
-    if (!underTex) {
-      return; // 首帧纹理未就绪，prefetch 会置 dirty
-    }
+    const spreadMode = this.effectiveViewMode() === 'spread';
     // 落定淡出：镜像平贴态（p→1，材料翻出页外）随进度消隐，
     // 避免"悬空整页 → 完成瞬间硬切消失"；forward/backward 对称。
     let flipFade = 0;
     if (state && this.pose) {
       flipFade = smoothstep(this.config.timing.fadeStart, 1, this.pose.progress);
     }
-    this.renderer.render(
-      {
-        flippingPage: flipIndex,
-        underPage: underIndex,
+
+    let scene: FlipSceneState;
+    if (spreadMode) {
+      // 双页：spread s = [面 2s−1, 面 2s]；翻动面 = 右面（forward）/ 左面（backward）
+      const s = state ? state.fromPage : this.currentPage;
+      const flippingFace =
+        state && this.pose
+          ? state.semanticAction === 'forward'
+            ? 2 * s
+            : 2 * s - 1
+          : null;
+      const underS = state ? state.underPage : this.currentPage;
+      scene = {
         pose: this.pose,
         flipFade,
         paperT: this.config.geometry.landRadius * 2,
         shading: this.config.shading,
         debug: this.debugFlag,
-      },
-      underTex,
-      flipTex
-    );
+        flippingPage: flippingFace,
+        underPage: 2 * underS,
+        spread: {
+          leftPage: 2 * underS - 1 >= 0 ? 2 * underS - 1 : null,
+          rightPage: 2 * underS < this.provider.pageCount ? 2 * underS : null,
+          flipping:
+            flippingFace !== null && flippingFace >= 0 && flippingFace < this.provider.pageCount && state
+              ? { page: flippingFace, side: state.side }
+              : null,
+        },
+      };
+    } else {
+      const underIndex = state ? state.underPage : this.currentPage;
+      const flipIndex = state && this.pose ? state.fromPage : null;
+      scene = {
+        pose: this.pose,
+        flipFade,
+        paperT: this.config.geometry.landRadius * 2,
+        shading: this.config.shading,
+        debug: this.debugFlag,
+        flippingPage: flipIndex,
+        underPage: underIndex,
+        spread: null,
+      };
+    }
+    this.renderer.render(scene, (index) => this.textures?.get(index) ?? null);
   }
 
   private updateFps(dt: number): void {

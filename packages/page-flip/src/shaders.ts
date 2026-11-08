@@ -35,7 +35,8 @@ uniform float uRadius;       // 卷曲半径（卷曲带宽度基准）
 uniform float uTaper;        // 轴向锥化
 uniform float uLift;         // 掀起材料全长（背面斜披段落桌依据）
 uniform float uFlat;         // 1 = 下层页（跳过形变）
-uniform float uFrame;        // 页面帧（装订侧）：0 left / 1 right / 2 top / 3 bottom
+uniform float uFrame;        // 页面帧（几何装订侧）：0 left / 1 right / 2 top / 3 bottom
+uniform float uOffsetX;      // 世界 X 偏移（双页模式：右面 +W_c/2、左面 −W_c/2、单页 0）
 
 varying vec2 vUv;
 varying float vS;            // 到折痕有符号距离（掀侧为正）
@@ -87,6 +88,7 @@ void main() {
     // bottom：转置 + X 镜像（规范书脊 → 屏幕下缘）
     world = vec2(pos2.y - uSize.y * 0.5, pos2.x - uSize.x * 0.5);
   }
+  world.x += uOffsetX;
   gl_Position = uVP * vec4(world, zLift, 1.0);
 }
 `;
@@ -100,7 +102,7 @@ precision mediump float;
 
 uniform sampler2D uTex;
 uniform vec2 uSize;           // 页面尺寸 (W_c, H_c) 规范空间——书口叠边的像素换算
-uniform float uFrame;         // 页面帧（装订侧）：0 left / 1 right / 2 top / 3 bottom
+uniform float uTuvFrame;      // 纹理帧（内容朝向）：0 left / 1 right / 2 top / 3 bottom
 uniform float uIsUnder;       // 1 = 下层页（书脊 AO + 接触投影）
 uniform float uShadowWidth;   // 投影带宽
 uniform float uShadowStrength;
@@ -130,14 +132,15 @@ void main() {
   float rL = max(uRadius * (1.0 - uTaper * vXi), 0.25);
   float foldW = rL * 3.141592653589793;     // 卷曲压缩段的材料全长
 
-  // 纹素采样：规范 UV → 屏幕向纹理 UV（页面帧决定轴序与翻转）。
+  // 纹素采样：规范 UV → 屏幕向纹理 UV（纹理帧决定轴序与翻转，可与几何帧解耦——
+  // 双页左面几何书脊在右、内容仍正立显示）。
   // left:  (u, 1−v)  right: (1−u, 1−v)  top: (v, 1−u)  bottom: (v, u)
   vec2 tuv;
-  if (uFrame < 0.5) {
+  if (uTuvFrame < 0.5) {
     tuv = vec2(vUv.x, 1.0 - vUv.y);
-  } else if (uFrame < 1.5) {
+  } else if (uTuvFrame < 1.5) {
     tuv = vec2(1.0 - vUv.x, 1.0 - vUv.y);
-  } else if (uFrame < 2.5) {
+  } else if (uTuvFrame < 2.5) {
     tuv = vec2(vUv.y, 1.0 - vUv.x);
   } else {
     tuv = vec2(vUv.y, vUv.x);

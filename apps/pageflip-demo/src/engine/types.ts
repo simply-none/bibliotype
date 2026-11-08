@@ -93,13 +93,6 @@ export interface FlipSceneState {
   flipFade: number;
   /** 每页纸厚（px，= 2×landRadius）——书口页叠边纹理的层距依据。 */
   paperT: number;
-  /**
-   * 书体缘约束：翻折部分甩出后最多落在书体上、不越过书体外缘。
-   * -1 = forward（书脊左侧书体，外缘 x=-W）；
-   * +1 = backward（自由缘内侧，外缘 x=W）；
-   * 0 = 无会话不钳制。
-   */
-  bindSide: number;
   /** 调试视图（法线 / 网格着色）。 */
   debug: boolean;
 }
@@ -124,6 +117,11 @@ export interface FlipConfig {
   landRadius: number;
   /** 折痕轴向锥化幅度上限（角部抓取的圆锥感，0 关闭）。 */
   taperStrength: number;
+  /**
+   * 角部折痕的书脊锚定上限（相对页高）：折痕与枢轴侧边缘（书脊/自由缘）
+   * 的交点最深只到页高上部此比例处，防止折痕横在页中（撕纸观感）。
+   */
+  creaseAnchorRatio: number;
   /** 松手后继续翻页的进度阈值。 */
   completeProgress: number;
   /** 松手后继续翻页的速度阈值（像素/毫秒）。 */
@@ -137,6 +135,7 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
   radiusMax: 0.11,
   landRadius: 1.8,
   taperStrength: 0.45,
+  creaseAnchorRatio: 0.3,
   completeProgress: 0.25,
   flickVelocity: 0.5,
   dragSmoothingTau: 26,

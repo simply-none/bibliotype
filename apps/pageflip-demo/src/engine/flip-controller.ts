@@ -14,7 +14,6 @@ import {
   createFoldSession,
   smoothstep,
   solveFoldPose,
-  solveFoldPoseAtProgress,
   type FoldSession,
 } from './curl-model';
 import { decideRelease, resolveGrabZone, snapDurationFor } from './flip-decisions';
@@ -49,12 +48,21 @@ interface FlipSessionState {
   inputMode: 'grab' | 'swipe';
   /** swipe 模式的位移原点（元素坐标）。 */
   swipeOrigin: Point;
-  startProgress: number;
-  targetProgress: number;
+  /**
+   * snap 补间的触点直线路径（起 → 止）：折痕沿中垂线族全程连续——
+   * 完成态止点 = 抓取点跨装订侧的镜像位（折痕恰好落在书脊/自由缘上，
+   * 整页翻过），取消/回弹止点 = 抓取点（折痕收拢回平贴）。
+   */
+  snapTouchFrom: Point;
+  snapTouchTo: Point;
+  /** 本次 snap 是否为完成翻页（区别于回弹/取消）。 */
+  snapCompletes: boolean;
   snapStart: number;
   snapDuration: number;
-  /** 到达 target 后是否再弹回 0（边界回弹）。 */
+  /** 到达终点后是否再弹回抓取点（边界回弹）。 */
   pendingReturn: boolean;
+  /** 最近一次解算用的触点（snap 中被新手势接管时无缝接续）。 */
+  lastTouch: Point;
 }
 
 const TAP_ZONE_RATIO = 0.25;
@@ -247,14 +255,13 @@ export class FlipController {
     if (this.phase === 'snap' && this.session && !this.session.pendingReturn) {
       this.phase = 'drag';
       this.queuedPulse = null; // 用户接管，丢弃排队中的自动翻页脉冲
-      const progress = this.pose?.progress ?? 0;
-      const adopted = this.virtualTouchAt(this.session, progress);
+      const adopted = { ...this.session.lastTouch };
       // swipe 会话：把位移原点平移到当前按下点，使行程从当前进度无缝继续
       //（两方向行程均为 2×折痕推进——中垂线模型）
       if (this.session.inputMode === 'swipe') {
         const forwardLtr =
           (this.session.action === 'forward') === ((this.provider?.orientation ?? 'ltr') === 'ltr');
-        const travel = this.session.session.distEnd * 2 * progress;
+        const travel = Math.max(this.axisDist(adopted), 0);
         this.session.swipeOrigin = { x: forwardLtr ? event.x + travel : event.x - travel, y: event.y };
       }
       this.downTime = event.time;
@@ -294,11 +301,13 @@ export class FlipController {
       progressCap: this.progressCapFor(zone.action),
       inputMode: 'grab',
       swipeOrigin: { x: event.x, y: event.y },
-      startProgress: 0,
-      targetProgress: 0,
+      snapTouchFrom: { ...touch },
+      snapTouchTo: { ...touch },
+      snapCompletes: false,
       snapStart: 0,
       snapDuration: 0,
       pendingReturn: false,
+      lastTouch: { ...touch },
     };
     this.rawTouch = touch;
     this.filteredTouch = { ...touch };
@@ -388,11 +397,13 @@ export class FlipController {
       inputMode: 'swipe',
       // 原点保持按下点：提交瞬间即继承从按下到现在的全部行程
       swipeOrigin: { x: origin.x, y: origin.y },
-      startProgress: 0,
-      targetProgress: 0,
+      snapTouchFrom: { ...grab },
+      snapTouchTo: { ...grab },
+      snapCompletes: false,
       snapStart: 0,
       snapDuration: 0,
       pendingReturn: false,
+      lastTouch: { ...grab },
     };
     // 起始姿态：行程 0（触点 = 抓取点）
     this.rawTouch = { ...grab };
@@ -420,8 +431,8 @@ export class FlipController {
 
   private onCancel(): void {
     this.pendingSwipe = null;
-    if (this.phase === 'drag') {
-      this.startSnap(0, 300);
+    if (this.phase === 'drag' && this.session) {
+      this.startSnap({ ...this.session.grab }, 300, false);
     }
   }
 
@@ -435,7 +446,11 @@ export class FlipController {
     const decision = decideRelease(progress, this.recentVelocity(), this.config);
     // 边界橡皮筋会话（cap < 1）不因快甩误判为完成——只能回弹
     const complete = decision === 'complete' && state.progressCap >= 1;
-    this.startSnap(complete ? 1 : 0, snapDurationFor(complete ? 1 - progress : progress));
+    this.startSnap(
+      complete ? this.mirrorTouch(state.grab, state.action) : { ...state.grab },
+      snapDurationFor(complete ? 1 - progress : progress),
+      complete
+    );
   }
 
   private recentVelocity(): number {
@@ -460,12 +475,12 @@ export class FlipController {
     return -((touch.x - state.grab.x) * n.x + (touch.y - state.grab.y) * n.y);
   }
 
-  /** 由会话进度反解规范空间触点（打断接续用）。 */
-  private virtualTouchAt(state: FlipSessionState, progress: number): Point {
-    const dist = state.session.distEnd * progress;
+  /** 由会话进度反解规范空间触点（回弹目标 / 边界钳制用）。 */
+  private virtualTouchAt(grab: Point, fold: FoldSession, progress: number): Point {
+    const dist = fold.distEnd * progress;
     return {
-      x: state.grab.x - state.session.axisNormal.x * dist,
-      y: state.grab.y - state.session.axisNormal.y * dist,
+      x: grab.x - fold.axisNormal.x * dist,
+      y: grab.y - fold.axisNormal.y * dist,
     };
   }
 
@@ -526,13 +541,15 @@ export class FlipController {
       progressCap: 1,
       inputMode: 'grab',
       swipeOrigin: { x: 0, y: 0 },
-      startProgress: 0,
-      targetProgress: 1,
+      snapTouchFrom: { ...grab },
+      snapTouchTo: this.mirrorTouch(grab, action),
+      snapCompletes: true,
       snapStart: performance.now(),
       snapDuration: 520,
       pendingReturn: false,
+      lastTouch: { ...grab },
     };
-    this.pose = solveFoldPoseAtProgress(foldSession, 0);
+    this.pose = solveFoldPose({ grab, touch: grab, mode, action, size: this.page, config: this.config });
     this.dirty = true;
   }
 
@@ -551,26 +568,43 @@ export class FlipController {
       progressCap: BOUNCE_PROGRESS,
       inputMode: 'grab',
       swipeOrigin: { x: 0, y: 0 },
-      startProgress: 0,
-      targetProgress: BOUNCE_PROGRESS,
+      snapTouchFrom: { ...grab },
+      snapTouchTo: this.virtualTouchAt(grab, foldSession, BOUNCE_PROGRESS),
+      snapCompletes: false,
       snapStart: performance.now(),
       snapDuration: 300,
       pendingReturn: true,
+      lastTouch: { ...grab },
     };
-    this.pose = solveFoldPoseAtProgress(foldSession, 0);
+    this.pose = solveFoldPose({ grab, touch: grab, mode: 'edge', action, size: this.page, config: this.config });
     this.dirty = true;
   }
 
-  private startSnap(target: number, duration: number): void {
+  /**
+   * snap 补间：触点沿直线路径从当前位滑向目标位，折痕（中垂线）全程连续。
+   * - 完成翻页：目标 = 抓取点跨装订侧的镜像位，折痕最终落在书脊/自由缘上；
+   * - 回弹/取消：目标 = 抓取点，折痕收拢回平贴。
+   */
+  private startSnap(to: Point, duration: number, completes: boolean): void {
     const state = this.session;
     if (!state || !this.pose) {
       return;
     }
-    state.startProgress = this.pose.progress;
-    state.targetProgress = target;
+    state.snapTouchFrom = { ...state.lastTouch };
+    state.snapTouchTo = { ...to };
+    state.snapCompletes = completes;
     state.snapStart = performance.now();
     state.snapDuration = duration;
     this.phase = 'snap';
+  }
+
+  /** 完成态触点：抓取点跨装订侧边缘的镜像位（中垂线折痕恰落在装订侧上）。 */
+  private mirrorTouch(grab: Point, action: FlipAction): Point {
+    const w = this.page.width;
+    return {
+      x: action === 'forward' ? -grab.x : 2 * w - grab.x,
+      y: grab.y,
+    };
   }
 
   // ---------- 帧循环 ----------
@@ -590,6 +624,7 @@ export class FlipController {
       const capped = this.capTouch(this.filteredTouch);
       // 折痕 y 跟随实时触点：同步会话偏移，snap 接续时折痕不跳变
       state.session.touchYOffset = capped.y - state.grab.y;
+      state.lastTouch = { ...capped };
       this.pose = solveFoldPose({
         grab: state.grab,
         touch: capped,
@@ -602,10 +637,22 @@ export class FlipController {
     } else if (this.phase === 'snap' && state && this.pose) {
       const t = clamp((now - state.snapStart) / state.snapDuration, 0, 1);
       const eased = 1 - Math.pow(1 - t, 3);
-      const progress = state.startProgress + (state.targetProgress - state.startProgress) * eased;
-      this.pose = solveFoldPoseAtProgress(state.session, progress);
+      // 触点沿直线路径补间：折痕（中垂线）随之连续扫过，全程不跳变
+      const touch = {
+        x: state.snapTouchFrom.x + (state.snapTouchTo.x - state.snapTouchFrom.x) * eased,
+        y: state.snapTouchFrom.y + (state.snapTouchTo.y - state.snapTouchFrom.y) * eased,
+      };
+      state.lastTouch = touch;
+      this.pose = solveFoldPose({
+        grab: state.grab,
+        touch,
+        mode: state.mode,
+        action: state.action,
+        size: this.page,
+        config: this.config,
+      });
       // 纸张落定微颤（仅完成方向，衰减正弦）
-      if (t > 0.6) {
+      if (t > 0.6 && state.snapCompletes) {
         const k = (t - 0.6) / 0.4;
         const wobble = Math.sin(k * Math.PI * 2.5) * 0.05 * (1 - k);
         this.pose = { ...this.pose, radius: Math.max(this.pose.radius * (1 + wobble), 0.3) };
@@ -641,7 +688,7 @@ export class FlipController {
     if (pose.progress <= state.progressCap) {
       return touch;
     }
-    return this.virtualTouchAt(state, state.progressCap);
+    return this.virtualTouchAt(state.grab, state.session, state.progressCap);
   }
 
   private completeSnap(): void {
@@ -651,14 +698,11 @@ export class FlipController {
     }
     if (state.pendingReturn) {
       state.pendingReturn = false;
-      state.startProgress = state.targetProgress;
-      state.targetProgress = 0;
-      state.snapStart = performance.now();
-      state.snapDuration = 280;
+      this.startSnap({ ...state.grab }, 280, false);
       return;
     }
     const forward = state.action === 'forward';
-    if (state.targetProgress >= 1) {
+    if (state.snapCompletes) {
       this.currentPage = forward ? state.fromPage + 1 : state.fromPage - 1;
       this.emitState();
     }
@@ -720,7 +764,6 @@ export class FlipController {
         pose: this.pose,
         flipFade,
         paperT: this.config.landRadius * 2,
-        bindSide: state ? (state.action === 'forward' ? -1 : 1) : 0,
         debug: this.debugFlag,
       },
       underTex,

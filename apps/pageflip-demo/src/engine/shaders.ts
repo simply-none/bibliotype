@@ -17,8 +17,8 @@
  * 翻动页——下层页是平铺的纸，若套用分段逻辑，静止/翻页时会被误判
  * 成背面而镜像、洗白）。正反面判定用几何量 vS 对比 foldW（镜像下
  * 绕序不可靠）。
- * 翻动页背面斜披段随 uLandFade 在落定尾段淡出（单页版式下
- * 镜像平贴态落在页外，淡出避免"悬空整页→硬切消失"的破绽）。
+ * 翻动页背面斜披段随 uLandFade 在落定尾段淡出（镜像平贴态落在
+ * 页外，淡出避免"悬空整页→硬切消失"的破绽）。
  */
 
 export const VERTEX_SHADER = `
@@ -35,7 +35,6 @@ uniform float uTaper;        // 轴向锥化
 uniform float uLift;         // 掀起材料全长（背面斜披段落桌依据）
 uniform float uFlat;         // 1 = 下层页（跳过形变）
 uniform float uMirrorSign;   // +1 = LTR，-1 = RTL（X 镜像）
-uniform float uBindSide;     // 书体缘约束：-1 左书体外缘（forward）/ +1 自由缘内侧（backward）/ 0 无
 
 varying vec2 vUv;
 varying float vS;            // 到折痕有符号距离（掀侧为正）
@@ -66,17 +65,6 @@ void main() {
          + uCreaseDir * xiPx
          + uWrapNormal * mix(bend, mirrored, overCrest);
     zLift = mix(lift, 2.0 * r * (1.0 - backFrac), overCrest);
-
-    // 书体缘约束（真实装订书）：折回部分甩出后落在装订侧书体上，
-    // 最多到书体外缘为止——forward 书脊左侧书体（外缘 x=-(W-14)），
-    // backward 自由缘内侧（x=W-14）。越出外缘的余量沿缘立起
-    // （纸被书缘/相邻书挡住），不会无限甩出（撕纸感）。
-    if (overCrest > 0.5 && uBindSide != 0.0) {
-      float edgeX = uBindSide < 0.0 ? -(uSize.x - 14.0) : (uSize.x - 14.0);
-      float overEdge = uBindSide < 0.0 ? max(edgeX - pos2.x, 0.0) : max(pos2.x - edgeX, 0.0);
-      pos2.x = uBindSide < 0.0 ? max(pos2.x, edgeX) : min(pos2.x, edgeX);
-      zLift += min(overEdge * 0.5, 80.0);
-    }
   }
 
   vS = s;
@@ -109,7 +97,6 @@ uniform float uTaper;         // 轴向锥化
 uniform float uLift;          // 掀起材料全长（自由端高光定位）
 uniform float uLandFade;      // 落定淡出系数（0=不透明，1=背面平铺段全透明）
 uniform float uPaperT;        // 每页纸厚（px）——书口页叠边纹理的层距
-uniform float uBody;          // 1 = 装订侧书体页叠面（素纸渲染）
 uniform float uDebug;
 
 varying vec2 vUv;
@@ -117,26 +104,6 @@ varying float vS;
 varying float vXi;
 
 void main() {
-  // 装订侧书体（书脊左侧页叠面）：素纸 + 外缘薄层 + 书脊沟 + 接触投影。
-  // 折回部分甩出后落在它上面——与真实书本"纸翻过来贴在书的左半边"一致。
-  if (uBody > 0.5) {
-    vec3 paper = vec3(0.946, 0.928, 0.878);
-    float dOuter = (1.0 - vUv.x) * uSize.x;    // 距书体外缘（vUv.x = 0 端）
-    float stackW = uPaperT * 5.0;
-    float strip = 1.0 - smoothstep(stackW - uPaperT * 0.5, stackW, dOuter);
-    float shade = 1.0 - 0.06 * floor(dOuter / uPaperT)
-        - 0.22 * smoothstep(0.3, 0.5, abs(fract(dOuter / uPaperT) - 0.5));
-    vec3 col = mix(paper, paper * shade, strip);
-    col *= 1.0 - 0.12 * smoothstep(0.04, 0.0, vUv.x);        // 外缘微暗
-    col *= 1.0 - 0.20 * smoothstep(0.05, 0.0, 1.0 - vUv.x);  // 书脊沟（贴页缘）
-    float wS = max(uShadowWidth, 1.0);
-    float t1 = exp(-pow((vS + 0.22 * wS) / (0.34 * wS), 2.0));
-    float t2 = 0.5 * exp(-pow((vS - 0.12 * wS) / (0.45 * wS), 2.0));
-    col *= 1.0 - uShadowStrength * clamp(t1 + t2, 0.0, 1.0);
-    gl_FragColor = vec4(col, 1.0);
-    return;
-  }
-
   float uFront = mix(vUv.x, 1.0 - vUv.x, uMirror);
   float rL = max(uRadius * (1.0 - uTaper * vXi), 0.25);
   float foldW = rL * 3.141592653589793;     // 卷曲压缩段的材料全长
@@ -155,28 +122,28 @@ void main() {
   if (isFlip) {
     if (vS > foldW) {
       // 背面斜披段：纸背（正面内容透视成反字）+ 近卷顶背光 + 自由端高光
-      col = mix(col, vec3(0.985, 0.972, 0.95), 0.5);
-      shade = 0.97;
+      col = mix(col, vec3(0.985, 0.972, 0.95), 0.32);
+      shade = 0.98;
       float backFrac = clamp((vS - foldW) / max(uLift - foldW, 1.0), 0.0, 1.0);
-      shade *= 1.0 - 0.18 * (1.0 - backFrac);
-      col = mix(col, vec3(1.0), smoothstep(uLift - 42.0, uLift - 4.0, vS) * 0.5);
+      shade *= 1.0 - 0.12 * (1.0 - backFrac);
+      col = mix(col, vec3(1.0), smoothstep(uLift - 42.0, uLift - 4.0, vS) * 0.35);
     } else if (vS > foldW * 0.5) {
-      // 背面卷曲段：刚翻过弯较暗，向自由端回升
-      col = mix(col, vec3(0.985, 0.972, 0.95), 0.42);
-      shade = 0.6 + 0.34 * smoothstep(foldW * 0.5, foldW, vS);
+      // 背面卷曲段：刚翻过弯略暗，向自由端回升
+      col = mix(col, vec3(0.985, 0.972, 0.95), 0.34);
+      shade = 0.74 + 0.22 * smoothstep(foldW * 0.5, foldW, vS);
     } else if (vS > 0.0) {
       // 正面卷曲段：由桌面亮渐入折痕背光
-      shade = 1.0 - 0.34 * smoothstep(0.0, foldW * 0.5, vS);
+      shade = 1.0 - 0.22 * smoothstep(0.0, foldW * 0.5, vS);
     }
   }
   col *= shade;
 
   // 卷曲弧顶高光条（θ≈π/2 的受光亮线，"卷"的点睛之笔）
   float crest = exp(-pow((vS - foldW * 0.5) / (rL * 0.18 + 2.0), 2.0)) * step(0.0, vS);
-  col += vec3(0.22) * crest * (1.0 - uIsUnder);
+  col += vec3(0.14) * crest * (1.0 - uIsUnder);
 
   // 折痕根部 AO（卷曲圆柱自身投影）
-  col *= 1.0 - 0.3 * exp(-abs(vS) / (rL * 0.22 + 2.0));
+  col *= 1.0 - 0.18 * exp(-abs(vS) / (rL * 0.22 + 2.0));
 
   if (uIsUnder > 0.5) {
     // 书脊常驻 AO：规范空间书脊恒在 uv.x = 0（与行款镜像无关）
@@ -220,10 +187,10 @@ void main() {
       col *= mix(1.0, shadeT, tailStrip);
     }
 
-    // 翻起页的接触投影：主影在折痕桌侧、次影在页下
+    // 翻起页的接触投影：主影在折痕桌侧、次影在页下（窄带弱影，贴合真实纸投影）
     float w = max(uShadowWidth, 1.0);
-    float t1 = exp(-pow((vS + 0.22 * w) / (0.34 * w), 2.0));
-    float t2 = 0.5 * exp(-pow((vS - 0.12 * w) / (0.45 * w), 2.0));
+    float t1 = exp(-pow((vS + 0.22 * w) / (0.30 * w), 2.0));
+    float t2 = 0.35 * exp(-pow((vS - 0.12 * w) / (0.38 * w), 2.0));
     float shadow = uShadowStrength * clamp(t1 + t2, 0.0, 1.0);
     col *= 1.0 - shadow;
   }

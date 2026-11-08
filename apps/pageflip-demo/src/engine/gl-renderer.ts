@@ -1,8 +1,7 @@
 /**
  * WebGL 渲染器：上下文管理、网格构建、每帧绘制。
  *
- * 场景构成：装订侧书体（书脊左侧页叠面，折回部分的落面）+
- * 下层页（平面四边形，含书脊 AO 与接触投影）+
+ * 场景构成：单页版式——下层页（平面四边形，含书脊 AO 与接触投影）+
  * 翻动页（细分网格，顶点着色器卷曲形变）。世界单位 = CSS 像素，
  * 页面居中于原点；透视相机在 +z，z 抬升产生真实近大远小。
  */
@@ -28,7 +27,6 @@ export class GlRenderer {
   private uniforms = new Map<string, WebGLUniformLocation | null>();
   private flipMesh: MeshBuffers | null = null;
   private underMesh: MeshBuffers | null = null;
-  private bodyMesh: MeshBuffers | null = null;
   private vp: Mat4 = new Float32Array(16);
   private pageSize: PageSize = { width: 1, height: 1 };
   private orientation: FlipOrientation = 'ltr';
@@ -99,7 +97,6 @@ export class GlRenderer {
     const u = this.uniforms;
     gl.useProgram(this.program);
 
-    // 装订侧书体（书脊左侧页叠面）：折回部分甩出后落在它上面
     gl.uniformMatrix4fv(u.get('uVP')!, false, this.vp);
     gl.uniform2f(u.get('uSize')!, this.pageSize.width, this.pageSize.height);
     const mirrorSign = this.orientation === 'rtl' ? -1 : 1;
@@ -109,19 +106,14 @@ export class GlRenderer {
     gl.uniform1f(u.get('uLift')!, pose ? pose.strength : 0);
     gl.uniform1f(u.get('uLandFade')!, state.flipFade);
     gl.uniform1f(u.get('uPaperT')!, state.paperT);
-    gl.uniform1f(u.get('uBindSide')!, state.bindSide);
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
-    gl.uniform1f(u.get('uBody')!, 1);
     this.applyPose(pose);
     gl.uniform1f(u.get('uShadowStrength')!, pose ? this.shadowStrength(pose) : 0);
-    gl.uniform1f(u.get('uShadowWidth')!, pose ? 0.35 * pose.strength + 0.3 * pose.radius + 20 : 1);
+    gl.uniform1f(u.get('uShadowWidth')!, pose ? 0.16 * pose.strength + 0.3 * pose.radius + 12 : 1);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, underTex);
     gl.uniform1i(u.get('uTex')!, 0);
-    this.drawMesh(this.bodyMesh);
-
-    gl.uniform1f(u.get('uBody')!, 0);
 
     // 下层页（平面 + 书脊 AO + 接触投影）
     this.drawMesh(this.underMesh);
@@ -162,7 +154,7 @@ export class GlRenderer {
     const names = [
       'uVP', 'uSize', 'uCreaseOrigin', 'uCreaseDir', 'uWrapNormal', 'uRadius', 'uTaper',
       'uFlat', 'uMirrorSign', 'uMirror', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
-      'uLift', 'uLandFade', 'uPaperT', 'uBindSide', 'uBody', 'uTex', 'uDebug',
+      'uLift', 'uLandFade', 'uPaperT', 'uTex', 'uDebug',
     ];
     this.uniforms = new Map(names.map((name) => [name, gl.getUniformLocation(this.program!, name)]));
   }
@@ -193,27 +185,6 @@ export class GlRenderer {
   private buildMeshes(): void {
     this.flipMesh = this.createGridMesh(FLIP_SEG_X, FLIP_SEG_Y);
     this.underMesh = this.createGridMesh(1, 1);
-    this.bodyMesh = this.createBodyMesh();
-  }
-
-  /** 装订侧书体网格：书脊左侧一页宽的页叠面（x ∈ [-W, 0]），u=0 在书体外缘。 */
-  private createBodyMesh(): MeshBuffers {
-    const gl = this.gl;
-    const { width: w, height: h } = this.pageSize;
-    const verts = new Float32Array([
-      -w, 0, 0, 0,
-      0, 0, 1, 0,
-      -w, h, 0, 1,
-      0, h, 1, 1,
-    ]);
-    const indices = new Uint16Array([0, 2, 1, 1, 2, 3]);
-    const vbo = gl.createBuffer()!;
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-    const ibo = gl.createBuffer()!;
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-    return { vbo, ibo, indexCount: indices.length };
   }
 
   /** 构建页面网格：交错 [x, y, u, v]，规范空间 [0,W]×[0,H]。 */
@@ -300,7 +271,7 @@ export class GlRenderer {
 
   /** 接触投影强度：掀起范围越大越深，落页压平后自然消退。 */
   private shadowStrength(pose: NonNullable<FlipSceneState['pose']>): number {
-    const base = Math.min(pose.strength / (0.55 * this.pageSize.width), 1);
-    return base * 0.58 * (1 - 0.7 * pose.flatten);
+    const base = Math.min(pose.strength / (0.75 * this.pageSize.width), 1);
+    return base * 0.3 * (1 - 0.7 * pose.flatten);
   }
 }

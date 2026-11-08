@@ -74,31 +74,14 @@ describe('deformPoint · 3D 三段式映射', () => {
     expect(backStart.face).toBe('back');
   });
 
-  it('书体缘内（bindSide=-1）：落在书脊左侧书体上的折回部分不受钳制', () => {
+  it('背面斜披段自由甩出：越过页缘不钳制（单页版式，落定淡出承接）', () => {
     const r = 30;
     const pose = flatPose(r, 0, r * Math.PI + 520);
-    const d = deformPoint({ x: 100 + r * Math.PI + 300, y: 300 }, pose, SIZE, -1);
-    expect(d.x).toBeCloseTo(100 - 300, 6); // -200，仍在书体范围 [-386, 0]
-    expect(d.z).toBeCloseTo(2 * r * (1 - 300 / 520), 6); // 无立起
-  });
-
-  it('书体缘约束（bindSide=-1）：越出书体外缘的部分钳回并沿缘立起', () => {
-    const r = 30;
-    const pose = flatPose(r, 0, r * Math.PI + 520);
-    const d = deformPoint({ x: 100 + r * Math.PI + 520, y: 300 }, pose, SIZE, -1);
+    const d = deformPoint({ x: 100 + r * Math.PI + 520, y: 300 }, pose, SIZE);
     expect(d.face).toBe('back');
-    expect(d.x).toBeCloseTo(-(SIZE.width - 14), 6); // 钳在书体外缘内 14px
-    // z = 基础 0（backFrac=1）+ 立起 min(越界 34×0.5, 80)
-    expect(d.z).toBeCloseTo(17, 6);
-  });
-
-  it('书体缘约束（bindSide=+1）：backward 越出右缘对称钳回', () => {
-    const r = 30;
-    // 镜像姿态：折痕 x=300、n̂=(-1,0)，背面段向 +x 展开越出右缘 400
-    const pose: FoldPose = { ...flatPose(r, 0, r * Math.PI + 520), creaseOrigin: { x: 300, y: 300 }, wrapNormal: { x: -1, y: 0 } };
-    const d = deformPoint({ x: 300 - r * Math.PI - 520, y: 300 }, pose, SIZE, 1);
-    expect(d.face).toBe('back');
-    expect(d.x).toBeCloseTo(SIZE.width - 14, 6);
+    // 材料越过书脊甩到 x = 100 − 520 = −420，无书体缘钳制
+    expect(d.x).toBeCloseTo(-420, 6);
+    expect(d.z).toBeCloseTo(0, 6);
   });
 });
 

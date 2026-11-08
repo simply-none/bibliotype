@@ -39,11 +39,8 @@ export interface DeformedPoint {
 /** 锥化半径下限（像素），仅防退化除零。 */
 const R_FLOOR = 0.25;
 
-/** 形变单点：p 为页面平面坐标（规范空间）。
- *  bindSide：书体缘约束（与 shader 同式）——-1 forward（折回部分落在书脊
- *  左侧书体上，最远到书体外缘 x=-(W-14)）；+1 backward（不越自由缘
- *  x=W-14）；0 不钳。越界余量沿缘立起（真实纸张被书缘挡住绕缘翘起）。 */
-export function deformPoint(p: Point, pose: FoldPose, size: PageSize, bindSide = 0): DeformedPoint {
+/** 形变单点：p 为页面平面坐标（规范空间）。 */
+export function deformPoint(p: Point, pose: FoldPose, size: PageSize): DeformedPoint {
   const relX = p.x - pose.creaseOrigin.x;
   const relY = p.y - pose.creaseOrigin.y;
   const s = relX * pose.wrapNormal.x + relY * pose.wrapNormal.y;
@@ -82,12 +79,5 @@ export function deformPoint(p: Point, pose: FoldPose, size: PageSize, bindSide =
   }
   let x = pose.creaseOrigin.x + tangentialX + pose.wrapNormal.x * along;
   const y = pose.creaseOrigin.y + tangentialY + pose.wrapNormal.y * along;
-  // 书体缘约束：折回部分甩出后落在装订侧书体上，不越过书体外缘（与 shader 同式）
-  if (face === 'back' && bindSide !== 0) {
-    const edgeX = bindSide < 0 ? -(size.width - 14) : size.width - 14;
-    const overEdge = bindSide < 0 ? Math.max(edgeX - x, 0) : Math.max(x - edgeX, 0);
-    x = bindSide < 0 ? Math.max(x, edgeX) : Math.min(x, edgeX);
-    z += Math.min(overEdge * 0.5, 80);
-  }
   return { x, y, z, face, theta };
 }

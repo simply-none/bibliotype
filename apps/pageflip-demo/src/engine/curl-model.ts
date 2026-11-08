@@ -11,7 +11,10 @@
  *   backward：折痕自书脊扫向自由边，下层揭示上一页——镜像对称；
  * - 卷曲半径随进度增长，折平端以 landRadius 压成纸厚；
  * - 两方向共用同一进度语义：p ∈ [0,1] = 折叠完成度（0 全平、1 全部
- *   翻出页外），落定淡出等后处理因此天然对称。
+ *   翻出页外），落定淡出等后处理因此天然对称；
+ * - 角部模式受「书脊锚定约束」（clampCornerTouch）：折痕与枢轴侧边缘
+ *   的交点最深只到页高上部 creaseAnchorRatio 区域——折痕始终"长在
+ *   书脊上角"，不会横在页中（书页被撕下的观感）。
  */
 import type { FlipAction, FlipConfig, FoldPose, GrabMode, PageSize, Point } from './types';
 
@@ -39,6 +42,55 @@ export function clampTouch(touch: Point, size: PageSize, margin: number): Point 
     x: clamp(touch.x, -margin, size.width + margin),
     y: clamp(touch.y, -margin, size.height + margin),
   };
+}
+
+/**
+ * 角部翻页的书脊锚定约束（装订书物理，纯函数）。
+ *
+ * 抓取角所在端的「枢轴角」：forward 抓自由边角 → 枢轴 = 同端书脊角；
+ * backward 抓书脊角 → 枢轴 = 同端自由边角。中垂线折痕与枢轴侧边缘
+ * （书脊/自由缘）的交点记 crossY（自枢轴端量起）：
+ * - crossY ≤ 0：折痕经页顶边入页（捏角的小三角折，自然起翻态）——放行；
+ * - crossY ≥ H：折痕已越出页内（整页翻起的完成态）——放行；
+ * - 0 < crossY ≤ anchor（页高上部比例）：折痕锚定在枢轴角附近——放行；
+ * - crossY > anchor：折痕锚点滑到页中下部（"书页被撕下"的观感）——
+ *   把触点径向投影回「锚定圆」（圆心 = 枢轴角向页内 anchor 处，
+ *   半径 √(W²+anchor²)，圆上恒有 crossY = anchor），折痕最深钉在
+ *   枢轴角附近——"翻页最多在左上角"。
+ */
+export function clampCornerTouch(
+  touch: Point,
+  grab: Point,
+  action: FlipAction,
+  size: PageSize,
+  anchorRatio: number
+): Point {
+  const { width: w, height: h } = size;
+  const pivotX = action === 'forward' ? 0 : w;
+  const topEnd = grab.y < h / 2;
+  const pivotY = topEnd ? 0 : h;
+  const dir = topEnd ? 1 : -1;                // 自枢轴端指向页内的方向
+  const dx = touch.x - pivotX;
+  const u = (touch.y - pivotY) * dir;         // 自枢轴端向页内的有向距离
+  if (u <= 0) {
+    return touch;                             // 掀角上扬（触点在枢轴端外侧）
+  }
+  const d2 = dx * dx + u * u;
+  const crossY = (d2 - w * w) / (2 * u);
+  const anchor = clamp(anchorRatio, 0.05, 0.5) * h;
+  if (crossY <= anchor || crossY >= h) {
+    return touch;
+  }
+  const cx = pivotX;
+  const cy = pivotY + dir * anchor;
+  const ex = touch.x - cx;
+  const ey = touch.y - cy;
+  const len = Math.hypot(ex, ey);
+  if (len < EPSILON) {
+    return touch;
+  }
+  const r = Math.sqrt(w * w + anchor * anchor);
+  return { x: cx + (ex / len) * r, y: cy + (ey / len) * r };
 }
 
 export interface FoldSolveInput {
@@ -125,9 +177,15 @@ function distEndFor(grab: Point, normal: Point, size: PageSize): number {
  * forward / backward 共用同一套数学（仅抓取侧不同）：
  * 折痕 = 抓取点与触点连线的**中垂线**（2D 刚性折叠），自由端跟随手指；
  * 折痕推进 = 手指行程的一半，progress = 手指行程 / 2·distEnd。
+ * 角部模式先经书脊锚定约束（clampCornerTouch）收敛触点，
+ * 折痕不会锚到页中（撕纸观感）。
  */
 export function solveFoldPose(input: FoldSolveInput): FoldPose {
-  const { grab, touch, mode, size, config } = input;
+  const { grab, mode, size, config } = input;
+  const touch =
+    mode === 'corner'
+      ? clampCornerTouch(input.touch, grab, input.action, size, config.creaseAnchorRatio)
+      : input.touch;
   const normal = axisNormalFor(grab, touch, mode, input.action);
   const distEnd = distEndFor(grab, normal, size);
   const fingerDist = clamp(

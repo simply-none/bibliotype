@@ -29,7 +29,6 @@ export type { CurlFace, DeformedPoint } from './deform.js';
 export {
   clamp,
   clampTouch,
-  cornerPivot,
   createFoldSession,
   lerp,
   solveFoldPose,

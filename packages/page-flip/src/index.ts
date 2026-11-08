@@ -42,7 +42,16 @@ export { decideRelease, resolveGrabZone, snapDurationFor } from './flip-decision
 export type { GrabZone, GrabZoneOptions } from './flip-decisions.js';
 
 export {
+  canonicalSize,
+  canonicalToScreen,
+  frameIndex,
+  resolveBindEdge,
+  screenToCanonical,
+} from './page-frame.js';
+
+export {
   DEFAULT_FLIP_CONFIG,
+  type BindEdge,
   type FlipAction,
   type FlipConfig,
   type FlipOrientation,

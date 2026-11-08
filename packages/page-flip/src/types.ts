@@ -3,9 +3,9 @@
  *
  * 坐标约定：
  * - 「规范空间」(canonical space)：页面矩形 [0,W]×[0,H]，y 向下（与屏幕一致）；
- *   书脊（装订边）恒在 x=0，自由边（揭页边）在 x=W。
- * - 直排右起（RTL）时屏幕上的书脊在右侧，由渲染层做 X 镜像映射到规范空间，
- *   几何求解统一在规范空间进行。
+ *   书脊（装订边）恒在 x=0，自由边（揭页边）在 x=W——**无论实际装订侧**。
+ * - 实际装订侧由 `BindEdge` 声明，屏幕 ↔ 规范之间经 page-frame 映射
+ *   （恒等 / X 镜像 / 转置 / 转置+镜像），几何求解统一在规范空间进行。
  */
 
 /** 二维点（页面像素坐标，y 向下）。 */
@@ -22,6 +22,15 @@ export interface PageSize {
 
 /** 翻页方向（相对屏幕的行款）。 */
 export type FlipOrientation = 'ltr' | 'rtl';
+
+/**
+ * 装订侧（粘胶侧 = 书脊在屏幕上的位置）。
+ * - left：西文书 / 横排左开（现状 LTR）；
+ * - right：直排右开（现状 RTL）；
+ * - top：上侧装订（挂历 / 便签，页底边向上翻）；
+ * - bottom：下侧装订（台历，页顶边向下翻）。
+ */
+export type BindEdge = 'left' | 'right' | 'top' | 'bottom';
 
 /** 翻页动作方向：forward = 当前页自自由边掀起翻向书脊侧，揭示下一页；
  *  backward = 当前页自书脊侧掀起翻向自由边侧，揭示上一页（与 forward 镜像对称）。 */
@@ -58,10 +67,15 @@ export interface FoldPose {
 export interface PageProvider {
   /** 总页数。 */
   pageCount: number;
-  /** 页面纵横比（宽/高），用于舞台排版。 */
+  /** 页面纵横比（宽/高，屏幕向），用于舞台排版。 */
   aspect: number;
   /** 行款：竖排右起为 rtl（影响镜像与抓取侧判定）。 */
   orientation: FlipOrientation;
+  /**
+   * 装订侧（可选）：缺省由 orientation 映射（ltr→left、rtl→right）。
+   * 上 / 下侧装订（挂历、台历）需显式声明，且 aspect 应为屏幕向（横页）。
+   */
+  bindEdge?: BindEdge;
   /** 就绪 promise（图片类提供者需要预解码；文本类立即 resolve）。 */
   ready: Promise<void>;
   /** 把第 pageIndex 页绘制到 ctx（画布尺寸已按 dpr 缩放）。 */
@@ -91,7 +105,8 @@ export interface FlipSceneState {
 export interface FlipRenderAdapter {
   gl: WebGLRenderingContext;
   isWebGL2: boolean;
-  updateLayout(size: PageSize, orientation: FlipOrientation): void;
+  /** size = 规范空间页面尺寸（随装订侧可能与屏幕互为转置）。 */
+  updateLayout(size: PageSize, bindEdge: BindEdge): void;
   resize(cssWidth: number, cssHeight: number, dpr: number): void;
   render(state: FlipSceneState, underTex: WebGLTexture | null, flipTex: WebGLTexture | null): void;
   dispose(): void;

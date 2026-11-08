@@ -7,6 +7,9 @@
  * - 点击边/角、键盘、滚轮 → 自动翻页；边界处做橡皮筋回弹；
  * - 完成 forward：当前页 = 下一页；完成 backward：当前页 = 上一页；
  *   换页瞬间翻动页与下层页几何无缝衔接，无跳变。
+ * - 装订侧（bindEdge：left/right/top/bottom）：屏幕 ↔ 规范空间经
+ *   page-frame 映射，全部几何与手势在规范空间（书脊恒 x=0）求解——
+ *   四向装订共享同一套数学，仅输入映射 / 渲染帧 / 键盘轴随装订侧变化。
  */
 import {
   clamp,
@@ -19,10 +22,12 @@ import {
 import { decideRelease, resolveGrabZone, snapDurationFor } from './flip-decisions';
 import { GlRenderer } from './gl-renderer';
 import { InputSource, isTap } from './input';
+import { canonicalSize, resolveBindEdge, screenToCanonical } from './page-frame';
 import { PageBitmapSource } from './page-provider';
 import { TextureStore } from './texture-store';
 import {
   DEFAULT_FLIP_CONFIG,
+  type BindEdge,
   type FlipAction,
   type FlipConfig,
   type FlipRenderAdapter,
@@ -46,7 +51,7 @@ interface FlipSessionState {
   progressCap: number;
   /** 输入语义：grab = 边/角抓取（触点即手指）；swipe = 中部滑动（位移折算行程）。 */
   inputMode: 'grab' | 'swipe';
-  /** swipe 模式的位移原点（元素坐标）。 */
+  /** swipe 模式的位移原点（规范空间坐标）。 */
   swipeOrigin: Point;
   /**
    * snap 补间的触点直线路径（起 → 止）：折痕沿中垂线族全程连续——
@@ -108,7 +113,10 @@ export class FlipController {
   private provider: PageProvider | null = null;
   private bitmapSource: PageBitmapSource | null = null;
   private textures: TextureStore | null = null;
+  /** 屏幕页面矩形（舞台内，CSS px）。 */
   private pageRect = { x: 0, y: 0, width: 0, height: 0 };
+  /** 装订侧（粘胶侧）：left/right/top/bottom。 */
+  private bindEdge: BindEdge = 'left';
   private viewSize: PageSize = { width: 0, height: 0 };
   private dpr = 1;
   private rafId = 0;
@@ -135,6 +143,8 @@ export class FlipController {
   /** 绑定页面内容提供者（切换书源时重置到第 0 页）。 */
   setProvider(provider: PageProvider): void {
     this.provider = provider;
+    this.bindEdge = resolveBindEdge(provider);
+    this.input.setKeyAxis(this.keyAxisFor(this.bindEdge));
     this.currentPage = 0;
     this.phase = 'idle';
     this.pose = null;
@@ -153,14 +163,17 @@ export class FlipController {
   setViewport(cssWidth: number, cssHeight: number, dpr: number): void {
     this.viewSize = { width: cssWidth, height: cssHeight };
     const dprChanged = Math.min(dpr, 2) !== this.dpr;
-    const oldPage = this.page;
+    const oldScreen = this.screenPage;
     this.dpr = Math.min(dpr, 2);
     this.layout();
     this.renderer.resize(cssWidth, cssHeight, this.dpr);
-    const pageChanged = dprChanged || Math.abs(this.page.width - oldPage.width) > 0.5 || Math.abs(this.page.height - oldPage.height) > 0.5;
+    const pageChanged =
+      dprChanged ||
+      Math.abs(this.screenPage.width - oldScreen.width) > 0.5 ||
+      Math.abs(this.screenPage.height - oldScreen.height) > 0.5;
     if (pageChanged && this.provider && this.bitmapSource) {
       // 位图像素尺寸随页面尺寸/dpr 变化，旧纹理全部失效
-      this.bitmapSource = new PageBitmapSource(this.provider, this.page, this.dpr);
+      this.bitmapSource = new PageBitmapSource(this.provider, this.screenPage, this.dpr);
       this.textures?.clear();
       this.dirty = true;
     }
@@ -192,9 +205,14 @@ export class FlipController {
 
   private dirty = false;
 
-  /** 页面尺寸（规范空间 = CSS 像素）。 */
-  private get page(): PageSize {
+  /** 屏幕页面尺寸（舞台内矩形，位图 / 排版依据）。 */
+  private get screenPage(): PageSize {
     return { width: this.pageRect.width, height: this.pageRect.height };
+  }
+
+  /** 页面尺寸（规范空间 = CSS 像素）：几何求解统一依据。 */
+  private get page(): PageSize {
+    return canonicalSize(this.screenPage, this.bindEdge);
   }
 
   private pageSize(): PageSize {
@@ -221,17 +239,29 @@ export class FlipController {
     if (this.bitmapSource) {
       this.bitmapSource.setPageSize(size);
     }
-    this.renderer.updateLayout(size, this.provider?.orientation ?? 'ltr');
+    this.renderer.updateLayout(this.page, this.bindEdge);
     this.dirty = true;
+  }
+
+  /** 键盘方向轴随装订侧：左右装订 ←→、上装订 ↑↓（↑=下一页）、下装订 ↓=下一页。 */
+  private keyAxisFor(edge: BindEdge): { dir: 'x' | 'y'; sign: 1 | -1 } {
+    if (edge === 'top') {
+      return { dir: 'y', sign: 1 };
+    }
+    if (edge === 'bottom') {
+      return { dir: 'y', sign: -1 };
+    }
+    return { dir: 'x', sign: 1 };
   }
 
   // ---------- 指针事件 ----------
 
   private toCanonical(x: number, y: number): Point {
-    const pageX = x - this.pageRect.x;
-    const pageY = y - this.pageRect.y;
-    const canonicalX = (this.provider?.orientation ?? 'ltr') === 'rtl' ? this.pageRect.width - pageX : pageX;
-    return { x: canonicalX, y: pageY };
+    return screenToCanonical(
+      { x: x - this.pageRect.x, y: y - this.pageRect.y },
+      this.screenPage,
+      this.bindEdge
+    );
   }
 
   private onPointer(event: { type: 'down' | 'move' | 'up' | 'cancel'; x: number; y: number; time: number }): void {
@@ -257,12 +287,15 @@ export class FlipController {
       this.queuedPulse = null; // 用户接管，丢弃排队中的自动翻页脉冲
       const adopted = { ...this.session.lastTouch };
       // swipe 会话：把位移原点平移到当前按下点，使行程从当前进度无缝继续
-      //（两方向行程均为 2×折痕推进——中垂线模型）
+      //（行程 = 原点.x − 触点.x，规范空间恒成立——见 commitSwipe）
       if (this.session.inputMode === 'swipe') {
-        const forwardLtr =
-          (this.session.action === 'forward') === ((this.provider?.orientation ?? 'ltr') === 'ltr');
         const travel = Math.max(this.axisDist(adopted), 0);
-        this.session.swipeOrigin = { x: forwardLtr ? event.x + travel : event.x - travel, y: event.y };
+        const adoptedScreen = event;
+        const adoptedCanonical = this.toCanonical(adoptedScreen.x, adoptedScreen.y);
+        this.session.swipeOrigin = {
+          x: adoptedCanonical.x + travel,
+          y: adoptedCanonical.y,
+        };
       }
       this.downTime = event.time;
       this.downScreen = { x: event.x, y: event.y };
@@ -276,7 +309,9 @@ export class FlipController {
       return;
     }
     const touch = this.toCanonical(event.x, event.y);
-    if (touch.x < -this.pageRect.width * 0.2 || touch.x > this.pageRect.width * 1.2 || touch.y < -80 || touch.y > this.pageRect.height + 80) {
+    const cw = this.page.width;
+    const ch = this.page.height;
+    if (touch.x < -cw * 0.2 || touch.x > cw * 1.2 || touch.y < -80 || touch.y > ch + 80) {
       return;
     }
     const zone = this.resolveGrabZone(touch);
@@ -325,16 +360,19 @@ export class FlipController {
       return;
     }
     if (this.session.inputMode === 'swipe') {
-      // swipe：行程 = 手指沿翻页方向的有效位移
+      // swipe：行程 = 手指沿装订轴（规范 x）向会话方向的有效位移
+      const pointer = this.toCanonical(event.x, event.y);
+      const swipeState = this.session;
+      const along = swipeState.swipeOrigin.x - pointer.x;
       const travel = Math.min(
-        Math.max(this.swipeTravel(event.x), 0),
-        this.session.progressCap * this.session.session.distEnd
+        Math.max(swipeState.action === 'forward' ? along : -along, 0),
+        swipeState.progressCap * swipeState.session.distEnd
       );
-      const grab = this.session.grab;
-      const n = this.session.session.axisNormal;
+      const grab = swipeState.grab;
+      const n = swipeState.session.axisNormal;
       this.rawTouch = {
         x: grab.x - n.x * travel,
-        y: grab.y + (event.y - this.session.swipeOrigin.y) * 0.5,
+        y: grab.y + (pointer.y - swipeState.swipeOrigin.y) * 0.5,
       };
       this.samples.push({ time: event.time, dist: travel });
     } else {
@@ -351,38 +389,32 @@ export class FlipController {
     }
   }
 
-  /** swipe 模式的有向行程：沿翻页方向为正。 */
-  private swipeTravel(x: number): number {
-    const state = this.session;
-    if (!state) {
-      return 0;
-    }
-    const dx = x - state.swipeOrigin.x;
-    const forwardLtr = (state.action === 'forward') === ((this.provider?.orientation ?? 'ltr') === 'ltr');
-    return forwardLtr ? -dx : dx;
-  }
-
-  /** 提交中部滑动：按水平位移方向决定翻页方向（行款自适应）。 */
+  /**
+   * 提交中部滑动（规范空间统一判定，四向装订共用）：
+   * 位移以装订轴（规范 x）为主且超过阈值才提交；**规范 x 减小 = forward**——
+   * left 拖左、right 拖右、top 上拖、bottom 下拖，全部自然成立。
+   */
   private commitSwipe(x: number, y: number): void {
     const origin = this.pendingSwipe;
     if (!origin) {
       return;
     }
-    const dx = x - origin.x;
-    const dy = y - origin.y;
-    if (Math.hypot(dx, dy) < SWIPE_COMMIT_DIST || Math.abs(dx) < Math.abs(dy) * 0.9) {
-      return; // 位移不足或以纵向为主：继续等待
+    const originC = this.toCanonical(origin.x, origin.y);
+    const pointerC = this.toCanonical(x, y);
+    const dcx = pointerC.x - originC.x;
+    const dcy = pointerC.y - originC.y;
+    if (Math.hypot(dcx, dcy) < SWIPE_COMMIT_DIST || Math.abs(dcx) < Math.abs(dcy) * 0.9) {
+      return; // 位移不足或不沿装订轴：继续等待
     }
-    const rtl = (this.provider?.orientation ?? 'ltr') === 'rtl';
-    const forward = rtl ? dx > 0 : dx < 0;
+    const forward = dcx < 0;
     const action: FlipAction = forward ? 'forward' : 'backward';
     this.pendingSwipe = null;
     if (this.progressCapFor(action) < 1) {
       return; // 该方向到边界：忽略（回弹仅由点击/键盘触发）
     }
     const { width: w, height: h } = this.page;
-    const pressCanonicalY = clamp(y - this.pageRect.y, h * 0.15, h * 0.85);
-    const grab: Point = forward ? { x: w, y: pressCanonicalY } : { x: 0, y: pressCanonicalY };
+    const pressCanonicalV = clamp(pointerC.y, h * 0.15, h * 0.85);
+    const grab: Point = forward ? { x: w, y: pressCanonicalV } : { x: 0, y: pressCanonicalV };
     const foldSession = createFoldSession(grab, grab, 'edge', action, this.page, this.config);
     this.phase = 'drag';
     this.session = {
@@ -395,8 +427,8 @@ export class FlipController {
       underPage: forward ? this.currentPage + 1 : this.currentPage - 1,
       progressCap: 1,
       inputMode: 'swipe',
-      // 原点保持按下点：提交瞬间即继承从按下到现在的全部行程
-      swipeOrigin: { x: origin.x, y: origin.y },
+      // 原点保持按下点（规范空间）：提交瞬间即继承从按下到现在的全部行程
+      swipeOrigin: { ...originC },
       snapTouchFrom: { ...grab },
       snapTouchTo: { ...grab },
       snapCompletes: false,

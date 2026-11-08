@@ -84,11 +84,11 @@ function pointer(controller: FlipController, type: 'down' | 'move' | 'up', x: nu
 describe('FlipController 状态机（headless）', () => {
   const VIEW: PageSize = { width: 500, height: 700 };
 
-  function createController() {
+  function createController(providerOptions?: Parameters<typeof createStubProvider>[0]) {
     const { fakeCanvas, adapter } = createStubs();
     const controller = new FlipController(fakeCanvas, { renderer: adapter });
     controller.setViewport(VIEW.width, VIEW.height, 1);
-    const provider: PageProvider = createStubProvider();
+    const provider: PageProvider = createStubProvider(providerOptions);
     controller.setProvider(provider);
     // 布局在 setProvider 内重排；页面尺寸 438×644，居中于 500×700
     return { controller, adapter, provider };
@@ -288,6 +288,84 @@ describe('FlipController 状态机（headless）', () => {
     advance(controller, 32); // 清空 dirty
     controller.debug = true;
     expect(controller['dirty']).toBe(true);
+    controller.destroy();
+  });
+});
+
+describe('FlipController 四向装订（bindEdge）', () => {
+  const VIEW: PageSize = { width: 500, height: 700 };
+
+  function createControllerWith(options: Parameters<typeof createStubProvider>[0]) {
+    const { fakeCanvas, adapter } = createStubs();
+    const controller = new FlipController(fakeCanvas, { renderer: adapter });
+    controller.setViewport(VIEW.width, VIEW.height, 1);
+    const provider: PageProvider = createStubProvider(options);
+    controller.setProvider(provider);
+    return { controller, adapter };
+  }
+
+  it('top 装订：屏幕底缘 = 规范自由边 → 捏底边抓取为 forward（页底边向上翻）', () => {
+    // 横页 aspect 1.45：470×324，居中 y ∈ [188, 512]
+    const { controller } = createControllerWith({ bindEdge: 'top', aspect: 1.45 });
+    pointer(controller, 'down', 250, 504, 1000); // 屏幕底缘中部
+    expect(controller['bindEdge']).toBe('top');
+    expect(controller['session']?.action).toBe('forward');
+    expect(controller['session']?.mode).toBe('edge');
+    // 规范空间抓取点在自由边（x = W_c）
+    expect(controller['session']?.grab.x).toBeCloseTo(controller['page'].width, 1);
+    controller.destroy();
+  });
+
+  it('top 装订：屏幕上拖 = forward（规范 x 减小）', () => {
+    const { controller } = createControllerWith({ bindEdge: 'top', aspect: 1.45 });
+    pointer(controller, 'down', 250, 350, 1000); // 页面中部
+    pointer(controller, 'move', 250, 330, 1100); // 上拖 20px
+    expect(controller['session']?.inputMode).toBe('swipe');
+    expect(controller['session']?.action).toBe('forward');
+    pointer(controller, 'move', 250, 260, 1200); // 继续上拖
+    expect(controller['pose']?.progress).toBeGreaterThan(0);
+    controller.destroy();
+  });
+
+  it('bottom 装订：屏幕顶缘 = 规范自由边 → 抓顶边为 forward（页顶边向下翻）', () => {
+    const { controller } = createControllerWith({ bindEdge: 'bottom', aspect: 1.45 });
+    pointer(controller, 'down', 250, 196, 1000); // 屏幕顶缘中部
+    expect(controller['session']?.action).toBe('forward');
+    expect(controller['session']?.grab.x).toBeCloseTo(controller['page'].width, 1);
+    controller.destroy();
+  });
+
+  it('right 装订：屏幕左缘 = 规范自由边 → 捏左缘为 forward（向右掀）', () => {
+    const { controller } = createControllerWith({ orientation: 'rtl' });
+    pointer(controller, 'down', 40, 350, 1000);
+    expect(controller['session']?.action).toBe('forward');
+    expect(controller['session']?.grab.x).toBeCloseTo(controller['page'].width, 1);
+    controller.destroy();
+  });
+
+  it('top 装订键盘轴：↑ = 下一页、↓ = 上一页；bottom 相反', () => {
+    const top = createControllerWith({ bindEdge: 'top', aspect: 1.45 });
+    expect(top.controller['keyAxisFor']('top')).toEqual({ dir: 'y', sign: 1 });
+    expect(top.controller['input']['keyAxis']).toEqual({ dir: 'y', sign: 1 });
+    top.controller.destroy();
+    const bottom = createControllerWith({ bindEdge: 'bottom', aspect: 1.45 });
+    expect(bottom.controller['keyAxisFor']('bottom')).toEqual({ dir: 'y', sign: -1 });
+    bottom.controller.destroy();
+    const left = createControllerWith({});
+    expect(left.controller['keyAxisFor']('left')).toEqual({ dir: 'x', sign: 1 });
+    left.controller.destroy();
+  });
+
+  it('top 装订下自动翻页到边界：橡皮筋回弹（规范语义不变）', () => {
+    const { controller } = createControllerWith({ bindEdge: 'top', aspect: 1.45, pageCount: 2 });
+    controller.autoFlip('forward');
+    advance(controller, 1000);
+    expect(controller.currentPage).toBe(1);
+    controller.autoFlip('forward'); // 末页 → 回弹
+    expect(controller['session']?.pendingReturn).toBe(true);
+    advance(controller, 500);
+    advance(controller, 600);
+    expect(controller.currentPage).toBe(1);
     controller.destroy();
   });
 });

@@ -2,12 +2,14 @@
  * 引擎测试桩：最小 PageProvider —— 无内容渲染依赖，仅供状态机测试。
  * （真实样张 provider 属于应用内容层，不入包。）
  */
-import type { PageProvider } from '../types.js';
+import type { BindEdge, PageProvider } from '../types.js';
 
 export interface StubProviderOptions {
   pageCount?: number;
   aspect?: number;
   orientation?: 'ltr' | 'rtl';
+  /** 装订侧（缺省由 orientation 映射）。 */
+  bindEdge?: BindEdge;
 }
 
 export function createStubProvider(options: StubProviderOptions = {}): PageProvider {
@@ -18,6 +20,7 @@ export function createStubProvider(options: StubProviderOptions = {}): PageProvi
     pageCount,
     aspect,
     orientation,
+    ...(options.bindEdge ? { bindEdge: options.bindEdge } : {}),
     ready: Promise.resolve(),
     renderPage(ctx, pageIndex, width, height) {
       ctx.fillStyle = '#f2ede0';

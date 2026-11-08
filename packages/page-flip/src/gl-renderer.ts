@@ -7,7 +7,8 @@
  */
 import { multiply, perspective, translateZ, type Mat4 } from './mat4';
 import { FRAGMENT_SHADER, VERTEX_SHADER } from './shaders';
-import type { FlipOrientation, FlipSceneState, PageSize } from './types';
+import { frameIndex } from './page-frame';
+import type { BindEdge, FlipSceneState, PageSize } from './types';
 
 const FLIP_SEG_X = 64;
 const FLIP_SEG_Y = 88;
@@ -29,7 +30,7 @@ export class GlRenderer {
   private underMesh: MeshBuffers | null = null;
   private vp: Mat4 = new Float32Array(16);
   private pageSize: PageSize = { width: 1, height: 1 };
-  private orientation: FlipOrientation = 'ltr';
+  private bindEdge: BindEdge = 'left';
   private lost = false;
 
   constructor(
@@ -52,12 +53,13 @@ export class GlRenderer {
     return this.isWebGL2;
   }
 
-  /** 更新版面（页面尺寸 / 行款），网格与缓存随尺寸变化重建。 */
-  updateLayout(size: PageSize, orientation: FlipOrientation): void {
+  /** 更新版面（规范空间页面尺寸 / 装订侧），网格与缓存随尺寸变化重建。 */
+  updateLayout(size: PageSize, bindEdge: BindEdge): void {
     const sizeChanged = size.width !== this.pageSize.width || size.height !== this.pageSize.height;
+    const edgeChanged = bindEdge !== this.bindEdge;
     this.pageSize = { ...size };
-    this.orientation = orientation;
-    if (sizeChanged) {
+    this.bindEdge = bindEdge;
+    if (sizeChanged || edgeChanged) {
       this.buildMeshes();
     }
   }
@@ -99,9 +101,7 @@ export class GlRenderer {
 
     gl.uniformMatrix4fv(u.get('uVP')!, false, this.vp);
     gl.uniform2f(u.get('uSize')!, this.pageSize.width, this.pageSize.height);
-    const mirrorSign = this.orientation === 'rtl' ? -1 : 1;
-    gl.uniform1f(u.get('uMirrorSign')!, mirrorSign);
-    gl.uniform1f(u.get('uMirror')!, mirrorSign < 0 ? 1 : 0);
+    gl.uniform1f(u.get('uFrame')!, frameIndex(this.bindEdge));
     gl.uniform1f(u.get('uDebug')!, state.debug ? 1 : 0);
     gl.uniform1f(u.get('uLift')!, pose ? pose.strength : 0);
     gl.uniform1f(u.get('uLandFade')!, state.flipFade);
@@ -153,7 +153,7 @@ export class GlRenderer {
     this.program = this.compileProgram();
     const names = [
       'uVP', 'uSize', 'uCreaseOrigin', 'uCreaseDir', 'uWrapNormal', 'uRadius', 'uTaper',
-      'uFlat', 'uMirrorSign', 'uMirror', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
+      'uFlat', 'uFrame', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
       'uLift', 'uLandFade', 'uPaperT', 'uTex', 'uDebug',
     ];
     this.uniforms = new Map(names.map((name) => [name, gl.getUniformLocation(this.program!, name)]));

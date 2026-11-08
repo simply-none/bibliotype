@@ -35,7 +35,7 @@ uniform float uRadius;       // 卷曲半径（卷曲带宽度基准）
 uniform float uTaper;        // 轴向锥化
 uniform float uLift;         // 掀起材料全长（背面斜披段落桌依据）
 uniform float uFlat;         // 1 = 下层页（跳过形变）
-uniform float uMirrorSign;   // +1 = LTR，-1 = RTL（X 镜像）
+uniform float uFrame;        // 页面帧（装订侧）：0 left / 1 right / 2 top / 3 bottom
 
 varying vec2 vUv;
 varying float vS;            // 到折痕有符号距离（掀侧为正）
@@ -71,12 +71,23 @@ void main() {
   vS = s;
   vXi = xi;
   vUv = aUv;
-  vec3 world = vec3(
-    (pos2.x - uSize.x * 0.5) * uMirrorSign,
-    uSize.y * 0.5 - pos2.y,
-    zLift
-  );
-  gl_Position = uVP * vec4(world, 1.0);
+  // 页面帧映射：规范空间 → 屏幕（世界坐标，y 向上）；z 抬升不受帧影响。
+  // 四种等距反射，det = −1（CULL_FACE 关闭，绕序无关）。
+  vec2 world;
+  if (uFrame < 0.5) {
+    // left：恒等
+    world = vec2(pos2.x - uSize.x * 0.5, uSize.y * 0.5 - pos2.y);
+  } else if (uFrame < 1.5) {
+    // right：X 镜像
+    world = vec2(uSize.x * 0.5 - pos2.x, uSize.y * 0.5 - pos2.y);
+  } else if (uFrame < 2.5) {
+    // top：转置（规范书脊 x=0 → 屏幕上缘）
+    world = vec2(pos2.y - uSize.y * 0.5, uSize.x * 0.5 - pos2.x);
+  } else {
+    // bottom：转置 + X 镜像（规范书脊 → 屏幕下缘）
+    world = vec2(pos2.y - uSize.y * 0.5, pos2.x - uSize.x * 0.5);
+  }
+  gl_Position = uVP * vec4(world, zLift, 1.0);
 }
 `;
 
@@ -88,8 +99,8 @@ precision mediump float;
 #endif
 
 uniform sampler2D uTex;
-uniform vec2 uSize;           // 页面尺寸 (W, H)——书口叠边的像素换算
-uniform float uMirror;        // 1 = RTL（UV 水平翻转还原内容）
+uniform vec2 uSize;           // 页面尺寸 (W_c, H_c) 规范空间——书口叠边的像素换算
+uniform float uFrame;         // 页面帧（装订侧）：0 left / 1 right / 2 top / 3 bottom
 uniform float uIsUnder;       // 1 = 下层页（书脊 AO + 接触投影）
 uniform float uShadowWidth;   // 投影带宽
 uniform float uShadowStrength;
@@ -105,11 +116,21 @@ varying float vS;
 varying float vXi;
 
 void main() {
-  float uFront = mix(vUv.x, 1.0 - vUv.x, uMirror);
   float rL = max(uRadius * (1.0 - uTaper * vXi), 0.25);
   float foldW = rL * 3.141592653589793;     // 卷曲压缩段的材料全长
 
-  vec2 tuv = vec2(uFront, 1.0 - vUv.y);
+  // 纹素采样：规范 UV → 屏幕向纹理 UV（页面帧决定轴序与翻转）。
+  // left:  (u, 1−v)  right: (1−u, 1−v)  top: (v, 1−u)  bottom: (v, u)
+  vec2 tuv;
+  if (uFrame < 0.5) {
+    tuv = vec2(vUv.x, 1.0 - vUv.y);
+  } else if (uFrame < 1.5) {
+    tuv = vec2(1.0 - vUv.x, 1.0 - vUv.y);
+  } else if (uFrame < 2.5) {
+    tuv = vec2(vUv.y, 1.0 - vUv.x);
+  } else {
+    tuv = vec2(vUv.y, vUv.x);
+  }
   bool isFlip = uIsUnder < 0.5;             // 翻动页才参与分段着色与背面透视
   // 纸张背面（反字）：折痕几何在折叠时已完成镜像反射，背面直接采样
   // 材料点自身纹素——正面内容从纸背看即为左右反字（不再额外翻转 UV，

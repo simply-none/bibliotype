@@ -37,6 +37,8 @@ export class InputSource {
   private moved = false;
   private wheelAcc = 0;
   private lastWheelFire = 0;
+  /** 键盘方向轴（随装订侧）：左右装订 x（→=下一页）；上装订 y（↑=下一页）；下装订 y（↓=下一页）。 */
+  private keyAxis: { dir: 'x' | 'y'; sign: 1 | -1 } = { dir: 'x', sign: 1 };
   private readonly controller = new AbortController();
 
   constructor(
@@ -54,6 +56,11 @@ export class InputSource {
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this.onKey, { signal: this.controller.signal });
     }
+  }
+
+  /** 键盘方向轴随装订侧切换（由控制器在换源时同步）。 */
+  setKeyAxis(axis: { dir: 'x' | 'y'; sign: 1 | -1 }): void {
+    this.keyAxis = axis;
   }
 
   /** 释放全部监听。 */
@@ -143,10 +150,18 @@ export class InputSource {
       return;
     }
     let direction = 0;
-    if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {
+    if (event.key === 'PageDown' || event.key === ' ') {
       direction = 1;
-    } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+    } else if (event.key === 'PageUp') {
       direction = -1;
+    } else if (this.keyAxis.dir === 'x') {
+      // 左右装订：→ = 下一页（左右装订均维持 → 前进语义）
+      if (event.key === 'ArrowRight') direction = 1;
+      else if (event.key === 'ArrowLeft') direction = -1;
+    } else {
+      // 上下装订：轴正方向 = 下一页（top: ↑；bottom: ↓）
+      if (event.key === 'ArrowUp') direction = this.keyAxis.sign;
+      else if (event.key === 'ArrowDown') direction = -this.keyAxis.sign;
     }
     if (direction !== 0) {
       event.preventDefault();

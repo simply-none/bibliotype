@@ -31,8 +31,10 @@ describe('solveFoldPose · forward 边缘拖拽', () => {
     expect(pose.progress).toBeCloseTo(0.25, 5);
     // 中垂线：折痕 = 抓取点与触点的中点
     expect(pose.creaseOrigin.x).toBeCloseTo(300, 5);
-    // r = 0.03W + 0.05·dist（dist = 手指行程/2 = 100）——紧卷筒
-    expect(pose.radius).toBeCloseTo(0.03 * 400 + 0.05 * 100, 3);
+    // r = max(0.03W + 0.05·dist, flight)——飞行抬升按 sin²(π·0.25)=0.5 起拱
+    const natural = 0.03 * 400 + 0.05 * 100;
+    const flight = 400 * CFG.geometry.flightRadiusRatio * Math.sin(Math.PI * 0.25) ** 2;
+    expect(pose.radius).toBeCloseTo(Math.max(natural, flight), 3);
     expect(pose.flatten).toBe(0);
     // θ_end = dist / r ≈ 6.7 > π → 掀起材料已出现背面斜披段（镜像内容可见）
     expect(100 / pose.radius).toBeGreaterThan(Math.PI);
@@ -73,7 +75,9 @@ describe('solveFoldPose · backward 掀回（与 forward 镜像对称）', () =>
     const pose = solveFoldPose({ grab, touch: { x: 100, y: 300 }, mode: 'edge', action: 'backward', size: SIZE, config: CFG });
     expect(pose.progress).toBeCloseTo(0.125, 5); // 100 / (2×400)
     expect(pose.creaseOrigin.x).toBeCloseTo(50, 5); // 中垂线：推进 = 行程/2
-    expect(pose.radius).toBeCloseTo(0.03 * 400 + 0.05 * 50, 3);
+    const natural = 0.03 * 400 + 0.05 * 50;
+    const flight = 400 * CFG.geometry.flightRadiusRatio * Math.sin(Math.PI * 0.125) ** 2;
+    expect(pose.radius).toBeCloseTo(Math.max(natural, flight), 3);
   });
 
   it('掀起材料翻折叠到折痕另一侧（镜像 forward 越中线）', () => {

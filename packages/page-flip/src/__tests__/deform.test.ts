@@ -5,7 +5,7 @@ import type { FoldPose, PageSize } from '../types';
 const SIZE: PageSize = { width: 400, height: 600 };
 
 /** 固定姿态：折痕 x=100 竖直，n̂=+x，半径 30，无锥化，strength=150。 */
-function flatPose(radius = 30, taper = 0, strength = 150): FoldPose {
+function flatPose(radius = 30, taper = 0, strength = 150, drapeBulge = 0): FoldPose {
   return {
     creaseOrigin: { x: 100, y: 300 },
     creaseDir: { x: 0, y: 1 },
@@ -15,6 +15,7 @@ function flatPose(radius = 30, taper = 0, strength = 150): FoldPose {
     flatten: 0,
     progress: 0.5,
     strength,
+    drapeBulge,
   };
 }
 
@@ -38,13 +39,28 @@ describe('deformPoint · 3D 三段式映射', () => {
     expect(d.z).toBeCloseTo(30, 6);
   });
 
-  it('背面斜披段金值：s > rπ，镜像展开且自卷顶 2r 斜披到桌面', () => {
+  it('背面斜披段金值：s > rπ，镜像展开且自卷顶 smoothstep 下落到桌面', () => {
     const r = 30;
     const pose = flatPose(r, 0, r * Math.PI + 100); // strength = rπ + 100
     const d = deformPoint({ x: 100 + r * Math.PI + 40, y: 300 }, pose, SIZE);
     expect(d.face).toBe('back');
     expect(d.x).toBeCloseTo(100 - 40, 6);
-    expect(d.z).toBeCloseTo(2 * r * (1 - 40 / 100), 6);
+    // smoothstep 下落：t=0.4 → ease = 0.352 → z = 2r·(1−0.352)
+    const ease = 0.4 * 0.4 * (3 - 2 * 0.4);
+    expect(d.z).toBeCloseTo(2 * r * (1 - ease), 6);
+  });
+
+  it('背面弧拱：drapeBulge > 0 时下落段中段上拱、两端仍贴公式', () => {
+    const r = 30;
+    const pose = flatPose(r, 0, r * Math.PI + 100, 25);
+    const d = deformPoint({ x: 100 + r * Math.PI + 40, y: 300 }, pose, SIZE);
+    // z = 2r·(1−smoothstep(t)) + bulge·sin²(πt)
+    const ease = 0.4 * 0.4 * (3 - 2 * 0.4);
+    const arc = Math.sin(Math.PI * 0.4) ** 2;
+    expect(d.z).toBeCloseTo(2 * r * (1 - ease) + 25 * arc, 6);
+    // 触桌端不受弧拱影响
+    const end = deformPoint({ x: 100 + r * Math.PI + 100, y: 300 }, pose, SIZE);
+    expect(end.z).toBeCloseTo(0, 6);
   });
 
   it('自由边触桌：s = strength 时 z = 0', () => {

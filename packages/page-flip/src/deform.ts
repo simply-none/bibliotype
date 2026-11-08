@@ -69,12 +69,16 @@ export function deformPoint(p: Point, pose: FoldPose, size: PageSize): DeformedP
     z = r * (1 - Math.cos(theta));
     face = 'curl';
   } else {
-    // 背面斜披段：镜像展开到折痕另一侧，自卷顶 2r 斜披到自由边触桌
+    // 背面斜披段：镜像展开到折痕另一侧，自卷顶 2r 斜披到自由边触桌——
+    // 下落用 smoothstep（弧顶/触桌两端零斜率：与卷曲段 C1 衔接、近桌减速），
+    // 叠加 sin² 弧拱（真实纸张前冲弧线，两端亦零斜率）
     const over = s - r * Math.PI;
     const backSpan = Math.max(pose.strength - r * Math.PI, 1);
     const backFrac = Math.min(Math.max(over / backSpan, 0), 1);
     along = -over;
-    z = 2 * r * (1 - backFrac);
+    const ease = backFrac * backFrac * (3 - 2 * backFrac);
+    const arc = Math.sin(Math.PI * backFrac) ** 2;
+    z = 2 * r * (1 - ease) + pose.drapeBulge * arc;
     face = 'back';
   }
   let x = pose.creaseOrigin.x + tangentialX + pose.wrapNormal.x * along;

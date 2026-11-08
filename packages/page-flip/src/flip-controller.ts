@@ -76,6 +76,8 @@ interface FlipSessionState {
   snapCompletes: boolean;
   snapStart: number;
   snapDuration: number;
+  /** 补间缓动：autoFlip = inOut（起步慢、中段快）；拖拽释放 = out（惯性延续）。 */
+  snapEasing: 'out' | 'inOut';
   /** 到达终点后是否再弹回抓取点（边界回弹）。 */
   pendingReturn: boolean;
   /** 最近一次解算用的触点（snap 中被新手势接管时无缝接续）。 */
@@ -456,6 +458,7 @@ export class FlipController {
       snapCompletes: false,
       snapStart: 0,
       snapDuration: 0,
+      snapEasing: 'out',
       pendingReturn: false,
       lastTouch: { ...touch },
     };
@@ -571,6 +574,7 @@ export class FlipController {
       snapCompletes: false,
       snapStart: 0,
       snapDuration: 0,
+      snapEasing: 'out',
       pendingReturn: false,
       lastTouch: { ...grab },
     };
@@ -731,6 +735,7 @@ export class FlipController {
       snapCompletes: true,
       snapStart: performance.now(),
       snapDuration: this.config.timing.autoFlipMs,
+      snapEasing: 'inOut',
       pendingReturn: false,
       lastTouch: { ...grab },
     };
@@ -763,6 +768,7 @@ export class FlipController {
       snapCompletes: false,
       snapStart: performance.now(),
       snapDuration: this.config.timing.bounceOutMs,
+      snapEasing: 'out',
       pendingReturn: true,
       lastTouch: { ...grab },
     };
@@ -826,7 +832,13 @@ export class FlipController {
       this.dirty = true;
     } else if (this.phase === 'snap' && state && this.pose) {
       const t = clamp((now - state.snapStart) / state.snapDuration, 0, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
+      // autoFlip = inOut（纸张离页慢起、中段快扫）；拖拽释放 = out（惯性延续）
+      const eased =
+        state.snapEasing === 'inOut'
+          ? t < 0.5
+            ? 4 * t * t * t
+            : 1 - Math.pow(-2 * t + 2, 3) / 2
+          : 1 - Math.pow(1 - t, 3);
       // 触点沿直线路径补间：折痕（中垂线）随之连续扫过，全程不跳变
       const touch = {
         x: state.snapTouchFrom.x + (state.snapTouchTo.x - state.snapTouchFrom.x) * eased,

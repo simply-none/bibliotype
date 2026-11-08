@@ -121,6 +121,7 @@ export class GlRenderer {
     gl.uniform2f(u.get('uSize')!, this.pageSize.width, this.pageSize.height);
     gl.uniform1f(u.get('uDebug')!, state.debug ? 1 : 0);
     gl.uniform1f(u.get('uLift')!, pose ? pose.strength : 0);
+    gl.uniform1f(u.get('uDrapeBulge')!, pose ? pose.drapeBulge : 0);
     gl.uniform1f(u.get('uLandFade')!, state.flipFade);
     gl.uniform1f(u.get('uPaperT')!, state.paperT);
     const shading = state.shading;
@@ -265,7 +266,7 @@ export class GlRenderer {
       'uFlat', 'uFrame', 'uTuvFrame', 'uOffsetX', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
       'uBackTint', 'uBackWash', 'uBackShade', 'uFrontDark', 'uRootAo', 'uSpineAo',
       'uStackLayers', 'uStackLayerDepth', 'uStackLayerCrease', 'uStackTopLight', 'uStackHtRatio',
-      'uLift', 'uLandFade', 'uPaperT', 'uTex', 'uDebug', 'uAlpha',
+      'uLift', 'uDrapeBulge', 'uLandFade', 'uPaperT', 'uTex', 'uDebug', 'uAlpha',
     ];
     this.uniforms = new Map(names.map((name) => [name, gl.getUniformLocation(this.program!, name)]));
   }
@@ -383,6 +384,9 @@ export class GlRenderer {
   /** 接触投影强度：掀起范围越大越深，落页压平后自然消退。 */
   private shadowStrength(pose: NonNullable<FlipSceneState['pose']>, shading: FlipSceneState['shading']): number {
     const base = Math.min(pose.strength / (shading.shadowBaseSpan * this.pageSize.width), 1);
-    return base * shading.shadowStrength * (1 - shading.shadowFlattenFade * pose.flatten);
+    // flight shadow fade: a high-flying sheet casts a softer contact shadow
+    const flightArc = Math.sin(Math.PI * pose.progress) ** 2;
+    const flightFade = 1 - flightArc * shading.shadowFlightFade;
+    return base * shading.shadowStrength * (1 - shading.shadowFlattenFade * pose.flatten) * flightFade;
   }
 }

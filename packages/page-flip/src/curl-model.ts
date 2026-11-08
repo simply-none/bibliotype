@@ -258,7 +258,15 @@ function buildPose(
     w * config.geometry.radiusMin,
     w * config.geometry.radiusMax
   );
-  const radius = lerp(rNatural, config.geometry.landRadius, flatten);
+  // 飞行抬升：翻页中段纸张立起（弧顶高度 ≈ 2×flightRadiusRatio×页宽），
+  // 按 sin²(π·p) 弧起落——起止端回落到自然卷曲半径，落页压平不受影响。
+  // 斜披段保留（rπ < 掀起长）：自由端仍触及触点（跟手）。
+  const flightArc = Math.sin(Math.PI * p) ** 2;
+  const rFlight = w * config.geometry.flightRadiusRatio * flightArc;
+  const rBase = Math.max(rNatural, rFlight);
+  const radius = lerp(rBase, config.geometry.landRadius, flatten);
+  // 背面斜披段的弧拱：过弧顶后的下落段带向上拱起（真实纸张前冲弧线）
+  const drapeBulge = config.geometry.drapeArcRatio * Math.max(dist - radius * Math.PI, 0);
 
   // 圆锥锥化：仅角部模式；触点竖向偏移越大、抓取角越靠边越明显，
   // 锥顶在抓取角一侧（抓得近的一端卷得紧）。
@@ -278,5 +286,7 @@ function buildPose(
     progress: p,
     // 掀起材料全长（卷曲压缩段 + 背面斜披段）——背面三角宽度与投影范围依据
     strength: dist,
+    // 背面斜披段弧拱高度（px，着色器/形变的下落段上拱依据）
+    drapeBulge,
   };
 }

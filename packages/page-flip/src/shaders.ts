@@ -33,6 +33,7 @@ uniform vec2 uCreaseDir;     // 折痕方向（单位）
 uniform vec2 uWrapNormal;    // 卷起侧法向（单位）
 uniform float uRadius;       // 卷曲半径（卷曲带宽度基准）
 uniform float uTaper;        // 轴向锥化
+uniform float uDrapeBulge;   // 背面斜披段弧拱高度（px）
 uniform float uLift;         // 掀起材料全长（背面斜披段落桌依据）
 uniform float uFlat;         // 1 = 下层页（跳过形变）
 uniform float uFrame;        // 页面帧（几何装订侧）：0 left / 1 right / 2 top / 3 bottom
@@ -66,7 +67,15 @@ void main() {
     pos2 = uCreaseOrigin
          + uCreaseDir * xiPx
          + uWrapNormal * mix(bend, mirrored, overCrest);
-    zLift = mix(lift, 2.0 * r * (1.0 - backFrac), overCrest);
+    // 下落 smoothstep：弧顶/触桌两端零斜率（与卷曲段 C1 衔接、近桌减速），
+    // 叠加 sin² 弧拱（真实纸张前冲弧线，两端亦零斜率）
+    float drapeEase = backFrac * backFrac * (3.0 - 2.0 * backFrac);
+    float drapeArc = sin(3.14159265 * backFrac);
+    zLift = mix(
+      lift,
+      2.0 * r * (1.0 - drapeEase) + uDrapeBulge * drapeArc * drapeArc,
+      overCrest
+    );
   }
 
   vS = s;
@@ -108,6 +117,7 @@ uniform float uShadowWidth;   // 投影带宽
 uniform float uShadowStrength;
 uniform float uRadius;        // 卷曲半径
 uniform float uTaper;         // 轴向锥化
+uniform float uDrapeBulge;   // 背面斜披段弧拱高度（px）
 uniform float uLift;          // 掀起材料全长（自由端高光定位）
 uniform float uLandFade;      // 落定淡出系数（0=不透明，1=背面平铺段全透明）
 uniform float uPaperT;        // 每页纸厚（px）——书口页叠边纹理的层距

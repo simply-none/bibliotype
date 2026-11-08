@@ -61,6 +61,8 @@ export interface FoldPose {
   flatten: number;
   progress: number;
   strength: number;
+  /** 背面斜披段弧拱高度（px）——下落段上拱（真实纸张前冲弧线）。 */
+  drapeBulge: number;
 }
 
 /** 页面位图提供者：把第 pageIndex 页绘制到位图画布上（同步）。 */
@@ -153,6 +155,16 @@ export interface GeometryOptions {
   /** 锥化随触点纵向偏移的展幅（相对页高）。 */
   taperSpreadRatio: number;
   /**
+   * 飞行抬升半径（相对页宽）：翻页中段纸张立起（弧顶 ≈ 2×此值×页宽），
+   * 按 sin²(π·p) 弧起落——起止端回落到自然卷曲半径，落页压平不受影响。
+   */
+  flightRadiusRatio: number;
+  /**
+   * 背面斜披段的弧拱比：材料过弧顶后的下落段带向上拱起（真实纸张
+   * 前冲弧线），拱高 = 此值 × 斜披段材料长。
+   */
+  drapeArcRatio: number;
+  /**
    * 角部折痕的书脊锚定上限（相对页高）：折痕与枢轴侧边缘（书脊/自由缘）
    * 的交点最深只到页高上部此比例处，防止折痕横在页中（撕纸观感）。
    */
@@ -237,6 +249,8 @@ export interface ShadingOptions {
   stackTopEdgeLight: number;
   /** 天头地脚带宽比（相对书口带宽）。 */
   stackHeadTailRatio: number;
+  /** 飞行中投影衰减比：纸页高举时接触投影变淡（× (1−sin²(πp)·此值)）。 */
+  shadowFlightFade: number;
 }
 
 export interface InteractionOptions {
@@ -322,6 +336,8 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     landRadius: 1.8,
     taperStrength: 0.45,
     taperSpreadRatio: 0.5,
+    flightRadiusRatio: 0.13,
+    drapeArcRatio: 0.15,
     creaseAnchorRatio: 0.3,
     creaseFollowRatio: 0.25,
     flattenStart: 0.86,
@@ -365,6 +381,7 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     stackLayerCrease: 0.22,
     stackTopEdgeLight: 0.2,
     stackHeadTailRatio: 0.55,
+    shadowFlightFade: 0.45,
   },
   interaction: {
     tapMaxMs: 280,

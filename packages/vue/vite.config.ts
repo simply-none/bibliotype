@@ -20,9 +20,17 @@ export default defineConfig({
   ],
   build: {
     lib: {
-      entry: 'src/index.ts',
+      /* 双入口：index = 主图（reader/editor 组件）；pageflip = 仿真翻页轻量子入口 */
+      entry: { index: 'src/index.ts', pageflip: 'src/pageflip/index.ts' },
       formats: ['es', 'cjs'],
-      fileName: (format) => (format === 'es' ? 'index.js' : 'index.cjs'),
+      fileName: (format, entryName) =>
+        entryName === 'pageflip'
+          ? format === 'es'
+            ? 'pageflip.js'
+            : 'pageflip.cjs'
+          : format === 'es'
+            ? 'index.js'
+            : 'index.cjs',
     },
     /* workspace 包、vue 与 prosemirror 由使用方解析，不打入产物 */
     rollupOptions: {

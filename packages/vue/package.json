@@ -27,6 +27,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./pageflip": {
+      "types": "./dist/pageflip/index.d.ts",
+      "import": "./dist/pageflip.js",
+      "require": "./dist/pageflip.cjs"
+    },
     "./style.css": "./dist/style.css"
   },
   "files": [
@@ -46,6 +51,7 @@
     "@bibliotype/core": "workspace:*",
     "@bibliotype/editor": "workspace:*",
     "@bibliotype/layout": "workspace:*",
+    "@bibliotype/page-flip": "workspace:*",
     "@bibliotype/reader": "workspace:*",
     "prosemirror-model": "^1.23.0",
     "prosemirror-state": "^1.4.3",

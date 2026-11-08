@@ -1,13 +1,32 @@
 /**
- * 仿真翻页 Demo 的 Vue 组合式：引擎 ↔ 组件接线。
+ * 仿真翻页引擎（@bibliotype/page-flip）的 Vue 绑定：引擎 ↔ 组件接线。
+ *
  * 职责：生命周期挂载 / 视口自适应 / 提供者切换 / 状态与 FPS 轮询 / 自动演示。
+ * 页面内容（PageProvider）由调用方注入——本组合式不关心内容层。
  */
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue';
-import { FlipController } from '@bibliotype/page-flip';
-import { createDemoProviders, type DemoProviderEntry } from './providers';
+import { FlipController, type PageProvider } from '@bibliotype/page-flip';
 
-export function usePageflip(canvasRef: Ref<HTMLCanvasElement | null>, stageRef: Ref<HTMLElement | null>) {
-  const providers = createDemoProviders();
+/** 翻页内容提供者条目（key 用于切换，label 用于 UI 展示）。 */
+export interface PageflipProviderEntry {
+  key: string;
+  label: string;
+  provider: PageProvider;
+}
+
+export interface UsePageflipOptions {
+  /** 内容提供者列表（至少一项，第一项为初始行款）。 */
+  providers: PageflipProviderEntry[];
+  /** 自动演示间隔（毫秒）。 */
+  autoPlayIntervalMs?: number;
+}
+
+export function usePageflip(
+  canvasRef: Ref<HTMLCanvasElement | null>,
+  stageRef: Ref<HTMLElement | null>,
+  options: UsePageflipOptions
+) {
+  const providers = options.providers;
   const providerKey = ref(providers[0].key);
   const currentPage = ref(0);
   const pageCount = ref(providers[0].provider.pageCount);
@@ -106,7 +125,7 @@ export function usePageflip(canvasRef: Ref<HTMLCanvasElement | null>, stageRef: 
         direction = 'forward';
       }
       controller.autoFlip(direction);
-    }, 2200);
+    }, options.autoPlayIntervalMs ?? 2200);
   }
 
   function stopAutoPlay(): void {

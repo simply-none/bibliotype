@@ -1,7 +1,12 @@
 # 仿真翻页引擎 npm 包抽取方案
 
-> 状态：**待确认（尚未执行任何迁移）** · 日期：2026-11-08
-> 来源：apps/pageflip-demo 的 `src/engine`（仿真翻页 Page Curl 引擎，55 测试全绿）
+> 状态：**已确认并执行** · 确认日期：2026-11-08
+> 确认结论：① 包名 `@bibliotype/page-flip`；② Vue 组合式放专门的 Vue 包
+> （`@bibliotype/vue` 新增 `./pageflip` 子入口，不做 page-flip 的子入口）；
+> ③ apps/demo 接入走「先 B 后 A」；④ 初版版本号按日期版本（changeset 流程）；
+> ⑤ 三套样张 providers 不随包。
+> 执行记录：提交 7fb62b1（引擎包抽取 + demo 改造）、后续提交（Vue 子入口 +
+> changeset）。
 
 ---
 
@@ -30,35 +35,40 @@
 - **定位**：框架无关的仿真翻页引擎（WebGL 圆柱卷曲 + 手势状态机），**零运行时依赖**；
   Vue 组合式作为可选子入口（与 `@bibliotype/vue` 的 peer 依赖做法一致）
 - **依赖**：`devDependencies` 仅 tsup / typescript / vitest / vue（类型用）；
-  `peerDependencies`：`vue ^3.4.0`（仅 `./vue` 子入口需要）
-- **构建**：tsup，`entry: { index: 'src/index.ts', vue: 'src/vue.ts' }`，esm + cjs + dts，
+  `peerDependencies`：无（Vue 组合式按确认放 `@bibliotype/vue`）
+- **构建**：tsup，`entry: { index: 'src/index.ts' }` 单入口，esm + cjs + dts，
   `target: es2020`，`sideEffects: false`（与 typography-cjk 同模板）
 
-### 导出面
+### 导出面（按确认结果：Vue 组合式在 @bibliotype/vue）
 
 ```jsonc
+// @bibliotype/page-flip
 "exports": {
-  ".":     { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" },
-  "./vue": { "types": "./dist/vue.d.ts",   "import": "./dist/vue.js",   "require": "./dist/vue.cjs"  }
+  ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" }
+}
+// @bibliotype/vue 追加
+"exports": {
+  "./pageflip": { "types": "./dist/pageflip/index.d.ts", "import": "./dist/pageflip.js", "require": "./dist/pageflip.cjs" }
 }
 ```
 
-- `.`（主入口）：`FlipController`、`GlRenderer`、`InputSource`、`PageBitmapSource`、
-  `TextureStore`、`deformPoint`、`solveFoldPose` / `solveFoldPoseAtProgress` /
-  `createFoldSession` / `clampCornerTouch` / `clampTouch`、`resolveGrabZone` /
-  `decideRelease` / `snapDurationFor`、`DEFAULT_FLIP_CONFIG` 及全部类型
+- `@bibliotype/page-flip` 主入口：`FlipController`、`GlRenderer`、`InputSource`、
+  `PageBitmapSource`、`TextureStore`、`deformPoint`、`solveFoldPose` /
+  `solveFoldPoseAtProgress` / `createFoldSession` / `clampCornerTouch` / `clampTouch`、
+  `resolveGrabZone` / `decideRelease` / `snapDurationFor`、`DEFAULT_FLIP_CONFIG` 及全部类型
   （`FlipConfig` / `FoldPose` / `PageSize` / `Point` / `PageProvider` / `FlipSceneState` /
   `FlipRenderAdapter` / `GrabMode` / `FlipAction` / `FlipOrientation`）
-- `./vue`：`usePageflip(canvasRef, stageRef, options)` —— 组合式（生命周期 / 视口自适应 /
-  状态与 FPS / 自动演示），**provider 由调用方注入**（与内容层解耦）
+- `@bibliotype/vue` 的 `./pageflip` 子入口：`usePageflip(canvasRef, stageRef, options)` ——
+  组合式（生命周期 / 视口自适应 / 状态与 FPS / 自动演示），**provider 由调用方注入**
+  （与内容层解耦）；独立轻量构建（gzip ≈ 1KB，不牵涉主图）
 - **不随包**：`providers/*` 三套样张（横排 / 直排 / 画册）属于 demo 内容层，留在应用侧
 
 ## 四、目标目录结构
 
 ```
 packages/page-flip/
-├── package.json          # @bibliotype/page-flip，exports: . 与 ./vue
-├── tsup.config.ts        # 双入口 esm+cjs+dts
+├── package.json          # @bibliotype/page-flip，exports: .（单入口）
+├── tsup.config.ts        # esm+cjs+dts
 ├── tsconfig.json         # extends ../../tsconfig.base.json
 ├── README.md             # 用法 / API 摘要（从现 README 引擎章节改写）
 └── src/
@@ -73,9 +83,11 @@ packages/page-flip/
     ├── page-provider.ts  │
     ├── texture-store.ts  │
     ├── input.ts          ┘
-    ├── flip-controller.ts
-    └── vue.ts            # usePageflip（自 demo 迁入，provider 参数化）
-└── __tests__/            # curl-model / deform / flip-decisions / flip-controller 测试随迁
+    └── flip-controller.ts
+└── src/__tests__/        # 四个引擎测试随迁 + stub-provider 测试桩
+packages/vue/src/pageflip/
+├── index.ts              # ./pageflip 子入口（新写）
+└── use-pageflip.ts       # usePageflip（自 demo 迁入，provider 参数化）
 ```
 
 ## 五、迁移步骤（确认后执行，分步提交）

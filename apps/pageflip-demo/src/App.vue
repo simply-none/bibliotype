@@ -1,10 +1,12 @@
 <script setup lang="ts">
 /**
  * 仿真翻页 Demo 壳：全屏舞台（WebGL 画布）+ 底部控制条。
- * 页面内容、翻页几何与手势全部由引擎（src/engine）承担。
+ * 页面内容（三套样张 providers）为 demo 内容层；
+ * 引擎与手势由 @bibliotype/page-flip 承担，Vue 接线来自 @bibliotype/vue/pageflip。
  */
 import { ref } from 'vue';
-import { usePageflip } from './demo/use-pageflip';
+import { usePageflip } from '@bibliotype/vue/pageflip';
+import { createDemoProviders } from './demo/providers';
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const stageRef = ref<HTMLElement | null>(null);
@@ -24,7 +26,7 @@ const {
   next,
   startAutoPlay,
   stopAutoPlay,
-} = usePageflip(canvasRef, stageRef);
+} = usePageflip(canvasRef, stageRef, { providers: createDemoProviders() });
 </script>
 
 <template>

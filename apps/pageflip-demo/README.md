@@ -28,20 +28,22 @@ Demo 内容三套样张（可切换）：横排书页（避头尾断行 + 中文
 离线自动回退程序绘制）。封面印章为**非对称元素**——卷曲时背面镜像里
 印章左右反转，用于直观辨识"这是纸的背面"。
 
-## 引擎架构（src/engine，框架无关，可整体提升为 package）
+## 引擎架构（@bibliotype/page-flip，框架无关 npm 包）
+
+引擎已抽取为独立包 `packages/page-flip`（`@bibliotype/page-flip`，55 个
+测试随包）；本 demo 只保留内容层（三套样张 providers）与页面壳，Vue 接线
+来自 `@bibliotype/vue` 的 `pageflip` 子入口：
 
 ```
-types.ts           共享类型与默认参数（规范空间约定：书脊恒在 x=0）
-curl-model.ts      触点/进度 → 折痕姿态（forward/backward 统一求解，纯函数）
-flip-decisions.ts  抓取区判定 + 松手决策 + 补间时长（纯函数）
-deform.ts          平面 → 2D 卷曲映射（CPU 参照实现，与 shader 同式）
-shaders.ts         GLSL ES 1.00（2D 卷曲形变 / 分段渐变着色；兼容 WebGL1/2）
-mat4.ts            最小矩阵工具
-gl-renderer.ts     上下文 / 网格 / 绘制 / 上下文丢失恢复（FlipRenderAdapter）
-page-provider.ts   页面位图源（离屏 canvas，dpr 感知）
-texture-store.ts   页面纹理 LRU（WebGL2 NPOT mipmap / WebGL1 退化）
-input.ts           Pointer Events 统一鼠标/触摸/笔 + 滚轮 + 键盘
-flip-controller.ts 状态机 idle/drag/snap + 帧循环 + 纹理预取
+@bibliotype/page-flip
+  FlipController     状态机 idle/drag/snap + 帧循环 + 纹理预取
+  GlRenderer         上下文 / 网格 / 绘制 / 上下文丢失恢复（FlipRenderAdapter）
+  curl-model         触点/进度 → 折痕姿态（书脊锚定约束，纯函数）
+  flip-decisions     抓取区判定 + 松手决策 + 补间时长（纯函数）
+  deform / shaders   CPU 参照形变 + GLSL ES 1.00（兼容 WebGL1/2）
+  page-provider 等   页面位图源 / 纹理 LRU / Pointer Events 输入
+@bibliotype/vue/pageflip
+  usePageflip        生命周期 / 视口自适应 / 提供者切换 / FPS / 自动演示
 ```
 
 ### 卷曲数学（2D 卷曲映射，云展网 / StPageFlip 同源）

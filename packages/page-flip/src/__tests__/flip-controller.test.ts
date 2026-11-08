@@ -422,8 +422,7 @@ describe('FlipController 双页模式（spread）', () => {
   it('左面中部右拖 → backward swipe；右面中部左拖 → forward swipe', () => {
     const { controller } = createSpreadController();
     controller.autoFlip('forward');
-    advance(controller, 1000);
-    pointer(controller, 'down', 130, 350, 2000); // 左面中部
+    advance(controller, 1000);    pointer(controller, 'down', 130, 350, 2000); // 左面中部
     pointer(controller, 'move', 150, 350, 2100); // 右拖
     expect(controller['session']?.inputMode).toBe('swipe');
     expect(controller['session']?.semanticAction).toBe('backward');
@@ -455,6 +454,45 @@ describe('FlipController 双页模式（spread）', () => {
     controller.setProvider(provider);
     controller.setViewMode('spread');
     expect(controller.viewMode).toBe('single');
+    controller.destroy();
+  });
+
+  it('翻动期间被翻侧保留旧面（淡出层），动画结束才切目标面', () => {
+    const { controller, adapter } = createSpreadController();
+    controller.autoFlip('forward');
+    advance(controller, 1000); // spread 1（左面 = 面 1）
+    controller.autoFlip('forward');
+    advance(controller, 200); // 动画中段
+    expect(adapter.lastState?.spread?.leftPage).toBe(3); // 目标左面（压底）
+    expect(adapter.lastState?.spread?.fadingFace).toEqual({ page: 1, side: 'left' }); // 旧左面淡出层
+    expect(adapter.lastState?.spread?.rightPage).toBe(4); // 目标右面
+    expect(adapter.lastState?.spread?.flipping).toEqual({ page: 2, side: 'right' });
+    advance(controller, 1000);
+    expect(adapter.lastState?.spread?.leftPage).toBe(3); // 完成后 = 目标左面
+    expect(adapter.lastState?.spread?.fadingFace).toBeNull();
+    expect(adapter.lastState?.spread?.flipping).toBeNull();
+    controller.destroy();
+  });
+
+  it('封面 spread 翻页无旧左面 → 淡出层为 null', () => {
+    const { controller, adapter } = createSpreadController();
+    controller.autoFlip('forward');
+    advance(controller, 200);
+    expect(adapter.lastState?.spread?.fadingFace).toBeNull(); // 封面 spread 无左面
+    advance(controller, 1000);
+    controller.destroy();
+  });
+
+  it('左面点击（tap）触发语义 backward 而非 forward', () => {
+    const { controller } = createSpreadController();
+    controller.autoFlip('forward');
+    advance(controller, 1000); // spread 1（有左面）
+    pointer(controller, 'down', 30, 510, 2000); // 左面左下角
+    pointer(controller, 'up', 32, 512, 2100); // 无位移短按
+    expect(controller['phase']).toBe('snap');
+    expect(controller['session']?.semanticAction).toBe('backward');
+    advance(controller, 1000);
+    expect(controller.currentPage).toBe(0);
     controller.destroy();
   });
 });

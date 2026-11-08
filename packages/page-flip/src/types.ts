@@ -93,6 +93,11 @@ export interface SpreadSceneState {
   rightPage: number | null;
   /** 翻动面及其所在侧（left 侧翻动 = 语义 backward）。 */
   flipping: { page: number; side: 'left' | 'right' } | null;
+  /**
+   * 翻动侧的「当前面」（翻页前的旧面）——作为淡出层压在目标面之上，
+   * 随落定淡出消隐：点击/翻起瞬间被翻侧内容不突变，动画结束才切到目标面。
+   */
+  fadingFace: { page: number; side: 'left' | 'right' } | null;
 }
 
 /** 供渲染层的完整场景状态（每帧由控制器产出）。 */

@@ -587,8 +587,9 @@ export class FlipController {
         Math.hypot(event.x - this.downScreen.x, event.y - this.downScreen.y) >
         this.config.interaction.tapMaxDist;
       if (isTap(this.downTime, event.time, moved, this.config.interaction.tapMaxMs)) {
-        // 点击边/角 → 自动翻页（边界则回弹）
-        const action = this.session.action;
+        // 点击边/角 → 自动翻页（边界则回弹）；双页下必须用语义动作
+        //（折痕数学 action 恒 forward，直接用会让点左面也向前翻）
+        const action = this.session.semanticAction;
         this.session = null;
         this.pose = null;
         this.phase = 'idle';
@@ -964,14 +965,43 @@ export class FlipController {
 
     let scene: FlipSceneState;
     if (spreadMode) {
-      // 双页：spread s = [面 2s−1, 面 2s]；翻动面 = 右面（forward）/ 左面（backward）
+      // 双页：spread s = [面 2s−1, 面 2s]；翻动面 = 右面（forward）/ 左面（backward）。
+      // 被翻侧在动画期间保留「翻页前的旧面」作为淡出层——内容只在动画
+      // 揭示 / 落定时切换，点击瞬间不突变；另一侧直接揭示目标面。
       const s = state ? state.fromPage : this.currentPage;
+      const forward = state ? state.semanticAction === 'forward' : true;
       const flippingFace =
-        state && this.pose
-          ? state.semanticAction === 'forward'
-            ? 2 * s
-            : 2 * s - 1
-          : null;
+        state && this.pose ? (forward ? 2 * s : 2 * s - 1) : null;
+      let spreadFaces: {
+        leftPage: number | null;
+        rightPage: number | null;
+        fadingFace: { page: number; side: SpreadSide } | null;
+      };
+      if (state && this.pose) {
+        if (forward) {
+          // 折右面：右面直接揭示目标（2s+2），左面保留旧面（2s−1）淡出，
+          // 目标左面（2s+1）压在其下
+          spreadFaces = {
+            leftPage: 2 * s + 1 >= 0 ? 2 * s + 1 : null,
+            rightPage: 2 * s + 2 < this.provider.pageCount ? 2 * s + 2 : null,
+            fadingFace: 2 * s - 1 >= 0 ? { page: 2 * s - 1, side: 'left' } : null,
+          };
+        } else {
+          // 折左面：左面直接揭示目标（2s−3），右面保留旧面（2s）淡出，
+          // 目标右面（2s−2）压在其下
+          spreadFaces = {
+            leftPage: 2 * s - 3 >= 0 ? 2 * s - 3 : null,
+            rightPage: 2 * s - 2 < this.provider.pageCount ? 2 * s - 2 : null,
+            fadingFace: 2 * s < this.provider.pageCount ? { page: 2 * s, side: 'right' } : null,
+          };
+        }
+      } else {
+        spreadFaces = {
+          leftPage: 2 * s - 1 >= 0 ? 2 * s - 1 : null,
+          rightPage: 2 * s < this.provider.pageCount ? 2 * s : null,
+          fadingFace: null,
+        };
+      }
       const underS = state ? state.underPage : this.currentPage;
       scene = {
         pose: this.pose,
@@ -982,12 +1012,13 @@ export class FlipController {
         flippingPage: flippingFace,
         underPage: 2 * underS,
         spread: {
-          leftPage: 2 * underS - 1 >= 0 ? 2 * underS - 1 : null,
-          rightPage: 2 * underS < this.provider.pageCount ? 2 * underS : null,
+          leftPage: spreadFaces.leftPage,
+          rightPage: spreadFaces.rightPage,
           flipping:
             flippingFace !== null && flippingFace >= 0 && flippingFace < this.provider.pageCount && state
               ? { page: flippingFace, side: state.side }
               : null,
+          fadingFace: spreadFaces.fadingFace,
         },
       };
     } else {

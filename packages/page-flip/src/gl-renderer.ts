@@ -144,11 +144,19 @@ export class GlRenderer {
     gl.uniform1i(u.get('uTex')!, 0);
 
     if (state.spread) {
-      // 双页模式：左面（几何帧 right / 纹理帧 left）+ 右面（几何帧 left），
-      // 书脊居中（世界 x=0），两侧各偏移 ±W_c/2
+      // 双页模式：左面（几何帧 right）+ 右面（几何帧 left），书脊居中
+      //（世界 x=0），两侧各偏移 ±W_c/2。翻动侧额外把「翻页前的旧面」
+      // 作为淡出层压在目标面之上（alpha = 1−flipFade）——点击/翻起瞬间
+      // 被翻侧内容不突变，动画落定后才切到目标面。
       const half = this.pageSize.width / 2;
-      this.drawUnderSide(1, -half, state.spread.leftPage, resolveTexture);
-      this.drawUnderSide(0, half, state.spread.rightPage, resolveTexture);
+      this.drawUnderSide(1, -half, state.spread.leftPage, resolveTexture, 1);
+      this.drawUnderSide(0, half, state.spread.rightPage, resolveTexture, 1);
+      const fading = state.spread.fadingFace;
+      if (fading) {
+        const frame = fading.side === 'left' ? 1 : 0;
+        const offsetX = fading.side === 'left' ? -half : half;
+        this.drawUnderSide(frame, offsetX, fading.page, resolveTexture, 1 - state.flipFade);
+      }
       const flip = state.spread.flipping;
       if (pose && flip) {
         const frame = flip.side === 'left' ? 1 : 0;
@@ -162,6 +170,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uFrame')!, frameIndex(this.bindEdge));
     gl.uniform1f(u.get('uTuvFrame')!, frameIndex(this.bindEdge));
     gl.uniform1f(u.get('uOffsetX')!, 0);
+    gl.uniform1f(u.get('uAlpha')!, 1);
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
     this.applyPose(pose);
@@ -176,18 +185,20 @@ export class GlRenderer {
       gl.uniform1f(u.get('uFlat')!, 0);
       gl.uniform1f(u.get('uIsUnder')!, 0);
       gl.uniform1f(u.get('uShadowStrength')!, 0);
+      gl.uniform1f(u.get('uAlpha')!, 1);
       this.applyPose(pose);
       gl.bindTexture(gl.TEXTURE_2D, flipTex);
       this.drawMesh(this.flipMesh);
     }
   }
 
-  /** 双页单侧下层页（几何帧与纹理帧一致——左面帧 right，内容正立）。 */
+  /** 双页单侧下层页（几何帧与纹理帧一致——左面帧 right，内容正立；alpha 供淡出层）。 */
   private drawUnderSide(
     frame: number,
     offsetX: number,
     page: number | null,
-    resolveTexture: (pageIndex: number) => WebGLTexture | null
+    resolveTexture: (pageIndex: number) => WebGLTexture | null,
+    alpha: number
   ): void {
     if (page === null) {
       return; // 封面 spread 的左侧 / 页数不足——不绘制（背景透出）
@@ -199,6 +210,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uOffsetX')!, offsetX);
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
+    gl.uniform1f(u.get('uAlpha')!, alpha);
     this.applyPose(null);
     gl.bindTexture(gl.TEXTURE_2D, resolveTexture(page));
     this.drawMesh(this.underMesh);
@@ -220,6 +232,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uFlat')!, 0);
     gl.uniform1f(u.get('uIsUnder')!, 0);
     gl.uniform1f(u.get('uShadowStrength')!, 0);
+    gl.uniform1f(u.get('uAlpha')!, 1);
     this.applyPose(pose);
     gl.bindTexture(gl.TEXTURE_2D, resolveTexture(page));
     this.drawMesh(this.flipMesh);
@@ -252,7 +265,7 @@ export class GlRenderer {
       'uFlat', 'uFrame', 'uTuvFrame', 'uOffsetX', 'uIsUnder', 'uShadowWidth', 'uShadowStrength',
       'uBackTint', 'uBackWash', 'uBackShade', 'uFrontDark', 'uRootAo', 'uSpineAo',
       'uStackLayers', 'uStackLayerDepth', 'uStackLayerCrease', 'uStackTopLight', 'uStackHtRatio',
-      'uLift', 'uLandFade', 'uPaperT', 'uTex', 'uDebug',
+      'uLift', 'uLandFade', 'uPaperT', 'uTex', 'uDebug', 'uAlpha',
     ];
     this.uniforms = new Map(names.map((name) => [name, gl.getUniformLocation(this.program!, name)]));
   }

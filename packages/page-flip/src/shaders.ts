@@ -123,6 +123,7 @@ uniform float uStackLayerCrease; // 叠边层缝对比
 uniform float uStackTopLight;    // 顶层页缘亮边强度
 uniform float uStackHtRatio;     // 天头地脚带宽比
 uniform float uDebug;
+uniform float uAlpha;         // 绘制透明度（双页淡出层 = 1−flipFade，其余恒 1）
 
 varying vec2 vUv;
 varying float vS;
@@ -243,6 +244,6 @@ void main() {
     alpha = 1.0;
   }
 
-  gl_FragColor = vec4(col, alpha);
+  gl_FragColor = vec4(col, alpha * uAlpha);
 }
 `;

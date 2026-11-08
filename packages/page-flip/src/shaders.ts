@@ -192,22 +192,20 @@ void main() {
   // 折痕根部 AO（卷曲圆柱自身投影）
   col *= 1.0 - uRootAo.x * exp(-abs(vS) / (rL * uRootAo.y + 2.0));
 
+  // 书脊常驻 AO + 书沟谷着色：下层页与翻动页统一应用——翻动页的书脊侧
+  // 平坦部分同样坐在沟里，缺失会让翻页时缝部一侧的弯曲阴影突然消失
+  float spineAo = 1.0 - uSpineAo.x * smoothstep(uSpineAo.y, 0.0, vUv.x);
+  col *= spineAo;
+  if (uGutter > 0.5) {
+    float dSpinePx = vUv.x * uSize.x;
+    float gutterCrease = exp(-dSpinePx / max(uGutterCrease.y, 1.0));
+    col *= 1.0 - uGutterCrease.x * (1.0 + 0.35 * uGutterFlex) * gutterCrease;
+    float sheenT = (dSpinePx - uGutterRise.y) / max(uGutterRise.z, 1.0);
+    float gutterSheen = exp(-sheenT * sheenT);
+    col *= 1.0 + uGutterRise.x * gutterSheen;
+  }
+
   if (uIsUnder > 0.5) {
-    // 书脊常驻 AO：规范空间书脊恒在 uv.x = 0（与行款镜像无关）
-    float spineAo = 1.0 - uSpineAo.x * smoothstep(uSpineAo.y, 0.0, vUv.x);
-    col *= spineAo;
-
-    // 书沟（双页对开中缝）：窄缝谷阴影（缝口最深的物理暗线）+
-    // 坡面光泽高光（曲面折向光源的窄亮带 = 暗-亮-暗节奏，光滑弯曲的书沟）
-    if (uGutter > 0.5) {
-      float dSpinePx = vUv.x * uSize.x;
-      float gutterCrease = exp(-dSpinePx / max(uGutterCrease.y, 1.0));
-      col *= 1.0 - uGutterCrease.x * (1.0 + 0.35 * uGutterFlex) * gutterCrease;
-      float sheenT = (dSpinePx - uGutterRise.y) / max(uGutterRise.z, 1.0);
-      float gutterSheen = exp(-sheenT * sheenT);
-      col *= 1.0 + uGutterRise.x * gutterSheen;
-    }
-
     // 书口页叠边（纸厚暗示）：自由边 + 天头地脚露出薄层页缘
     float dFore = (1.0 - vUv.x) * uSize.x;   // 距自由边（规范空间恒 uv.x = 1）
     float dHead = vUv.y * uSize.y;           // 距天头

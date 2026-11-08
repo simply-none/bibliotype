@@ -244,7 +244,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uOffsetX')!, offsetX);
     gl.uniform1f(u.get('uFlat')!, 0);
     gl.uniform1f(u.get('uIsUnder')!, 0);
-    gl.uniform1f(u.get('uGutter')!, 0);
+    gl.uniform1f(u.get('uGutter')!, 1); // 翻动页书脊侧坐在沟里：书沟谷着色统一应用
     gl.uniform1f(u.get('uShadowStrength')!, 0);
     gl.uniform1f(u.get('uAlpha')!, 1);
     this.applyPose(pose);

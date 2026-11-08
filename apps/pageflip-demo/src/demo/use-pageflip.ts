@@ -106,7 +106,7 @@ export function usePageflip(canvasRef: Ref<HTMLCanvasElement | null>, stageRef: 
         direction = 'forward';
       }
       controller.autoFlip(direction);
-    }, 1700);
+    }, 2200);
   }
 
   function stopAutoPlay(): void {

@@ -432,7 +432,7 @@ export class FlipController {
   private onCancel(): void {
     this.pendingSwipe = null;
     if (this.phase === 'drag' && this.session) {
-      this.startSnap({ ...this.session.grab }, 300, false);
+      this.startSnap({ ...this.session.grab }, 460, false);
     }
   }
 
@@ -545,7 +545,7 @@ export class FlipController {
       snapTouchTo: this.mirrorTouch(grab, action),
       snapCompletes: true,
       snapStart: performance.now(),
-      snapDuration: 520,
+      snapDuration: 850,
       pendingReturn: false,
       lastTouch: { ...grab },
     };
@@ -572,7 +572,7 @@ export class FlipController {
       snapTouchTo: this.virtualTouchAt(grab, foldSession, BOUNCE_PROGRESS),
       snapCompletes: false,
       snapStart: performance.now(),
-      snapDuration: 300,
+      snapDuration: 460,
       pendingReturn: true,
       lastTouch: { ...grab },
     };
@@ -698,7 +698,7 @@ export class FlipController {
     }
     if (state.pendingReturn) {
       state.pendingReturn = false;
-      this.startSnap({ ...state.grab }, 280, false);
+      this.startSnap({ ...state.grab }, 420, false);
       return;
     }
     const forward = state.action === 'forward';

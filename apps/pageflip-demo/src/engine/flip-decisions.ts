@@ -74,7 +74,7 @@ export function decideRelease(
   return 'cancel';
 }
 
-/** snap 补间时长：随剩余距离缩放。 */
+/** snap 补间时长：随剩余距离缩放（整体放慢后的节奏）。 */
 export function snapDurationFor(remaining: number): number {
-  return Math.min(Math.max(240 + 340 * remaining, 220), 540);
+  return Math.min(Math.max(380 + 540 * remaining, 360), 920);
 }

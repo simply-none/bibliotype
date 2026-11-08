@@ -75,10 +75,10 @@ describe('decideRelease', () => {
 });
 
 describe('snapDurationFor', () => {
-  it('随剩余距离缩放且有上下限', () => {
-    expect(snapDurationFor(0)).toBe(240);
-    expect(snapDurationFor(1)).toBe(540);
-    expect(snapDurationFor(-5)).toBe(220); // 下限
-    expect(snapDurationFor(9)).toBe(540); // 上限
+  it('随剩余距离缩放且有上下限（放慢后的节奏）', () => {
+    expect(snapDurationFor(0)).toBe(380);
+    expect(snapDurationFor(1)).toBe(920);
+    expect(snapDurationFor(-5)).toBe(360); // 下限
+    expect(snapDurationFor(9)).toBe(920); // 上限
   });
 });

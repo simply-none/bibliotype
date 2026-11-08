@@ -952,6 +952,7 @@ export class FlipController {
         action: state.action,
         size: this.page,
         config: this.config,
+        capPhi: false, // 完成补间不封顶：自然过渡到整页翻过
       });
       // 纸张落定微颤（仅完成方向，衰减正弦）
       if (t > this.config.timing.wobbleStart && state.snapCompletes) {

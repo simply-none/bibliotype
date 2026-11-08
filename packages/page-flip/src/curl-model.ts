@@ -43,6 +43,88 @@ export function clampTouch(touch: Point, size: PageSize, margin: number): Point 
   };
 }
 
+/**
+ * 角部折叠的枢轴点：装订边与抓取边同端的角（规范空间书脊恒 x=0）。
+ * 折痕锚定于此并随拖拽转动——折叠区永远是从书脊出发的角部三角。
+ */
+export function cornerPivot(grab: Point): Point {
+  return { x: 0, y: grab.y };
+}
+
+/**
+ * 角部折叠（折角模型）：折痕锚定书脊枢轴（装订边与抓取边同端的角）、
+ * 随触点转动；转角 φ 封顶于 atan(H/W)——折痕恰与自由缘（右缘）下端
+ * 相交、不切底缘：折叠区恒为「枢轴→角」一侧的角部三角（装订缘/底缘
+ * 不撕裂）。触点距枢轴超出枢轴→角全长时钳制到圆上（折叠封顶 = 全折态）。
+ * capPhi=false 时不封顶（完成补间自然过渡到整页翻过）。
+ */
+function solveCornerPose(
+  grab: Point,
+  touch: Point,
+  size: PageSize,
+  config: FlipConfig,
+  capPhi = true
+): FoldPose {
+  const pivot = { x: 0, y: grab.y };
+  const edgeLen = Math.max(Math.hypot(grab.x - pivot.x, grab.y - pivot.y), EPSILON);
+  let toTouch = { x: touch.x - pivot.x, y: touch.y - pivot.y };
+  const touchLen = Math.hypot(toTouch.x, toTouch.y);
+  if (touchLen > edgeLen) {
+    // 折叠封顶：触点钳制在枢轴圆内——全折态后不再推进
+    toTouch = { x: (toTouch.x / touchLen) * edgeLen, y: (toTouch.y / touchLen) * edgeLen };
+  }
+  const v1 = { x: (grab.x - pivot.x) / edgeLen, y: (grab.y - pivot.y) / edgeLen };
+  const v2Len = Math.max(Math.hypot(toTouch.x, toTouch.y), EPSILON);
+  const v2 = { x: toTouch.x / v2Len, y: toTouch.y / v2Len };
+  // 角 α = ∠(v1, v2)；折痕 = 角平分线方向、转角 φ = α/2
+  const cosAlpha = clamp(v1.x * v2.x + v1.y * v2.y, -1, 1);
+  const alpha = Math.acos(cosAlpha);
+  const phiMax = Math.atan(size.height / size.width); // 折痕恰交于右缘下端
+  const phi = capPhi ? Math.min(alpha / 2, phiMax) : alpha / 2;
+  const cross = v1.x * v2.y - v1.y * v2.x;
+  const spin = cross >= 0 ? 1 : -1;
+  const cosT = Math.cos(spin * phi);
+  const sinT = Math.sin(spin * phi);
+  let dir = { x: v1.x * cosT - v1.y * sinT, y: v1.x * sinT + v1.y * cosT };
+  if (dir.y < 0) {
+    dir = { x: -dir.x, y: -dir.y }; // 既有约定：折痕方向 y 分量 ≥ 0
+  }
+  // 折叠侧法向：指向角部一侧（v1 在折痕法向上的垂分量）
+  const dot = v1.x * dir.x + v1.y * dir.y;
+  let wrapNormal = { x: v1.x - dir.x * dot, y: v1.y - dir.y * dot };
+  const wnLen = Math.hypot(wrapNormal.x, wrapNormal.y);
+  if (wnLen < EPSILON) {
+    wrapNormal = { x: -dir.y, y: dir.x };
+  } else {
+    wrapNormal = { x: wrapNormal.x / wnLen, y: wrapNormal.y / wnLen };
+  }
+  // 折叠深度：角部材料到折痕的有向距离（占枢轴→角全长比）
+  const sCorner = Math.abs(v1.x * wrapNormal.x + v1.y * wrapNormal.y) * edgeLen;
+  const progress = clamp(sCorner / edgeLen, 0, 1);
+  // 锥化：随触点竖向偏移（与既有公式一致）
+  const spread = clamp(Math.abs(touch.y - grab.y) / (size.height * config.geometry.taperSpreadRatio), 0, 1);
+  const taper = config.geometry.taperStrength * spread * ((grab.y / size.height - 0.5) * 2);
+  // 卷曲半径随折叠深度增长
+  const radius = clamp(
+    config.geometry.radiusBaseRatio * size.width + config.geometry.radiusGrowRatio * sCorner,
+    size.width * config.geometry.radiusMin,
+    size.width * config.geometry.radiusMax
+  );
+  const flatten = smoothstep(config.geometry.flattenStart, 1, progress);
+  const drapeBulge = config.geometry.drapeArcRatio * Math.max(edgeLen - radius * Math.PI, 0);
+  return {
+    creaseOrigin: pivot,
+    creaseDir: dir,
+    wrapNormal,
+    radius,
+    taper,
+    flatten,
+    progress,
+    strength: edgeLen,
+    drapeBulge,
+  };
+}
+
 export interface FoldSolveInput {
   /** 抓取点（pointerdown 时规范空间坐标：恒在自由边侧）。 */
   grab: Point;
@@ -54,6 +136,8 @@ export interface FoldSolveInput {
   action: FlipAction;
   size: PageSize;
   config: FlipConfig;
+  /** 角部折痕转角封顶（拖拽=true 防撕裂；完成补间=false 自然过渡到整页翻过）。 */
+  capPhi?: boolean;
 }
 
 /** 按进度求解所需的冻结会话参数（snap 补间期间轴线 / 锥化偏移保持不变）。 */
@@ -67,6 +151,9 @@ export interface FoldSession {
   touchYOffset: number;
   /** 轴线方向上的推进终点距离（拖拽开始时确定）。 */
   distEnd: number;
+  /** 角部会话：书脊枢轴（折痕锚定点）与旋转方向（触点绕枢轴的转向）。 */
+  pivot?: Point;
+  cornerSpin?: 1 | -1;
   size: PageSize;
   config: FlipConfig;
 }
@@ -81,7 +168,7 @@ export function createFoldSession(
   config: FlipConfig
 ): FoldSession {
   const axisNormal = axisNormalFor(grab, touch, mode, action);
-  return {
+  const session: FoldSession = {
     grab: { ...grab },
     axisNormal,
     mode,
@@ -91,6 +178,15 @@ export function createFoldSession(
     size,
     config,
   };
+  if (mode === 'corner') {
+    const pivot = cornerPivot(grab);
+    session.pivot = pivot;
+    const v1 = { x: grab.x - pivot.x, y: grab.y - pivot.y };
+    const v2 = { x: touch.x - pivot.x, y: touch.y - pivot.y };
+    const cross = v1.x * v2.y - v1.y * v2.x;
+    session.cornerSpin = cross >= 0 ? 1 : -1;
+  }
+  return session;
 }
 
 /** 卷起侧法向：从触点指向抓取点；边缘模式锁水平（折痕平行书脊）。 */
@@ -134,6 +230,9 @@ function distEndFor(grab: Point, normal: Point, size: PageSize): number {
  */
 export function solveFoldPose(input: FoldSolveInput): FoldPose {
   const { grab, size, config } = input;
+  if (input.mode === 'corner') {
+    return solveCornerPose(grab, input.touch, size, config, input.capPhi ?? true);
+  }
   const touch = input.touch;
   const normal = axisNormalFor(grab, touch, input.mode, input.action);
   const distEnd = distEndFor(grab, normal, size);
@@ -149,10 +248,24 @@ export function solveFoldPose(input: FoldSolveInput): FoldPose {
 /**
  * 按进度求解（snap 补间 / 点击翻页）：轴线与锥化偏移冻结自会话，
  * 保证补间路径与拖拽几何连续。dist = distEnd·p——p=1 时折痕到达推进
- * 终点，整页翻出页外。
+ * 终点，整页翻出页外。角部会话走折角模型（不封顶：完成补间自然过渡
+ * 到整页翻过）。
  */
 export function solveFoldPoseAtProgress(session: FoldSession, p: number): FoldPose {
   const pClamped = clamp(p, 0, 1);
+  if (session.mode === 'corner' && session.pivot) {
+    // 触点绕枢轴转动：转角 = 2×asin(progress)（角平分线 = 转角一半）
+    const v1 = { x: session.grab.x - session.pivot.x, y: session.grab.y - session.pivot.y };
+    const v1Len = Math.max(Math.hypot(v1.x, v1.y), EPSILON);
+    const angle = 2 * Math.asin(clamp(pClamped, 0, 1)) * (session.cornerSpin ?? 1);
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const touch = {
+      x: session.pivot.x + (v1.x * cosA - v1.y * sinA) * v1Len,
+      y: session.pivot.y + (v1.x * sinA + v1.y * cosA) * v1Len,
+    };
+    return solveCornerPose(session.grab, touch, session.size, session.config, false);
+  }
   const dist = session.distEnd * pClamped;
   return buildPose(
     session.grab,

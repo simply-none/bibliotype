@@ -126,6 +126,23 @@ export class GlRenderer {
     gl.uniform1f(u.get('uDrapeBulge')!, pose ? pose.drapeBulge : 0);
     gl.uniform1f(u.get('uLandFade')!, state.flipFade);
     gl.uniform1f(u.get('uPaperT')!, state.paperT);
+    // 形变模型与旋转参数（rotation：φ/χ/拱高 + 投影范围；fold 恒 0）
+    const isRotation = pose?.model === 'rotation';
+    gl.uniform1f(u.get('uModel')!, isRotation ? 1 : 0);
+    gl.uniform1f(u.get('uFlipAngle')!, isRotation ? pose.flipAngle : 0);
+    gl.uniform1f(u.get('uCurlAngle')!, isRotation ? pose.curlAngle : 0);
+    gl.uniform1f(u.get('uBow')!, isRotation ? pose.bow : 0);
+    const cosPhi = isRotation ? Math.cos(pose.flipAngle) : 1;
+    gl.uniform1f(u.get('uFlipSpan')!, isRotation ? this.pageSize.width * Math.abs(cosPhi) : 0);
+    gl.uniform1f(u.get('uFlipHeight')!, isRotation ? Math.sin(pose.flipAngle) : 0);
+    gl.uniform1f(u.get('uFlipSide')!, cosPhi >= 0 ? 1 : -1);
+    // 真实纸背纹理（双页翻动叶的另一面）：单元 1；缺省绑定正面纹理兜底
+    const backTex = state.backFacePage !== null ? resolveTexture(state.backFacePage) : null;
+    gl.activeTexture(gl.TEXTURE1);
+    gl.uniform1i(u.get('uBackTex')!, 1);
+    gl.bindTexture(gl.TEXTURE_2D, backTex);
+    gl.uniform1f(u.get('uHasBackTex')!, backTex && isRotation ? 1 : 0);
+    gl.uniform1f(u.get('uBackMirror')!, state.backFaceMirror ? 1 : 0);
     const shading = state.shading;
     gl.uniform3f(u.get('uBackTint')!, shading.backPaperTint[0], shading.backPaperTint[1], shading.backPaperTint[2]);
     gl.uniform1f(u.get('uBackWash')!, shading.backPaperWash);
@@ -153,20 +170,19 @@ export class GlRenderer {
     );
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1i(u.get('uTex')!, 0);
-
     if (state.spread) {
       // 双页模式：左面（几何帧 right）+ 右面（几何帧 left），书脊居中
       //（世界 x=0），两侧各偏移 ±W_c/2。翻动侧额外把「翻页前的旧面」
       // 作为淡出层压在目标面之上（alpha = 1−flipFade）——点击/翻起瞬间
       // 被翻侧内容不突变，动画落定后才切到目标面。
       const half = this.pageSize.width / 2;
-      this.drawUnderSide(1, -half, state.spread.leftPage, resolveTexture, 1);
-      this.drawUnderSide(0, half, state.spread.rightPage, resolveTexture, 1);
+      this.drawUnderSide(1, -half, state.spread.leftPage, resolveTexture, 1, -1);
+      this.drawUnderSide(0, half, state.spread.rightPage, resolveTexture, 1, 1);
       const fading = state.spread.fadingFace;
       if (fading) {
         const frame = fading.side === 'left' ? 1 : 0;
         const offsetX = fading.side === 'left' ? -half : half;
-        this.drawUnderSide(frame, offsetX, fading.page, resolveTexture, 1 - state.flipFade);
+        this.drawUnderSide(frame, offsetX, fading.page, resolveTexture, 1 - state.flipFade, fading.side === 'left' ? -1 : 1);
       }
       const flip = state.spread.flipping;
       if (pose && flip) {
@@ -185,6 +201,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uGutter')!, 0);
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
+    gl.uniform1f(u.get('uUnderSide')!, 1);
     this.applyPose(pose);
     gl.bindTexture(gl.TEXTURE_2D, resolveTexture(state.underPage));
 
@@ -204,13 +221,15 @@ export class GlRenderer {
     }
   }
 
-  /** 双页单侧下层页（几何帧与纹理帧一致——左面帧 right，内容正立；alpha 供淡出层）。 */
+  /** 双页单侧下层页（几何帧与纹理帧一致——左面帧 right，内容正立；alpha 供淡出层；
+   *  side = 所在侧（+1 自由边侧 / −1 对侧），供旋转模型投影门控）。 */
   private drawUnderSide(
     frame: number,
     offsetX: number,
     page: number | null,
     resolveTexture: (pageIndex: number) => WebGLTexture | null,
-    alpha: number
+    alpha: number,
+    side: 1 | -1
   ): void {
     if (page === null) {
       return; // 封面 spread 的左侧 / 页数不足——不绘制（背景透出）
@@ -222,6 +241,7 @@ export class GlRenderer {
     gl.uniform1f(u.get('uOffsetX')!, offsetX);
     gl.uniform1f(u.get('uFlat')!, 1);
     gl.uniform1f(u.get('uIsUnder')!, 1);
+    gl.uniform1f(u.get('uUnderSide')!, side);
     gl.uniform1f(u.get('uGutter')!, 1); // 双页下层页（含淡出层）启用书沟
     gl.uniform1f(u.get('uAlpha')!, alpha);
     this.applyPose(null);
@@ -281,6 +301,8 @@ export class GlRenderer {
       'uGutter', 'uGutterFlexZ', 'uGutterFlex', 'uGutterCrease', 'uGutterRise',
       'uStackLayers', 'uStackLayerDepth', 'uStackLayerCrease', 'uStackTopLight', 'uStackHtRatio',
       'uLift', 'uDrapeBulge', 'uLandFade', 'uPaperT', 'uTex', 'uDebug', 'uAlpha',
+      'uModel', 'uFlipAngle', 'uCurlAngle', 'uBow', 'uFlipSpan', 'uFlipHeight', 'uFlipSide',
+      'uUnderSide', 'uBackTex', 'uHasBackTex', 'uBackMirror',
     ];
     this.uniforms = new Map(names.map((name) => [name, gl.getUniformLocation(this.program!, name)]));
   }
@@ -417,12 +439,17 @@ export class GlRenderer {
     }
   }
 
-  /** 接触投影强度：掀起范围越大越深，落页压平后自然消退。 */
+  /** 接触投影强度：rotation 随落定压平消退（软影带形状由片元按 φ 计算）；
+   *  fold：掀起范围越大越深，落页压平后自然消退。 */
   private shadowStrength(pose: NonNullable<FlipSceneState['pose']>, shading: FlipSceneState['shading']): number {
+    const flattenFade = 1 - shading.shadowFlattenFade * pose.flatten;
+    if (pose.model === 'rotation') {
+      return shading.shadowStrength * flattenFade;
+    }
     const base = Math.min(pose.strength / (shading.shadowBaseSpan * this.pageSize.width), 1);
     // flight shadow fade: a high-flying sheet casts a softer contact shadow
     const flightArc = Math.sin(Math.PI * pose.progress) ** 2;
     const flightFade = 1 - flightArc * shading.shadowFlightFade;
-    return base * shading.shadowStrength * (1 - shading.shadowFlattenFade * pose.flatten) * flightFade;
+    return base * shading.shadowStrength * flattenFade * flightFade;
   }
 }

@@ -40,13 +40,22 @@ export type FlipAction = 'forward' | 'backward';
 export type GrabMode = 'corner' | 'edge';
 
 /**
+ * 形变模型：
+ * - `fold`：折痕卷折（圆柱 warp + 背面斜披）——角部捏角拖拽（折角模型）；
+ * - `rotation`：刚体旋转（绕书脊翻转 + 自由边卷筒 + 飞行拱）——
+ *   捏边拖拽 / 中部滑动 / 自动翻页（真实书本的硬页翻转，云展网同款观感）。
+ */
+export type FoldModel = 'fold' | 'rotation';
+
+/**
  * 折痕姿态——驱动顶点形变的完整参数集（规范空间）。
  *
- * - `creaseOrigin`：折痕线上的一点（沿抓取轴推进的当前折点）。
+ * - `creaseOrigin`：折痕线上的一点（沿抓取轴推进的当前折点）；
+ *   rotation 模型下退化为书脊锚点（x=0，仅供 vS / 根部 AO 复用）。
  * - `creaseDir`：折痕方向单位向量（装订书模型恒平行书脊：(0,1)）。
  * - `wrapNormal`：指向「被卷起侧」的单位法向（规范空间平面内，恒水平）。
  *   s = (p − creaseOrigin)·wrapNormal > 0 的顶点进入卷曲区域。
- * - `radius`：卷曲半径（卷曲带宽度基准）。
+ * - `radius`：卷曲半径（fold：卷曲带宽度基准；rotation：自由边卷筒半径）。
  * - `taper`：保留字段，装订书折痕恒竖直、无锥化，恒 0。
  * - `flatten ∈ [0,1]`：落页压平系数（折叠完成端收拢卷曲带）。
  * - `progress ∈ [0,1]`：翻页进度（折叠完成比例）。
@@ -56,6 +65,8 @@ export interface FoldPose {
   creaseOrigin: Point;
   creaseDir: Point;
   wrapNormal: Point;
+  /** 形变模型（决定顶点着色 / 形变分支）。 */
+  model: FoldModel;
   radius: number;
   taper: number;
   flatten: number;
@@ -63,6 +74,12 @@ export interface FoldPose {
   strength: number;
   /** 背面斜披段弧拱高度（px）——下落段上拱（真实纸张前冲弧线）。 */
   drapeBulge: number;
+  /** rotation：翻页角 φ ∈ [0, π]（0 = 平贴自由边侧，π = 平贴对侧）。 */
+  flipAngle: number;
+  /** rotation：自由边卷筒包角 χ（起翻时大、飞行中为前缘小卷角、落定时 →0）。 */
+  curlAngle: number;
+  /** rotation：飞行拱高（px，中段页面向翻越方向弓出，避免 90° 时侧立成线）。 */
+  bow: number;
 }
 
 /** 页面位图提供者：把第 pageIndex 页绘制到位图画布上（同步）。 */
@@ -117,6 +134,13 @@ export interface FlipSceneState {
    * forward 尾段 / backward 起段的消隐比例，其余段恒 0。
    */
   flipFade: number;
+  /**
+   * 翻动页纸背的真实内容页索引（双页模式：翻动叶的另一面 = 目标侧面），
+   * null = 无真实纸背（单页模式，用暖调纸色 + 透字近似）。
+   */
+  backFacePage: number | null;
+  /** 纸背纹理 UV 是否 x 镜像（forward 折右面 = true；backward 折左面 = false）。 */
+  backFaceMirror: boolean;
   /** 每页纸厚（px，= 2×landRadius）——书口页叠边纹理的层距依据。 */
   paperT: number;
   /** 着色参数（shading 组透传，渲染器每帧上 uniform）。 */
@@ -166,6 +190,24 @@ export interface GeometryOptions {
    * 前冲弧线），拱高 = 此值 × 斜披段材料长。
    */
   drapeArcRatio: number;
+  /**
+   * 飞行拱高比（相对页宽）：旋转模型中段页面向翻越方向弓出的拱高
+   * （按 sin^1.5(π·p) 起落）——90° 侧立时页面仍呈曲面而非一条线。
+   */
+  flipBowRatio: number;
+  /** 起翻卷角（弧度）：自由边掀起瞬间的卷筒包角（掀页感）。 */
+  curlLiftAngle: number;
+  /** 飞行前缘卷角（弧度）：中段自由边领先翻越的小卷角（空气拖曳感）。 */
+  curlFlightAngle: number;
+  /** 起翻卷筒半径（相对页宽）。 */
+  curlRadiusLift: number;
+  /** 飞行卷筒半径（相对页宽，中段卷筒变松变软）。 */
+  curlRadiusFlight: number;
+  /**
+   * 翻页角迟滞 k：φ = π·(p − k·sin(2πp)/(2π))——两端角速度 ×(1−k)、
+   * 中段 ×(1+k)：起翻与落定更从容、中段扫过更干脆。
+   */
+  flipAngleLag: number;
   /** edge 模式折痕中点随触点的纵向跟随比。 */
   creaseFollowRatio: number;
   /** 落页压平起点（progress，0.86 = 尾段 14% 收拢卷筒）。 */
@@ -343,6 +385,12 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     taperSpreadRatio: 0.5,
     flightRadiusRatio: 0.13,
     drapeArcRatio: 0.15,
+    flipBowRatio: 0.085,
+    curlLiftAngle: 2.1,
+    curlFlightAngle: 0.55,
+    curlRadiusLift: 0.045,
+    curlRadiusFlight: 0.085,
+    flipAngleLag: 0.32,
     creaseFollowRatio: 0.25,
     flattenStart: 0.86,
     dragMarginRatio: 0.3,
@@ -353,17 +401,17 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
     touchBeyondSpinePx: 80,
   },
   timing: {
-    autoFlipMs: 850,
+    autoFlipMs: 1150,
     snapBaseMs: 380,
     snapSlopeMs: 540,
     snapMinMs: 360,
-    snapMaxMs: 920,
+    snapMaxMs: 980,
     bounceOutMs: 460,
     bounceBackMs: 420,
-    wobbleStart: 0.6,
+    wobbleStart: 0.82,
     wobbleCycles: 2.5,
     wobbleAmp: 0.05,
-    fadeStart: 0.85,
+    fadeStart: 0.88,
   },
   shading: {
     backPaperTint: [0.97, 0.945, 0.9],

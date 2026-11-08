@@ -4,18 +4,41 @@ import type { FoldPose, PageSize } from '../types';
 
 const SIZE: PageSize = { width: 400, height: 600 };
 
-/** 固定姿态：折痕 x=100 竖直，n̂=+x，半径 30，无锥化，strength=150。 */
+/** 固定姿态：折痕 x=100 竖直，n̂=+x，半径 30，无锥化，strength=150（fold 模型）。 */
 function flatPose(radius = 30, taper = 0, strength = 150, drapeBulge = 0): FoldPose {
   return {
     creaseOrigin: { x: 100, y: 300 },
     creaseDir: { x: 0, y: 1 },
     wrapNormal: { x: 1, y: 0 },
+    model: 'fold',
     radius,
     taper,
     flatten: 0,
     progress: 0.5,
     strength,
     drapeBulge,
+    flipAngle: 0,
+    curlAngle: 0,
+    bow: 0,
+  };
+}
+
+/** 旋转模型姿态：φ 翻页角、χ 卷筒包角、r 卷筒半径、bow 拱高（W=400）。 */
+function rotPose(phi: number, chi = 0, radius = 18, bow = 0): FoldPose {
+  return {
+    creaseOrigin: { x: 0, y: 300 },
+    creaseDir: { x: 0, y: 1 },
+    wrapNormal: { x: 1, y: 0 },
+    model: 'rotation',
+    radius,
+    taper: 0,
+    flatten: 0,
+    progress: phi / Math.PI,
+    strength: 400 * (phi / Math.PI),
+    drapeBulge: 0,
+    flipAngle: phi,
+    curlAngle: chi,
+    bow,
   };
 }
 
@@ -117,5 +140,79 @@ describe('deformPoint · 锥化', () => {
     const tightTop = deformPoint({ x: mid, y: 600 }, pose, SIZE);
     const looseTop = deformPoint({ x: mid, y: 0 }, pose, SIZE);
     expect(tightTop.z).toBeLessThan(looseTop.z);
+  });
+});
+
+describe('deformPoint · rotation（刚体旋转模型）', () => {
+  it('φ=0 全页平贴（书脊锚定，y 不变）', () => {
+    const pose = rotPose(0);
+    for (const x of [0, 120, 260, 399]) {
+      const d = deformPoint({ x, y: 210 }, pose, SIZE);
+      expect(d.x).toBeCloseTo(x, 6);
+      expect(d.z).toBeCloseTo(0, 6);
+      expect(d.y).toBe(210);
+    }
+  });
+
+  it('刚体段金值：φ=60°，x=120 → x′=d·cosφ、z=d·sinφ', () => {
+    const pose = rotPose(Math.PI / 3);
+    const d = deformPoint({ x: 120, y: 300 }, pose, SIZE);
+    expect(d.x).toBeCloseTo(120 * Math.cos(Math.PI / 3), 6);
+    expect(d.z).toBeCloseTo(120 * Math.sin(Math.PI / 3), 6);
+    expect(d.theta).toBeCloseTo(Math.PI / 3, 6);
+  });
+
+  it('φ=90° 页面立起：自由缘在书脊正上方高度 W', () => {
+    const pose = rotPose(Math.PI / 2);
+    const d = deformPoint({ x: 400, y: 300 }, pose, SIZE);
+    expect(d.x).toBeCloseTo(0, 6);
+    expect(d.z).toBeCloseTo(400, 6);
+  });
+
+  it('φ=π 整页镜像翻落对侧（x′=−x，z=0）', () => {
+    const pose = rotPose(Math.PI);
+    const d = deformPoint({ x: 120, y: 300 }, pose, SIZE);
+    expect(d.x).toBeCloseTo(-120, 6);
+    expect(d.z).toBeCloseTo(0, 6);
+    expect(d.face).toBe('flat');
+  });
+
+  it('卷筒段：θ=(d−d_c)/r，切向角增至 φ+χ，C1 衔接刚体段', () => {
+    const phi = Math.PI / 3;
+    const chi = 0.8;
+    const r = 18;
+    const pose = rotPose(phi, chi, r);
+    const hinge = 400 - r * chi;
+    // 铰链两侧连续（位置与高度同时衔接）
+    const body = deformPoint({ x: hinge - 0.01, y: 300 }, pose, SIZE);
+    const roll = deformPoint({ x: hinge + 0.01, y: 300 }, pose, SIZE);
+    expect(Math.abs(body.x - roll.x)).toBeLessThan(0.02);
+    expect(Math.abs(body.z - roll.z)).toBeLessThan(0.02);
+    // 卷筒中点金值：位置 = 铰链 + r·sinθ·T + r(1−cosθ)·N
+    const theta = 0.35;
+    const mid = deformPoint({ x: hinge + r * theta, y: 300 }, pose, SIZE);
+    const along = hinge + r * Math.sin(theta);
+    const nOff = r * (1 - Math.cos(theta));
+    expect(mid.x).toBeCloseTo(along * Math.cos(phi) - nOff * Math.sin(phi), 6);
+    expect(mid.z).toBeCloseTo(along * Math.sin(phi) + nOff * Math.cos(phi), 6);
+    expect(mid.theta).toBeCloseTo(phi + theta, 6);
+    // 卷筒顶（θ=χ）：切向角 = φ+χ
+    const tip = deformPoint({ x: 400, y: 300 }, pose, SIZE);
+    expect(tip.theta).toBeCloseTo(phi + chi, 6);
+  });
+
+  it('飞行拱：沿页法向弓出，刚体段中点抬升、书脊与自由缘按 sin 包络', () => {
+    const phi = Math.PI / 2;
+    const bow = 30;
+    const pose = rotPose(phi, 0, 18, bow);
+    const plain = rotPose(phi);
+    const mid = deformPoint({ x: 200, y: 300 }, pose, SIZE);
+    const midPlain = deformPoint({ x: 200, y: 300 }, plain, SIZE);
+    // φ=90°：N=(−1,0)——拱沿 −x 方向（翻越方向）偏移，z 不变
+    expect(mid.z).toBeCloseTo(midPlain.z, 6);
+    expect(mid.x).toBeCloseTo(midPlain.x - 30, 6);
+    // 书脊（d=0）与自由缘（d=W）处 sin 包络为零，不受拱影响
+    const spine = deformPoint({ x: 0, y: 300 }, pose, SIZE);
+    expect(spine.z).toBeCloseTo(0, 6);
   });
 });

@@ -106,7 +106,7 @@ describe('FlipController 状态机（headless）', () => {
     // 拖拽中应出现翻动姿态
     expect(adapter.lastState?.pose).not.toBeNull();
     pointer(controller, 'up', RIGHT_EDGE_X - 85, PAGE_Y, 1900);
-    advance(controller, 900); // 补间完成
+    advance(controller, 1300); // 补间完成
     expect(controller.currentPage).toBe(0);
     expect(adapter.lastState?.pose).toBeNull();
     controller.destroy();
@@ -119,7 +119,7 @@ describe('FlipController 状态机（headless）', () => {
     pointer(controller, 'move', RIGHT_EDGE_X - 100, PAGE_Y, 1060);
     pointer(controller, 'move', RIGHT_EDGE_X - 200, PAGE_Y, 1100);
     pointer(controller, 'up', RIGHT_EDGE_X - 210, PAGE_Y, 1110);
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     expect(adapter.lastState?.pose).toBeNull();
     controller.destroy();
@@ -131,7 +131,7 @@ describe('FlipController 状态机（headless）', () => {
     pointer(controller, 'move', RIGHT_EDGE_X - 120, PAGE_Y, 1400);
     pointer(controller, 'move', RIGHT_EDGE_X - 260, PAGE_Y, 1800);
     pointer(controller, 'up', RIGHT_EDGE_X - 265, PAGE_Y, 1850);
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     controller.destroy();
   });
@@ -145,7 +145,7 @@ describe('FlipController 状态机（headless）', () => {
     expect(controller['session']?.progressCap).toBeLessThan(1);
     expect(controller['pose']?.progress ?? 0).toBeLessThanOrEqual(0.1);
     pointer(controller, 'up', 130, PAGE_Y, 1300);
-    advance(controller, 900); // 回弹补间完成
+    advance(controller, 1300); // 回弹补间完成
     expect(controller.currentPage).toBe(0);
     expect(adapter.lastState?.pose).toBeNull();
     controller.destroy();
@@ -156,7 +156,7 @@ describe('FlipController 状态机（headless）', () => {
     pointer(controller, 'down', 40, PAGE_Y, 1000);
     pointer(controller, 'move', 200, PAGE_Y, 1060); // 快速甩动
     pointer(controller, 'up', 260, PAGE_Y, 1090);
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(0);
     controller.destroy();
   });
@@ -166,14 +166,14 @@ describe('FlipController 状态机（headless）', () => {
     const total = controller['pageCount']();
     for (let i = 0; i < total - 1; i++) {
       controller.autoFlip('forward');
-      advance(controller, 900);
+      advance(controller, 1300);
     }
     pointer(controller, 'down', RIGHT_EDGE_X, PAGE_Y, 5000);
     pointer(controller, 'up', RIGHT_EDGE_X + 2, PAGE_Y, 5120); // 无位移短按
     advance(controller, 150); // bounce 前半段进行中
     expect(controller['session']?.pendingReturn).toBe(true);
-    advance(controller, 900); // 完成前半段 → 转入回弹段
-    advance(controller, 900); // 回弹段完成
+    advance(controller, 1300); // 完成前半段 → 转入回弹段
+    advance(controller, 1300); // 回弹段完成
     expect(controller.currentPage).toBe(total - 1);
     expect(controller['phase']).toBe('idle');
     controller.destroy();
@@ -183,7 +183,7 @@ describe('FlipController 状态机（headless）', () => {
     const { controller } = createController();
     pointer(controller, 'down', RIGHT_EDGE_X, PAGE_Y, 1000);
     pointer(controller, 'up', RIGHT_EDGE_X + 2, PAGE_Y, 1120); // 无位移的短按
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     controller.destroy();
   });
@@ -198,7 +198,7 @@ describe('FlipController 状态机（headless）', () => {
     pointer(controller, 'move', 150, 348, 1200);
     expect(adapter.lastState?.pose).not.toBeNull();
     pointer(controller, 'up', 148, 348, 1210); // 释放落在采样窗内 → 构成甩动
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     controller.destroy();
   });
@@ -212,7 +212,7 @@ describe('FlipController 状态机（headless）', () => {
     const progress = controller['pose']?.progress ?? 0;
     expect(progress).toBeGreaterThan(0.2); // 0.24，配合甩动速度完成
     pointer(controller, 'up', 88, 348, 1160); // 释放落在采样窗内 → 构成甩动
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     controller.destroy();
   });
@@ -220,14 +220,14 @@ describe('FlipController 状态机（headless）', () => {
   it('中部向右滑动 → 掀回上一页', () => {
     const { controller } = createController();
     controller.autoFlip('forward'); // 先到第 1 页
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     pointer(controller, 'down', 250, 350, 2000);
     pointer(controller, 'move', 280, 350, 2100); // 向右 → backward
     expect(controller['session']?.action).toBe('backward');
     pointer(controller, 'move', 360, 348, 2200);
     pointer(controller, 'up', 365, 348, 2210); // 释放落在采样窗内 → 构成甩动
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(0);
     controller.destroy();
   });
@@ -249,12 +249,12 @@ describe('FlipController 状态机（headless）', () => {
     const total = controller['pageCount']();
     for (let i = 0; i < total - 1; i++) {
       controller.autoFlip('forward');
-      advance(controller, 900);
+      advance(controller, 1300);
     }
     expect(controller.currentPage).toBe(total - 1);
     controller.autoFlip('forward'); // 边界 → 回弹
     advance(controller, 400); // 前半段
-    advance(controller, 900); // 回弹段
+    advance(controller, 1300); // 回弹段
     expect(controller.currentPage).toBe(total - 1);
     controller.destroy();
   });
@@ -275,10 +275,10 @@ describe('FlipController 状态机（headless）', () => {
     advance(controller, 100); // snap 进行中
     controller.autoFlip('forward'); // 被排队
     expect(controller['queuedPulse']).toBe('forward');
-    advance(controller, 900); // 第一段补间完成 → 消费队列
+    advance(controller, 1300); // 第一段补间完成 → 消费队列
     expect(controller.currentPage).toBe(1);
     expect(controller['phase']).toBe('snap'); // 队列脉冲已接续为新的 snap
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(2);
     controller.destroy();
   });
@@ -359,7 +359,7 @@ describe('FlipController 四向装订（bindEdge）', () => {
   it('top 装订下自动翻页到边界：橡皮筋回弹（规范语义不变）', () => {
     const { controller } = createControllerWith({ bindEdge: 'top', aspect: 1.45, pageCount: 2 });
     controller.autoFlip('forward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     controller.autoFlip('forward'); // 末页 → 回弹
     expect(controller['session']?.pendingReturn).toBe(true);
@@ -391,7 +391,7 @@ describe('FlipController 双页模式（spread）', () => {
     expect(adapter.lastState?.spread?.leftPage).toBeNull();
     expect(adapter.lastState?.spread?.rightPage).toBe(0);
     controller.autoFlip('forward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     advance(controller, 32);
     expect(adapter.lastState?.spread?.leftPage).toBe(1);
@@ -411,7 +411,7 @@ describe('FlipController 双页模式（spread）', () => {
   it('左面捏角抓取 = 语义 backward（side left，折痕数学 forward——书脊居中右翻）', () => {
     const { controller } = createSpreadController();
     controller.autoFlip('forward');
-    advance(controller, 1000); // 先到 spread 1（有左面）
+    advance(controller, 1300); // 先到 spread 1（有左面）
     pointer(controller, 'down', 22, 515, 2000); // 左面左下角
     expect(controller['session']?.side).toBe('left');
     expect(controller['session']?.semanticAction).toBe('backward');
@@ -422,13 +422,13 @@ describe('FlipController 双页模式（spread）', () => {
   it('左面中部右拖 → backward swipe；右面中部左拖 → forward swipe', () => {
     const { controller } = createSpreadController();
     controller.autoFlip('forward');
-    advance(controller, 1000);    pointer(controller, 'down', 130, 350, 2000); // 左面中部
+    advance(controller, 1300);    pointer(controller, 'down', 130, 350, 2000); // 左面中部
     pointer(controller, 'move', 150, 350, 2100); // 右拖
     expect(controller['session']?.inputMode).toBe('swipe');
     expect(controller['session']?.semanticAction).toBe('backward');
     pointer(controller, 'move', 300, 350, 2150); // drag past spine
     pointer(controller, 'up', 302, 350, 2200);
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(0);
     controller.destroy();
   });
@@ -436,10 +436,10 @@ describe('FlipController 双页模式（spread）', () => {
   it('spread 末页 forward → 橡皮筋回弹（偶数面数末 spread 左侧孤页可达）', () => {
     const { controller, adapter } = createSpreadController(4); // 4 面 → spreadCount 3（末 spread = [面 3, null]）
     controller.autoFlip('forward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     controller.autoFlip('forward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     // 末 spread：左侧孤页 = 面 3，右面为空
     expect(controller.currentPage).toBe(2);
     expect(adapter.lastState?.spread?.leftPage).toBe(3);
@@ -455,16 +455,16 @@ describe('FlipController 双页模式（spread）', () => {
   it('偶数面数（6 面）末面可达：3 次 forward 到末 spread，backward 可翻回', () => {
     const { controller, adapter } = createSpreadController(6);
     controller.autoFlip('forward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     controller.autoFlip('forward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     controller.autoFlip('forward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(3);
     expect(adapter.lastState?.spread?.leftPage).toBe(5);
     expect(adapter.lastState?.spread?.rightPage).toBeNull();
     controller.autoFlip('backward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(2);
     expect(adapter.lastState?.spread?.leftPage).toBe(3);
     expect(adapter.lastState?.spread?.rightPage).toBe(4);
@@ -485,14 +485,14 @@ describe('FlipController 双页模式（spread）', () => {
   it('翻动期间被翻侧保留旧面（淡出层），动画结束才切目标面', () => {
     const { controller, adapter } = createSpreadController();
     controller.autoFlip('forward');
-    advance(controller, 1000); // spread 1（左面 = 面 1）
+    advance(controller, 1300); // spread 1（左面 = 面 1）
     controller.autoFlip('forward');
     advance(controller, 200); // 动画中段
     expect(adapter.lastState?.spread?.leftPage).toBe(3); // 目标左面（压底）
     expect(adapter.lastState?.spread?.fadingFace).toEqual({ page: 1, side: 'left' }); // 旧左面淡出层
     expect(adapter.lastState?.spread?.rightPage).toBe(4); // 目标右面
     expect(adapter.lastState?.spread?.flipping).toEqual({ page: 2, side: 'right' });
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(adapter.lastState?.spread?.leftPage).toBe(3); // 完成后 = 目标左面
     expect(adapter.lastState?.spread?.fadingFace).toBeNull();
     expect(adapter.lastState?.spread?.flipping).toBeNull();
@@ -504,19 +504,19 @@ describe('FlipController 双页模式（spread）', () => {
     controller.autoFlip('forward');
     advance(controller, 200);
     expect(adapter.lastState?.spread?.fadingFace).toBeNull(); // 封面 spread 无左面
-    advance(controller, 1000);
+    advance(controller, 1300);
     controller.destroy();
   });
 
   it('左面点击（tap）触发语义 backward 而非 forward', () => {
     const { controller } = createSpreadController();
     controller.autoFlip('forward');
-    advance(controller, 1000); // spread 1（有左面）
+    advance(controller, 1300); // spread 1（有左面）
     pointer(controller, 'down', 30, 510, 2000); // 左面左下角
     pointer(controller, 'up', 32, 512, 2100); // 无位移短按
     expect(controller['phase']).toBe('snap');
     expect(controller['session']?.semanticAction).toBe('backward');
-    advance(controller, 1000);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(0);
     controller.destroy();
   });
@@ -575,10 +575,10 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
   it('next / prev 语义化别名', () => {
     const { controller } = createController();
     controller.next();
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(1);
     controller.prev();
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(controller.currentPage).toBe(0);
     controller.destroy();
   });
@@ -594,7 +594,7 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
     pointer(controller, 'down', 462, 350, 1000);
     pointer(controller, 'move', 362, 350, 1060);
     pointer(controller, 'up', 352, 350, 1110);
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(starts.length).toBe(1);
     expect(ends.length).toBe(1);
     expect(ends[0]).toMatchObject({ action: 'forward', fromPage: 0, toPage: 1, completed: true });
@@ -602,8 +602,8 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
     controller.goToPage(5); // 6 页 → 末页
     controller.autoFlip('forward');
     advance(controller, 400);
-    advance(controller, 900); // 去程段完成 → 转入回程段
-    advance(controller, 900); // 回程段完成 → end 上报
+    advance(controller, 1300); // 去程段完成 → 转入回程段
+    advance(controller, 1300); // 回程段完成 → end 上报
     expect(starts.length).toBe(2);
     expect(ends[1]).toMatchObject({ action: 'forward', fromPage: 5, toPage: 5, completed: false });
     controller.destroy();
@@ -618,7 +618,7 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
     });
     pointer(controller, 'down', 462, 350, 1000);
     pointer(controller, 'up', 464, 350, 1060); // 无位移短按 → tap → autoFlip
-    advance(controller, 900);
+    advance(controller, 1300);
     expect(ends[0]).toMatchObject({ completed: false });
     expect(ends[1]).toMatchObject({ completed: true });
     expect(starts.length).toBe(2);
@@ -659,7 +659,7 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
   it('双页悬停预览：左面悬停 = 语义 backward 的预览（折痕数学 forward）', () => {
     const { controller, adapter } = createController({ providerOptions: { pageCount: 6 }, spread: true });
     controller.autoFlip('forward');
-    advance(controller, 1000); // spread 1
+    advance(controller, 1300); // spread 1
     controller['handleHover'](22, 515); // 左面左下角（frame right 的自由边）
     advance(controller, 32);
     expect(adapter.lastState?.spread?.flipping).toEqual({ page: 1, side: 'left' });
@@ -701,7 +701,7 @@ describe('FlipController 跳页 / 事件 / 悬停预览 / 纹理容量', () => {
     expect(controller['rafActive']).toBe(false);
     controller.autoFlip('forward');
     expect(controller['rafActive']).toBe(true); // 会话启动唤醒
-    advance(controller, 1000);
+    advance(controller, 1300);
     advance(controller, 16);
     expect(controller['rafActive']).toBe(false);
     controller.destroy();

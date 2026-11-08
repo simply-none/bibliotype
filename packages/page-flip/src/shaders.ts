@@ -1,25 +1,25 @@
 /**
  * GLSL ES 1.00 着色器源码（同一份源码兼容 WebGL1 / WebGL2 上下文）。
  *
- * 顶点着色器：与 deform.ts 逐式一致的 **3D 卷曲形变**（云展网 / StPageFlip
- * 同源）——卷曲段绕贴桌圆柱真实抬离页面平面，z 抬升经透视相机产生
- * 近大远小，卷筒的遮挡关系由深度测试自然呈现：
- * - s ≤ 0 桌面料原位（z=0）；
- * - 0 < θ = s/r ≤ π 卷曲压缩段：pos = P + n̂·r·sinθ，z = r·(1−cosθ)
- *   （θ=π 折回折痕正上方，高度 2r）；
- * - s > r·π 背面斜披段：pos = P − n̂·(s − r·π)，z 自卷顶 2r 线性降到
- *   自由边触桌，材料翻折到折痕另一侧、内容呈镜像（背面）。
+ * 顶点着色器：两种形变模型（与 deform.ts 逐式一致）——
  *
- * 片元着色器：立体感来自**几何抬升 + 单调连续渐变**——
- * 翻动页：正面卷曲段渐暗（连续过渡）→ 背面折回部分为**单一暖调纸色**
- * （大比例纸色 + 隐约反字透出；不再区分卷曲后坡/斜披两段，无弧顶
- * 高光条与自由端高光——折页只有一种颜色）；下层页
- * 只保留「书脊常驻 AO + 随折痕行进的接触投影」（分段着色仅作用于
- * 翻动页——下层页是平铺的纸，若套用分段逻辑，静止/翻页时会被误判
- * 成背面而镜像、洗白）。正反面判定用几何量 vS 对比 foldW（镜像下
- * 绕序不可靠）。
- * 翻动页背面斜披段随 uLandFade 在落定尾段淡出（镜像平贴态落在
- * 页外，淡出避免"悬空整页→硬切消失"的破绽）。
+ * **rotation（刚体旋转，edge 抓取 / 滑动 / 自动翻页）**：页面绕书脊
+ * （规范 x=0）刚体旋转 φ，自由边带卷筒 χ（半径 r），中段沿页法向叠加
+ * 飞行拱。真实书本硬页翻转：页面立起、透视缩短（z 抬升经透视相机产生
+ * 近大远小）、自由边为最高点、φ=π 自然落桌。
+ *
+ * **fold（折痕卷折，corner 捏角折角模型）**：卷曲段绕贴桌圆柱爬升
+ * （θ=π 折回折痕正上方），背面斜披段自卷顶镜像展开落桌。
+ *
+ * 片元着色器：
+ * - rotation：正反面按**局部表面角**判定（过 90° 侧面逐渐显出纸背）——
+ *   正面 = 纹理（卷筒附近渐暗 + 倾斜微暗）；背面 = 真实纸背纹理
+ *   （双页模式翻动叶的另一面，落地时与下层目标面逐像素对齐）或暖调
+ *   纸色 + 透字近似（单页模式）；落定尾段随 uLandFade 消隐（纸背明度
+ *   同步 →1，移除瞬间与下层无缝）。
+ * - fold：正面卷曲段渐暗 → 背面单一暖调纸色（与既有行为一致）。
+ * - 下层页：书脊常驻 AO + 翻起页投影——rotation 为随翻越投影范围移动
+ *   的软影带（按所在侧门控）；fold 为折痕两侧 vS 高斯带。
  */
 
 export const VERTEX_SHADER = `
@@ -28,21 +28,27 @@ attribute vec2 aUv;
 
 uniform mat4 uVP;
 uniform vec2 uSize;          // 页面尺寸 (W, H)，世界单位 = CSS px
-uniform vec2 uCreaseOrigin;  // 折痕点
+uniform vec2 uCreaseOrigin;  // 折痕点（rotation：书脊锚点）
 uniform vec2 uCreaseDir;     // 折痕方向（单位）
 uniform vec2 uWrapNormal;    // 卷起侧法向（单位）
-uniform float uRadius;       // 卷曲半径（卷曲带宽度基准）
+uniform float uRadius;       // 卷曲半径（rotation：自由边卷筒半径）
 uniform float uTaper;        // 轴向锥化
 uniform float uDrapeBulge;   // 背面斜披段弧拱高度（px）
 uniform float uLift;         // 掀起材料全长（背面斜披段落桌依据）
+uniform float uModel;        // 形变模型：0 = fold / 1 = rotation
+uniform float uFlipAngle;    // rotation：翻页角 φ
+uniform float uCurlAngle;    // rotation：自由边卷筒包角 χ
+uniform float uBow;          // rotation：飞行拱高（px）
 uniform float uFlat;         // 1 = 下层页（跳过形变）
 uniform float uGutterFlexZ;  // 书脊弯折深度（px，已按悬停强度缩放；0 = 平铺）
 uniform float uFrame;        // 页面帧（几何装订侧）：0 left / 1 right / 2 top / 3 bottom
 uniform float uOffsetX;      // 世界 X 偏移（双页模式：右面 +W_c/2、左面 −W_c/2、单页 0）
 
 varying vec2 vUv;
-varying float vS;            // 到折痕有符号距离（掀侧为正）
+varying float vS;            // 到折痕有符号距离（掀侧为正；rotation = 距书脊距离）
 varying float vXi;           // 折痕轴向归一化坐标（锥化用）
+varying float vAngle;        // rotation：局部表面角（刚体段 φ，卷筒段 φ+θ）
+varying float vD;            // rotation：材料距书脊距离
 
 const float PI = 3.141592653589793;
 
@@ -53,8 +59,34 @@ void main() {
   float xi = xiPx / uSize.y;
   vec2 pos2 = aPos;
   float zLift = 0.0;
+  float localAngle = 0.0;
 
-  if (uFlat < 0.5 && s > 0.0) {
+  if (uFlat < 0.5 && uModel > 0.5) {
+    // 刚体旋转模型：绕书脊（规范 x=0）翻转 + 自由边卷筒 + 飞行拱。
+    // 截面按材料距书脊 d 分两段（与 deform.ts deformRotationPoint 同式）：
+    // 刚体段沿页向 T=(cosφ,sinφ) 伸出 d；卷筒段绕铰链圆筒卷包角 θ。
+    float d = aPos.x;
+    float r = max(uRadius, 0.25);
+    float hinge = max(uSize.x - r * uCurlAngle, 0.0);
+    float cosPhi = cos(uFlipAngle);
+    float sinPhi = sin(uFlipAngle);
+    float along;
+    float nOff;
+    if (d <= hinge) {
+      along = d;
+      nOff = 0.0;
+      localAngle = uFlipAngle;
+    } else {
+      float theta = min((d - hinge) / r, uCurlAngle);
+      along = hinge + r * sin(theta);
+      nOff = r * (1.0 - cos(theta));
+      localAngle = uFlipAngle + theta;
+    }
+    // 飞行拱：沿页法向 N=(−sinφ,cosφ) 弓出（中段最大，两端归零）
+    nOff += uBow * sin(PI * clamp(d / max(uSize.x, 1.0), 0.0, 1.0));
+    pos2.x = along * cosPhi - nOff * sinPhi;
+    zLift = along * sinPhi + nOff * cosPhi;
+  } else if (uFlat < 0.5 && s > 0.0) {
     float r = max(uRadius * (1.0 - uTaper * xi), 0.25);
     float theta = min(s / r, PI);
     float bend = r * sin(theta);              // 卷入：0 → r → 0
@@ -89,6 +121,8 @@ void main() {
 
   vS = s;
   vXi = xi;
+  vAngle = localAngle;
+  vD = aPos.x;
   vUv = aUv;
   // 页面帧映射：规范空间 → 屏幕（世界坐标，y 向上）；z 抬升不受帧影响。
   // 四种等距反射，det = −1（CULL_FACE 关闭，绕序无关）。
@@ -121,12 +155,21 @@ precision mediump float;
 #endif
 
 uniform sampler2D uTex;
+uniform sampler2D uBackTex;   // rotation：真实纸背纹理（翻动叶的另一面）
+uniform float uHasBackTex;    // 1 = 纸背用真实纹理（双页），0 = 暖调纸色近似
+uniform float uBackMirror;    // 纸背纹理 UV x 镜像（forward 折右面 = 1）
 uniform vec2 uSize;           // 页面尺寸 (W_c, H_c) 规范空间——书口叠边的像素换算
 uniform float uTuvFrame;      // 纹理帧（内容朝向）：0 left / 1 right / 2 top / 3 bottom
 uniform float uIsUnder;       // 1 = 下层页（书脊 AO + 接触投影）
-uniform float uShadowWidth;   // 投影带宽
+uniform float uModel;         // 形变模型：0 = fold / 1 = rotation
+uniform float uFlipSpan;      // rotation：自由缘投影距书脊（px，= W·|cosφ|）
+uniform float uFlipHeight;    // rotation：sin φ（页面离桌高度比）
+uniform float uFlipSide;      // rotation：翻越侧（+1 = 自由边侧 / −1 = 对侧）
+uniform float uUnderSide;     // 下层页所在侧（+1 = 自由边侧 / −1 = 对侧）
+uniform float uShadowWidth;   // 投影带宽（fold）
 uniform float uShadowStrength;
 uniform float uRadius;        // 卷曲半径
+uniform float uCurlAngle;     // rotation：卷筒包角 χ（卷筒带宽度依据）
 uniform float uTaper;         // 轴向锥化
 uniform float uLandFade;      // 落定淡出系数（0=不透明，1=背面平铺段全透明）
 uniform float uPaperT;        // 每页纸厚（px）——书口页叠边纹理的层距
@@ -151,10 +194,12 @@ uniform float uAlpha;         // 绘制透明度（双页淡出层 = 1−flipFad
 varying vec2 vUv;
 varying float vS;
 varying float vXi;
+varying float vAngle;
+varying float vD;
 
 void main() {
   float rL = max(uRadius * (1.0 - uTaper * vXi), 0.25);
-  float foldW = rL * 3.141592653589793;     // 卷曲压缩段的材料全长
+  float foldW = rL * 3.141592653589793;     // 卷曲压缩段的材料全长（fold）
 
   // 纹素采样：规范 UV → 屏幕向纹理 UV（纹理帧决定轴序与翻转，可与几何帧解耦——
   // 双页左面几何书脊在右、内容仍正立显示）。
@@ -173,23 +218,45 @@ void main() {
 
   vec4 base = texture2D(uTex, tuv);
   vec3 col = base.rgb;
-  float shade = 1.0;
+  float alpha = 1.0;
 
-  if (isFlip) {
+  if (isFlip && uModel > 0.5) {
+    // rotation：正反面按局部表面角判定（过 90° 侧面逐渐显出纸背）
+    float backness = smoothstep(1.0708, 2.0708, vAngle);  // π/2 ± 0.5 过渡带
+    float r = max(uRadius, 0.25);
+    float hinge = max(uSize.x - r * uCurlAngle, 0.0);
+    // 正面：卷筒带渐暗（远离光源）+ 整页倾斜微暗
+    vec3 frontCol = base.rgb * (1.0 - uFrontDark * smoothstep(hinge - r, uSize.x, vD));
+    frontCol *= 1.0 - 0.10 * sin(clamp(vAngle, 0.0, 1.5707963));
+    // 背面：真实纸背纹理（双页）或暖调纸色 + 透字（单页）；
+    // 落定尾段明度 → 1（移除瞬间与下层同页无缝衔接）
+    vec3 backCol;
+    if (uHasBackTex > 0.5) {
+      vec2 btuv = vec2(mix(vUv.x, 1.0 - vUv.x, uBackMirror), 1.0 - vUv.y);
+      backCol = texture2D(uBackTex, btuv).rgb;
+    } else {
+      backCol = mix(base.rgb, uBackTint, uBackWash);
+    }
+    backCol *= mix(uBackShade, 1.0, uLandFade);
+    col = mix(frontCol, backCol, backness);
+    // 落定淡出：随纸背显现比例消隐（背面全显 = 整页淡出）
+    alpha = 1.0 - uLandFade * backness;
+  } else if (isFlip) {
     if (vS > foldW * 0.5) {
       // 背面（折回平铺的纸背）：单一暖调纸色，贴近真实纸张——
       // 大比例混入纸色、保留约 18% 正面内容透出（隐约反字），均一
       // 明度略暗于下层页（压在上面的那张纸）
       col = mix(col, uBackTint, uBackWash);
-      shade = uBackShade;
+      col *= uBackShade;
     } else if (vS > 0.0) {
       // 正面卷曲段：由桌面亮连续渐入纸背明度（终点 = 背面均色，无断差）
-      shade = 1.0 - uFrontDark * smoothstep(0.0, foldW * 0.5, vS);
+      col *= 1.0 - uFrontDark * smoothstep(0.0, foldW * 0.5, vS);
     }
+    // 落定淡出：仅翻动页的背面平铺段按 uLandFade 消隐
+    alpha = 1.0 - uLandFade * step(foldW, vS);
   }
-  col *= shade;
 
-  // 折痕根部 AO（卷曲圆柱自身投影）
+  // 折痕根部 AO（卷曲圆柱自身投影；rotation 以书脊为根部）
   col *= 1.0 - uRootAo.x * exp(-abs(vS) / (rL * uRootAo.y + 2.0));
 
   // 书脊常驻 AO + 书沟谷着色：下层页与翻动页统一应用——翻动页的书脊侧
@@ -245,32 +312,43 @@ void main() {
       col *= mix(1.0, shadeT, tailStrip);
     }
 
-    // 翻起页的接触投影：主影在折痕桌侧、次影在页下（窄带弱影，贴合真实纸投影）
-    float w = max(uShadowWidth, 1.0);
-    float t1 = exp(-pow((vS + 0.22 * w) / (0.30 * w), 2.0));
-    float t2 = 0.35 * exp(-pow((vS - 0.12 * w) / (0.38 * w), 2.0));
-    float shadow = uShadowStrength * clamp(t1 + t2, 0.0, 1.0);
-    col *= 1.0 - shadow;
+    if (uModel > 0.5) {
+      // rotation：随翻越投影范围移动的软影——自由缘投影处窄软影 +
+      // 页下方宽带减光；仅作用于被翻越侧的下层页，页面贴桌（起翻/
+      // 落定）时无影（与下层接触，由书沟 AO 承担）
+      float gate = 1.0 - min(abs(uUnderSide - uFlipSide), 1.0);
+      float dPx = vUv.x * uSize.x;
+      float span = max(uFlipSpan, 0.0);
+      float wBand = uSize.x * (0.10 + 0.10 * uFlipHeight) + 8.0;
+      float edgeShadow = exp(-pow((dPx - span) / wBand, 2.0));
+      float broadW = span * 0.45 + 12.0;
+      float broadShadow = 0.55 * exp(-pow((dPx - span * 0.55) / broadW, 2.0));
+      float liftGate = smoothstep(0.02, 0.3, uFlipHeight);
+      float shadow = uShadowStrength * gate * liftGate * clamp(edgeShadow + broadShadow, 0.0, 1.0);
+      col *= 1.0 - shadow;
+    } else {
+      // fold：翻起页的接触投影——主影在折痕桌侧、次影在页下（窄带弱影）
+      float w = max(uShadowWidth, 1.0);
+      float t1 = exp(-pow((vS + 0.22 * w) / (0.30 * w), 2.0));
+      float t2 = 0.35 * exp(-pow((vS - 0.12 * w) / (0.38 * w), 2.0));
+      float shadow = uShadowStrength * clamp(t1 + t2, 0.0, 1.0);
+      col *= 1.0 - shadow;
+    }
   }
 
   if (uDebug > 0.5) {
-    // 调试视图：三段分色（flat 灰蓝 / curl 绿 / back 橙）+ 网格线；
-    // 下层页不参与分段，恒显示平铺色
+    // 调试视图：分段分色（平铺灰蓝 / 卷曲绿 / 背面橙）+ 网格线；
+    // rotation 按局部表面角与卷筒带划分，fold 按 vS 分段
+    float hinge = max(uSize.x - max(uRadius, 0.25) * uCurlAngle, 0.0);
     vec3 dc = !isFlip ? vec3(0.55, 0.6, 0.72)
-            : (vS <= 0.0 ? vec3(0.55, 0.6, 0.72)
-            : (vS > foldW ? vec3(0.96, 0.62, 0.2) : vec3(0.3, 0.76, 0.42)));
+            : (uModel > 0.5
+              ? (vAngle > 1.9 ? vec3(0.96, 0.62, 0.2)
+                : (vD > hinge ? vec3(0.3, 0.76, 0.42) : vec3(0.55, 0.6, 0.72)))
+              : (vS <= 0.0 ? vec3(0.55, 0.6, 0.72)
+                : (vS > foldW ? vec3(0.96, 0.62, 0.2) : vec3(0.3, 0.76, 0.42))));
     vec2 cell = abs(fract(vUv * vec2(12.0, 18.0)) - 0.5);
     float line = smoothstep(0.46, 0.5, max(cell.x, cell.y));
     col = mix(dc, vec3(1.0, 0.2, 0.2), line * 0.5);
-  }
-
-  // 落定淡出：仅翻动页的背面平铺段按 uLandFade 消隐；
-  // 卷曲段保持不透明，由半径收拢（landRadius）自然贴平消失。
-  float alpha = 1.0;
-  if (isFlip) {
-    alpha = 1.0 - uLandFade * step(foldW, vS);
-  }
-  if (uDebug > 0.5) {
     alpha = 1.0;
   }
 

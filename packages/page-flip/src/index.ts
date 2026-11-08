@@ -30,6 +30,7 @@ export {
   clamp,
   clampTouch,
   createFoldSession,
+  flipAngleFraction,
   lerp,
   solveFoldPose,
   solveFoldPoseAtProgress,

@@ -79,6 +79,6 @@ describe('snapDurationFor', () => {
     expect(snapDurationFor(0, TIMING)).toBe(380);
     expect(snapDurationFor(1, TIMING)).toBe(920);
     expect(snapDurationFor(-5, TIMING)).toBe(360); // 下限
-    expect(snapDurationFor(9, TIMING)).toBe(920); // 上限
+    expect(snapDurationFor(9, TIMING)).toBe(980); // 上限
   });
 });

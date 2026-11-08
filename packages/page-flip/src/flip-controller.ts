@@ -1160,9 +1160,26 @@ export class FlipController {
         };
       }
       const underS = state ? state.underPage : this.currentPage;
+      // 翻动叶的纸背 = 该叶另一面的真实内容（双页专属）：forward 折右面
+      // （面 2s）→ 纸背 = 面 2s+1（目标左面，UV x 镜像）；backward 折左面
+      // （面 2s−1）→ 纸背 = 面 2s−2（目标右面）。落地时与下层目标面逐像素
+      // 对齐，消除"假纸背 → 内容突变"。
+      let backFacePage: number | null = null;
+      let backFaceMirror = false;
+      if (active && !active.preview && this.pose?.model === 'rotation') {
+        if (active.forward) {
+          backFacePage = 2 * s + 1 < this.provider.pageCount ? 2 * s + 1 : null;
+          backFaceMirror = true;
+        } else {
+          backFacePage = 2 * s - 2 >= 0 ? 2 * s - 2 : null;
+          backFaceMirror = false;
+        }
+      }
       scene = {
         pose,
         flipFade,
+        backFacePage,
+        backFaceMirror,
         paperT: this.config.geometry.landRadius * 2,
         shading: this.config.shading,
         debug: this.debugFlag,
@@ -1191,6 +1208,8 @@ export class FlipController {
       scene = {
         pose,
         flipFade,
+        backFacePage: null, // 单页模式：纸背用暖调纸色 + 透字近似
+        backFaceMirror: false,
         paperT: this.config.geometry.landRadius * 2,
         shading: this.config.shading,
         debug: this.debugFlag,

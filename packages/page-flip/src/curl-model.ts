@@ -3,17 +3,17 @@
  *
  * 装订书模型（forward / backward 完全对称，仅抓取侧与页面序号不同）：
  * - 规范空间书脊在 x=0（装订边）、自由边在 x=W，**抓取点恒在自由边**；
- * - 抓取模式：
- *   - edge：捏边翻页，折痕平行书脊（竖直），折回部分贴书翻过；
- *   - corner：捏角翻页——折痕为抓取点与触点连线的**中垂线**（斜折痕），
- *     折回部分甩出页外、落在装订侧书体上（经典卷角/折角）；装订侧
- *     角部热区（书脊上的角）不可抓，由控制器拒绝；
- * - forward：折痕自自由边扫向书脊，下层揭示下一页；
- *   backward：同几何（抓取点同样在自由边），下层揭示上一页——
- *   镜像对称；
- * - 卷曲半径随折叠深度增长，折平端以 landRadius 压成纸厚；
- * - 两方向共用同一进度语义：p ∈ [0,1] = 折叠完成比例（0 全平、1 全部
- *   翻出页外），落定淡出等后处理因此天然对称。
+ * - 两种形变模型：
+ *   - **rotation（刚体旋转）**——edge 抓取 / 滑动 / 自动翻页：整页绕书脊
+ *     刚体旋转 φ = π·R(p)（R 为两端减速的角度迟滞），自由边带小卷筒
+ *     （起翻掀角大、飞行中为前缘小卷角、落定收拢），中段叠加飞行拱；
+ *     真实书本硬页翻转的观感（页面立起、透视缩短、自由边最高点最后落桌）。
+ *   - **fold（折痕卷折）**——corner 捏角拖拽（折角模型）：折痕为抓取点
+ *     与触点连线的**中垂线**（斜折痕），折回部分甩出页外、落在装订侧
+ *     书体上（经典卷角/折角）；装订侧角部热区（书脊上的角）不可抓，
+ *     由控制器拒绝。
+ * - progress 语义两模型统一：p ∈ [0,1]（0 全平、1 整页翻过），拖拽
+ *   p = 行程/(2×推进终点)，落定淡出等后处理天然对称。
  */
 import type { FlipAction, FlipConfig, FoldPose, GrabMode, PageSize, Point } from './types';
 
@@ -116,12 +116,16 @@ function solveCornerPose(
     creaseOrigin: pivot,
     creaseDir: dir,
     wrapNormal,
+    model: 'fold',
     radius,
     taper,
     flatten,
     progress,
     strength: edgeLen,
     drapeBulge,
+    flipAngle: 0,
+    curlAngle: 0,
+    bow: 0,
   };
 }
 
@@ -225,8 +229,11 @@ function distEndFor(grab: Point, normal: Point, size: PageSize): number {
 }
 
 /**
- * 拖拽求解：由实时触点解算姿态（折痕方向 / 锥化随触点实时变化，跟手）。
- * 折痕 = 抓取点与触点连线的**中垂线**（2D 刚性折叠），自由端跟随手指。
+ * 拖拽求解：由实时触点解算姿态（跟手）。
+ * - edge：刚体旋转模型——progress = 行程/(2×推进终点)（与触点线性对应，
+ *   决策阈值语义不变），φ = π·R(progress)；
+ * - corner：折角模型——折痕 = 抓取点与触点连线的**中垂线**（2D 刚性折叠），
+ *   自由端跟随手指。
  */
 export function solveFoldPose(input: FoldSolveInput): FoldPose {
   const { grab, size, config } = input;
@@ -242,13 +249,13 @@ export function solveFoldPose(input: FoldSolveInput): FoldPose {
     distEnd * 2
   );
   const progress = clamp(fingerDist / (distEnd * 2), 0, 1);
-  return buildPose(grab, normal, input.mode, fingerDist / 2, progress, touch.y - grab.y, distEnd, size, config);
+  return buildRotationPose(grab, normal, progress, touch.y - grab.y, distEnd, size, config);
 }
 
 /**
  * 按进度求解（snap 补间 / 点击翻页）：轴线与锥化偏移冻结自会话，
- * 保证补间路径与拖拽几何连续。dist = distEnd·p——p=1 时折痕到达推进
- * 终点，整页翻出页外。角部会话走折角模型（不封顶：完成补间自然过渡
+ * 保证补间路径与拖拽几何连续。p=1 时整页翻出页外。edge 会话走旋转
+ * 模型（φ = π·R(p)）；角部会话走折角模型（不封顶：完成补间自然过渡
  * 到整页翻过）。
  */
 export function solveFoldPoseAtProgress(session: FoldSession, p: number): FoldPose {
@@ -266,12 +273,9 @@ export function solveFoldPoseAtProgress(session: FoldSession, p: number): FoldPo
     };
     return solveCornerPose(session.grab, touch, session.size, session.config, false);
   }
-  const dist = session.distEnd * pClamped;
-  return buildPose(
+  return buildRotationPose(
     session.grab,
     session.axisNormal,
-    session.mode,
-    dist,
     pClamped,
     session.touchYOffset,
     session.distEnd,
@@ -280,75 +284,61 @@ export function solveFoldPoseAtProgress(session: FoldSession, p: number): FoldPo
   );
 }
 
-/** 姿态装配核心：dist = 折痕推进量，progress = 折叠完成比例（0..1）。 */
-function buildPose(
+/** 翻页角迟滞：φ/π = p − k·sin(2πp)/(2π)——两端角速度 ×(1−k)、中段 ×(1+k)，
+ *  起翻与落定更从容、中段扫过更干脆；R(0)=0、R(1)=1、单调递增。 */
+export function flipAngleFraction(p: number, lag: number): number {
+  const pc = clamp(p, 0, 1);
+  return pc - (lag * Math.sin(2 * Math.PI * pc)) / (2 * Math.PI);
+}
+
+/** 旋转模型：自由边卷筒包角 χ(p)——起翻掀角（快起快收）+ 飞行前缘卷角
+ *  （sin^1.2 包络，中段最大、两端归零）。 */
+function curlAngleAt(p: number, config: FlipConfig): number {
+  const g = config.geometry;
+  const liftBump = smoothstep(0, 0.05, p) * (1 - smoothstep(0.1, 0.42, p));
+  const flightCurl = Math.sin(Math.PI * p) ** 1.2;
+  return g.curlLiftAngle * liftBump + g.curlFlightAngle * flightCurl;
+}
+
+/** 旋转模型：卷筒半径 r_c(p)——起翻紧（掀页卷筒）、飞行松（前缘软卷）。 */
+function curlRadiusAt(p: number, pageWidth: number, config: FlipConfig): number {
+  const g = config.geometry;
+  return pageWidth * lerp(g.curlRadiusLift, g.curlRadiusFlight, smoothstep(0, 0.45, p));
+}
+
+/**
+ * 旋转模型姿态装配（edge 抓取 / 滑动 / 自动翻页）：
+ * - φ = π·R(p)：整页绕书脊（规范 x=0）刚体旋转；
+ * - χ(p)/r_c(p)：自由边卷筒（deform 同式实现掀页卷角与前缘飘角）；
+ * - 飞行拱：bow = flipBowRatio·W·sin^1.5(πp)——中段页面向翻越方向
+ *   弓出，90° 侧立时呈曲面而非一条线；
+ * - creaseOrigin 退化为书脊锚点（vS / 根部 AO 复用），strength 记账
+ *   掀起材料全长（= 推进终点×p，与 fold 模型口径一致）。
+ */
+function buildRotationPose(
   grab: Point,
   normal: Point,
-  mode: GrabMode,
-  dist: number,
   progress: number,
   touchYOffset: number,
   distEnd: number,
   size: PageSize,
   config: FlipConfig
 ): FoldPose {
-  const { width: w, height: h } = size;
   const p = progress <= 0 ? 0 : clamp(progress, 0, 1);
-
-  // 折痕点：沿抓取轴推进；边缘模式 y 随触点轻微跟随
-  let px = grab.x - normal.x * dist;
-  let py = grab.y - normal.y * dist;
-  if (mode === 'edge') {
-    py = grab.y + touchYOffset * config.geometry.creaseFollowRatio;
-  }
-
-  // 折痕方向：垂直于 n̂，约定 y 分量 ≥ 0（边缘模式恒平行书脊）
-  let dx = mode === 'edge' ? 0 : -normal.y;
-  let dy = mode === 'edge' ? 1 : normal.x;
-  if (dy < 0) {
-    dx = -dx;
-    dy = -dy;
-  }
-
-  // 落页压平系数（folded 端把 z 压向纸厚）
-  const flatten = smoothstep(config.geometry.flattenStart, 1, p);
-  // 紧卷筒 + 大斜披背面（真实书本形态）：卷筒保持细小（纸卷得紧），
-  // 掀起材料的大部分以背面斜披段展现——背面内容清晰可见。
-  // 若卷筒过大（rπ ≈ 掀起长度），筒上只会缠着页面边距的空白纸，背面消失。
-  const rNatural = clamp(
-    config.geometry.radiusBaseRatio * w + config.geometry.radiusGrowRatio * dist,
-    w * config.geometry.radiusMin,
-    w * config.geometry.radiusMax
-  );
-  // 飞行抬升：翻页中段纸张立起（弧顶高度 ≈ 2×flightRadiusRatio×页宽），
-  // 按 sin²(π·p) 弧起落——起止端回落到自然卷曲半径，落页压平不受影响。
-  // 斜披段保留（rπ < 掀起长）：自由端仍触及触点（跟手）。
-  const flightArc = Math.sin(Math.PI * p) ** 2;
-  const rFlight = w * config.geometry.flightRadiusRatio * flightArc;
-  const rBase = Math.max(rNatural, rFlight);
-  const radius = lerp(rBase, config.geometry.landRadius, flatten);
-  // 背面斜披段的弧拱：过弧顶后的下落段带向上拱起（真实纸张前冲弧线）
-  const drapeBulge = config.geometry.drapeArcRatio * Math.max(dist - radius * Math.PI, 0);
-
-  // 圆锥锥化：仅角部模式；触点竖向偏移越大、抓取角越靠边越明显，
-  // 锥顶在抓取角一侧（抓得近的一端卷得紧）。
-  let taper = 0;
-  if (mode === 'corner') {
-    const spread = clamp(Math.abs(touchYOffset) / (h * config.geometry.taperSpreadRatio), 0, 1);
-    taper = config.geometry.taperStrength * spread * ((grab.y / h - 0.5) * 2);
-  }
-
+  const phi = Math.PI * flipAngleFraction(p, config.geometry.flipAngleLag);
   return {
-    creaseOrigin: { x: px, y: py },
-    creaseDir: { x: dx, y: dy },
+    creaseOrigin: { x: 0, y: grab.y + touchYOffset * config.geometry.creaseFollowRatio },
+    creaseDir: { x: 0, y: 1 },
     wrapNormal: { x: normal.x, y: normal.y },
-    radius,
-    taper,
-    flatten,
+    model: 'rotation',
+    radius: curlRadiusAt(p, size.width, config),
+    taper: 0,
+    flatten: smoothstep(config.geometry.flattenStart, 1, p),
     progress: p,
-    // 掀起材料全长（卷曲压缩段 + 背面斜披段）——背面三角宽度与投影范围依据
-    strength: dist,
-    // 背面斜披段弧拱高度（px，着色器/形变的下落段上拱依据）
-    drapeBulge,
+    strength: distEnd * p,
+    drapeBulge: 0,
+    flipAngle: phi,
+    curlAngle: curlAngleAt(p, config),
+    bow: size.width * config.geometry.flipBowRatio * Math.sin(Math.PI * p) ** 1.5,
   };
 }

@@ -367,7 +367,7 @@ export const DEFAULT_FLIP_CONFIG: FlipConfig = {
   },
   shading: {
     backPaperTint: [0.97, 0.945, 0.9],
-    backPaperWash: 0.96,
+    backPaperWash: 0.6,
     backPaperShade: 0.94,
     frontCurlDark: 0.06,
     rootAoStrength: 0.18,

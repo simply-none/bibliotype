@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { decideRelease, resolveGrabZone, snapDurationFor } from '../engine/flip-decisions';
-import { DEFAULT_FLIP_CONFIG, type PageSize } from '../engine/types';
+import { decideRelease, resolveGrabZone, snapDurationFor } from '../flip-decisions';
+import { DEFAULT_FLIP_CONFIG, type PageSize } from '../types';
 
 const SIZE: PageSize = { width: 400, height: 600 };
 const ZONE_OPTS = {

@@ -5,9 +5,9 @@ import {
   createFoldSession,
   solveFoldPose,
   solveFoldPoseAtProgress,
-} from '../engine/curl-model';
-import { deformPoint } from '../engine/deform';
-import { DEFAULT_FLIP_CONFIG, type PageSize, type Point } from '../engine/types';
+} from '../curl-model';
+import { deformPoint } from '../deform';
+import { DEFAULT_FLIP_CONFIG, type PageSize, type Point } from '../types';
 
 const SIZE: PageSize = { width: 400, height: 600 };
 const CFG = DEFAULT_FLIP_CONFIG;

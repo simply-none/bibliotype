@@ -3,7 +3,7 @@
  * 图片来自 picsum.photos（需网络），加载失败自动回退为程序绘制的
  * 渐变艺术样张，保证离线可用。
  */
-import type { PageProvider } from '../../engine/types';
+import type { PageProvider } from '@bibliotype/page-flip';
 
 const PAGE_COUNT = 10;
 const CAPTIONS = [

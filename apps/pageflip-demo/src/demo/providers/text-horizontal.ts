@@ -5,7 +5,7 @@
  * 与实际画布尺寸无关——pageCount 在创建时即确定，任意分辨率下分页一致。
  * 贪心断行 + 简易避头尾（行首禁则标点挤入行尾），页码用中文数字。
  */
-import type { PageProvider } from '../../engine/types';
+import type { PageProvider } from '@bibliotype/page-flip';
 
 const TITLE = '论语';
 const CHAPTER = '学而第一';

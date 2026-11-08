@@ -1,0 +1,48 @@
+{
+  "name": "@bibliotype/page-flip",
+  "version": "0.0.0",
+  "description": "仿真翻页（Page Curl）引擎：WebGL 圆柱卷曲 + 手势状态机，框架无关 - bibliotype 排印包",
+  "type": "module",
+  "license": "MIT",
+  "author": "bibliotype contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simply-none/bibliotype.git",
+    "directory": "packages/page-flip"
+  },
+  "homepage": "https://github.com/simply-none/bibliotype/tree/master/packages/page-flip#readme",
+  "bugs": {
+    "url": "https://github.com/simply-none/bibliotype/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "tsup --clean",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

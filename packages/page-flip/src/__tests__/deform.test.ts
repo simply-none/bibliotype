@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { deformPoint } from '../engine/deform';
-import type { FoldPose, PageSize } from '../engine/types';
+import { deformPoint } from '../deform';
+import type { FoldPose, PageSize } from '../types';
 
 const SIZE: PageSize = { width: 400, height: 600 };
 

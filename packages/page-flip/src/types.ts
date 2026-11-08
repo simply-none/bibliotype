@@ -54,16 +54,6 @@ export interface FoldPose {
   strength: number;
 }
 
-/** 形变输出：规范空间平面坐标 + 抬升高度 + 表面法线（世界系，z 朝观察者）。 */
-export interface DeformedPoint {
-  x: number;
-  y: number;
-  z: number;
-  nx: number;
-  ny: number;
-  nz: number;
-}
-
 /** 页面位图提供者：把第 pageIndex 页绘制到位图画布上（同步）。 */
 export interface PageProvider {
   /** 总页数。 */

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { FlipController } from '../engine/flip-controller';
-import type { FlipRenderAdapter, FlipSceneState, PageProvider, PageSize } from '../engine/types';
-import { createHorizontalTextProvider } from '../demo/providers/text-horizontal';
+import { FlipController } from '../flip-controller';
+import type { FlipRenderAdapter, FlipSceneState, PageProvider, PageSize } from '../types';
+import { createStubProvider } from './stub-provider';
 
 /** headless document/canvas 桩：PageBitmapSource 需要离屏 2D 画布。 */
 beforeAll(() => {
@@ -88,7 +88,7 @@ describe('FlipController 状态机（headless）', () => {
     const { fakeCanvas, adapter } = createStubs();
     const controller = new FlipController(fakeCanvas, { renderer: adapter });
     controller.setViewport(VIEW.width, VIEW.height, 1);
-    const provider: PageProvider = createHorizontalTextProvider();
+    const provider: PageProvider = createStubProvider();
     controller.setProvider(provider);
     // 布局在 setProvider 内重排；页面尺寸 438×644，居中于 500×700
     return { controller, adapter, provider };

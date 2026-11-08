@@ -3,7 +3,7 @@
  * 职责：生命周期挂载 / 视口自适应 / 提供者切换 / 状态与 FPS 轮询 / 自动演示。
  */
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue';
-import { FlipController } from '../engine/flip-controller';
+import { FlipController } from '@bibliotype/page-flip';
 import { createDemoProviders, type DemoProviderEntry } from './providers';
 
 export function usePageflip(canvasRef: Ref<HTMLCanvasElement | null>, stageRef: Ref<HTMLElement | null>) {

@@ -5,7 +5,7 @@
  * 标点顺时针转 90° 贴字；分页为纵横比驱动的字符网格（与像素尺寸无关）。
  * 行款 rtl：书脊在屏幕右侧，翻页自左向右揭页。
  */
-import type { PageProvider } from '../../engine/types';
+import type { PageProvider } from '@bibliotype/page-flip';
 
 const TITLE = '論語';
 const CHAPTER = '學而第一';

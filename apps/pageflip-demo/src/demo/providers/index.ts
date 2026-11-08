@@ -1,7 +1,7 @@
 /**
  * Demo 页面提供者集合：横排书页 / 竖排直排书页 / 画册图片。
  */
-import type { PageProvider } from '../../engine/types';
+import type { PageProvider } from '@bibliotype/page-flip';
 import { createAlbumProvider } from './album';
 import { createHorizontalTextProvider } from './text-horizontal';
 import { createVerticalTextProvider } from './text-vertical';
